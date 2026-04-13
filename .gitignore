@@ -1,0 +1,9 @@
+/build/
+/compile_commands.json
+/save/
+/.vs/
+/.idea/
+*.user
+*.obj
+*.o
+*.pdb

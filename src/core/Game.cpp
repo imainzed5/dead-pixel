@@ -1,0 +1,3900 @@
+#include "core/Game.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+
+#include "components/Animation.h"
+#include "components/Bleeding.h"
+#include "components/Combat.h"
+#include "components/Facing.h"
+#include "components/Health.h"
+#include "components/Interactable.h"
+#include "components/Inventory.h"
+#include "components/MentalState.h"
+#include "components/Needs.h"
+#include "components/PlayerInput.h"
+#include "components/Projectile.h"
+#include "components/Sleeping.h"
+#include "components/Wounds.h"
+#include "components/Traits.h"
+#include "components/Sprite.h"
+#include "components/Stamina.h"
+#include "components/Structure.h"
+#include "components/Transform.h"
+#include "components/Velocity.h"
+#include "components/ZombieAI.h"
+#include "components/SurvivorAI.h"
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <random>
+#include <sstream>
+#include <string>
+
+namespace
+{
+constexpr int kDefaultWindowWidth = 1280;
+constexpr int kDefaultWindowHeight = 720;
+constexpr float kSpriteSize = 32.0f;
+constexpr float kPlayerFootOffsetY = 22.0f;
+constexpr float kMaxFrameStepSeconds = 0.25f;
+constexpr double kFixedTimeStepSeconds = 1.0 / 60.0;
+constexpr double kGameHoursPerRealSecond = 1.0 / 60.0;
+constexpr double kDeathRestartDelaySeconds = 3.0;
+
+std::filesystem::path getExecutableDirectory()
+{
+    char* basePath = SDL_GetBasePath();
+    if (basePath == nullptr)
+    {
+        return std::filesystem::current_path();
+    }
+
+    std::filesystem::path output(basePath);
+    SDL_free(basePath);
+    return output;
+}
+
+glm::mat4 buildProjection(int width, int height)
+{
+    return glm::ortho(
+        0.0f,
+        static_cast<float>(width),
+        static_cast<float>(height),
+        0.0f,
+        -1.0f,
+        1.0f);
+}
+
+int surfaceNoiseModifier(SurfaceType surface)
+{
+    switch (surface)
+    {
+    case SurfaceType::Carpet:
+    case SurfaceType::Grass:
+        return -2;
+    case SurfaceType::Gravel:
+    case SurfaceType::Metal:
+        return 1;
+    case SurfaceType::Default:
+    default:
+        return 0;
+    }
+}
+
+float tierDurationSeconds(NoiseTier tier)
+{
+    switch (tier)
+    {
+    case NoiseTier::Whisper:
+        return 0.35f;
+    case NoiseTier::Soft:
+        return 0.45f;
+    case NoiseTier::Medium:
+        return 0.55f;
+    case NoiseTier::Loud:
+        return 0.70f;
+    case NoiseTier::Explosive:
+        return 0.90f;
+    case NoiseTier::None:
+    default:
+        return 0.0f;
+    }
+}
+
+void advanceGameClock(double hours, double& gameHours, int& currentDay)
+{
+    gameHours += hours;
+    while (gameHours >= 24.0)
+    {
+        gameHours -= 24.0;
+        ++currentDay;
+    }
+}
+
+bool hasInfectedWound(const Wounds& wounds)
+{
+    return std::any_of(
+        wounds.active.begin(),
+        wounds.active.end(),
+        [](const Wound& wound)
+        {
+            return wound.infected;
+        });
+}
+
+int treatWorstWounds(Wounds& wounds, int treatCount)
+{
+    int treated = 0;
+    while (treated < treatCount && !wounds.active.empty())
+    {
+        int bestIdx = 0;
+        for (int i = 1; i < static_cast<int>(wounds.active.size()); ++i)
+        {
+            const Wound& current = wounds.active[i];
+            const Wound& best = wounds.active[bestIdx];
+
+            if (current.type == WoundType::Bite && best.type != WoundType::Bite)
+            {
+                bestIdx = i;
+            }
+            else if (current.infected && !best.infected)
+            {
+                bestIdx = i;
+            }
+            else if (current.severity > best.severity)
+            {
+                bestIdx = i;
+            }
+        }
+
+        wounds.active.erase(wounds.active.begin() + bestIdx);
+        ++treated;
+    }
+
+    return treated;
+}
+
+void syncHealthWithWounds(Health& health, const Wounds& wounds)
+{
+    constexpr float kMaxHpPenaltyPerWound = 5.0f;
+    const float penalty = static_cast<float>(wounds.active.size()) * kMaxHpPenaltyPerWound;
+    health.maximum = std::max(20.0f, 100.0f - penalty);
+    health.current = std::min(health.current, health.maximum);
+}
+
+std::string generateCharacterName(std::uint32_t seed)
+{
+    static constexpr std::array<const char*, 12> firstNames = {
+        "Alex", "Sam", "Jordan", "Casey", "Taylor", "Riley",
+        "Morgan", "Quinn", "Avery", "Blake", "Hayden", "Parker"};
+    static constexpr std::array<const char*, 12> lastNames = {
+        "Mason", "Reed", "Cross", "Hale", "Brooks", "Voss",
+        "Turner", "Sloan", "Graves", "Frost", "Mercer", "Stone"};
+
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<std::size_t> firstDist(0, firstNames.size() - 1);
+    std::uniform_int_distribution<std::size_t> lastDist(0, lastNames.size() - 1);
+
+    return std::string(firstNames[firstDist(rng)]) + " " + std::string(lastNames[lastDist(rng)]);
+}
+}
+
+Game::~Game()
+{
+    shutdown();
+}
+
+int Game::run()
+{
+    if (!initialize())
+    {
+        return 1;
+    }
+
+    using clock = std::chrono::steady_clock;
+    auto previousTime = clock::now();
+    double accumulator = 0.0;
+
+    while (mIsRunning)
+    {
+        const auto currentTime = clock::now();
+        double frameSeconds = std::chrono::duration<double>(currentTime - previousTime).count();
+        previousTime = currentTime;
+
+        if (frameSeconds > kMaxFrameStepSeconds)
+        {
+            frameSeconds = kMaxFrameStepSeconds;
+        }
+
+        accumulator += frameSeconds;
+        processInputEvents();
+
+        while (accumulator >= kFixedTimeStepSeconds)
+        {
+            snapshotPositions();
+            update(static_cast<float>(kFixedTimeStepSeconds));
+            accumulator -= kFixedTimeStepSeconds;
+        }
+
+        mInterpolationAlpha = static_cast<float>(accumulator / kFixedTimeStepSeconds);
+        render();
+        updateWindowTitle(frameSeconds);
+        SDL_GL_SwapWindow(mWindow);
+    }
+
+    shutdown();
+    return 0;
+}
+
+bool Game::initialize()
+{
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
+        return false;
+    }
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+    mWindowWidth = kDefaultWindowWidth;
+    mWindowHeight = kDefaultWindowHeight;
+
+    mWindow = SDL_CreateWindow(
+        "Dead Pixel Survival",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        mWindowWidth,
+        mWindowHeight,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+
+    if (mWindow == nullptr)
+    {
+        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
+        shutdown();
+        return false;
+    }
+
+    mGlContext = SDL_GL_CreateContext(mWindow);
+    if (mGlContext == nullptr)
+    {
+        std::cerr << "SDL_GL_CreateContext failed: " << SDL_GetError() << '\n';
+        shutdown();
+        return false;
+    }
+
+    if (SDL_GL_MakeCurrent(mWindow, mGlContext) != 0)
+    {
+        std::cerr << "SDL_GL_MakeCurrent failed: " << SDL_GetError() << '\n';
+        shutdown();
+        return false;
+    }
+
+    SDL_GL_SetSwapInterval(1);
+
+    glewExperimental = GL_TRUE;
+    const GLenum glewResult = glewInit();
+    glGetError();
+    if (glewResult != GLEW_OK)
+    {
+        std::cerr << "glewInit failed: " << glewGetErrorString(glewResult) << '\n';
+        shutdown();
+        return false;
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    const std::filesystem::path assetsRoot = getExecutableDirectory() / "assets";
+
+    // Load save slot first — we need the world seed before generating the layout
+    if (!mSaveManager.loadOrCreateSlot("default_slot"))
+    {
+        std::cerr << "Failed to load save slot metadata." << '\n';
+        shutdown();
+        return false;
+    }
+
+    // Load or create the permanent world layout
+    if (mSaveManager.hasWorldLayout())
+    {
+        LayoutData layout = mSaveManager.loadWorldLayout();
+        if (layout.width > 0 && layout.height > 0)
+        {
+            mMapGenerator.loadLayout(layout);
+        }
+        else
+        {
+            // Layout file was corrupt — regenerate
+            LayoutData newLayout = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+            mSaveManager.saveWorldLayout(newLayout);
+        }
+    }
+    else
+    {
+        LayoutData layout = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+        mSaveManager.saveWorldLayout(layout);
+    }
+    mMapGenerator.applyToTileMap(mTileMap);
+
+    const std::string vertexShaderPath = (assetsRoot / "shaders" / "sprite.vert").string();
+    const std::string fragmentShaderPath = (assetsRoot / "shaders" / "sprite.frag").string();
+
+    const std::filesystem::path texturePath =
+        (assetsRoot / "maps" / mTileMap.tileset().imagePath).lexically_normal();
+
+    if (!mShader.loadFromFiles(vertexShaderPath, fragmentShaderPath))
+    {
+        shutdown();
+        return false;
+    }
+
+    if (!mTexture.loadFromFile(texturePath.string()))
+    {
+        shutdown();
+        return false;
+    }
+
+    if (!mSpriteBatch.initialize())
+    {
+        shutdown();
+        return false;
+    }
+
+    const std::filesystem::path fontPng = assetsRoot / "fonts" / "pixel_font.png";
+    const std::filesystem::path fontJson = assetsRoot / "fonts" / "pixel_font.json";
+    if (!mFont.loadFromFiles(fontPng.string(), fontJson.string()))
+    {
+        std::cerr << "Failed to load bitmap font.\n";
+        shutdown();
+        return false;
+    }
+
+    const std::filesystem::path sheetPng = assetsRoot / "sprites" / "spritesheet.png";
+    const std::filesystem::path sheetJson = assetsRoot / "sprites" / "spritesheet.json";
+    if (!mSpriteSheet.loadFromFiles(sheetPng.string(), sheetJson.string()))
+    {
+        std::cerr << "Failed to load sprite sheet.\n";
+        shutdown();
+        return false;
+    }
+
+    if (!mAudioManager.initialize(assetsRoot.string()))
+    {
+        std::cerr << "Warning: Audio init failed, continuing without sound.\n";
+    }
+    mAudioManager.playAmbient(AmbientId::Wind, 0.15f);
+
+    const std::filesystem::path itemsJson = assetsRoot / "data" / "items.json";
+    if (!mItemDatabase.loadFromFile(itemsJson.string()))
+    {
+        std::cerr << "Failed to load item database.\n";
+        shutdown();
+        return false;
+    }
+
+    mProjection = buildProjection(mWindowWidth, mWindowHeight);
+    mCamera.setViewportSize(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
+    mCamera.clampToBounds(mTileMap.pixelSize());
+    // Boot to title screen — do not start a run yet
+    mRunState = RunState::TitleScreen;
+
+    mIsRunning = true;
+    mShowNoiseDebug = false;
+    return true;
+}
+
+void Game::registerComponents()
+{
+    mWorld.registerComponent<Transform>();
+    mWorld.registerComponent<Sprite>();
+    mWorld.registerComponent<Velocity>();
+    mWorld.registerComponent<PlayerInput>();
+    mWorld.registerComponent<Facing>();
+    mWorld.registerComponent<Stamina>();
+    mWorld.registerComponent<Combat>();
+    mWorld.registerComponent<Health>();
+    mWorld.registerComponent<ZombieAI>();
+    mWorld.registerComponent<Needs>();
+    mWorld.registerComponent<Interactable>();
+    mWorld.registerComponent<Animation>();
+    mWorld.registerComponent<Bleeding>();
+    mWorld.registerComponent<Sleeping>();
+    mWorld.registerComponent<Inventory>();
+    mWorld.registerComponent<MentalState>();
+    mWorld.registerComponent<Structure>();
+    mWorld.registerComponent<Projectile>();
+    mWorld.registerComponent<Wounds>();
+    mWorld.registerComponent<Traits>();
+    mWorld.registerComponent<SurvivorAI>();
+}
+
+void Game::startNewRun()
+{
+    mWorld = World{};
+    registerComponents();
+
+    mDebugEntities.clear();
+    mNoiseModel = NoiseModel{};
+    mNoiseEmitTimer = 0.0f;
+    mMovementNoiseTier = NoiseTier::None;
+
+    mRunState = RunState::Playing;
+    mDeathStateTimer = 0.0;
+    mDeathCause.clear();
+    mDeathWorldPosition = glm::vec2(0.0f, 0.0f);
+
+    mGameHours = 8.0;
+    mCurrentDay = 1;
+    mShowInventory = false;
+
+    mRunStats = RunStats{};
+
+    mCurrentCharacterName = generateCharacterName(mSaveManager.currentRunSeed());
+
+    mInteractionMessage.clear();
+    mInteractionMessageTimer = 0.0f;
+    mContainerOpen = false;
+    mOpenContainerEntity = kInvalidEntity;
+    mContainerCursor = 0;
+
+    // Generate run-variant spawns against the stable layout (map is NOT regenerated)
+    mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
+    mCamera.clampToBounds(mTileMap.pixelSize());
+
+    setupScene();
+
+    // Attempt to restore from checkpoint
+    RunCheckpoint cp = mSaveManager.loadCheckpoint();
+    if (cp.valid && mPlayerEntity != kInvalidEntity)
+    {
+        if (mWorld.hasComponent<Transform>(mPlayerEntity))
+        {
+            auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
+            t.x = cp.playerX; t.y = cp.playerY;
+        }
+        if (mWorld.hasComponent<Health>(mPlayerEntity))
+        {
+            auto& h = mWorld.getComponent<Health>(mPlayerEntity);
+            h.current = cp.healthCurrent; h.maximum = cp.healthMaximum;
+        }
+        if (mWorld.hasComponent<Needs>(mPlayerEntity))
+            mWorld.getComponent<Needs>(mPlayerEntity) = cp.needs;
+        if (mWorld.hasComponent<MentalState>(mPlayerEntity))
+            mWorld.getComponent<MentalState>(mPlayerEntity) = cp.mental;
+        if (mWorld.hasComponent<Wounds>(mPlayerEntity))
+            mWorld.getComponent<Wounds>(mPlayerEntity).active = cp.wounds;
+        if (cp.bleeding)
+        {
+            if (!mWorld.hasComponent<Bleeding>(mPlayerEntity))
+                mWorld.addComponent<Bleeding>(mPlayerEntity, Bleeding{});
+        }
+        if (mWorld.hasComponent<Inventory>(mPlayerEntity))
+            mWorld.getComponent<Inventory>(mPlayerEntity) = cp.inventory;
+
+        mCurrentDay = cp.currentDay;
+        mGameHours = cp.gameHours;
+        mCurrentCharacterName = cp.characterName;
+        mRunStats.kills = cp.kills;
+        mRunStats.itemsLooted = cp.itemsLooted;
+        mRunStats.structuresBuilt = cp.structuresBuilt;
+        mRunStats.distanceWalked = cp.distanceWalked;
+
+        mInteractionMessage = "Resumed " + mCurrentCharacterName + "'s run.";
+        mInteractionMessageTimer = 3.0f;
+    }
+}
+
+void Game::shutdown()
+{
+    mDebugEntities.clear();
+    mPlayerEntity = kInvalidEntity;
+    mMovementNoiseTier = NoiseTier::None;
+
+    mSpriteBatch.shutdown();
+    mTexture.unload();
+    mAudioManager.shutdown();
+
+    if (mGlContext != nullptr)
+    {
+        SDL_GL_DeleteContext(mGlContext);
+        mGlContext = nullptr;
+    }
+
+    if (mWindow != nullptr)
+    {
+        SDL_DestroyWindow(mWindow);
+        mWindow = nullptr;
+    }
+
+    if (SDL_WasInit(SDL_INIT_VIDEO) != 0)
+    {
+        SDL_Quit();
+    }
+
+    mIsRunning = false;
+}
+
+void Game::setupScene()
+{
+    const GLuint sheetTex = mSpriteSheet.textureId();
+    std::mt19937 runRng(mSaveManager.currentRunSeed());
+
+    mPlayerEntity = mWorld.createEntity();
+
+    Transform playerTransform{};
+    playerTransform.x = static_cast<float>(mSpawnData.playerStart.x * mTileMap.tileWidth());
+    playerTransform.y = static_cast<float>(mSpawnData.playerStart.y * mTileMap.tileHeight());
+
+    Sprite playerSprite{};
+    playerSprite.textureId = sheetTex;
+    playerSprite.uvRect = mSpriteSheet.uvRect("player_idle");
+    playerSprite.color = glm::vec4(1.0f);
+    playerSprite.layer = 10;
+
+    Animation playerAnim{};
+    playerAnim.currentAnim = "player_idle";
+    playerAnim.frameDuration = 0.15f;
+
+    mWorld.addComponent<Transform>(mPlayerEntity, playerTransform);
+    mWorld.addComponent<Sprite>(mPlayerEntity, playerSprite);
+    mWorld.addComponent<Animation>(mPlayerEntity, playerAnim);
+    mWorld.addComponent<Velocity>(mPlayerEntity, Velocity{});
+    mWorld.addComponent<Facing>(mPlayerEntity, Facing{});
+    mWorld.addComponent<PlayerInput>(mPlayerEntity, PlayerInput{});
+    mWorld.addComponent<Stamina>(mPlayerEntity, Stamina{100.0f, 100.0f, 30.0f, 100.0f});
+    mWorld.addComponent<Combat>(mPlayerEntity, Combat{});
+    mWorld.addComponent<Health>(mPlayerEntity, Health{100.0f, 100.0f});
+    mWorld.addComponent<Needs>(mPlayerEntity, Needs{});
+
+    // Inventory with starting items
+    {
+        Inventory playerInv{};
+        mWorld.addComponent<Inventory>(mPlayerEntity, playerInv);
+        Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        InventorySystem::addItem(inv, mItemDatabase, 5, 1);  // knife
+        InventorySystem::addItem(inv, mItemDatabase, 4, 1);  // bandage
+        InventorySystem::addItem(inv, mItemDatabase, 0, 2);  // 2 canned food
+        InventorySystem::addItem(inv, mItemDatabase, 3, 1);  // water bottle
+    }
+    mWorld.addComponent<MentalState>(mPlayerEntity, MentalState{});
+    mWorld.addComponent<Wounds>(mPlayerEntity, Wounds{});
+
+    // Assign traits from seed
+    {
+        const std::uint32_t traitSeed = mSaveManager.currentRunSeed() ^ 0xDEADBEEFu;
+        Traits traits{};
+        traits.positive = static_cast<PositiveTrait>(1 + (traitSeed % 3));         // 1-3
+        traits.negative = static_cast<NegativeTrait>(1 + ((traitSeed / 3) % 3));   // 1-3
+        mWorld.addComponent<Traits>(mPlayerEntity, traits);
+
+        // Apply trait effects
+        if (traits.positive == PositiveTrait::Tough)
+        {
+            Health& h = mWorld.getComponent<Health>(mPlayerEntity);
+            h.maximum += 20.0f;
+            h.current = h.maximum;
+        }
+        // Quick and LightSleeper are applied dynamically in movement/sleep systems
+    }
+
+    // --- Zombies ---
+    std::uniform_real_distribution<float> hpDist(30.0f, 70.0f);
+    std::uniform_real_distribution<float> speedMul(0.8f, 1.2f);
+
+    for (const auto& tile : mSpawnData.zombieSpawns)
+    {
+        if (mTileMap.isSolid(tile.x, tile.y)) continue;
+
+        Entity zombie = mWorld.createEntity();
+        Transform zt{}; zt.x = static_cast<float>(tile.x * mTileMap.tileWidth()); zt.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+        Sprite zs{}; zs.textureId = sheetTex; zs.uvRect = mSpriteSheet.uvRect("zombie_idle"); zs.color = glm::vec4(1.0f); zs.layer = 8;
+        Animation za{}; za.currentAnim = "zombie_idle"; za.frameDuration = 0.18f;
+        ZombieAI zai{}; zai.targetWorld = glm::vec2(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
+        const float hp = hpDist(runRng);
+        zai.moveSpeed = 112.0f * speedMul(runRng);
+        zai.spawnDay = mCurrentDay;
+        mWorld.addComponent<Transform>(zombie, zt);
+        mWorld.addComponent<Sprite>(zombie, zs);
+        mWorld.addComponent<Animation>(zombie, za);
+        mWorld.addComponent<Velocity>(zombie, Velocity{});
+        mWorld.addComponent<ZombieAI>(zombie, zai);
+        mWorld.addComponent<Health>(zombie, Health{hp, hp});
+    }
+
+    // --- NPC Survivors ---
+    {
+        static const char* kSurvivorNames[] = {
+            "Alex", "Jordan", "Casey", "Morgan", "Riley",
+            "Sam", "Quinn", "Avery", "Blake", "Cameron"
+        };
+        constexpr int kNameCount = 10;
+
+        // Load persisted survivors or spawn fresh ones
+        auto savedSurvivors = mSaveManager.loadSurvivors();
+        if (!savedSurvivors.empty())
+        {
+            for (const auto& sr : savedSurvivors)
+            {
+                if (!sr.alive) continue;
+                Entity npc = mWorld.createEntity();
+                Transform nt{}; nt.x = sr.x; nt.y = sr.y;
+                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9;
+                Animation na{}; na.currentAnim = "player_idle"; na.frameDuration = 0.2f;
+                SurvivorAI sai{};
+                sai.name = sr.name;
+                sai.spawnDay = sr.spawnDay;
+                sai.hunger = sr.hunger;
+                sai.thirst = sr.thirst;
+                sai.personality.aggression = sr.aggression;
+                sai.personality.cooperation = sr.cooperation;
+                sai.personality.competence = sr.competence;
+                sai.homeDistrictId = sr.homeDistrictId;
+                mWorld.addComponent<Transform>(npc, nt);
+                mWorld.addComponent<Sprite>(npc, ns);
+                mWorld.addComponent<Animation>(npc, na);
+                mWorld.addComponent<Velocity>(npc, Velocity{});
+                mWorld.addComponent<SurvivorAI>(npc, sai);
+                mWorld.addComponent<Health>(npc, Health{60.0f, 60.0f});
+            }
+        }
+        else
+        {
+            // Spawn 2-5 fresh survivors in non-wilderness districts
+            std::uniform_int_distribution<int> npcCountDist(2, 5);
+            const int npcCount = npcCountDist(runRng);
+
+            const auto& layout = mMapGenerator.layoutData();
+            std::vector<int> validDistricts;
+            for (const auto& dd : layout.districts)
+            {
+                if (dd.type != static_cast<int>(DistrictType::Wilderness))
+                    validDistricts.push_back(dd.id);
+            }
+
+            for (int i = 0; i < npcCount; ++i)
+            {
+                int districtId = 0;
+                float spawnX = 200.0f;
+                float spawnY = 200.0f;
+
+                if (!validDistricts.empty())
+                {
+                    districtId = validDistricts[runRng() % validDistricts.size()];
+                    for (const auto& dd : layout.districts)
+                    {
+                        if (dd.id == districtId)
+                        {
+                            std::uniform_int_distribution<int> xDist(dd.minX + 1, std::max(dd.minX + 1, dd.maxX - 1));
+                            std::uniform_int_distribution<int> yDist(dd.minY + 1, std::max(dd.minY + 1, dd.maxY - 1));
+                            int tx = xDist(runRng);
+                            int ty = yDist(runRng);
+                            // Find non-solid tile nearby
+                            for (int attempts = 0; attempts < 10; ++attempts)
+                            {
+                                if (!mTileMap.isSolid(tx, ty)) break;
+                                tx = xDist(runRng);
+                                ty = yDist(runRng);
+                            }
+                            spawnX = static_cast<float>(tx * mTileMap.tileWidth());
+                            spawnY = static_cast<float>(ty * mTileMap.tileHeight());
+                            break;
+                        }
+                    }
+                }
+
+                Entity npc = mWorld.createEntity();
+                Transform nt{}; nt.x = spawnX; nt.y = spawnY;
+                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9;
+                Animation na{}; na.currentAnim = "player_idle"; na.frameDuration = 0.2f;
+
+                SurvivorAI sai{};
+                sai.name = kSurvivorNames[(runRng() % kNameCount)];
+                sai.spawnDay = mCurrentDay;
+                sai.homeDistrictId = districtId;
+
+                std::uniform_real_distribution<float> traitDist(0.0f, 1.0f);
+                sai.personality.aggression = traitDist(runRng);
+                sai.personality.cooperation = traitDist(runRng);
+                sai.personality.competence = traitDist(runRng);
+
+                mWorld.addComponent<Transform>(npc, nt);
+                mWorld.addComponent<Sprite>(npc, ns);
+                mWorld.addComponent<Animation>(npc, na);
+                mWorld.addComponent<Velocity>(npc, Velocity{});
+                mWorld.addComponent<SurvivorAI>(npc, sai);
+                mWorld.addComponent<Health>(npc, Health{60.0f, 60.0f});
+            }
+        }
+    }
+
+    // Apply Hardened bloodline trait if player has retirement history
+    if (mSaveManager.hasRetirementHistory() && mWorld.hasComponent<Traits>(mPlayerEntity))
+    {
+        Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        traits.bloodline = BloodlineTrait::Hardened;
+    }
+
+    // Initialize district infection system
+    mDistrictInfectionSystem.initialize(mMapGenerator.layoutData());
+
+    // --- Food ---
+    static const std::array<const char*, 3> foodSprites = {"item_canned_food", "item_apple", "item_bread"};
+    std::uniform_real_distribution<float> foodRestore(24.0f, 40.0f);
+
+    for (const auto& tile : mSpawnData.foodSpawns)
+    {
+        if (mTileMap.isSolid(tile.x, tile.y)) continue;
+        Entity food = mWorld.createEntity();
+        Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(foodSprites[runRng() % foodSprites.size()]); s.color = glm::vec4(1.0f); s.layer = 6;
+        Interactable inter{}; inter.type = InteractableType::FoodPickup; inter.hungerRestore = foodRestore(runRng); inter.prompt = "Eat";
+        mWorld.addComponent<Transform>(food, t);
+        mWorld.addComponent<Sprite>(food, s);
+        mWorld.addComponent<Interactable>(food, inter);
+    }
+
+    // --- Water ---
+    std::uniform_real_distribution<float> waterRestoreDist(30.0f, 45.0f);
+    for (const auto& tile : mSpawnData.waterSpawns)
+    {
+        if (mTileMap.isSolid(tile.x, tile.y)) continue;
+        Entity water = mWorld.createEntity();
+        Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_water_bottle"); s.color = glm::vec4(1.0f); s.layer = 6;
+        Interactable inter{}; inter.type = InteractableType::WaterPickup; inter.thirstRestore = waterRestoreDist(runRng); inter.prompt = "Drink";
+        mWorld.addComponent<Transform>(water, t);
+        mWorld.addComponent<Sprite>(water, s);
+        mWorld.addComponent<Interactable>(water, inter);
+    }
+
+    // --- Weapons ---
+    struct WeaponDef { WeaponCategory category; const char* sprite; };
+    static const std::array<WeaponDef, 4> weaponDefs = {{
+        {WeaponCategory::Bladed, "item_knife"},
+        {WeaponCategory::Blunt, "item_bat"},
+        {WeaponCategory::Blunt, "item_pipe"},
+        {WeaponCategory::Bladed, "item_axe"},
+    }};
+    for (const auto& tile : mSpawnData.weaponSpawns)
+    {
+        if (mTileMap.isSolid(tile.x, tile.y)) continue;
+        const auto& wd = weaponDefs[runRng() % weaponDefs.size()];
+        Entity wpn = mWorld.createEntity();
+        Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(wd.sprite); s.color = glm::vec4(1.0f); s.layer = 6;
+        Interactable inter{}; inter.type = InteractableType::WeaponPickup; inter.weaponCategory = static_cast<int>(wd.category); inter.prompt = "Pick up";
+        mWorld.addComponent<Transform>(wpn, t);
+        mWorld.addComponent<Sprite>(wpn, s);
+        mWorld.addComponent<Interactable>(wpn, inter);
+    }
+
+    // --- Bandages ---
+    for (const auto& tile : mSpawnData.bandageSpawns)
+    {
+        if (mTileMap.isSolid(tile.x, tile.y)) continue;
+        Entity bandage = mWorld.createEntity();
+        Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_bandage"); s.color = glm::vec4(1.0f); s.layer = 6;
+        Interactable inter{}; inter.type = InteractableType::BandagePickup; inter.prompt = "Apply";
+        mWorld.addComponent<Transform>(bandage, t);
+        mWorld.addComponent<Sprite>(bandage, s);
+        mWorld.addComponent<Interactable>(bandage, inter);
+    }
+
+    // --- Medical caches ---
+    {
+        std::uniform_int_distribution<int> extraBandageDist(1, 2);
+        std::uniform_int_distribution<int> extraAntibioticDist(1, 2);
+
+        for (const auto& tile : mSpawnData.medicalCacheSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+
+            Entity cache = mWorld.createEntity();
+            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("env_shelf"); s.color = glm::vec4(0.85f, 0.9f, 0.95f, 1.0f); s.layer = 5;
+            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Raid med cache";
+            Inventory cacheInv{};
+
+            mWorld.addComponent<Transform>(cache, t);
+            mWorld.addComponent<Sprite>(cache, s);
+            mWorld.addComponent<Interactable>(cache, inter);
+            mWorld.addComponent<Inventory>(cache, cacheInv);
+
+            Inventory& inv = mWorld.getComponent<Inventory>(cache);
+            InventorySystem::addItem(inv, mItemDatabase, 22, 1);
+            InventorySystem::addItem(inv, mItemDatabase, 4, extraBandageDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 15, extraAntibioticDist(runRng));
+        }
+    }
+
+    // --- Supply caches ---
+    {
+        std::uniform_int_distribution<int> foodQtyDist(2, 4);
+        std::uniform_int_distribution<int> waterQtyDist(1, 3);
+        std::uniform_int_distribution<int> materialQtyDist(1, 3);
+
+        for (const auto& tile : mSpawnData.supplyCacheSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+
+            Entity cache = mWorld.createEntity();
+            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("env_crate"); s.color = glm::vec4(0.95f, 0.85f, 0.65f, 1.0f); s.layer = 5;
+            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Raid supply cache";
+            Inventory cacheInv{};
+
+            mWorld.addComponent<Transform>(cache, t);
+            mWorld.addComponent<Sprite>(cache, s);
+            mWorld.addComponent<Interactable>(cache, inter);
+            mWorld.addComponent<Inventory>(cache, cacheInv);
+
+            Inventory& inv = mWorld.getComponent<Inventory>(cache);
+            InventorySystem::addItem(inv, mItemDatabase, 0, foodQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 3, waterQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 9, materialQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 11, 1);
+        }
+    }
+
+    // --- Sleeping bags ---
+    for (const auto& tile : mSpawnData.sleepSpawns)
+    {
+        if (mTileMap.isSolid(tile.x, tile.y)) continue;
+        Entity bed = mWorld.createEntity();
+        Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_sleeping_bag"); s.color = glm::vec4(1.0f); s.layer = 5;
+        Interactable inter{}; inter.type = InteractableType::SleepSpot; inter.sleepHours = 6.0f; inter.sleepQuality = 0.8f; inter.prompt = "Sleep";
+        mWorld.addComponent<Transform>(bed, t);
+        mWorld.addComponent<Sprite>(bed, s);
+        mWorld.addComponent<Interactable>(bed, inter);
+    }
+
+    // --- Indoor decor (shelves, beds, blood inside buildings) ---
+    {
+        static const char* kIndoorDecorSprites[] = {
+            "env_shelf", "env_bed", "env_blood_small", "env_blood_large",
+            "env_crate", "env_sleeping_area"
+        };
+        constexpr int kIndoorDecorCount = 6;
+        int decorIdx = 0;
+        for (const auto& tile : mSpawnData.decorIndoorSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            Entity decor = mWorld.createEntity();
+            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            const char* spriteName = kIndoorDecorSprites[decorIdx % kIndoorDecorCount];
+            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(spriteName); s.color = glm::vec4(0.9f, 0.85f, 0.8f, 1.0f); s.layer = 4;
+            mWorld.addComponent<Transform>(decor, t);
+            mWorld.addComponent<Sprite>(decor, s);
+            ++decorIdx;
+        }
+    }
+
+    // --- Outdoor decor (debris, abandoned props) ---
+    {
+        static const char* kOutdoorDecorSprites[] = {
+            "env_grave", "env_grave2", "env_barricade", "env_campfire",
+            "env_noise_trap", "env_crate"
+        };
+        constexpr int kOutdoorDecorCount = 6;
+        int decorIdx = 0;
+        for (const auto& tile : mSpawnData.decorOutdoorSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            Entity decor = mWorld.createEntity();
+            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            const char* spriteName = kOutdoorDecorSprites[decorIdx % kOutdoorDecorCount];
+            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(spriteName);
+            s.color = glm::vec4(0.7f, 0.65f, 0.6f, 0.9f); s.layer = 5;
+            mWorld.addComponent<Transform>(decor, t);
+            mWorld.addComponent<Sprite>(decor, s);
+            ++decorIdx;
+        }
+    }
+
+    // --- Blood splatters ---
+    {
+        static const char* kBloodSprites[] = {"env_blood_small", "env_blood_large"};
+        int bloodIdx = 0;
+        for (const auto& tile : mSpawnData.bloodSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            Entity blood = mWorld.createEntity();
+            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(kBloodSprites[bloodIdx % 2]);
+            s.color = glm::vec4(0.8f, 0.15f, 0.1f, 0.7f); s.layer = 3;
+            mWorld.addComponent<Transform>(blood, t);
+            mWorld.addComponent<Sprite>(blood, s);
+            ++bloodIdx;
+        }
+    }
+
+    // --- Loot containers (district-aware loot profiles) ---
+    {
+        const int itemDbSize = static_cast<int>(mItemDatabase.allItems().size());
+        std::uniform_int_distribution<int> lootCountDist(2, 4);
+        std::uniform_int_distribution<int> lootQtyDist(1, 3);
+
+        // District type lookup helper
+        const auto& layoutDistricts = mMapGenerator.layoutData().districts;
+        auto getDistrictType = [&](int tileX, int tileY) -> DistrictType
+        {
+            const int distId = mTileMap.getDistrictId(tileX, tileY);
+            if (distId == 0) return DistrictType::Wilderness;
+            for (const auto& def : layoutDistricts)
+            {
+                if (def.id == distId) return static_cast<DistrictType>(def.type);
+            }
+            return DistrictType::Wilderness;
+        };
+
+        // District loot tables (item IDs)
+        // Residential: food(0,1,2,21), drink(3), sleeping bag type items
+        // Commercial: weapons(5-8,17), medical(4,15,16,22), general
+        // Industrial: materials(9-14,18-20), bandages(4), tools
+        const std::array<int, 6> residentialLoot = {0, 1, 2, 21, 3, 3};
+        const std::array<int, 6> commercialLoot  = {5, 6, 7, 8, 17, 22};
+        const std::array<int, 6> industrialLoot  = {9, 10, 11, 12, 18, 4};
+
+        const auto isSpecialCacheTile = [&](const glm::ivec2& tile)
+        {
+            const auto matchesTile = [&](const glm::ivec2& other)
+            {
+                return other.x == tile.x && other.y == tile.y;
+            };
+
+            return std::any_of(mSpawnData.medicalCacheSpawns.begin(), mSpawnData.medicalCacheSpawns.end(), matchesTile) ||
+                   std::any_of(mSpawnData.supplyCacheSpawns.begin(), mSpawnData.supplyCacheSpawns.end(), matchesTile);
+        };
+
+        // Build set of previously looted tile positions for fast lookup
+        const auto& lootedPos = mSaveManager.lootedPositions();
+        auto isLooted = [&](int tx, int ty) -> bool
+        {
+            for (const auto& [lx, ly] : lootedPos)
+            {
+                if (lx == tx && ly == ty) return true;
+            }
+            return false;
+        };
+
+        for (const auto& tile : mSpawnData.containerSpawns)
+        {
+            if (isSpecialCacheTile(tile)) continue;
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+
+            // Skip containers at previously looted positions
+            if (isLooted(tile.x, tile.y)) continue;
+
+            Entity container = mWorld.createEntity();
+            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("env_crate"); s.color = glm::vec4(0.8f, 0.7f, 0.5f, 1.0f); s.layer = 5;
+            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Search";
+            Inventory containerInv{};
+            mWorld.addComponent<Transform>(container, t);
+            mWorld.addComponent<Sprite>(container, s);
+            mWorld.addComponent<Interactable>(container, inter);
+            mWorld.addComponent<Inventory>(container, containerInv);
+            Inventory& inv = mWorld.getComponent<Inventory>(container);
+
+            const DistrictType dt = getDistrictType(tile.x, tile.y);
+            const int lootTypes = lootCountDist(runRng);
+            for (int li = 0; li < lootTypes; ++li)
+            {
+                int itemId;
+                switch (dt)
+                {
+                case DistrictType::Residential:
+                    itemId = residentialLoot[runRng() % residentialLoot.size()];
+                    break;
+                case DistrictType::Commercial:
+                    itemId = commercialLoot[runRng() % commercialLoot.size()];
+                    break;
+                case DistrictType::Industrial:
+                    itemId = industrialLoot[runRng() % industrialLoot.size()];
+                    break;
+                default: // Wilderness — random from full database
+                    itemId = std::uniform_int_distribution<int>(0, std::max(0, itemDbSize - 1))(runRng);
+                    break;
+                }
+                InventorySystem::addItem(inv, mItemDatabase, itemId, lootQtyDist(runRng));
+            }
+        }
+    }
+
+    // Restore persisted structures (degraded between runs)
+    for (const StructureRecord& rec : mSaveManager.structures())
+    {
+        const int recipeIdx = rec.type;
+        if (recipeIdx < 0 || recipeIdx >= BuildSystem::kRecipeCount) continue;
+        const auto& recipe = BuildSystem::kRecipes[recipeIdx];
+
+        Entity structEntity = mWorld.createEntity();
+        Transform t{}; t.x = rec.x; t.y = rec.y;
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(recipe.sprite); s.color = glm::vec4(1.0f); s.layer = 4;
+        Structure structure{}; structure.type = recipe.type; structure.maxHp = recipe.hp;
+        structure.hp = recipe.hp * rec.hpRatio;
+        structure.condition = static_cast<StructureCondition>(rec.condition);
+        mWorld.addComponent<Transform>(structEntity, t);
+        mWorld.addComponent<Sprite>(structEntity, s);
+        mWorld.addComponent<Structure>(structEntity, structure);
+
+        // Restore Supply Cache inventory
+        if (recipe.type == StructureType::SupplyCache && !rec.items.empty())
+        {
+            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Loot cache";
+            mWorld.addComponent<Interactable>(structEntity, inter);
+            Inventory inv{};
+            for (const auto& [itemId, count] : rec.items)
+            {
+                InventorySystem::addItem(inv, mItemDatabase, itemId, count);
+            }
+            mWorld.addComponent<Inventory>(structEntity, inv);
+        }
+        // Rain Collector gets container but no items (regenerates fresh)
+        else if (recipe.type == StructureType::RainCollector)
+        {
+            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Collect water";
+            mWorld.addComponent<Interactable>(structEntity, inter);
+            mWorld.addComponent<Inventory>(structEntity, Inventory{});
+        }
+    }
+
+    const auto spawnGraveMarker = [&](const GraveRecord& grave)
+    {
+        Entity graveEntity = mWorld.createEntity();
+
+        Transform graveTransform{};
+        graveTransform.x = grave.x;
+        graveTransform.y = grave.y;
+
+        Sprite graveSprite{};
+        graveSprite.textureId = sheetTex;
+        graveSprite.uvRect = mSpriteSheet.uvRect("env_grave");
+        graveSprite.color = glm::vec4(1.0f);
+        graveSprite.layer = 7;
+
+        Interactable graveInteract{};
+        graveInteract.type = InteractableType::GraveMarker;
+        graveInteract.prompt = "Read";
+
+        std::ostringstream message;
+        message << "Here lies " << grave.name << " | Survived " << grave.day << " days | " << grave.cause;
+        graveInteract.message = message.str();
+
+        mWorld.addComponent<Transform>(graveEntity, graveTransform);
+        mWorld.addComponent<Sprite>(graveEntity, graveSprite);
+        mWorld.addComponent<Interactable>(graveEntity, graveInteract);
+
+        // Spawn journal note beside the grave
+        {
+            Entity journalEntity = mWorld.createEntity();
+
+            Transform jt{};
+            jt.x = grave.x + 20.0f;
+            jt.y = grave.y + 8.0f;
+
+            Sprite js{};
+            js.textureId = sheetTex;
+            js.uvRect = mSpriteSheet.uvRect("item_bandage"); // reuse small item sprite
+            js.color = glm::vec4(0.85f, 0.80f, 0.65f, 1.0f); // parchment tint
+            js.layer = 6;
+
+            // Generate procedural flavor text from the grave data
+            static const char* kFlavorLines[] = {
+                "The nights were the worst part.",
+                "I should have kept moving.",
+                "If you find this, don't stay here.",
+                "The water ran out first.",
+                "I thought I could make it.",
+                "They came from every direction.",
+                "I can hear them outside.",
+                "Whoever reads this, stay armed.",
+                "There's nothing left in this city.",
+                "Don't trust the silence.",
+                "I kept count of the ones I put down.",
+                "The fever set in on the second night.",
+            };
+            constexpr int kNumFlavors = sizeof(kFlavorLines) / sizeof(kFlavorLines[0]);
+            const int flavorIdx = static_cast<int>(
+                (static_cast<std::uint32_t>(grave.day) * 2654435761u) ^
+                static_cast<std::uint32_t>(grave.x + grave.y * 137.0f)) % kNumFlavors;
+
+            std::ostringstream journalMsg;
+            journalMsg << grave.name << "'s journal (Day " << grave.day << "): "
+                       << kFlavorLines[flavorIdx < 0 ? -flavorIdx : flavorIdx];
+
+            Interactable ji{};
+            ji.type = InteractableType::JournalNote;
+            ji.prompt = "Read note";
+            ji.message = journalMsg.str();
+
+            mWorld.addComponent<Transform>(journalEntity, jt);
+            mWorld.addComponent<Sprite>(journalEntity, js);
+            mWorld.addComponent<Interactable>(journalEntity, ji);
+        }
+    };
+
+    for (const GraveRecord& grave : mSaveManager.graves())
+    {
+        spawnGraveMarker(grave);
+    }
+
+    // Spawn retirement markers (visually distinct from graves)
+    for (const RetirementRecord& ret : mSaveManager.retirements())
+    {
+        Entity retEntity = mWorld.createEntity();
+
+        Transform retTransform{};
+        retTransform.x = ret.x;
+        retTransform.y = ret.y;
+
+        Sprite retSprite{};
+        retSprite.textureId = sheetTex;
+        retSprite.uvRect = mSpriteSheet.uvRect("env_grave2");
+        retSprite.color = glm::vec4(0.6f, 0.7f, 0.9f, 1.0f); // blue tint for retirement
+        retSprite.layer = 7;
+
+        Interactable retInteract{};
+        retInteract.type = InteractableType::GraveMarker;
+        retInteract.prompt = "Read";
+
+        std::ostringstream message;
+        message << ret.name << " walked away on Day " << ret.day << " | They couldn't go on.";
+        retInteract.message = message.str();
+
+        mWorld.addComponent<Transform>(retEntity, retTransform);
+        mWorld.addComponent<Sprite>(retEntity, retSprite);
+        mWorld.addComponent<Interactable>(retEntity, retInteract);
+    }
+
+    const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
+    const glm::vec2 playerCenter(
+        playerTransformRef.x + kSpriteSize * 0.5f,
+        playerTransformRef.y + kSpriteSize * 0.5f);
+    mCamera.snapTo(playerCenter);
+    mCamera.clampToBounds(mTileMap.pixelSize());
+
+    mRunStats.prevX = playerTransformRef.x;
+    mRunStats.prevY = playerTransformRef.y;
+
+    // Initialize prev positions for interpolation
+    snapshotPositions();
+}
+
+void Game::beginDeathState(const std::string& cause)
+{
+    if (mRunState == RunState::Dead)
+    {
+        return;
+    }
+
+    mRunState = RunState::Dead;
+    mDeathStateTimer = 0.0;
+    mDeathCause = cause;
+    mAudioManager.playSound(SoundId::Death, 0.8f);
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const Transform& transform = mWorld.getComponent<Transform>(mPlayerEntity);
+        mDeathWorldPosition = glm::vec2(transform.x, transform.y);
+    }
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+        velocity.dx = 0.0f;
+        velocity.dy = 0.0f;
+    }
+
+    GraveRecord record;
+    record.name = mCurrentCharacterName;
+    record.x = mDeathWorldPosition.x;
+    record.y = mDeathWorldPosition.y;
+    record.day = mCurrentDay;
+    record.cause = cause;
+
+    if (mSaveManager.recordDeath(record))
+    {
+        mInteractionMessage = "Their grave has been marked.";
+    }
+    else
+    {
+        mInteractionMessage = "Death recorded, but legacy write failed.";
+    }
+
+    // Save structures for next run
+    {
+        std::vector<StructureRecord> structRecords;
+        mWorld.forEach<Structure, Transform>(
+            [&](Entity e, Structure& s, Transform& t)
+            {
+                StructureRecord rec;
+                rec.type = static_cast<int>(s.type);
+                rec.x = t.x;
+                rec.y = t.y;
+                rec.condition = static_cast<int>(s.condition);
+                rec.hpRatio = s.maxHp > 0.0f ? s.hp / s.maxHp : 0.0f;
+                // Save Supply Cache inventory
+                if (s.type == StructureType::SupplyCache && mWorld.hasComponent<Inventory>(e))
+                {
+                    const Inventory& inv = mWorld.getComponent<Inventory>(e);
+                    for (const auto& slot : inv.slots)
+                    {
+                        if (slot.itemId >= 0 && slot.count > 0)
+                        {
+                            rec.items.emplace_back(slot.itemId, slot.count);
+                        }
+                    }
+                }
+                structRecords.push_back(rec);
+            });
+        mSaveManager.saveStructures(structRecords);
+    }
+
+    // Save cumulative stats
+    mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
+
+    // Delete mid-run checkpoint (permadeath)
+    mSaveManager.deleteCheckpoint();
+    mSaveManager.saveLootedPositions();
+
+    // Save NPC survivors for next run
+    {
+        std::vector<SurvivorRecord> survivorRecords;
+        mWorld.forEach<SurvivorAI, Transform, Health>(
+            [&](Entity, SurvivorAI& ai, Transform& t, Health& h)
+            {
+                SurvivorRecord sr;
+                sr.name = ai.name;
+                sr.alive = ai.alive && h.current > 0.0f;
+                sr.spawnDay = ai.spawnDay;
+                sr.deathDay = sr.alive ? 0 : mCurrentDay;
+                sr.x = t.x;
+                sr.y = t.y;
+                sr.hunger = ai.hunger;
+                sr.thirst = ai.thirst;
+                sr.aggression = ai.personality.aggression;
+                sr.cooperation = ai.personality.cooperation;
+                sr.competence = ai.personality.competence;
+                sr.homeDistrictId = ai.homeDistrictId;
+                survivorRecords.push_back(sr);
+            });
+        mSaveManager.saveSurvivors(survivorRecords);
+    }
+
+    // Balance instrumentation
+    std::cout << "[Run End] Death - " << mCurrentCharacterName
+              << " | Day " << mCurrentDay << " | Cause: " << cause
+              << " | Kills: " << mRunStats.kills
+              << " | Items: " << mRunStats.itemsLooted
+              << " | Structures: " << mRunStats.structuresBuilt
+              << " | Distance: " << static_cast<int>(mRunStats.distanceWalked) << "px"
+              << '\n';
+
+    mInteractionMessageTimer = 5.0f;
+}
+
+void Game::beginRetirementState()
+{
+    if (mRunState == RunState::Retired || mRunState == RunState::Dead)
+    {
+        return;
+    }
+
+    mRunState = RunState::Retired;
+    mDeathStateTimer = 0.0;
+    mDeathCause = "Gave up on Day " + std::to_string(mCurrentDay);
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const Transform& transform = mWorld.getComponent<Transform>(mPlayerEntity);
+        mDeathWorldPosition = glm::vec2(transform.x, transform.y);
+    }
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+        velocity.dx = 0.0f;
+        velocity.dy = 0.0f;
+    }
+
+    RetirementRecord retRecord;
+    retRecord.name = mCurrentCharacterName;
+    retRecord.x = mDeathWorldPosition.x;
+    retRecord.y = mDeathWorldPosition.y;
+    retRecord.day = mCurrentDay;
+    mSaveManager.recordRetirement(retRecord);
+
+    // Save structures for next run
+    {
+        std::vector<StructureRecord> structRecords;
+        mWorld.forEach<Structure, Transform>(
+            [&](Entity e, Structure& s, Transform& t)
+            {
+                StructureRecord rec;
+                rec.type = static_cast<int>(s.type);
+                rec.x = t.x;
+                rec.y = t.y;
+                rec.condition = static_cast<int>(s.condition);
+                rec.hpRatio = s.maxHp > 0.0f ? s.hp / s.maxHp : 0.0f;
+                if (s.type == StructureType::SupplyCache && mWorld.hasComponent<Inventory>(e))
+                {
+                    const Inventory& inv = mWorld.getComponent<Inventory>(e);
+                    for (const auto& slot : inv.slots)
+                    {
+                        if (slot.itemId >= 0 && slot.count > 0)
+                        {
+                            rec.items.emplace_back(slot.itemId, slot.count);
+                        }
+                    }
+                }
+                structRecords.push_back(rec);
+            });
+        mSaveManager.saveStructures(structRecords);
+    }
+
+    // Save cumulative stats
+    mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
+
+    // Delete mid-run checkpoint (retirement ends the run)
+    mSaveManager.deleteCheckpoint();
+    mSaveManager.saveLootedPositions();
+
+    // Save NPC survivors for next run
+    {
+        std::vector<SurvivorRecord> survivorRecords;
+        mWorld.forEach<SurvivorAI, Transform, Health>(
+            [&](Entity, SurvivorAI& ai, Transform& t, Health& h)
+            {
+                SurvivorRecord sr;
+                sr.name = ai.name;
+                sr.alive = ai.alive && h.current > 0.0f;
+                sr.spawnDay = ai.spawnDay;
+                sr.deathDay = sr.alive ? 0 : mCurrentDay;
+                sr.x = t.x;
+                sr.y = t.y;
+                sr.hunger = ai.hunger;
+                sr.thirst = ai.thirst;
+                sr.aggression = ai.personality.aggression;
+                sr.cooperation = ai.personality.cooperation;
+                sr.competence = ai.personality.competence;
+                sr.homeDistrictId = ai.homeDistrictId;
+                survivorRecords.push_back(sr);
+            });
+        mSaveManager.saveSurvivors(survivorRecords);
+    }
+
+    // Balance instrumentation
+    std::cout << "[Run End] Retirement - " << mCurrentCharacterName
+              << " | Day " << mCurrentDay
+              << " | Kills: " << mRunStats.kills
+              << " | Items: " << mRunStats.itemsLooted
+              << " | Structures: " << mRunStats.structuresBuilt
+              << " | Distance: " << static_cast<int>(mRunStats.distanceWalked) << "px"
+              << '\n';
+
+    mInteractionMessage = "They couldn't go on.";
+    mInteractionMessageTimer = 5.0f;
+}
+
+void Game::processInputEvents()
+{
+    mInput.beginFrame();
+
+    SDL_Event event;
+    while (SDL_PollEvent(&event) != 0)
+    {
+        mInput.processEvent(event);
+
+        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+        {
+            mWindowWidth = event.window.data1;
+            mWindowHeight = event.window.data2;
+            mProjection = buildProjection(mWindowWidth, mWindowHeight);
+            mCamera.setViewportSize(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
+            mCamera.clampToBounds(mTileMap.pixelSize());
+        }
+    }
+
+    mInput.refreshMouseState();
+
+    if (mInput.quitRequested())
+    {
+        mIsRunning = false;
+    }
+
+    // Mouse wheel zoom
+    if (mInput.scrollY() != 0)
+    {
+        constexpr float kZoomStep = 0.15f;
+        const float currentZoom = mCamera.zoom();
+        const float newZoom = currentZoom * (1.0f + static_cast<float>(mInput.scrollY()) * kZoomStep);
+        const glm::vec2 mouseScreen(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+        mCamera.zoomToward(newZoom, mouseScreen);
+        mCamera.clampToBounds(mTileMap.pixelSize());
+    }
+
+    if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
+    {
+        if (mRunState == RunState::Playing)
+        {
+            mRunState = RunState::Paused;
+            mPauseSelection = 0;
+        }
+        else if (mRunState == RunState::Paused)
+        {
+            mRunState = RunState::Playing;
+        }
+        else if (mRunState == RunState::TitleScreen)
+        {
+            mIsRunning = false;
+        }
+    }
+}
+
+void Game::update(float dtSeconds)
+{
+    mMouseWorld = screenToWorld(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
+
+    mInteractionMessageTimer = std::max(0.0f, mInteractionMessageTimer - dtSeconds);
+    if (mInteractionMessageTimer <= 0.0f)
+    {
+        mInteractionMessage.clear();
+    }
+
+    if (mInput.wasKeyPressed(SDL_SCANCODE_F1))
+    {
+        mShowNoiseDebug = !mShowNoiseDebug;
+    }
+
+    if (mInput.wasKeyPressed(SDL_SCANCODE_F2))
+    {
+        mShowControls = !mShowControls;
+    }
+
+    // Title screen: wait for Enter
+    if (mRunState == RunState::TitleScreen)
+    {
+        if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
+            mInput.wasKeyPressed(SDL_SCANCODE_SPACE))
+        {
+            startNewRun();
+        }
+        return;
+    }
+
+    // Pause menu input
+    if (mRunState == RunState::Paused)
+    {
+        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        {
+            mPauseSelection = (mPauseSelection + 2) % 3;
+        }
+        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        {
+            mPauseSelection = (mPauseSelection + 1) % 3;
+        }
+        if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) || mInput.wasKeyPressed(SDL_SCANCODE_SPACE))
+        {
+            if (mPauseSelection == 0) // Resume
+            {
+                mRunState = RunState::Playing;
+            }
+            else if (mPauseSelection == 1) // Restart
+            {
+                startNewRun();
+            }
+            else // Quit
+            {
+                mIsRunning = false;
+            }
+        }
+        return;
+    }
+
+    if (mRunState == RunState::Dead || mRunState == RunState::Retired)
+    {
+        mDeathStateTimer += static_cast<double>(dtSeconds);
+
+        const bool restartRequested =
+            mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
+            mInput.wasKeyPressed(SDL_SCANCODE_SPACE) ||
+            mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT);
+
+        if (restartRequested && mDeathStateTimer >= kDeathRestartDelaySeconds)
+        {
+            startNewRun();
+        }
+
+        return;
+    }
+
+    bool playerAlive = false;
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        playerAlive = health.current > 0.0f;
+    }
+
+    if (playerAlive)
+    {
+        mInputSystem.update(mWorld, mInput, mMouseWorld);
+    }
+    else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+        velocity.dx = 0.0f;
+        velocity.dy = 0.0f;
+    }
+
+    if (mInput.wasKeyPressed(SDL_SCANCODE_K) && !mDebugEntities.empty())
+    {
+        const Entity entity = mDebugEntities.back();
+        mDebugEntities.pop_back();
+        mWorld.destroyEntity(entity);
+    }
+
+    advanceGameClock(static_cast<double>(dtSeconds) * kGameHoursPerRealSecond, mGameHours, mCurrentDay);
+
+    mNeedsSystem.update(mWorld, dtSeconds, mGameHours);
+    mBleedingSystem.update(mWorld, dtSeconds);
+    mWoundSystem.update(mWorld, mPlayerEntity, dtSeconds, mGameHours);
+
+    // Campfire warmth: warm player body temperature when near a campfire
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Needs>(mPlayerEntity) &&
+        mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+        const glm::vec2 pc(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
+        bool nearCampfire = false;
+
+        mWorld.forEach<Structure, Transform>(
+            [&](Entity, Structure& structure, Transform& st)
+            {
+                if (nearCampfire) return;
+                if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
+                const glm::vec2 sc(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
+                if (glm::distance(pc, sc) < 96.0f)
+                {
+                    nearCampfire = true;
+                }
+            });
+
+        if (nearCampfire)
+        {
+            Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+            constexpr float kCampfireWarmRate = 0.5f;
+            constexpr float kCampfireTargetTemp = 37.5f;
+            if (needs.bodyTemperature < kCampfireTargetTemp)
+            {
+                needs.bodyTemperature = std::min(kCampfireTargetTemp, needs.bodyTemperature + kCampfireWarmRate * dtSeconds);
+            }
+        }
+    }
+
+    // Inventory food spoilage
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
+        Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        InventorySystem::degradeFood(inv, mItemDatabase, gameHoursThisTick);
+    }
+
+    // Mental state system
+    mMentalStateSystem.update(mWorld, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours);
+
+    // Weather system
+    mWeatherSystem.update(mWeatherState, dtSeconds, mGameHours, mCurrentDay);
+
+    // Weather effects on player body temperature
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
+    {
+        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+        // Push body temperature toward ambient weather temperature
+        const float ambientTarget = std::clamp(mWeatherState.temperature, -10.0f, 45.0f);
+        const float tempPressure = (ambientTarget < 15.0f) ? -0.1f : (ambientTarget > 35.0f ? 0.05f : 0.0f);
+        needs.bodyTemperature += tempPressure * dtSeconds;
+        needs.bodyTemperature = std::clamp(needs.bodyTemperature, 30.0f, 42.0f);
+    }
+
+    // Survivor AI system
+    mSurvivorAISystem.update(mWorld, mTileMap, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
+
+    // Survivor interaction system tick
+    mSurvivorInteractionSystem.update(mWorld, mPlayerEntity, dtSeconds);
+
+    // District infection daily update
+    mDistrictInfectionSystem.dailyUpdate(mWorld, mMapGenerator.layoutData(), mCurrentDay);
+
+    // Build system
+    {
+        int structCountBefore = 0;
+        mWorld.forEach<Structure>([&](Entity, Structure&) { ++structCountBefore; });
+        const std::string buildMsg = mBuildSystem.update(mWorld, mInput, mTileMap, mNoiseModel, mItemDatabase, mSpriteSheet, mPlayerEntity, mMouseWorld, dtSeconds, mGameHours);
+        int structCountAfter = 0;
+        mWorld.forEach<Structure>([&](Entity, Structure&) { ++structCountAfter; });
+        if (structCountAfter > structCountBefore)
+        {
+            mRunStats.structuresBuilt += (structCountAfter - structCountBefore);
+        }
+        if (!buildMsg.empty())
+        {
+            mInteractionMessage = buildMsg;
+            mInteractionMessageTimer = 3.0f;
+        }
+    }
+
+    // Inventory toggle (Tab)
+    if (mInput.wasKeyPressed(SDL_SCANCODE_TAB))
+    {
+        if (mContainerOpen)
+        {
+            mContainerOpen = false;
+            mOpenContainerEntity = kInvalidEntity;
+        }
+        else
+        {
+            mShowInventory = !mShowInventory;
+            if (mShowInventory && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+            {
+                const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+                mInventoryCursor = inv.activeSlot;
+            }
+        }
+    }
+
+    // Container view input
+    if (mContainerOpen && mOpenContainerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Inventory>(mOpenContainerEntity) &&
+        mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
+        Inventory& playerInv = mWorld.getComponent<Inventory>(mPlayerEntity);
+
+        // Count filled slots for cursor bounds
+        int filledSlots = 0;
+        for (const auto& slot : containerInv.slots)
+        {
+            if (slot.itemId >= 0 && slot.count > 0) ++filledSlots;
+        }
+
+        if (filledSlots == 0)
+        {
+            mContainerOpen = false;
+            mOpenContainerEntity = kInvalidEntity;
+            mInteractionMessage = "Container empty.";
+            mInteractionMessageTimer = 2.0f;
+        }
+        else
+        {
+            if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+            {
+                mContainerCursor = (mContainerCursor + filledSlots - 1) % filledSlots;
+            }
+            if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+            {
+                mContainerCursor = (mContainerCursor + 1) % filledSlots;
+            }
+            mContainerCursor = std::clamp(mContainerCursor, 0, filledSlots - 1);
+
+            // E or Enter: take selected item
+            if (mInput.wasKeyPressed(SDL_SCANCODE_E) || mInput.wasKeyPressed(SDL_SCANCODE_RETURN))
+            {
+                // Find the Nth filled slot
+                int idx = 0;
+                for (auto& slot : containerInv.slots)
+                {
+                    if (slot.itemId < 0 || slot.count <= 0) continue;
+                    if (idx == mContainerCursor)
+                    {
+                        auto result = InventorySystem::addItem(playerInv, mItemDatabase, slot.itemId, 1);
+                        if (result.added > 0)
+                        {
+                            const ItemDef* item = mItemDatabase.find(slot.itemId);
+                            std::string name = item ? item->name : "item";
+                            slot.count -= 1;
+                            if (slot.count <= 0)
+                            {
+                                slot.itemId = -1;
+                                slot.count = 0;
+                                slot.condition = 1.0f;
+                            }
+                            mInteractionMessage = "Took " + name + ".";
+                            mInteractionMessageTimer = 2.0f;
+                            mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
+                            ++mRunStats.itemsLooted;
+
+                            // Track looted position for world memory
+                            if (mWorld.hasComponent<Transform>(mOpenContainerEntity))
+                            {
+                                const auto& ct = mWorld.getComponent<Transform>(mOpenContainerEntity);
+                                const int tx = static_cast<int>(ct.x) / mTileMap.tileWidth();
+                                const int ty = static_cast<int>(ct.y) / mTileMap.tileHeight();
+                                mSaveManager.addLootedPosition(tx, ty);
+                            }
+                        }
+                        else
+                        {
+                            mInteractionMessage = "Inventory full.";
+                            mInteractionMessageTimer = 2.0f;
+                        }
+                        break;
+                    }
+                    ++idx;
+                }
+            }
+
+            // Escape: close container
+            if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
+            {
+                mContainerOpen = false;
+                mOpenContainerEntity = kInvalidEntity;
+            }
+        }
+    }
+
+    // Inventory cursor navigation (when inventory is open)
+    if (mShowInventory && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+
+        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        {
+            mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - 1) % Inventory::kMaxSlots;
+        }
+        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        {
+            mInventoryCursor = (mInventoryCursor + 1) % Inventory::kMaxSlots;
+        }
+
+        // Enter key: swap cursor slot with active hotbar slot
+        if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) && mInventoryCursor != inv.activeSlot)
+        {
+            std::swap(inv.slots[static_cast<std::size_t>(mInventoryCursor)],
+                      inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
+            mInteractionMessage = "Swapped items.";
+            mInteractionMessageTimer = 2.0f;
+        }
+    }
+
+    // Hotbar selection (1-8 keys) when not in build mode
+    if (!mBuildSystem.isBuildMode() && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        for (int key = 0; key < 8; ++key)
+        {
+            if (mInput.wasKeyPressed(static_cast<SDL_Scancode>(SDL_SCANCODE_1 + key)))
+            {
+                inv.activeSlot = key;
+            }
+        }
+
+        // Use item (F key): use cursor slot when inventory is open, otherwise active hotbar slot
+        if (mInput.wasKeyPressed(SDL_SCANCODE_F))
+        {
+            const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
+            const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
+            if (slot.itemId >= 0 && slot.count > 0)
+            {
+                const ItemDef* item = mItemDatabase.find(slot.itemId);
+                if (item)
+                {
+                    if (item->category == ItemCategory::Food && mWorld.hasComponent<Needs>(mPlayerEntity))
+                    {
+                        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                        const float restore = item->hungerRestore * slot.condition;
+                        needs.hunger = std::min(needs.maxHunger, needs.hunger + restore);
+
+                        // Spoiled food causes illness
+                        if (slot.condition < 0.3f)
+                        {
+                            needs.illness = std::min(100.0f, needs.illness + (1.0f - slot.condition) * 20.0f);
+                            mInteractionMessage = "Ate spoiled " + item->name + "... feeling sick.";
+                        }
+                        else
+                        {
+                            mInteractionMessage = "Ate " + item->name + ".";
+                        }
+
+                        InventorySystem::removeItem(inv, slot.itemId, 1);
+                        mInteractionMessageTimer = 3.0f;
+                        mAudioManager.playSound(SoundId::FoodEat, 0.5f);
+                    }
+                    else if (item->category == ItemCategory::Drink && mWorld.hasComponent<Needs>(mPlayerEntity))
+                    {
+                        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                        needs.thirst = std::min(needs.maxThirst, needs.thirst + item->thirstRestore);
+                        InventorySystem::removeItem(inv, slot.itemId, 1);
+                        mInteractionMessage = "Drank " + item->name + ".";
+                        mInteractionMessageTimer = 3.0f;
+                        mAudioManager.playSound(SoundId::FoodEat, 0.4f);
+                    }
+                    else if (item->category == ItemCategory::Medical)
+                    {
+                        bool used = false;
+
+                        if (item->curesInfection && mWorld.hasComponent<Wounds>(mPlayerEntity))
+                        {
+                            Wounds& wounds = mWorld.getComponent<Wounds>(mPlayerEntity);
+                            for (Wound& wound : wounds.active)
+                            {
+                                if (!wound.infected)
+                                {
+                                    continue;
+                                }
+
+                                wound.infected = false;
+                                wound.infectionTimer = 0.0f;
+                                used = true;
+                            }
+                        }
+
+                        if (item->illnessRelief > 0.0f && mWorld.hasComponent<Needs>(mPlayerEntity))
+                        {
+                            Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                            const float previousIllness = needs.illness;
+                            needs.illness = std::max(0.0f, needs.illness - item->illnessRelief);
+                            used = used || needs.illness < previousIllness;
+                        }
+
+                        if (item->panicRelief > 0.0f && mWorld.hasComponent<MentalState>(mPlayerEntity))
+                        {
+                            MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+                            const float previousPanic = mental.panic;
+                            mental.panic = std::max(0.0f, mental.panic - item->panicRelief);
+                            used = used || mental.panic < previousPanic;
+                        }
+
+                        if (item->stopsBleeding && mWorld.hasComponent<Bleeding>(mPlayerEntity))
+                        {
+                            mWorld.removeComponent<Bleeding>(mPlayerEntity);
+                            used = true;
+                        }
+
+                        if (item->woundTreatment > 0 && mWorld.hasComponent<Wounds>(mPlayerEntity))
+                        {
+                            Wounds& wounds = mWorld.getComponent<Wounds>(mPlayerEntity);
+                            const int treated = treatWorstWounds(wounds, item->woundTreatment);
+                            if (treated > 0)
+                            {
+                                used = true;
+                                if (mWorld.hasComponent<Health>(mPlayerEntity))
+                                {
+                                    Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+                                    syncHealthWithWounds(health, wounds);
+                                }
+                            }
+                        }
+
+                        if (item->healthRestore > 0.0f && mWorld.hasComponent<Health>(mPlayerEntity))
+                        {
+                            Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+                            const float healedAmount = std::min(item->healthRestore, health.maximum - health.current);
+                            if (healedAmount > 0.0f)
+                            {
+                                health.current += healedAmount;
+                                used = true;
+                            }
+                        }
+
+                        if (used)
+                        {
+                            InventorySystem::removeItem(inv, slot.itemId, 1);
+                            mInteractionMessage = "Used " + item->name + ".";
+                            mInteractionMessageTimer = 3.0f;
+                        }
+                        else
+                        {
+                            mInteractionMessage = "You don't need that right now.";
+                            mInteractionMessageTimer = 2.0f;
+                        }
+                    }
+                    else if (item->category == ItemCategory::Weapon && mWorld.hasComponent<Combat>(mPlayerEntity))
+                    {
+                        Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
+                        combat.weapon = makeWeaponStats(static_cast<WeaponCategory>(item->weaponCategory));
+                        mInteractionMessage = "Equipped " + item->name + ".";
+                        mInteractionMessageTimer = 3.0f;
+                    }
+                }
+            }
+        }
+    }
+
+    // Panic drift: add random velocity jitter proportional to panic level
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<MentalState>(mPlayerEntity) &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+        if (mental.panic >= 25.0f)
+        {
+            Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+            // Scale drift strength: 0 at 25 panic, full at 100
+            const float t = (mental.panic - 25.0f) / 75.0f; // 0..1
+            const float driftStrength = t * 80.0f; // up to 80 px/s drift
+            vel.dx += std::cos(mental.panicDriftAngle) * driftStrength;
+            vel.dy += std::sin(mental.panicDriftAngle) * driftStrength;
+        }
+    }
+
+    // Depression effects: slow movement
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<MentalState>(mPlayerEntity) &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+        if (mental.depression > 20.0f)
+        {
+            const float slowFactor = 1.0f - mental.depression * 0.003f;
+            Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+            vel.dx *= slowFactor;
+            vel.dy *= slowFactor;
+        }
+    }
+
+    // Encumbrance slowdown
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Inventory>(mPlayerEntity) &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
+        if (weight > Inventory::kMaxCarryWeight)
+        {
+            const float overRatio = std::min((weight - Inventory::kMaxCarryWeight) / 10.0f, 0.6f);
+            Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+            vel.dx *= (1.0f - overRatio);
+            vel.dy *= (1.0f - overRatio);
+        }
+    }
+
+    // Retirement: depression crisis window expired
+    if (mMentalStateSystem.shouldForceRetire())
+    {
+        mMentalStateSystem.clearForceRetire();
+        beginRetirementState();
+        return;
+    }
+
+    // Sleep time-skip: if player is sleeping, fast-forward time and recover needs
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    {
+        Sleeping& sleeping = mWorld.getComponent<Sleeping>(mPlayerEntity);
+        constexpr float kSleepTimeMultiplier = 8.0f;
+        constexpr float kSleepWakeRange = 160.0f;
+        constexpr float kSleepHealPerHour = 3.0f;
+        const float extraDtSeconds = dtSeconds * (kSleepTimeMultiplier - 1.0f);
+        const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond * kSleepTimeMultiplier);
+        sleeping.durationRemaining -= gameHoursThisTick;
+        advanceGameClock(gameHoursThisTick, mGameHours, mCurrentDay);
+
+        if (extraDtSeconds > 0.0f)
+        {
+            mNeedsSystem.update(mWorld, extraDtSeconds, mGameHours);
+            mBleedingSystem.update(mWorld, extraDtSeconds);
+            mWoundSystem.update(mWorld, mPlayerEntity, extraDtSeconds, mGameHours);
+
+            if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+            {
+                Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+                InventorySystem::degradeFood(inv, mItemDatabase, extraDtSeconds * static_cast<float>(kGameHoursPerRealSecond));
+            }
+        }
+
+        if (mWorld.hasComponent<Needs>(mPlayerEntity))
+        {
+            Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+            needs.sleepDebt = std::max(0.0f, needs.sleepDebt - sleeping.debtRecoveryRate * sleeping.quality * gameHoursThisTick);
+            needs.fatigue = std::max(0.0f, needs.fatigue - sleeping.fatigueRecoveryRate * sleeping.quality * gameHoursThisTick);
+
+            const bool canRecoverHealth =
+                needs.hunger > 45.0f &&
+                needs.thirst > 45.0f &&
+                needs.illness < 25.0f &&
+                !mWorld.hasComponent<Bleeding>(mPlayerEntity) &&
+                (!mWorld.hasComponent<Wounds>(mPlayerEntity) || !hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity)));
+
+            if (canRecoverHealth && mWorld.hasComponent<Health>(mPlayerEntity))
+            {
+                Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+                health.current = std::min(health.maximum, health.current + kSleepHealPerHour * sleeping.quality * gameHoursThisTick);
+            }
+        }
+
+        // Check for noise interruption (zombies nearby while sleeping)
+        bool interrupted = false;
+        float wakeRange = kSleepWakeRange;
+        if (mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            if (traits.positive == PositiveTrait::LightSleeper) wakeRange *= 1.5f;
+        }
+        if (mWorld.hasComponent<Transform>(mPlayerEntity))
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            const glm::vec2 pc(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
+            mWorld.forEach<ZombieAI, Transform>(
+                [&](Entity, ZombieAI&, Transform& zt)
+                {
+                    const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
+                    if (glm::distance(pc, zc) < wakeRange)
+                    {
+                        interrupted = true;
+                    }
+                });
+        }
+
+        if (sleeping.durationRemaining <= 0.0f || interrupted)
+        {
+            if (interrupted)
+            {
+                mInteractionMessage = "Woken up by nearby threat!";
+            }
+            else
+            {
+                mInteractionMessage = "Slept, but supplies are running down.";
+
+                // Checkpoint after a full sleep cycle
+                if (mPlayerEntity != kInvalidEntity)
+                {
+                    RunCheckpoint cp;
+                    cp.runSeed = mSaveManager.currentRunSeed();
+                    cp.characterName = mCurrentCharacterName;
+                    cp.currentDay = mCurrentDay;
+                    cp.gameHours = mGameHours;
+                    if (mWorld.hasComponent<Transform>(mPlayerEntity))
+                    {
+                        const auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
+                        cp.playerX = t.x; cp.playerY = t.y;
+                    }
+                    if (mWorld.hasComponent<Health>(mPlayerEntity))
+                    {
+                        const auto& h = mWorld.getComponent<Health>(mPlayerEntity);
+                        cp.healthCurrent = h.current; cp.healthMaximum = h.maximum;
+                    }
+                    if (mWorld.hasComponent<Needs>(mPlayerEntity))
+                        cp.needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                    if (mWorld.hasComponent<MentalState>(mPlayerEntity))
+                        cp.mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+                    if (mWorld.hasComponent<Wounds>(mPlayerEntity))
+                        cp.wounds = mWorld.getComponent<Wounds>(mPlayerEntity).active;
+                    cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
+                    if (mWorld.hasComponent<Inventory>(mPlayerEntity))
+                        cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
+                    cp.kills = mRunStats.kills;
+                    cp.itemsLooted = mRunStats.itemsLooted;
+                    cp.structuresBuilt = mRunStats.structuresBuilt;
+                    cp.distanceWalked = mRunStats.distanceWalked;
+                    mSaveManager.saveCheckpoint(cp);
+                    mSaveManager.saveLootedPositions();
+                }
+            }
+            mInteractionMessageTimer = 3.0f;
+            mWorld.removeComponent<Sleeping>(mPlayerEntity);
+        }
+    }
+
+    // Sleep debt collapse: force sleep when exhaustion maxes out
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Needs>(mPlayerEntity) &&
+        !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    {
+        const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+        if (needs.sleepDebt >= needs.maxSleepDebt)
+        {
+            Sleeping collapse{};
+            collapse.durationRemaining = 3.0f;
+            collapse.quality = 0.4f;
+            mWorld.addComponent<Sleeping>(mPlayerEntity, collapse);
+            mInteractionMessage = "Collapsed from exhaustion!";
+            mInteractionMessageTimer = 4.0f;
+        }
+    }
+
+    playerAlive = false;
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        playerAlive = health.current > 0.0f;
+    }
+
+    if (!playerAlive)
+    {
+        std::string cause = "Killed by zombies";
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
+        {
+            const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+            if (needs.thirst <= 0.0f)
+            {
+                cause = "Dehydrated";
+            }
+            else if (needs.hunger <= 0.0f)
+            {
+                cause = "Starved";
+            }
+        }
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Bleeding>(mPlayerEntity))
+        {
+            cause = "Bled out";
+        }
+
+        beginDeathState(cause + " on Day " + std::to_string(mCurrentDay));
+        return;
+    }
+
+    mProximityPrompt.clear();
+
+    if (playerAlive && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    {
+        // Update proximity prompt for HUD display
+        const ProximityPrompt prompt = mInteractionSystem.getProximityPrompt(mWorld, mPlayerEntity);
+        mProximityPrompt = prompt.text;
+
+        // Intercept container interactions to open container view instead of auto-loot
+        bool interceptedContainer = false;
+        if (mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
+            mWorld.hasComponent<Interactable>(prompt.entity))
+        {
+            const Interactable& inter = mWorld.getComponent<Interactable>(prompt.entity);
+            if (inter.type == InteractableType::Container && mWorld.hasComponent<Inventory>(prompt.entity))
+            {
+                mContainerOpen = true;
+                mOpenContainerEntity = prompt.entity;
+                mContainerCursor = 0;
+                mProximityPrompt.clear();
+                interceptedContainer = true;
+            }
+        }
+
+        if (!interceptedContainer)
+        {
+            const std::string interactionMessage = mInteractionSystem.update(mWorld, mInput, mPlayerEntity, &mItemDatabase);
+            if (!interactionMessage.empty())
+            {
+                mInteractionMessage = interactionMessage;
+                mInteractionMessageTimer = 4.0f;
+
+                if (interactionMessage.find("Ate") != std::string::npos ||
+                    interactionMessage.find("Drank") != std::string::npos)
+                {
+                    mAudioManager.playSound(SoundId::FoodEat, 0.5f);
+                    ++mRunStats.itemsLooted;
+                }
+                else if (interactionMessage.find("Picked up") != std::string::npos)
+                {
+                    mAudioManager.playSound(SoundId::WeaponHit, 0.4f);
+                    ++mRunStats.itemsLooted;
+                }
+                else if (interactionMessage.find("bandage") != std::string::npos)
+                {
+                    mAudioManager.playSound(SoundId::FoodEat, 0.4f);
+                    ++mRunStats.itemsLooted;
+                }
+                else if (interactionMessage.find("Looted") != std::string::npos)
+                {
+                    mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
+                    auto pos = interactionMessage.find("Looted ");
+                    if (pos != std::string::npos)
+                    {
+                        int n = std::atoi(interactionMessage.c_str() + pos + 7);
+                        mRunStats.itemsLooted += std::max(1, n);
+                    }
+                }
+            }
+        }
+    }
+
+    // --- NPC Survivor Interaction Keybinds ---
+    if (playerAlive && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    {
+        // O key: observe nearest survivor
+        if (mInput.wasKeyPressed(SDL_SCANCODE_O))
+        {
+            auto result = mSurvivorInteractionSystem.tryObserve(mWorld, mPlayerEntity);
+            if (!result.message.empty())
+            {
+                mInteractionMessage = result.message;
+                mInteractionMessageTimer = 4.0f;
+            }
+        }
+
+        // G key: approach nearest survivor
+        if (mInput.wasKeyPressed(SDL_SCANCODE_G))
+        {
+            auto result = mSurvivorInteractionSystem.tryApproach(mWorld, mPlayerEntity);
+            if (!result.message.empty())
+            {
+                mInteractionMessage = result.message;
+                mInteractionMessageTimer = 4.0f;
+            }
+        }
+
+        // T key: trade with approached survivor (offers active hotbar slot)
+        if (mInput.wasKeyPressed(SDL_SCANCODE_T) &&
+            mSurvivorInteractionSystem.currentMode() == SurvivorInteractionMode::Approaching)
+        {
+            int slot = 0;
+            if (mWorld.hasComponent<Inventory>(mPlayerEntity))
+            {
+                slot = mWorld.getComponent<Inventory>(mPlayerEntity).activeSlot;
+            }
+            auto result = mSurvivorInteractionSystem.tryTrade(mWorld, mPlayerEntity, mItemDatabase, slot);
+            if (!result.message.empty())
+            {
+                mInteractionMessage = result.message;
+                mInteractionMessageTimer = 4.0f;
+            }
+        }
+    }
+
+    // Track pre-combat state for audio triggers
+    const float prevPlayerHp = (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
+        ? mWorld.getComponent<Health>(mPlayerEntity).current
+        : 0.0f;
+    const AttackPhase prevPhase = (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Combat>(mPlayerEntity))
+        ? mWorld.getComponent<Combat>(mPlayerEntity).phase
+        : AttackPhase::Idle;
+
+    mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, dtSeconds);
+
+    // Desensitisation gain: check for zombie deaths after combat
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<MentalState>(mPlayerEntity))
+    {
+        MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+        mWorld.forEach<ZombieAI, Health>(
+            [&](Entity, ZombieAI&, Health& h)
+            {
+                // Zombie just died this frame (low HP after being hit)
+                if (h.current <= 0.0f && h.current > -999.0f)
+                {
+                    mental.desensitisation = std::min(100.0f, mental.desensitisation + 1.5f);
+                    ++mRunStats.kills;
+                    h.current = -1000.0f; // mark as counted
+                }
+            });
+    }
+
+    // Combat audio
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Combat>(mPlayerEntity))
+    {
+        const Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
+        if (combat.phase == AttackPhase::Windup && prevPhase == AttackPhase::Idle)
+        {
+            mAudioManager.playSound(SoundId::WeaponSwing, 0.5f);
+        }
+    }
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const float curHp = mWorld.getComponent<Health>(mPlayerEntity).current;
+        if (curHp < prevPlayerHp && curHp > 0.0f)
+        {
+            mAudioManager.playSound(SoundId::PlayerHurt, 0.6f);
+        }
+    }
+
+    mZombieAISystem.update(mWorld, mTileMap, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
+
+    // Zombie audio: growls from chasing zombies, attack sounds
+    mZombieGrowlTimer = std::max(0.0f, mZombieGrowlTimer - dtSeconds);
+    if (mZombieGrowlTimer <= 0.0f && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+        const glm::vec2 pc(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
+
+        mWorld.forEach<ZombieAI, Transform, Health>(
+            [&](Entity, ZombieAI& zai, Transform& zt, Health& zh)
+            {
+                if (mZombieGrowlTimer > 0.0f) return;
+                if (zh.current <= 0.0f) return;
+                if (zai.state != ZombieState::Chase && zai.state != ZombieState::Attack) return;
+
+                const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
+                const float dist = glm::distance(pc, zc);
+                if (dist < 256.0f)
+                {
+                    const SoundId sound = (zai.state == ZombieState::Attack) ? SoundId::ZombieAttack : SoundId::ZombieGrowl;
+                    mAudioManager.playSoundAtWorld(sound, zc.x, pc.x, static_cast<float>(mWindowWidth), 0.5f);
+                    mZombieGrowlTimer = 3.0f;
+                }
+            });
+    }
+    mMovementSystem.update(mWorld, dtSeconds);
+    mProjectileSystem.update(mWorld, mTileMap, mNoiseModel, dtSeconds);
+    mCollisionSystem.update(mWorld, mTileMap, dtSeconds);
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        if (health.current <= 0.0f)
+        {
+            beginDeathState("Killed by zombies on Day " + std::to_string(mCurrentDay));
+            return;
+        }
+    }
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const Transform& playerTransform = mWorld.getComponent<Transform>(mPlayerEntity);
+        const glm::vec2 playerCenter(
+            playerTransform.x + kSpriteSize * 0.5f,
+            playerTransform.y + kSpriteSize * 0.5f);
+
+        // Track distance walked
+        const float dx = playerTransform.x - mRunStats.prevX;
+        const float dy = playerTransform.y - mRunStats.prevY;
+        mRunStats.distanceWalked += std::sqrt(dx * dx + dy * dy);
+        mRunStats.prevX = playerTransform.x;
+        mRunStats.prevY = playerTransform.y;
+
+        mCamera.follow(playerCenter, dtSeconds, 7.5f);
+        mCamera.clampToBounds(mTileMap.pixelSize());
+    }
+
+    // Update player animation based on movement and facing
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Animation>(mPlayerEntity) &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity) &&
+        mWorld.hasComponent<Facing>(mPlayerEntity))
+    {
+        Animation& anim = mWorld.getComponent<Animation>(mPlayerEntity);
+        const Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+        const Facing& fac = mWorld.getComponent<Facing>(mPlayerEntity);
+
+        const float speed = vel.dx * vel.dx + vel.dy * vel.dy;
+        std::string desired = "player_idle";
+        if (speed > 4.0f)
+        {
+            if (std::abs(vel.dx) > std::abs(vel.dy))
+            {
+                desired = "player_walk_right";
+            }
+            else if (vel.dy < 0.0f)
+            {
+                desired = "player_walk_up";
+            }
+            else
+            {
+                desired = "player_walk_down";
+            }
+        }
+        else if (fac.crouching)
+        {
+            desired = "player_crouch";
+        }
+
+        if (anim.currentAnim != desired)
+        {
+            anim.currentAnim = desired;
+            anim.currentFrame = 0;
+            anim.frameTimer = 0.0f;
+            anim.finished = false;
+        }
+    }
+
+    // Update zombie animations based on movement
+    for (const Entity entity : mWorld.livingEntities())
+    {
+        if (!mWorld.hasComponent<ZombieAI>(entity) ||
+            !mWorld.hasComponent<Animation>(entity) ||
+            !mWorld.hasComponent<Velocity>(entity))
+        {
+            continue;
+        }
+
+        Animation& anim = mWorld.getComponent<Animation>(entity);
+        const Velocity& vel = mWorld.getComponent<Velocity>(entity);
+
+        const float speed = vel.dx * vel.dx + vel.dy * vel.dy;
+        std::string desired = "zombie_idle";
+        if (speed > 1.0f)
+        {
+            if (std::abs(vel.dx) > std::abs(vel.dy))
+            {
+                desired = "zombie_walk_right";
+            }
+            else if (vel.dy < 0.0f)
+            {
+                desired = "zombie_walk_up";
+            }
+            else
+            {
+                desired = "zombie_walk_down";
+            }
+        }
+
+        if (anim.currentAnim != desired)
+        {
+            anim.currentAnim = desired;
+            anim.currentFrame = 0;
+            anim.frameTimer = 0.0f;
+            anim.finished = false;
+        }
+    }
+
+    mAnimationSystem.update(mWorld, mSpriteSheet, dtSeconds);
+
+    // Particle system update
+    mParticleSystem.update(dtSeconds);
+
+    // Spawn particles: blood on entity damage
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const float curHp = mWorld.getComponent<Health>(mPlayerEntity).current;
+        if (curHp < prevPlayerHp && curHp > 0.0f)
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            mParticleSystem.spawnBlood(
+                glm::vec2(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f), 10);
+        }
+    }
+
+    // Spawn particles: dust when player moves
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity) &&
+        mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+        const float speed = vel.dx * vel.dx + vel.dy * vel.dy;
+        if (speed > 100.0f)
+        {
+            static float dustTimer = 0.0f;
+            dustTimer += dtSeconds;
+            if (dustTimer > 0.15f)
+            {
+                dustTimer = 0.0f;
+                const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+                mParticleSystem.spawnDust(
+                    glm::vec2(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize), 2);
+            }
+        }
+    }
+
+    // Spawn particles: campfire embers
+    {
+        static float emberTimer = 0.0f;
+        emberTimer += dtSeconds;
+        if (emberTimer > 0.3f)
+        {
+            emberTimer = 0.0f;
+            mWorld.forEach<Structure, Transform>(
+                [&](Entity, Structure& structure, Transform& transform)
+                {
+                    if (structure.type != StructureType::Campfire || structure.hp <= 0.0f)
+                    {
+                        return;
+                    }
+                    mParticleSystem.spawnEmbers(
+                        glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f), 2);
+                });
+        }
+    }
+
+    updateNoiseModel(dtSeconds);
+}
+
+void Game::render()
+{
+    glViewport(0, 0, mWindowWidth, mWindowHeight);
+    glClearColor(0.08f, 0.11f, 0.14f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    mShader.use();
+    mShader.setMat4("uProjection", mProjection);
+    mShader.setInt("uTexture", 0);
+    setupLightingUniforms();
+
+    // Pass 1: Map tiles (tileset texture)
+    mSpriteBatch.begin();
+    renderMap();
+    mSpriteBatch.end();
+
+    mTexture.bind(GL_TEXTURE0);
+    mSpriteBatch.flush();
+
+    // Pass 2: Entity sprites + particles (spritesheet texture, with lighting)
+    mSpriteBatch.begin();
+    mRenderSystem.render(mWorld, mSpriteBatch, mCamera, mInterpolationAlpha);
+
+    // Particles (rendered in world space, affected by lighting)
+    const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
+    mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv);
+
+    // Build mode ghost preview
+    if (mBuildSystem.isBuildMode())
+    {
+        const int recipeIdx = mBuildSystem.selectedRecipe();
+        if (recipeIdx >= 0 && recipeIdx < BuildSystem::kRecipeCount)
+        {
+            const auto& recipe = BuildSystem::kRecipes[recipeIdx];
+            const glm::vec4 ghostUv = mSpriteSheet.uvRect(recipe.sprite);
+            const glm::vec2 ghostWorld = mBuildSystem.ghostPosition() + glm::vec2(kSpriteSize * 0.5f);
+            const glm::vec2 ghostScreen = mCamera.worldToScreen(ghostWorld);
+            const glm::vec4 ghostColor = mBuildSystem.ghostValid()
+                ? glm::vec4(0.2f, 0.9f, 0.3f, 0.55f)
+                : glm::vec4(0.9f, 0.2f, 0.2f, 0.55f);
+            const float ghostSize = 32.0f * mCamera.zoom();
+            mSpriteBatch.draw(
+                glm::vec2(ghostScreen.x - ghostSize * 0.5f, ghostScreen.y - ghostSize * 0.5f),
+                glm::vec2(ghostSize, ghostSize), ghostUv, ghostColor);
+        }
+    }
+
+    mSpriteBatch.end();
+
+    mSpriteSheet.bindTexture(GL_TEXTURE0);
+    mSpriteBatch.flush();
+
+    // Pass 2.5: HUD overlays (spritesheet texture, no lighting — zoom-independent)
+    mShader.setFloat("uAmbientLight", 1.0f);
+    mShader.setVec3("uAmbientColor", glm::vec3(1.0f));
+    mShader.setInt("uLightCount", 0);
+
+    mSpriteBatch.begin();
+    renderNeedsHudOverlay();
+    renderAttackArcOverlay();
+    renderNoiseDebugOverlay();
+    renderDeathOverlay();
+    renderRetirementOverlay();
+    renderPauseOverlay();
+    mSpriteBatch.end();
+
+    mSpriteSheet.bindTexture(GL_TEXTURE0);
+    mSpriteBatch.flush();
+
+    // Pass 3: text overlays (font atlas texture, no lighting)
+    mShader.setFloat("uAmbientLight", 1.0f);
+    mShader.setVec3("uAmbientColor", glm::vec3(1.0f));
+    mShader.setInt("uLightCount", 0);
+
+    mSpriteBatch.begin();
+    renderTextOverlays();
+    renderInventoryOverlay();
+    renderContainerOverlay();
+    renderBuildModeOverlay();
+    renderControlsOverlay();
+    mSpriteBatch.end();
+
+    mFont.bindTexture(GL_TEXTURE0);
+    mSpriteBatch.flush();
+}
+
+void Game::renderNeedsHudOverlay()
+{
+    if (mPlayerEntity == kInvalidEntity ||
+        !mWorld.hasComponent<Needs>(mPlayerEntity))
+    {
+        return;
+    }
+
+    const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+
+    // Panel background for all needs bars
+    const glm::vec2 panelPos(12.0f, 12.0f);
+    const glm::vec2 panelSize(180.0f, 142.0f);
+    mSpriteBatch.draw(panelPos, panelSize, uiUv, glm::vec4(0.04f, 0.06f, 0.08f, 0.55f));
+
+    struct NeedBar
+    {
+        const char* iconName;
+        float ratio;
+        glm::vec4 fillColor;
+        glm::vec4 iconTint;
+    };
+
+    const float hungerRatio = needs.maxHunger > 0.0f ? std::clamp(needs.hunger / needs.maxHunger, 0.0f, 1.0f) : 0.0f;
+    const float thirstRatio = needs.maxThirst > 0.0f ? std::clamp(needs.thirst / needs.maxThirst, 0.0f, 1.0f) : 0.0f;
+    const float fatigueRatio = 1.0f - (needs.maxFatigue > 0.0f ? std::clamp(needs.fatigue / needs.maxFatigue, 0.0f, 1.0f) : 0.0f);
+    const float sleepRatio = 1.0f - (needs.maxSleepDebt > 0.0f ? std::clamp(needs.sleepDebt / needs.maxSleepDebt, 0.0f, 1.0f) : 0.0f);
+    const float tempRatio = std::clamp((needs.bodyTemperature - 33.0f) / 6.0f, 0.0f, 1.0f);
+    const float wellnessRatio = 1.0f - std::clamp(needs.illness / 100.0f, 0.0f, 1.0f);
+
+    const NeedBar bars[] = {
+        {"ui_hunger", hungerRatio, glm::vec4(0.92f, 0.72f, 0.20f, 0.95f), glm::vec4(1.0f, 0.95f, 0.75f, 1.0f)},
+        {"ui_thirst", thirstRatio, glm::vec4(0.30f, 0.65f, 0.95f, 0.95f), glm::vec4(0.75f, 0.90f, 1.0f, 1.0f)},
+        {"ui_stamina", fatigueRatio, glm::vec4(0.35f, 0.85f, 0.45f, 0.95f), glm::vec4(0.70f, 1.0f, 0.75f, 1.0f)},
+        {"ui_sleep", sleepRatio, glm::vec4(0.60f, 0.50f, 0.85f, 0.95f), glm::vec4(0.85f, 0.75f, 1.0f, 1.0f)},
+        {"ui_heart", tempRatio, glm::vec4(0.85f, 0.45f, 0.30f, 0.95f), glm::vec4(1.0f, 0.75f, 0.65f, 1.0f)},
+        {"ui_skull", wellnessRatio, glm::vec4(0.70f, 0.70f, 0.70f, 0.95f), glm::vec4(0.90f, 0.90f, 0.90f, 1.0f)},
+    };
+
+    constexpr float kBarHeight = 10.0f;
+    constexpr float kBarWidth = 120.0f;
+    constexpr float kRowSpacing = 20.0f;
+    constexpr float kIconSize = 16.0f;
+
+    for (int i = 0; i < 6; ++i)
+    {
+        const float yOff = panelPos.y + 10.0f + static_cast<float>(i) * kRowSpacing;
+        const glm::vec4 iconUv = mSpriteSheet.uvRect(bars[i].iconName);
+        mSpriteBatch.draw(glm::vec2(panelPos.x + 10.0f, yOff - 2.0f), glm::vec2(kIconSize, kIconSize), iconUv, bars[i].iconTint);
+
+        const glm::vec2 barPos(panelPos.x + 34.0f, yOff);
+        mSpriteBatch.draw(barPos, glm::vec2(kBarWidth, kBarHeight), uiUv, glm::vec4(0.08f, 0.08f, 0.08f, 0.85f));
+        mSpriteBatch.draw(barPos, glm::vec2(kBarWidth * bars[i].ratio, kBarHeight), uiUv, bars[i].fillColor);
+    }
+
+    // Sleeping indicator
+    if (mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    {
+        const float yOff = panelPos.y + panelSize.y + 4.0f;
+        mSpriteBatch.draw(glm::vec2(panelPos.x, yOff), glm::vec2(180.0f, 18.0f), uiUv, glm::vec4(0.15f, 0.10f, 0.25f, 0.7f));
+    }
+
+    // Bleeding indicator
+    if (mWorld.hasComponent<Bleeding>(mPlayerEntity))
+    {
+        const float yOff = panelPos.y + panelSize.y + 24.0f;
+        mSpriteBatch.draw(glm::vec2(panelPos.x, yOff), glm::vec2(180.0f, 18.0f), uiUv, glm::vec4(0.4f, 0.05f, 0.05f, 0.7f));
+    }
+}
+
+void Game::renderDeathOverlay()
+{
+    if (mRunState != RunState::Dead)
+    {
+        return;
+    }
+
+    const glm::vec4 uiUvRect = mSpriteSheet.uvRect("solid_white");
+
+    mSpriteBatch.draw(
+        glm::vec2(0.0f, 0.0f),
+        glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
+        uiUvRect,
+        glm::vec4(0.08f, 0.02f, 0.02f, 0.65f));
+
+    const glm::vec2 panelSize(360.0f, 120.0f);
+    const glm::vec2 panelPos(
+        (static_cast<float>(mWindowWidth) - panelSize.x) * 0.5f,
+        (static_cast<float>(mWindowHeight) - panelSize.y) * 0.5f);
+    mSpriteBatch.draw(panelPos, panelSize, uiUvRect, glm::vec4(0.05f, 0.05f, 0.05f, 0.85f));
+
+    const glm::vec4 graveUvRect = mSpriteSheet.uvRect("env_grave");
+    mSpriteBatch.draw(panelPos + glm::vec2(20.0f, 28.0f), glm::vec2(64.0f, 64.0f), graveUvRect, glm::vec4(0.85f, 0.88f, 0.95f, 1.0f));
+
+    if (mDeathStateTimer < kDeathRestartDelaySeconds)
+    {
+        mSpriteBatch.draw(panelPos + glm::vec2(104.0f, 36.0f), glm::vec2(220.0f, 14.0f), uiUvRect, glm::vec4(0.65f, 0.15f, 0.15f, 0.9f));
+    }
+    else
+    {
+        mSpriteBatch.draw(panelPos + glm::vec2(104.0f, 36.0f), glm::vec2(220.0f, 14.0f), uiUvRect, glm::vec4(0.25f, 0.55f, 0.25f, 0.9f));
+    }
+}
+
+void Game::renderRetirementOverlay()
+{
+    if (mRunState != RunState::Retired)
+    {
+        return;
+    }
+
+    const glm::vec4 uiUvRect = mSpriteSheet.uvRect("solid_white");
+
+    mSpriteBatch.draw(
+        glm::vec2(0.0f, 0.0f),
+        glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
+        uiUvRect,
+        glm::vec4(0.05f, 0.05f, 0.12f, 0.60f));
+
+    const glm::vec2 panelSize(360.0f, 120.0f);
+    const glm::vec2 panelPos(
+        (static_cast<float>(mWindowWidth) - panelSize.x) * 0.5f,
+        (static_cast<float>(mWindowHeight) - panelSize.y) * 0.5f);
+    mSpriteBatch.draw(panelPos, panelSize, uiUvRect, glm::vec4(0.06f, 0.06f, 0.10f, 0.85f));
+
+    if (mDeathStateTimer >= kDeathRestartDelaySeconds)
+    {
+        mSpriteBatch.draw(panelPos + glm::vec2(20.0f, 90.0f), glm::vec2(320.0f, 14.0f), uiUvRect, glm::vec4(0.25f, 0.45f, 0.55f, 0.9f));
+    }
+}
+
+void Game::renderDayNightOverlay()
+{
+    // Day/night is now handled by the shader lighting system.
+    // This function is kept as a no-op for compatibility.
+}
+
+void Game::snapshotPositions()
+{
+    mWorld.forEach<Transform>(
+        [](Entity, Transform& t)
+        {
+            t.prevX = t.x;
+            t.prevY = t.y;
+        });
+}
+
+void Game::setupLightingUniforms()
+{
+    // Compute ambient light level from time of day
+    float ambientLevel = 1.0f;
+    glm::vec3 ambientColor(1.0f, 1.0f, 1.0f);
+
+    const double hour = mGameHours;
+    if (hour >= 6.0 && hour < 18.0)
+    {
+        ambientLevel = 1.0f;
+        ambientColor = glm::vec3(1.0f, 1.0f, 1.0f);
+    }
+    else if (hour >= 18.0 && hour < 20.0)
+    {
+        const float t = static_cast<float>((hour - 18.0) / 2.0);
+        ambientLevel = 1.0f - t * 0.65f;
+        ambientColor = glm::vec3(
+            1.0f - t * 0.3f,
+            1.0f - t * 0.35f,
+            1.0f - t * 0.1f);
+    }
+    else if (hour >= 20.0 || hour < 5.0)
+    {
+        ambientLevel = 0.35f;
+        ambientColor = glm::vec3(0.7f, 0.7f, 0.9f);
+    }
+    else // 5.0 <= hour < 6.0 (dawn)
+    {
+        const float t = static_cast<float>((hour - 5.0) / 1.0);
+        ambientLevel = 0.35f + t * 0.65f;
+        ambientColor = glm::vec3(
+            0.7f + t * 0.3f,
+            0.7f + t * 0.3f,
+            0.9f + t * 0.1f);
+    }
+
+    mShader.setFloat("uAmbientLight", ambientLevel);
+    mShader.setVec3("uAmbientColor", ambientColor);
+
+    // Gather point lights from campfire structures
+    constexpr int kMaxLights = 16;
+    glm::vec2 lightPositions[kMaxLights];
+    glm::vec3 lightColors[kMaxLights];
+    float lightRadii[kMaxLights];
+    int lightCount = 0;
+
+    mWorld.forEach<Structure, Transform>(
+        [&](Entity, Structure& structure, Transform& transform)
+        {
+            if (lightCount >= kMaxLights)
+            {
+                return;
+            }
+
+            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f)
+            {
+                return;
+            }
+
+            const glm::vec2 worldCenter(
+                transform.x + kSpriteSize * 0.5f,
+                transform.y + kSpriteSize * 0.5f);
+            const glm::vec2 screenPos = mCamera.worldToScreen(worldCenter);
+
+            lightPositions[lightCount] = screenPos;
+            lightColors[lightCount] = glm::vec3(1.0f, 0.7f, 0.3f);
+            lightRadii[lightCount] = 150.0f * mCamera.zoom();
+            ++lightCount;
+        });
+
+    mShader.setInt("uLightCount", lightCount);
+    if (lightCount > 0)
+    {
+        mShader.setVec2Array("uLightPositions[0]", lightPositions, lightCount);
+        mShader.setVec3Array("uLightColors[0]", lightColors, lightCount);
+        mShader.setFloatArray("uLightRadii[0]", lightRadii, lightCount);
+    }
+}
+
+void Game::renderTextOverlays()
+{
+    constexpr float kTextScale = 2.0f;
+    constexpr float kSmallScale = 1.5f;
+
+    // Needs status text labels (positioned below the HUD bar panel)
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
+    {
+        const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+        float statusY = 160.0f;
+        const glm::vec4 warnColor(1.0f, 0.6f, 0.3f, 1.0f);
+
+        if (needs.hunger <= 10.0f)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "STARVING", warnColor, kSmallScale);
+            statusY += 16.0f;
+        }
+        if (needs.thirst <= 10.0f)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "DEHYDRATED", glm::vec4(0.4f, 0.7f, 1.0f, 1.0f), kSmallScale);
+            statusY += 16.0f;
+        }
+        if (needs.fatigue > 80.0f)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "EXHAUSTED", glm::vec4(0.5f, 0.9f, 0.5f, 1.0f), kSmallScale);
+            statusY += 16.0f;
+        }
+        if (needs.sleepDebt > 60.0f)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "SLEEP-DEPRIVED", glm::vec4(0.7f, 0.6f, 0.9f, 1.0f), kSmallScale);
+            statusY += 16.0f;
+        }
+        if (needs.bodyTemperature < 35.5f)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "HYPOTHERMIC", glm::vec4(0.6f, 0.8f, 1.0f, 1.0f), kSmallScale);
+            statusY += 16.0f;
+        }
+        if (needs.illness > 20.0f)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "SICK", glm::vec4(0.75f, 0.75f, 0.55f, 1.0f), kSmallScale);
+            statusY += 16.0f;
+        }
+        if (mWorld.hasComponent<Sleeping>(mPlayerEntity))
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "SLEEPING...", glm::vec4(0.6f, 0.5f, 0.85f, 0.9f), kSmallScale);
+            statusY += 16.0f;
+        }
+        if (mWorld.hasComponent<Bleeding>(mPlayerEntity))
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "BLEEDING", glm::vec4(0.9f, 0.2f, 0.2f, 1.0f), kSmallScale);
+            statusY += 16.0f;
+        }
+
+        // Wound indicators
+        if (mWorld.hasComponent<Wounds>(mPlayerEntity))
+        {
+            const Wounds& wounds = mWorld.getComponent<Wounds>(mPlayerEntity);
+            int bites = 0, cuts = 0, bruises = 0;
+            bool anyInfected = false;
+            for (const auto& w : wounds.active)
+            {
+                if (w.type == WoundType::Bite) ++bites;
+                else if (w.type == WoundType::Cut) ++cuts;
+                else ++bruises;
+                if (w.infected) anyInfected = true;
+            }
+            if (bites > 0)
+            {
+                std::string label = "BITE x" + std::to_string(bites);
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), label, glm::vec4(0.85f, 0.25f, 0.35f, 1.0f), kSmallScale);
+                statusY += 16.0f;
+            }
+            if (cuts > 0)
+            {
+                std::string label = "CUT x" + std::to_string(cuts);
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), label, glm::vec4(0.9f, 0.5f, 0.3f, 1.0f), kSmallScale);
+                statusY += 16.0f;
+            }
+            if (bruises > 0)
+            {
+                std::string label = "BRUISE x" + std::to_string(bruises);
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), label, glm::vec4(0.6f, 0.5f, 0.8f, 1.0f), kSmallScale);
+                statusY += 16.0f;
+            }
+            if (anyInfected)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "INFECTED!", glm::vec4(0.4f, 0.9f, 0.2f, 1.0f), kSmallScale);
+                statusY += 16.0f;
+            }
+        }
+
+        // Mental state warnings
+        if (mWorld.hasComponent<MentalState>(mPlayerEntity))
+        {
+            const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+            if (mental.panic >= 75.0f)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "PANICKING!", glm::vec4(1.0f, 0.3f, 0.1f, 1.0f), kSmallScale);
+                statusY += 16.0f;
+            }
+            else if (mental.panic >= 25.0f)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "ANXIOUS", glm::vec4(0.9f, 0.7f, 0.3f, 0.9f), kSmallScale);
+                statusY += 16.0f;
+            }
+            if (mental.depression >= 60.0f)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "DEPRESSED", glm::vec4(0.5f, 0.5f, 0.7f, 1.0f), kSmallScale);
+                statusY += 16.0f;
+            }
+            if (mental.desensitisation >= 50.0f)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "NUMB", glm::vec4(0.6f, 0.6f, 0.6f, 0.85f), kSmallScale);
+                statusY += 16.0f;
+            }
+        }
+
+        // Encumbrance warning
+        if (mWorld.hasComponent<Inventory>(mPlayerEntity))
+        {
+            const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+            const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
+            if (weight > Inventory::kMaxCarryWeight)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "OVERBURDENED", glm::vec4(0.9f, 0.6f, 0.2f, 1.0f), kSmallScale);
+                statusY += 16.0f;
+            }
+        }
+    }
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        std::string hpStr = "HP " + std::to_string(static_cast<int>(health.current)) + "/" + std::to_string(static_cast<int>(health.maximum));
+        mFont.drawText(mSpriteBatch, glm::vec2(200.0f, 12.0f), hpStr, glm::vec4(0.85f, 0.35f, 0.35f, 1.0f), kSmallScale);
+    }
+
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Stamina>(mPlayerEntity))
+    {
+        const Stamina& stamina = mWorld.getComponent<Stamina>(mPlayerEntity);
+        std::string staStr = "STA " + std::to_string(static_cast<int>(stamina.current)) + "/" + std::to_string(static_cast<int>(stamina.maximum));
+        mFont.drawText(mSpriteBatch, glm::vec2(200.0f, 28.0f), staStr, glm::vec4(0.35f, 0.75f, 0.85f, 1.0f), kSmallScale);
+    }
+
+    // Day / time display
+    {
+        const int hour = static_cast<int>(mGameHours) % 24;
+        const int minute = static_cast<int>((mGameHours - std::floor(mGameHours)) * 60.0);
+        std::ostringstream timeStr;
+        timeStr << "DAY " << mCurrentDay << "  "
+                << std::setfill('0') << std::setw(2) << hour << ":"
+                << std::setfill('0') << std::setw(2) << minute;
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(static_cast<float>(mWindowWidth) - 12.0f, 12.0f),
+            timeStr.str(),
+            glm::vec4(0.9f, 0.9f, 0.8f, 1.0f),
+            kSmallScale,
+            TextAlign::Right);
+    }
+
+    // Character name
+    mFont.drawText(
+        mSpriteBatch,
+        glm::vec2(static_cast<float>(mWindowWidth) - 12.0f, 30.0f),
+        mCurrentCharacterName,
+        glm::vec4(0.7f, 0.7f, 0.65f, 0.85f),
+        kSmallScale,
+        TextAlign::Right);
+
+    // Trait display below character name
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+    {
+        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        const float traitX = static_cast<float>(mWindowWidth) - 12.0f;
+        float traitY = 48.0f;
+        if (traits.positive != PositiveTrait::None)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(traitX, traitY), traits.positiveName(),
+                            glm::vec4(0.4f, 0.85f, 0.4f, 0.8f), 1.0f, TextAlign::Right);
+            traitY += 14.0f;
+        }
+        if (traits.negative != NegativeTrait::None)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(traitX, traitY), traits.negativeName(),
+                            glm::vec4(0.85f, 0.4f, 0.4f, 0.8f), 1.0f, TextAlign::Right);
+        }
+    }
+
+    // Objective display
+    if (mRunState == RunState::Playing)
+    {
+        const float objX = static_cast<float>(mWindowWidth) - 12.0f;
+        float objY = 80.0f;
+
+        std::string primaryObj = "Search buildings for supply caches";
+        std::string secondaryObj = "Standing still burns food, water, and daylight";
+        glm::vec4 primaryColor(0.9f, 0.8f, 0.3f, 0.9f);
+
+        const bool bleeding = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Bleeding>(mPlayerEntity);
+        const bool wounded = mPlayerEntity != kInvalidEntity &&
+            mWorld.hasComponent<Wounds>(mPlayerEntity) &&
+            !mWorld.getComponent<Wounds>(mPlayerEntity).active.empty();
+
+        if (mPlayerEntity != kInvalidEntity &&
+            mWorld.hasComponent<Health>(mPlayerEntity) &&
+            mWorld.getComponent<Health>(mPlayerEntity).current < mWorld.getComponent<Health>(mPlayerEntity).maximum * 0.85f)
+        {
+            primaryObj = "Find a medical cache";
+            secondaryObj = bleeding ? "Stop bleeding before pushing farther" : "Patch up before the next fight";
+            primaryColor = glm::vec4(0.95f, 0.5f, 0.45f, 0.95f);
+        }
+        else if (bleeding || wounded)
+        {
+            primaryObj = "Find a medical cache";
+            secondaryObj = bleeding ? "Stop bleeding before nightfall" : "Treat wounds before they turn into illness";
+            primaryColor = glm::vec4(0.95f, 0.5f, 0.45f, 0.95f);
+        }
+        else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
+        {
+            const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+            if (needs.thirst < 55.0f)
+            {
+                primaryObj = "Find water or a supply cache";
+                secondaryObj = "Thirst will kill a static run fast";
+                primaryColor = glm::vec4(0.45f, 0.75f, 0.95f, 0.95f);
+            }
+            else if (needs.hunger < 55.0f)
+            {
+                primaryObj = "Scavenge food before night";
+                secondaryObj = "Sleeping through the day now costs supplies";
+            }
+            else if (mRunStats.itemsLooted < 6)
+            {
+                primaryObj = "Sweep nearby interiors";
+                secondaryObj = "Look for med and supply caches before dusk";
+            }
+        }
+
+        mFont.drawText(mSpriteBatch, glm::vec2(objX, objY), primaryObj,
+                        primaryColor, 1.0f, TextAlign::Right);
+        objY += 14.0f;
+
+        mFont.drawText(mSpriteBatch, glm::vec2(objX, objY), secondaryObj,
+                        glm::vec4(0.6f, 0.7f, 0.6f, 0.7f), 1.0f, TextAlign::Right);
+        objY += 14.0f;
+
+        std::string scavengeObj = "Looted: " + std::to_string(mRunStats.itemsLooted) + " | Kills: " + std::to_string(mRunStats.kills);
+        mFont.drawText(mSpriteBatch, glm::vec2(objX, objY), scavengeObj,
+                        glm::vec4(0.7f, 0.5f, 0.5f, 0.7f), 1.0f, TextAlign::Right);
+    }
+
+    // Hotbar display (bottom of screen)
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity) && mRunState == RunState::Playing)
+    {
+        const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        const float hotbarY = static_cast<float>(mWindowHeight) - 26.0f;
+        const float startX = (static_cast<float>(mWindowWidth) - 8.0f * 72.0f) * 0.5f;
+        for (int i = 0; i < 8; ++i)
+        {
+            const auto& slot = inv.slots[static_cast<std::size_t>(i)];
+            const float slotX = startX + static_cast<float>(i) * 72.0f;
+            const bool isActive = (i == inv.activeSlot);
+            const glm::vec4 slotColor = isActive ? glm::vec4(1.0f, 1.0f, 0.6f, 1.0f) : glm::vec4(0.6f, 0.6f, 0.55f, 0.8f);
+            std::string label = std::to_string(i + 1) + ":";
+            if (slot.itemId >= 0 && slot.count > 0)
+            {
+                const ItemDef* item = mItemDatabase.find(slot.itemId);
+                if (item)
+                {
+                    label += item->name.substr(0, 6);
+                    if (slot.count > 1)
+                    {
+                        label += "x" + std::to_string(slot.count);
+                    }
+                }
+            }
+            else
+            {
+                label += "---";
+            }
+            mFont.drawText(mSpriteBatch, glm::vec2(slotX, hotbarY), label, slotColor, 1.0f);
+        }
+    }
+
+    // Interaction message
+    if (!mInteractionMessage.empty() && mInteractionMessageTimer > 0.0f)
+    {
+        const float alpha = std::min(1.0f, mInteractionMessageTimer / 0.5f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(static_cast<float>(mWindowWidth) * 0.5f,
+                       static_cast<float>(mWindowHeight) - 60.0f),
+            mInteractionMessage,
+            glm::vec4(1.0f, 1.0f, 0.8f, alpha),
+            kTextScale,
+            TextAlign::Center);
+    }
+
+    // Proximity prompt (E: action)
+    if (!mProximityPrompt.empty() && mRunState == RunState::Playing && mInteractionMessageTimer <= 0.0f)
+    {
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(static_cast<float>(mWindowWidth) * 0.5f,
+                       static_cast<float>(mWindowHeight) - 60.0f),
+            mProximityPrompt,
+            glm::vec4(0.9f, 0.9f, 0.7f, 0.85f),
+            kTextScale,
+            TextAlign::Center);
+    }
+
+    // Death overlay text
+    if (mRunState == RunState::Dead)
+    {
+        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
+        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 40.0f), "YOU DIED",
+                        glm::vec4(0.9f, 0.2f, 0.2f, 1.0f), 3.0f, TextAlign::Center);
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 4.0f), mCurrentCharacterName,
+                        glm::vec4(0.8f, 0.82f, 0.9f, 1.0f), kTextScale, TextAlign::Center);
+
+        // Traits on death screen
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            std::string traitLine;
+            if (traits.positive != PositiveTrait::None) traitLine += traits.positiveName();
+            if (traits.negative != NegativeTrait::None)
+            {
+                if (!traitLine.empty()) traitLine += " / ";
+                traitLine += traits.negativeName();
+            }
+            if (!traitLine.empty())
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 12.0f), traitLine,
+                                glm::vec4(0.65f, 0.65f, 0.55f, 0.8f), 1.0f, TextAlign::Center);
+            }
+        }
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 26.0f), mDeathCause,
+                        glm::vec4(0.75f, 0.55f, 0.55f, 1.0f), kSmallScale, TextAlign::Center);
+
+        // Run stats
+        {
+            const int distMeters = static_cast<int>(mRunStats.distanceWalked / 32.0f);
+            std::string statsLine = "Day " + std::to_string(mCurrentDay)
+                + " | " + std::to_string(mRunStats.kills) + " kills"
+                + " | " + std::to_string(distMeters) + "m walked";
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 42.0f), statsLine,
+                            glm::vec4(0.65f, 0.65f, 0.7f, 0.9f), 1.0f, TextAlign::Center);
+        }
+
+        if (mDeathStateTimer >= kDeathRestartDelaySeconds)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f), "Press Enter to begin again",
+                            glm::vec4(0.5f, 0.85f, 0.5f, 1.0f), kSmallScale, TextAlign::Center);
+        }
+        else
+        {
+            const int remaining = static_cast<int>(std::ceil(kDeathRestartDelaySeconds - mDeathStateTimer));
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f),
+                            "Wait " + std::to_string(remaining) + "...",
+                            glm::vec4(0.6f, 0.4f, 0.4f, 0.8f), kSmallScale, TextAlign::Center);
+        }
+    }
+
+    // Retirement overlay text
+    if (mRunState == RunState::Retired)
+    {
+        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
+        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 40.0f), "GAVE UP",
+                        glm::vec4(0.5f, 0.5f, 0.7f, 1.0f), 3.0f, TextAlign::Center);
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 4.0f), mCurrentCharacterName,
+                        glm::vec4(0.7f, 0.7f, 0.8f, 1.0f), kTextScale, TextAlign::Center);
+
+        // Traits on retirement screen
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            std::string traitLine;
+            if (traits.positive != PositiveTrait::None) traitLine += traits.positiveName();
+            if (traits.negative != NegativeTrait::None)
+            {
+                if (!traitLine.empty()) traitLine += " / ";
+                traitLine += traits.negativeName();
+            }
+            if (!traitLine.empty())
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 12.0f), traitLine,
+                                glm::vec4(0.55f, 0.55f, 0.5f, 0.8f), 1.0f, TextAlign::Center);
+            }
+        }
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 26.0f), mDeathCause,
+                        glm::vec4(0.5f, 0.5f, 0.65f, 1.0f), kSmallScale, TextAlign::Center);
+
+        // Run stats
+        {
+            const int distMeters = static_cast<int>(mRunStats.distanceWalked / 32.0f);
+            std::string statsLine = "Day " + std::to_string(mCurrentDay)
+                + " | " + std::to_string(mRunStats.kills) + " kills"
+                + " | " + std::to_string(distMeters) + "m walked";
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 42.0f), statsLine,
+                            glm::vec4(0.55f, 0.55f, 0.65f, 0.9f), 1.0f, TextAlign::Center);
+        }
+
+        if (mDeathStateTimer >= kDeathRestartDelaySeconds)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f), "Press Enter to try again",
+                            glm::vec4(0.45f, 0.65f, 0.75f, 1.0f), kSmallScale, TextAlign::Center);
+        }
+        else
+        {
+            const int remaining = static_cast<int>(std::ceil(kDeathRestartDelaySeconds - mDeathStateTimer));
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f),
+                            "Wait " + std::to_string(remaining) + "...",
+                            glm::vec4(0.4f, 0.4f, 0.5f, 0.8f), kSmallScale, TextAlign::Center);
+        }
+    }
+
+    // Pause overlay text
+    if (mRunState == RunState::Paused)
+    {
+        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
+        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 50.0f), "PAUSED",
+                        glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 3.0f, TextAlign::Center);
+
+        static const char* options[] = {"Resume", "Restart", "Quit"};
+        for (int i = 0; i < 3; ++i)
+        {
+            const bool selected = (i == mPauseSelection);
+            const glm::vec4 color = selected
+                ? glm::vec4(1.0f, 1.0f, 0.7f, 1.0f)
+                : glm::vec4(0.6f, 0.6f, 0.6f, 0.8f);
+            mFont.drawText(mSpriteBatch,
+                glm::vec2(centerX, centerY + 10.0f + static_cast<float>(i) * 28.0f),
+                options[i], color, kTextScale, TextAlign::Center);
+        }
+    }
+
+    // Title screen text
+    if (mRunState == RunState::TitleScreen)
+    {
+        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
+        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 60.0f), "DEAD PIXEL SURVIVAL",
+                        glm::vec4(0.85f, 0.2f, 0.2f, 1.0f), 3.0f, TextAlign::Center);
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 10.0f), "Press Enter to begin",
+                        glm::vec4(0.7f, 0.7f, 0.65f, 0.9f), kTextScale, TextAlign::Center);
+
+        // Show run number and cumulative stats
+        std::string runInfo = "Run #" + std::to_string(mSaveManager.runNumber());
+        if (mSaveManager.runNumber() > 1)
+        {
+            runInfo += " | Best: Day " + std::to_string(mSaveManager.longestRunDays())
+                     + " | Total kills: " + std::to_string(mSaveManager.totalKills())
+                     + " | Days survived: " + std::to_string(mSaveManager.totalDaysSurvived());
+        }
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 40.0f), runInfo,
+                        glm::vec4(0.5f, 0.5f, 0.5f, 0.7f), kSmallScale, TextAlign::Center);
+
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, static_cast<float>(mWindowHeight) - 30.0f),
+                        "Seed: " + std::to_string(mSaveManager.worldSeed()),
+                        glm::vec4(0.35f, 0.35f, 0.35f, 0.6f), 1.0f, TextAlign::Center);
+    }
+}
+
+void Game::renderMap()
+{
+    const int tileW = mTileMap.tileWidth();
+    const int tileH = mTileMap.tileHeight();
+
+    if (tileW <= 0 || tileH <= 0)
+    {
+        return;
+    }
+
+    const int mapW = mTileMap.width();
+    const int mapH = mTileMap.height();
+    const glm::vec2 viewportSize = mCamera.viewportSize();
+    const float zoom = mCamera.zoom();
+
+    // Iso tile visual size (at zoom 1.0)
+    constexpr float kIsoTileW = 64.0f;
+    constexpr float kIsoTileH = 32.0f;
+    const float scaledTileW = kIsoTileW * zoom;
+    const float scaledTileH = kIsoTileH * zoom;
+    const float margin = scaledTileW;
+
+    // Render tiles back-to-front by sum of (col + row)
+    for (int sum = 0; sum < mapW + mapH - 1; ++sum)
+    {
+        const int colStart = std::max(0, sum - (mapH - 1));
+        const int colEnd = std::min(sum, mapW - 1);
+
+        for (int col = colStart; col <= colEnd; ++col)
+        {
+            const int row = sum - col;
+
+            const int gid = mTileMap.groundGid(col, row);
+            if (gid == 0)
+            {
+                continue;
+            }
+
+            glm::vec4 uvRect;
+            if (!mTileMap.gidToUvRect(gid, uvRect))
+            {
+                continue;
+            }
+
+            // World center of tile
+            const glm::vec2 worldCenter(
+                static_cast<float>(col * tileW) + static_cast<float>(tileW) * 0.5f,
+                static_cast<float>(row * tileH) + static_cast<float>(tileH) * 0.5f);
+
+            const glm::vec2 screenCenter = mCamera.worldToScreen(worldCenter);
+
+            // Frustum cull
+            if (screenCenter.x + scaledTileW * 0.5f < -margin ||
+                screenCenter.y + scaledTileH * 0.5f < -margin ||
+                screenCenter.x - scaledTileW * 0.5f > viewportSize.x + margin ||
+                screenCenter.y - scaledTileH * 0.5f > viewportSize.y + margin)
+            {
+                continue;
+            }
+
+            // Draw tile centered on its iso screen position
+            mSpriteBatch.draw(
+                glm::vec2(screenCenter.x - scaledTileW * 0.5f,
+                           screenCenter.y - scaledTileH * 0.5f),
+                glm::vec2(scaledTileW, scaledTileH),
+                uvRect,
+                glm::vec4(1.0f));
+        }
+    }
+}
+
+void Game::renderAttackArcOverlay()
+{
+    if (mPlayerEntity == kInvalidEntity ||
+        !mWorld.hasComponent<Transform>(mPlayerEntity) ||
+        !mWorld.hasComponent<Facing>(mPlayerEntity) ||
+        !mWorld.hasComponent<Combat>(mPlayerEntity))
+    {
+        return;
+    }
+
+    const Transform& transform = mWorld.getComponent<Transform>(mPlayerEntity);
+    const Facing& facing = mWorld.getComponent<Facing>(mPlayerEntity);
+    const Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
+
+    if (combat.phase != AttackPhase::Windup)
+    {
+        return;
+    }
+
+    float arcDegrees = combat.weapon.arcDegrees;
+    float rangePixels = combat.weapon.rangePixels;
+    if (combat.weapon.condition == WeaponCondition::Broken)
+    {
+        arcDegrees *= 0.7f;
+        rangePixels *= 0.6f;
+    }
+    else if (combat.weapon.condition == WeaponCondition::Damaged)
+    {
+        rangePixels *= 0.85f;
+    }
+
+    const glm::vec2 playerCenter(
+        transform.x + kSpriteSize * 0.5f,
+        transform.y + kSpriteSize * 0.5f);
+
+    const glm::vec4 debugUvRect = mSpriteSheet.uvRect("solid_white");
+
+    const float halfArcRadians = glm::radians(arcDegrees * 0.5f);
+    constexpr int segments = 16;
+
+    const glm::vec4 baseColor = combat.swingWillMiss
+        ? glm::vec4(0.9f, 0.3f, 0.3f, 0.65f)
+        : glm::vec4(1.0f, 0.95f, 0.2f, 0.75f);
+
+    for (int index = 0; index <= segments; ++index)
+    {
+        const float t = static_cast<float>(index) / static_cast<float>(segments);
+        const float angle = facing.angleRadians - halfArcRadians + (halfArcRadians * 2.0f * t);
+
+        const glm::vec2 direction(std::cos(angle), std::sin(angle));
+        const glm::vec2 arcPointWorld = playerCenter + direction * rangePixels;
+        const glm::vec2 arcPointScreen = mCamera.worldToScreen(arcPointWorld);
+
+        const float dotSize = 10.0f * mCamera.zoom();
+        mSpriteBatch.draw(
+            arcPointScreen - glm::vec2(dotSize * 0.5f, dotSize * 0.5f),
+            glm::vec2(dotSize, dotSize),
+            debugUvRect,
+            baseColor);
+    }
+}
+
+void Game::updateNoiseModel(float dtSeconds)
+{
+    mNoiseModel.update(dtSeconds);
+
+    if (mPlayerEntity == kInvalidEntity ||
+        !mWorld.hasComponent<Transform>(mPlayerEntity) ||
+        !mWorld.hasComponent<Velocity>(mPlayerEntity) ||
+        !mWorld.hasComponent<Facing>(mPlayerEntity))
+    {
+        mMovementNoiseTier = NoiseTier::None;
+        mNoiseEmitTimer = 0.0f;
+        return;
+    }
+
+    const Transform& transform = mWorld.getComponent<Transform>(mPlayerEntity);
+    const Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+    const Facing& facing = mWorld.getComponent<Facing>(mPlayerEntity);
+
+    const float speedSquared = velocity.dx * velocity.dx + velocity.dy * velocity.dy;
+    if (speedSquared < 4.0f)
+    {
+        mMovementNoiseTier = NoiseTier::None;
+        mNoiseEmitTimer = 0.0f;
+        return;
+    }
+
+    NoiseTier noiseTier = facing.running ? NoiseTier::Medium : NoiseTier::Soft;
+    if (facing.crouching)
+    {
+        noiseTier = NoiseModel::adjustTier(noiseTier, -1);
+    }
+
+    const glm::vec2 feetPosition(
+        transform.x + kSpriteSize * 0.5f,
+        transform.y + kPlayerFootOffsetY);
+
+    const int tileX = static_cast<int>(std::floor(feetPosition.x / static_cast<float>(mTileMap.tileWidth())));
+    const int tileY = static_cast<int>(std::floor(feetPosition.y / static_cast<float>(mTileMap.tileHeight())));
+    const SurfaceType surface = mTileMap.getSurfaceType(tileX, tileY);
+
+    noiseTier = NoiseModel::adjustTier(noiseTier, surfaceNoiseModifier(surface));
+
+    // Clumsy trait: +1 noise tier on footsteps
+    if (mWorld.hasComponent<Traits>(mPlayerEntity))
+    {
+        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        if (traits.negative == NegativeTrait::Clumsy)
+        {
+            noiseTier = NoiseModel::adjustTier(noiseTier, 1);
+        }
+    }
+
+    mMovementNoiseTier = noiseTier;
+
+    if (noiseTier == NoiseTier::None)
+    {
+        mNoiseEmitTimer = 0.0f;
+        return;
+    }
+
+    const float emissionInterval = facing.running ? 0.14f : (facing.crouching ? 0.28f : 0.22f);
+
+    mNoiseEmitTimer += dtSeconds;
+    if (mNoiseEmitTimer < emissionInterval)
+    {
+        return;
+    }
+
+    mNoiseEmitTimer = 0.0f;
+    mNoiseModel.emitNoise(feetPosition, noiseTier, tierDurationSeconds(noiseTier), mPlayerEntity);
+
+    // Footstep audio
+    SoundId footstep = SoundId::FootstepNormal;
+    if (noiseTier == NoiseTier::Soft || facing.crouching)
+    {
+        footstep = SoundId::FootstepSoft;
+    }
+    else if (noiseTier == NoiseTier::Loud || noiseTier == NoiseTier::Explosive || facing.running)
+    {
+        footstep = SoundId::FootstepLoud;
+    }
+    mAudioManager.playSound(footstep, 0.12f);
+}
+
+void Game::renderNoiseDebugOverlay()
+{
+    if (!mShowNoiseDebug)
+    {
+        return;
+    }
+
+    const auto& events = mNoiseModel.activeEvents();
+    if (events.empty())
+    {
+        return;
+    }
+
+    const int tileWidth = mTileMap.tileWidth();
+    const int tileHeight = mTileMap.tileHeight();
+    if (tileWidth <= 0 || tileHeight <= 0)
+    {
+        return;
+    }
+
+    const glm::vec4 debugUvRect = mSpriteSheet.uvRect("solid_white");
+
+    const glm::vec2 viewportSize = mCamera.viewportSize();
+
+    for (const NoiseEvent& event : events)
+    {
+        const float centerTileX = event.worldPosition.x / static_cast<float>(tileWidth);
+        const float centerTileY = event.worldPosition.y / static_cast<float>(tileHeight);
+
+        const int minTileX = static_cast<int>(std::floor(centerTileX - static_cast<float>(event.radiusTiles) - 1.0f));
+        const int maxTileX = static_cast<int>(std::ceil(centerTileX + static_cast<float>(event.radiusTiles) + 1.0f));
+        const int minTileY = static_cast<int>(std::floor(centerTileY - static_cast<float>(event.radiusTiles) - 1.0f));
+        const int maxTileY = static_cast<int>(std::ceil(centerTileY + static_cast<float>(event.radiusTiles) + 1.0f));
+
+        glm::vec4 color = NoiseModel::tierColor(event.tier);
+        const float lifeAlpha = event.totalDurationSeconds > 0.0f
+            ? event.remainingSeconds / event.totalDurationSeconds
+            : 0.0f;
+        color.a *= lifeAlpha;
+
+        for (int tileY = minTileY; tileY <= maxTileY; ++tileY)
+        {
+            for (int tileX = minTileX; tileX <= maxTileX; ++tileX)
+            {
+                if (tileX < 0 || tileX >= mTileMap.width() || tileY < 0 || tileY >= mTileMap.height())
+                {
+                    continue;
+                }
+
+                const float dx = (static_cast<float>(tileX) + 0.5f) - centerTileX;
+                const float dy = (static_cast<float>(tileY) + 0.5f) - centerTileY;
+                const float distance = std::sqrt(dx * dx + dy * dy);
+
+                if (distance < static_cast<float>(event.radiusTiles) - 0.65f ||
+                    distance > static_cast<float>(event.radiusTiles) + 0.35f)
+                {
+                    continue;
+                }
+
+                const glm::vec2 worldCenter(
+                    static_cast<float>(tileX * tileWidth) + static_cast<float>(tileWidth) * 0.5f,
+                    static_cast<float>(tileY * tileHeight) + static_cast<float>(tileHeight) * 0.5f);
+                const glm::vec2 screenCenter = mCamera.worldToScreen(worldCenter);
+
+                const float scaledW = static_cast<float>(tileWidth) * mCamera.zoom();
+                const float scaledH = static_cast<float>(tileHeight) * mCamera.zoom();
+
+                if (screenCenter.x + scaledW * 0.5f < 0.0f ||
+                    screenCenter.y + scaledH * 0.5f < 0.0f ||
+                    screenCenter.x - scaledW * 0.5f > viewportSize.x ||
+                    screenCenter.y - scaledH * 0.5f > viewportSize.y)
+                {
+                    continue;
+                }
+
+                mSpriteBatch.draw(
+                    glm::vec2(screenCenter.x - scaledW * 0.5f, screenCenter.y - scaledH * 0.5f),
+                    glm::vec2(scaledW, scaledH),
+                    debugUvRect,
+                    color);
+            }
+        }
+    }
+}
+
+void Game::updateWindowTitle(double frameSeconds)
+{
+    mFpsTimer += frameSeconds;
+    mFramesThisSecond += 1;
+
+    if (mFpsTimer < 1.0)
+    {
+        return;
+    }
+
+    const double fps = static_cast<double>(mFramesThisSecond) / mFpsTimer;
+
+    std::size_t zombieCount = 0;
+    for (const Entity entity : mWorld.livingEntities())
+    {
+        if (mWorld.hasComponent<ZombieAI>(entity))
+        {
+            ++zombieCount;
+        }
+    }
+
+    std::ostringstream title;
+    title << "Dead Pixel Survival | FPS: "
+          << std::fixed << std::setprecision(1) << fps
+          << " | Entities: " << mWorld.livingEntities().size()
+          << " | Zombies: " << zombieCount;
+
+    if (mRunState == RunState::Dead)
+    {
+        title << " | DEAD";
+    }
+
+    title << " | F1 Noise: " << (mShowNoiseDebug ? "ON" : "OFF");
+
+    if (!mDebugEntities.empty())
+    {
+        title << " | K: remove test entity";
+    }
+
+    SDL_SetWindowTitle(mWindow, title.str().c_str());
+
+    mFpsTimer = 0.0;
+    mFramesThisSecond = 0;
+}
+
+glm::vec2 Game::screenToWorld(const glm::vec2& screenPosition) const
+{
+    return mCamera.screenToWorld(screenPosition);
+}
+
+void Game::renderInventoryOverlay()
+{
+    if (!mShowInventory || mRunState != RunState::Playing ||
+        mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        return;
+    }
+
+    constexpr float kSmallScale = 1.5f;
+    const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+
+    const float panelX = static_cast<float>(mWindowWidth) * 0.5f - 140.0f;
+    float y = 60.0f;
+
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "INVENTORY", glm::vec4(1.0f, 0.95f, 0.7f, 1.0f), 2.0f);
+    y += 24.0f;
+
+    const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
+    std::ostringstream weightStr;
+    weightStr << std::fixed << std::setprecision(1) << weight << "/" << Inventory::kMaxCarryWeight << " kg";
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), weightStr.str(), glm::vec4(0.7f, 0.7f, 0.65f, 0.9f), kSmallScale);
+    y += 18.0f;
+
+    for (int i = 0; i < Inventory::kMaxSlots; ++i)
+    {
+        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
+        std::string line;
+        if (i < 8)
+        {
+            line = "[" + std::to_string(i + 1) + "] ";
+        }
+        else
+        {
+            line = "[" + std::to_string(i + 1) + "] ";
+        }
+
+        if (slot.itemId >= 0 && slot.count > 0)
+        {
+            const ItemDef* item = mItemDatabase.find(slot.itemId);
+            if (item)
+            {
+                line += item->name;
+                if (slot.count > 1)
+                {
+                    line += " x" + std::to_string(slot.count);
+                }
+                if (item->spoilHours > 0.0f && slot.condition < 0.9f)
+                {
+                    const int pct = static_cast<int>(slot.condition * 100.0f);
+                    line += " (" + std::to_string(pct) + "%)";
+                }
+            }
+            else
+            {
+                line += "??? x" + std::to_string(slot.count);
+            }
+        }
+        else
+        {
+            line += "---";
+        }
+
+        const bool isCursor = (i == mInventoryCursor);
+        const bool active = (i == inv.activeSlot);
+        glm::vec4 color;
+        if (isCursor)
+            color = glm::vec4(1.0f, 1.0f, 0.2f, 1.0f); // bright yellow for cursor
+        else if (active)
+            color = glm::vec4(1.0f, 1.0f, 0.6f, 1.0f);
+        else
+            color = glm::vec4(0.75f, 0.75f, 0.7f, 0.85f);
+
+        std::string prefix = isCursor ? "> " : "  ";
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), prefix + line, color, kSmallScale);
+        y += 14.0f;
+    }
+
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y + 4.0f), "W/S: Navigate | F: Use | Enter: Swap to hotbar | Tab: Close",
+                    glm::vec4(0.5f, 0.5f, 0.45f, 0.8f), 1.0f);
+}
+
+void Game::renderContainerOverlay()
+{
+    if (!mContainerOpen || mOpenContainerEntity == kInvalidEntity || mRunState != RunState::Playing)
+    {
+        return;
+    }
+
+    if (!mWorld.hasComponent<Inventory>(mOpenContainerEntity))
+    {
+        return;
+    }
+
+    const Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
+    constexpr float kSmallScale = 1.5f;
+
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+
+    // Semi-transparent panel background
+    const float panelW = 300.0f;
+    const float panelX = (static_cast<float>(mWindowWidth) - panelW) * 0.5f;
+    const float panelY = 120.0f;
+
+    // Count items
+    int itemCount = 0;
+    for (const auto& slot : containerInv.slots)
+    {
+        if (slot.itemId >= 0 && slot.count > 0) ++itemCount;
+    }
+
+    const float panelH = 40.0f + static_cast<float>(std::max(1, itemCount)) * 18.0f;
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH),
+                       uiUv, glm::vec4(0.06f, 0.06f, 0.1f, 0.88f));
+
+    // Header
+    std::string header = "CONTAINER";
+    if (mWorld.hasComponent<Interactable>(mOpenContainerEntity))
+    {
+        const Interactable& inter = mWorld.getComponent<Interactable>(mOpenContainerEntity);
+        if (!inter.prompt.empty()) header = inter.prompt;
+    }
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 10.0f, panelY + 8.0f), header,
+                    glm::vec4(0.9f, 0.85f, 0.5f, 1.0f), 2.0f);
+
+    float y = panelY + 32.0f;
+    int idx = 0;
+    for (const auto& slot : containerInv.slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+
+        const bool selected = (idx == mContainerCursor);
+        const ItemDef* item = mItemDatabase.find(slot.itemId);
+        std::string line = item ? item->name : ("Item #" + std::to_string(slot.itemId));
+        if (slot.count > 1) line += " x" + std::to_string(slot.count);
+
+        if (selected)
+        {
+            mSpriteBatch.draw(glm::vec2(panelX + 4.0f, y - 1.0f), glm::vec2(panelW - 8.0f, 17.0f),
+                               uiUv, glm::vec4(0.25f, 0.35f, 0.5f, 0.5f));
+        }
+
+        const glm::vec4 color = selected ? glm::vec4(1.0f, 1.0f, 0.7f, 1.0f) : glm::vec4(0.7f, 0.7f, 0.65f, 0.9f);
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 12.0f, y), line, color, kSmallScale);
+        y += 18.0f;
+        ++idx;
+    }
+
+    if (itemCount == 0)
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 12.0f, y), "Empty",
+                        glm::vec4(0.5f, 0.5f, 0.5f, 0.7f), kSmallScale);
+    }
+
+    // Controls hint
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 10.0f, panelY + panelH + 4.0f),
+                    "W/S: Select  E: Take  ESC: Close",
+                    glm::vec4(0.5f, 0.5f, 0.45f, 0.7f), 1.0f);
+}
+
+void Game::renderBuildModeOverlay()
+{
+    if (!mBuildSystem.isBuildMode() || mRunState != RunState::Playing)
+    {
+        return;
+    }
+
+    constexpr float kSmallScale = 1.5f;
+    const float panelX = 12.0f;
+    float y = static_cast<float>(mWindowHeight) - 120.0f;
+
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "BUILD MODE", glm::vec4(0.9f, 0.8f, 0.3f, 1.0f), 2.0f);
+    y += 22.0f;
+
+    for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
+    {
+        const auto& recipe = BuildSystem::kRecipes[i];
+        const bool selected = (i == mBuildSystem.selectedRecipe());
+
+        // Check if player has enough materials
+        bool canAfford = false;
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+        {
+            const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+            canAfford = InventorySystem::countItem(inv, recipe.materialId) >= recipe.materialCost;
+        }
+
+        std::string line = std::to_string(i + 1) + ": " + std::string(recipe.name) + " (" + std::to_string(recipe.materialCost) + " mat)";
+        glm::vec4 color;
+        if (selected)
+        {
+            color = canAfford ? glm::vec4(0.3f, 1.0f, 0.4f, 1.0f) : glm::vec4(1.0f, 0.5f, 0.4f, 1.0f);
+        }
+        else
+        {
+            color = canAfford ? glm::vec4(0.4f, 0.75f, 0.45f, 0.85f) : glm::vec4(0.5f, 0.5f, 0.5f, 0.6f);
+        }
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), line, color, kSmallScale);
+        y += 16.0f;
+    }
+
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y + 2.0f), "Click: Place  |  B/ESC: Cancel", glm::vec4(0.5f, 0.5f, 0.45f, 0.8f), 1.0f);
+}
+
+void Game::renderPauseOverlay()
+{
+    if (mRunState != RunState::Paused)
+    {
+        return;
+    }
+
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+
+    // Dim background
+    mSpriteBatch.draw(
+        glm::vec2(0.0f, 0.0f),
+        glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
+        uiUv,
+        glm::vec4(0.0f, 0.0f, 0.0f, 0.65f));
+
+    // Panel
+    const glm::vec2 panelSize(280.0f, 160.0f);
+    const glm::vec2 panelPos(
+        (static_cast<float>(mWindowWidth) - panelSize.x) * 0.5f,
+        (static_cast<float>(mWindowHeight) - panelSize.y) * 0.5f);
+    mSpriteBatch.draw(panelPos, panelSize, uiUv, glm::vec4(0.08f, 0.08f, 0.12f, 0.9f));
+
+    // Highlight selected option
+    const float optionStartY = panelPos.y + 60.0f;
+    const float optionH = 28.0f;
+    mSpriteBatch.draw(
+        glm::vec2(panelPos.x + 10.0f, optionStartY + static_cast<float>(mPauseSelection) * optionH - 2.0f),
+        glm::vec2(panelSize.x - 20.0f, optionH),
+        uiUv,
+        glm::vec4(0.25f, 0.4f, 0.55f, 0.5f));
+}
+
+void Game::renderTitleScreen()
+{
+    // Rendered in renderTextOverlays
+}
+
+void Game::renderControlsOverlay()
+{
+    if (!mShowControls)
+    {
+        return;
+    }
+
+    constexpr float kSmallScale = 1.5f;
+    const float panelX = static_cast<float>(mWindowWidth) - 260.0f;
+    float y = 80.0f;
+    const glm::vec4 headerColor(0.9f, 0.85f, 0.6f, 1.0f);
+    const glm::vec4 textColor(0.7f, 0.7f, 0.65f, 0.9f);
+
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "CONTROLS", headerColor, 2.0f);
+    y += 24.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "WASD    Move", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Mouse   Aim", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "LClick  Attack", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "RClick  Grab", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "E       Interact", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F       Use Item", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "B       Build", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Tab     Inventory", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "1-8     Hotbar", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "W/S     Navigate (Inv)", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Enter   Swap to hotbar", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Shift   Run", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "C       Crouch", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Esc     Pause", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F2      Controls", textColor, kSmallScale);
+}

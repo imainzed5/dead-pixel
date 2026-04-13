@@ -1,0 +1,256 @@
+{
+  "items": [
+    {
+      "id": 0,
+      "name": "Canned Food",
+      "category": "food",
+      "weight": 0.5,
+      "maxStack": 5,
+      "sprite": "item_canned_food",
+      "hungerRestore": 30.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 72.0
+    },
+    {
+      "id": 1,
+      "name": "Apple",
+      "category": "food",
+      "weight": 0.2,
+      "maxStack": 8,
+      "sprite": "item_apple",
+      "hungerRestore": 18.0,
+      "thirstRestore": 5.0,
+      "spoilHours": 24.0
+    },
+    {
+      "id": 2,
+      "name": "Bread",
+      "category": "food",
+      "weight": 0.3,
+      "maxStack": 5,
+      "sprite": "item_bread",
+      "hungerRestore": 25.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 36.0
+    },
+    {
+      "id": 3,
+      "name": "Water Bottle",
+      "category": "drink",
+      "weight": 0.4,
+      "maxStack": 3,
+      "sprite": "item_water_bottle",
+      "hungerRestore": 0.0,
+      "thirstRestore": 40.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 4,
+      "name": "Bandage",
+      "category": "medical",
+      "weight": 0.1,
+      "maxStack": 5,
+      "sprite": "item_bandage",
+      "woundTreatment": 1,
+      "stopsBleeding": true,
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 5,
+      "name": "Knife",
+      "category": "weapon",
+      "weight": 0.8,
+      "maxStack": 1,
+      "sprite": "item_knife",
+      "weaponCategory": 1
+    },
+    {
+      "id": 6,
+      "name": "Baseball Bat",
+      "category": "weapon",
+      "weight": 1.5,
+      "maxStack": 1,
+      "sprite": "item_bat",
+      "weaponCategory": 2
+    },
+    {
+      "id": 7,
+      "name": "Pipe",
+      "category": "weapon",
+      "weight": 1.2,
+      "maxStack": 1,
+      "sprite": "item_pipe",
+      "weaponCategory": 2
+    },
+    {
+      "id": 8,
+      "name": "Axe",
+      "category": "weapon",
+      "weight": 2.0,
+      "maxStack": 1,
+      "sprite": "item_axe",
+      "weaponCategory": 1
+    },
+    {
+      "id": 9,
+      "name": "Wood Planks",
+      "category": "material",
+      "weight": 1.0,
+      "maxStack": 10,
+      "sprite": "item_wood",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 10,
+      "name": "Scrap Metal",
+      "category": "material",
+      "weight": 1.5,
+      "maxStack": 8,
+      "sprite": "item_scrap",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 11,
+      "name": "Rope",
+      "category": "material",
+      "weight": 0.5,
+      "maxStack": 5,
+      "sprite": "item_rope",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 12,
+      "name": "Fuel Can",
+      "category": "material",
+      "weight": 2.0,
+      "maxStack": 3,
+      "sprite": "item_fuel",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 13,
+      "name": "Glass Shards",
+      "category": "material",
+      "weight": 0.3,
+      "maxStack": 10,
+      "sprite": "item_glass",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 14,
+      "name": "Pistol Ammo",
+      "category": "material",
+      "weight": 0.3,
+      "maxStack": 20,
+      "sprite": "item_scrap",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 15,
+      "name": "Antibiotics",
+      "category": "medical",
+      "weight": 0.1,
+      "maxStack": 3,
+      "sprite": "item_bandage",
+      "illnessRelief": 40.0,
+      "curesInfection": true,
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 16,
+      "name": "Painkillers",
+      "category": "medical",
+      "weight": 0.1,
+      "maxStack": 5,
+      "sprite": "item_bandage",
+      "panicRelief": 30.0,
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 17,
+      "name": "Hammer",
+      "category": "weapon",
+      "weight": 1.8,
+      "maxStack": 1,
+      "sprite": "item_pipe",
+      "weaponCategory": 2
+    },
+    {
+      "id": 18,
+      "name": "Flashlight",
+      "category": "material",
+      "weight": 0.4,
+      "maxStack": 1,
+      "sprite": "item_scrap",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 19,
+      "name": "Matches",
+      "category": "material",
+      "weight": 0.05,
+      "maxStack": 10,
+      "sprite": "item_wood",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 20,
+      "name": "Jacket",
+      "category": "material",
+      "weight": 1.5,
+      "maxStack": 1,
+      "sprite": "item_rope",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 21,
+      "name": "Rat Meat",
+      "category": "food",
+      "weight": 0.3,
+      "maxStack": 5,
+      "sprite": "item_canned_food",
+      "hungerRestore": 15.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 12.0
+    },
+    {
+      "id": 22,
+      "name": "First Aid Kit",
+      "category": "medical",
+      "weight": 0.5,
+      "maxStack": 2,
+      "sprite": "item_medkit",
+      "healthRestore": 35.0,
+      "illnessRelief": 10.0,
+      "woundTreatment": 1,
+      "stopsBleeding": true,
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    }
+  ]
+}

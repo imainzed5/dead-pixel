@@ -1,0 +1,708 @@
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;500;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  .gdd-root {
+    font-family: 'Barlow', sans-serif;
+    font-weight: 400;
+    color: var(--color-text-primary);
+    padding: 0;
+    max-width: 100%;
+  }
+
+  .gdd-header {
+    background: #0d0d0d;
+    padding: 2rem 2rem 1.5rem;
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+  }
+
+  .gdd-header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      0deg, transparent, transparent 31px, rgba(255,255,255,0.03) 31px, rgba(255,255,255,0.03) 32px
+    ), repeating-linear-gradient(
+      90deg, transparent, transparent 31px, rgba(255,255,255,0.03) 31px, rgba(255,255,255,0.03) 32px
+    );
+    pointer-events: none;
+  }
+
+  .gdd-eyebrow {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: #c0392b;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .gdd-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 32px;
+    color: #f0ece0;
+    font-weight: 400;
+    line-height: 1.1;
+    margin-bottom: 6px;
+  }
+
+  .gdd-title span { color: #c0392b; }
+
+  .gdd-subtitle {
+    font-size: 13px;
+    color: #888;
+    letter-spacing: 0.05em;
+    margin-bottom: 1.5rem;
+  }
+
+  .gdd-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    border: 0.5px solid rgba(255,255,255,0.15);
+    color: #aaa;
+    border-radius: 2px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .badge-red { border-color: rgba(192,57,43,0.5); color: #e74c3c; }
+
+  .gdd-nav {
+    display: flex;
+    gap: 0;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .gdd-nav::-webkit-scrollbar { display: none; }
+
+  .nav-btn {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 12px 18px;
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .nav-btn:hover { color: #aaa; }
+  .nav-btn.active { color: #e74c3c; border-bottom-color: #e74c3c; }
+
+  .gdd-body {
+    background: #111;
+    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+    min-height: 420px;
+  }
+
+  .tab-panel { display: none; padding: 1.75rem 2rem; }
+  .tab-panel.active { display: block; }
+
+  .section-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: #c0392b;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    padding-bottom: 6px;
+    border-bottom: 0.5px solid #2a2a2a;
+  }
+
+  .section-gap { margin-bottom: 2rem; }
+
+  .prose {
+    font-size: 14px;
+    color: #aaa;
+    line-height: 1.75;
+  }
+
+  .highlight { color: #f0ece0; font-weight: 500; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 1.5rem;
+  }
+
+  .three-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 1.5rem;
+  }
+
+  .card {
+    background: #1a1a1a;
+    border: 0.5px solid #2a2a2a;
+    border-radius: var(--border-radius-md);
+    padding: 1rem;
+  }
+
+  .card-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    color: #f0ece0;
+    margin-bottom: 6px;
+  }
+
+  .card-body {
+    font-size: 13px;
+    color: #777;
+    line-height: 1.6;
+  }
+
+  .card-accent { border-left: 2px solid #c0392b; }
+
+  .pill {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    background: #1e1e1e;
+    border: 0.5px solid #333;
+    border-radius: 2px;
+    color: #888;
+    margin: 2px 3px 2px 0;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  .pill-red { background: rgba(192,57,43,0.1); border-color: rgba(192,57,43,0.3); color: #e74c3c; }
+
+  .row-item {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 10px 0;
+    border-bottom: 0.5px solid #1e1e1e;
+  }
+  .row-item:last-child { border-bottom: none; }
+
+  .row-key {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: #555;
+    min-width: 110px;
+    flex-shrink: 0;
+    padding-top: 2px;
+    letter-spacing: 0.05em;
+  }
+
+  .row-val {
+    font-size: 13px;
+    color: #999;
+    line-height: 1.6;
+  }
+
+  .row-val .highlight { font-size: 13px; }
+
+  .threat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 1.5rem;
+  }
+
+  .threat-card {
+    background: #1a1a1a;
+    border: 0.5px solid #2a2a2a;
+    border-radius: var(--border-radius-md);
+    padding: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+
+  .threat-card:hover { border-color: #444; }
+
+  .threat-num {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: #c0392b;
+    margin-bottom: 4px;
+  }
+
+  .threat-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #f0ece0;
+    margin-bottom: 4px;
+  }
+
+  .threat-desc {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.5;
+  }
+
+  .milestone-list { list-style: none; }
+
+  .milestone {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 12px 0;
+    border-bottom: 0.5px solid #1e1e1e;
+  }
+  .milestone:last-child { border-bottom: none; }
+
+  .milestone-num {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: #c0392b;
+    min-width: 60px;
+    padding-top: 2px;
+  }
+
+  .milestone-content {}
+  .milestone-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #f0ece0;
+    margin-bottom: 4px;
+  }
+  .milestone-body {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  .legacy-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 1.5rem;
+  }
+
+  .legacy-item {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    background: #1a1a1a;
+    border: 0.5px solid #2a2a2a;
+    border-radius: var(--border-radius-md);
+    padding: 12px;
+  }
+
+  .legacy-icon {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 18px;
+    color: #c0392b;
+    min-width: 28px;
+  }
+
+  .legacy-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #f0ece0;
+    margin-bottom: 3px;
+  }
+
+  .legacy-desc {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.55;
+  }
+
+  @media (max-width: 560px) {
+    .two-col, .three-col, .threat-grid { grid-template-columns: 1fr; }
+    .gdd-title { font-size: 24px; }
+    .tab-panel { padding: 1.25rem; }
+  }
+</style>
+
+<div class="gdd-root">
+  <div class="gdd-header">
+    <div class="gdd-eyebrow">// game design document — v0.1 brainstorm</div>
+    <div class="gdd-title">DEAD <span>PIXEL</span><br>SURVIVAL</div>
+    <div class="gdd-subtitle">A PZ-inspired pixel art survival game — solo C++ project</div>
+    <div class="gdd-badges">
+      <span class="badge badge-red">C++ / SDL2 / OpenGL</span>
+      <span class="badge">Pixel Art</span>
+      <span class="badge">Procedural</span>
+      <span class="badge">Realistic Simulation</span>
+      <span class="badge">Solo Dev</span>
+      <span class="badge">Desktop</span>
+    </div>
+  </div>
+
+  <div class="gdd-nav">
+    <button class="nav-btn active" onclick="showTab('overview')">Overview</button>
+    <button class="nav-btn" onclick="showTab('world')">World</button>
+    <button class="nav-btn" onclick="showTab('threats')">Threats</button>
+    <button class="nav-btn" onclick="showTab('legacy')">Legacy</button>
+    <button class="nav-btn" onclick="showTab('modes')">Game Modes</button>
+    <button class="nav-btn" onclick="showTab('systems')">Systems</button>
+    <button class="nav-btn" onclick="showTab('tech')">Tech</button>
+    <button class="nav-btn" onclick="showTab('roadmap')">Roadmap</button>
+  </div>
+
+  <div class="gdd-body">
+
+    <div class="tab-panel active" id="tab-overview">
+      <div class="section-gap">
+        <div class="section-label">// concept</div>
+        <p class="prose">
+          <span class="highlight">Dead Pixel Survival</span> is a top-down pixel art zombie survival game built from scratch in C++. Inspired by Project Zomboid's deep simulation philosophy, it adds procedural world generation, a legacy system between deaths, and player-defined threat modes — making every run feel distinct while preserving continuity across deaths.
+        </p>
+      </div>
+
+      <div class="section-gap">
+        <div class="section-label">// four design pillars</div>
+        <div class="two-col">
+          <div class="card card-accent">
+            <div class="card-title">Every action has weight</div>
+            <div class="card-body">Noise, light, and smell attract zombies. Resource decisions matter. No safe zones last forever.</div>
+          </div>
+          <div class="card card-accent">
+            <div class="card-title">Slow burn tension</div>
+            <div class="card-body">Resources deplete. Infection spreads. Time is always working against the player.</div>
+          </div>
+          <div class="card card-accent">
+            <div class="card-title">Emergent stories</div>
+            <div class="card-body">Traits, events, and legacy systems create organic narratives no two players share.</div>
+          </div>
+          <div class="card card-accent">
+            <div class="card-title">Pixel-first identity</div>
+            <div class="card-body">Art constraint is a feature. Chunky tiles, readable sprites, moody palettes define the look.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-gap">
+        <div class="section-label">// core identity tags</div>
+        <span class="pill pill-red">permadeath</span>
+        <span class="pill pill-red">legacy system</span>
+        <span class="pill pill-red">procedural map</span>
+        <span class="pill">realistic simulation</span>
+        <span class="pill">player-defined threat</span>
+        <span class="pill">campaign + endless</span>
+        <span class="pill">solo dev</span>
+        <span class="pill">top-down pixel art</span>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-world">
+      <div class="section-gap">
+        <div class="section-label">// map generation</div>
+        <div class="row-item">
+          <span class="row-key">approach</span>
+          <span class="row-val"><span class="highlight">Procedural layout, handcrafted assets.</span> The generator assembles a town from pre-built building templates. Roads, districts, and placement are random — buildings are hand-designed pixel art tiles.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">why</span>
+          <span class="row-val">Fully procedural maps feel incoherent. Handcrafted templates give variety per run while keeping the world believable and the art scope manageable for a solo dev.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">districts</span>
+          <span class="row-val">Residential, commercial, industrial, medical, forest outskirts — each with distinct loot tables, zombie density, and threat profiles.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">run variance</span>
+          <span class="row-val">Building placement, loot seeding, zombie spawn density, and weather conditions all randomize per run. Same templates, different world every time.</span>
+        </div>
+      </div>
+
+      <div class="section-gap">
+        <div class="section-label">// world feel</div>
+        <div class="three-col">
+          <div class="card">
+            <div class="card-title">Day / night cycle</div>
+            <div class="card-body">Night dramatically increases zombie aggression and spawn rate. Light sources become critical and dangerous simultaneously.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Weather system</div>
+            <div class="card-body">Rain masks sound (stealth benefit) but reduces visibility and accelerates illness. Heat affects stamina drain.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">World decay</div>
+            <div class="card-body">The longer a run goes, the more the world degrades. Power fails, water stops, food spoils faster.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-threats">
+      <div class="section-gap">
+        <div class="section-label">// threat modes — player selects at run start</div>
+        <div class="threat-grid">
+          <div class="threat-card">
+            <div class="threat-num">// 01</div>
+            <div class="threat-name">The Overwhelming Swarm</div>
+            <div class="threat-desc">Individually weak but endless. One zombie is manageable — fifty is a death sentence. Panic and resource anxiety.</div>
+          </div>
+          <div class="threat-card">
+            <div class="threat-num">// 02</div>
+            <div class="threat-name">The Stalker</div>
+            <div class="threat-desc">Few zombies, but persistent. They hear, track, and never give up. Pure paranoia and stealth gameplay.</div>
+          </div>
+          <div class="threat-card">
+            <div class="threat-num">// 03</div>
+            <div class="threat-name">The Mutating Threat</div>
+            <div class="threat-desc">Zombies evolve as days pass. Early: slow and dumb. Late: faster, climb obstacles, break doors. A ticking clock.</div>
+          </div>
+          <div class="threat-card">
+            <div class="threat-num">// 04</div>
+            <div class="threat-name">The Infected Society</div>
+            <div class="threat-desc">Survivors are equally dangerous. Factions, desperation, unpredictable NPCs. Zombies are background noise.</div>
+          </div>
+          <div class="threat-card">
+            <div class="threat-num">// 05</div>
+            <div class="threat-name">The Unknown</div>
+            <div class="threat-desc">Zombies behave inconsistently — sometimes passive, sometimes frenzied. Triggers are mysteries to discover.</div>
+          </div>
+          <div class="threat-card">
+            <div class="threat-num">// 06</div>
+            <div class="threat-name">Hybrid: Swarm + Mutation</div>
+            <div class="threat-desc">Starts as overwhelming swarm. Over days, they mutate into something worse. Two-phase escalating threat.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-legacy">
+      <div class="section-gap">
+        <div class="section-label">// legacy system — all five active simultaneously, or toggled per preference</div>
+        <div class="legacy-grid">
+          <div class="legacy-item">
+            <div class="legacy-icon">✍</div>
+            <div>
+              <div class="legacy-name">Journal Entries</div>
+              <div class="legacy-desc">Dead characters leave notes scattered in the world. Future runs can find them — warnings, locations, emotional artifacts from past lives.</div>
+            </div>
+          </div>
+          <div class="legacy-item">
+            <div class="legacy-icon">⌂</div>
+            <div>
+              <div class="legacy-name">Persistent Structures</div>
+              <div class="legacy-desc">Bases partially survive into the next run in a decayed state. Barricades crumble, supplies deplete, but the bones of your work remain.</div>
+            </div>
+          </div>
+          <div class="legacy-item">
+            <div class="legacy-icon">⚙</div>
+            <div>
+              <div class="legacy-name">Bloodline Traits</div>
+              <div class="legacy-desc">Each death unlocks a trait or perk available to future characters. Die as a skilled carpenter — the next character starts with a fragment of that knowledge.</div>
+            </div>
+          </div>
+          <div class="legacy-item">
+            <div class="legacy-icon">◎</div>
+            <div>
+              <div class="legacy-name">World Memory</div>
+              <div class="legacy-desc">The world remembers what happened. A town you burned stays burned. A horde you drew to the east stays there. Actions have permanent consequences.</div>
+            </div>
+          </div>
+          <div class="legacy-item">
+            <div class="legacy-icon">†</div>
+            <div>
+              <div class="legacy-name">Named Graves</div>
+              <div class="legacy-desc">Every dead character gets a grave in the world, findable by future runs. A growing cemetery that tells the story of all your failures.</div>
+            </div>
+          </div>
+        </div>
+        <p class="prose">Legacy depth is a <span class="highlight">player preference</span> — toggle individual features or use presets: <span class="pill">Fresh Start</span> (nothing carries over) or <span class="pill pill-red">Living World</span> (all five active).</p>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-modes">
+      <div class="section-gap">
+        <div class="section-label">// primary game modes</div>
+        <div class="two-col">
+          <div class="card card-accent">
+            <div class="card-title">Campaign Mode</div>
+            <div class="card-body" style="margin-bottom:10px;">A goal exists — escape the city, reach a radio signal, find a cure. The procedural map has a destination baked in. Each failed run is a chapter, not the end. Legacy system carries weight here — you die closer to knowing the world.</div>
+            <span class="pill pill-red">narrative wrapper</span>
+            <span class="pill pill-red">win condition</span>
+            <span class="pill">legacy-heavy</span>
+          </div>
+          <div class="card card-accent">
+            <div class="card-title">Endless Mode</div>
+            <div class="card-body" style="margin-bottom:10px;">No win condition. Pure survival sandbox. How long can you last? The world gets richer the more you die — legacy builds a living history over time. Death is expected. The world outlives the character.</div>
+            <span class="pill pill-red">no win condition</span>
+            <span class="pill pill-red">sandbox</span>
+            <span class="pill">legacy as history</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Shared engine, two lenses</div>
+          <div class="card-body">Both modes run on the exact same systems — same map generator, survival mechanics, zombie behavior, legacy features. Campaign adds an objective layer and narrative wrapper. You're building one game with two playstyles, not two games.</div>
+        </div>
+      </div>
+
+      <div class="section-gap">
+        <div class="section-label">// tone presets — atmosphere per run</div>
+        <div class="three-col">
+          <div class="card">
+            <div class="card-title">Hopeless</div>
+            <div class="card-body">PZ-faithful. Bleak, sparse UI, no music. The world is ending and you know it.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Grim but human</div>
+            <div class="card-body">Dark but with warmth. Found notes, survivor stories, small victories that matter.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Brutal arcade</div>
+            <div class="card-body">Systems stay realistic but the tone is faster, more aggressive. Action-horror energy.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-systems">
+      <div class="section-gap">
+        <div class="section-label">// core simulation systems</div>
+        <div class="row-item">
+          <span class="row-key">needs</span>
+          <span class="row-val">Hunger, thirst, fatigue, morale, body temperature, illness — displayed as status indicators, not raw numbers. Decay rates affected by weather, activity, and injury.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">skills</span>
+          <span class="row-val">XP earned through actions — carpentry from building, foraging from scavenging, combat from fighting. Skills degrade without use over long runs.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">traits</span>
+          <span class="row-val">Character creation with positive/negative tradeoffs — Fast Learner costs a trait slot, Smoker adds a periodic need. Traits shape playstyle from run start.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">loot</span>
+          <span class="row-val">Container-based scavenging — backpacks, shelves, vehicles, bodies. Loot tables per district. Items degrade, food spoils, weapons break.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">base building</span>
+          <span class="row-val">Fortify locations with barricades, noise traps, supply caches. Structures degrade over time. Built things persist partially into next runs via legacy.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">zombie AI</span>
+          <span class="row-val">Sound and light attracted. Memory-based pathing — they investigate last known position. Horde density increases at night. Behavior shifts per threat mode.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">injury system</span>
+          <span class="row-val">Wounds require treatment — bandaging, disinfecting, rest. Untreated wounds cause infection. Broken bones affect mobility. Illness from exposure or bites.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-tech">
+      <div class="section-gap">
+        <div class="section-label">// tech stack</div>
+        <div class="row-item">
+          <span class="row-key">language</span>
+          <span class="row-val"><span class="highlight">C++</span> — raw performance, direct memory control, no GC pauses. Industry standard for game engines.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">windowing</span>
+          <span class="row-val"><span class="highlight">SDL2</span> — handles window creation, input, and rendering surface. Cross-platform, minimal overhead.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">rendering</span>
+          <span class="row-val"><span class="highlight">OpenGL</span> — GPU rendering for sprites and tilemaps. More approachable than Vulkan for a first custom engine.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">audio</span>
+          <span class="row-val"><span class="highlight">SDL_mixer</span> — sound effects and ambient audio. Lightweight, integrates naturally with SDL2.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">image loading</span>
+          <span class="row-val"><span class="highlight">stb_image</span> — single-header library for loading PNG sprite sheets.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">map tooling</span>
+          <span class="row-val"><span class="highlight">Tiled</span> + custom C++ loader — design building templates in Tiled, load and assemble them procedurally at runtime.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">save system</span>
+          <span class="row-val"><span class="highlight">nlohmann/json</span> — save files, legacy world state, run history stored as JSON.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">art pipeline</span>
+          <span class="row-val"><span class="highlight">Aseprite</span> — pixel art and animation. Export sprite sheets directly into the game's asset folder.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">architecture</span>
+          <span class="row-val"><span class="highlight">Entity Component System (ECS)</span> — entities are IDs, components are pure data, systems contain logic. Scales well for simulation-heavy games.</span>
+        </div>
+        <div class="row-item">
+          <span class="row-key">build system</span>
+          <span class="row-val"><span class="highlight">CMake</span> — cross-platform build configuration. Standard for C++ projects.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-roadmap">
+      <div class="section-gap">
+        <div class="section-label">// exploration roadmap — solo, no pressure</div>
+        <ul class="milestone-list">
+          <li class="milestone">
+            <span class="milestone-num">Month 1</span>
+            <div class="milestone-content">
+              <div class="milestone-title">C++ foundations + SDL2 window</div>
+              <div class="milestone-body">Learn pointers, memory management, headers, CMake. Get a window open, a sprite rendering on screen, and basic keyboard input working. Feels slow — this is the most important phase.</div>
+            </div>
+          </li>
+          <li class="milestone">
+            <span class="milestone-num">Month 2</span>
+            <div class="milestone-content">
+              <div class="milestone-title">Core game loop + ECS architecture</div>
+              <div class="milestone-body">Build your Entity Component System from scratch. This is the backbone everything else plugs into. Get a character moving with basic physics and collision.</div>
+            </div>
+          </li>
+          <li class="milestone">
+            <span class="milestone-num">Month 3</span>
+            <div class="milestone-content">
+              <div class="milestone-title">Tile map + camera system</div>
+              <div class="milestone-body">Load a Tiled map, render it with OpenGL, implement a camera that follows the player. At this point it starts feeling like a game. First real milestone worth showing.</div>
+            </div>
+          </li>
+          <li class="milestone">
+            <span class="milestone-num">Month 4</span>
+            <div class="milestone-content">
+              <div class="milestone-title">Survival systems v1</div>
+              <div class="milestone-body">Hunger, thirst, fatigue. Inventory system. Basic loot containers. Day/night cycle. The game starts having tension even without zombies.</div>
+            </div>
+          </li>
+          <li class="milestone">
+            <span class="milestone-num">Month 5</span>
+            <div class="milestone-content">
+              <div class="milestone-title">Zombie AI + threat system</div>
+              <div class="milestone-body">Basic zombie entities with sound-attraction pathfinding (A*). Implement one threat mode fully (Swarm). This is where it becomes a zombie game.</div>
+            </div>
+          </li>
+          <li class="milestone">
+            <span class="milestone-num">Month 6+</span>
+            <div class="milestone-content">
+              <div class="milestone-title">Procedural map generator + legacy system</div>
+              <div class="milestone-body">Assemble building templates procedurally. Implement save/load and the first legacy features — named graves and world memory. From here, the game has a soul.</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+      <p class="prose" style="margin-top:1rem;">This is an <span class="highlight">exploration project</span> — timelines are guidelines, not deadlines. Go as deep as you want on any system. Rebuild things when you understand them better. That's the point.</p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  function showTab(id) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    event.target.classList.add('active');
+  }
+</script>
