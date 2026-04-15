@@ -12,6 +12,7 @@
 #include "components/Velocity.h"
 #include "components/Wounds.h"
 #include "components/ZombieAI.h"
+#include "systems/DistrictInfectionSystem.h"
 
 namespace
 {
@@ -28,7 +29,8 @@ void ZombieAISystem::update(
     Entity playerEntity,
     float dtSeconds,
     double gameHours,
-    int currentDay) const
+    int currentDay,
+    const DistrictInfectionSystem* infectionSystem) const
 {
     const bool isNight = (gameHours >= 20.0 || gameHours < 5.0);
     const float visionMultiplier = isNight ? 1.5f : 1.0f;
@@ -76,8 +78,35 @@ void ZombieAISystem::update(
 
             const glm::vec2 zombieCenter = entityCenter(zombieTransform);
 
+            const int zombieTileX = static_cast<int>(zombieCenter.x / static_cast<float>(tileMap.tileWidth()));
+            const int zombieTileY = static_cast<int>(zombieCenter.y / static_cast<float>(tileMap.tileHeight()));
+            const int districtId = tileMap.getDistrictId(zombieTileX, zombieTileY);
+
+            float localInfection = 0.0f;
+            bool overwhelmedDistrict = false;
+            if (infectionSystem != nullptr && districtId > 0)
+            {
+                localInfection = infectionSystem->getInfection(districtId);
+                overwhelmedDistrict = infectionSystem->isOverwhelmed(districtId);
+            }
+
+            const float infectionFactor = glm::clamp(localInfection / 100.0f, 0.0f, 1.0f);
+            const float infectionSpeedBoost = overwhelmedDistrict
+                ? (1.0f + infectionFactor * 0.35f)
+                : (1.0f + infectionFactor * 0.20f);
+            const float infectionDamageBoost = overwhelmedDistrict
+                ? (1.0f + infectionFactor * 0.25f)
+                : (1.0f + infectionFactor * 0.12f);
+            const float localVisionMultiplier = visionMultiplier * (overwhelmedDistrict
+                ? (1.0f + infectionFactor * 0.65f)
+                : (1.0f + infectionFactor * 0.35f));
+
+            speedMultiplier *= infectionSpeedBoost;
+            damageMultiplier *= infectionDamageBoost;
+
             const float sensedNoise = noiseModel.getNoiseAtPosition(zombieCenter);
-            const bool canHearNoise = sensedNoise >= kZombieNoiseInvestigateThreshold;
+            const float investigateThreshold = std::max(0.02f, kZombieNoiseInvestigateThreshold - infectionFactor * 0.04f);
+            const bool canHearNoise = sensedNoise >= investigateThreshold;
 
             const bool canSeePlayer = [&]()
             {
@@ -88,7 +117,7 @@ void ZombieAISystem::update(
 
                 const glm::vec2 delta = playerCenter - zombieCenter;
                 const float distanceTiles = glm::length(delta) / static_cast<float>(tileMap.tileWidth());
-                if (distanceTiles > zombieAI.visionRangeTiles * visionMultiplier)
+                if (distanceTiles > zombieAI.visionRangeTiles * localVisionMultiplier)
                 {
                     return false;
                 }

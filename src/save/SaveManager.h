@@ -18,6 +18,7 @@ struct GraveRecord
     float x = 0.0f;
     float y = 0.0f;
     int day = 1;
+    int runIndex = 0;
     std::string cause;
 };
 
@@ -27,6 +28,7 @@ struct RetirementRecord
     float x = 0.0f;
     float y = 0.0f;
     int day = 1;
+    int runIndex = 0;
 };
 
 struct StructureRecord

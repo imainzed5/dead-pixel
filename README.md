@@ -14,6 +14,18 @@ Current state: playable early alpha with procedural town generation, combat, nee
 - Buildable structures and degraded inter-run persistence
 - Audio, particles, inventory, and UI overlays
 
+## Active Implementation Track (April 2026)
+
+- Foundation verification: world layout fingerprint is logged at startup for stable-per-slot checks.
+- Playability polish: early-run zombie pressure and starter resources are being tuned for survivability.
+- District pressure: district infection now has a dedicated HUD/debug readout and feeds live zombie threat scaling.
+- NPC/psychology chain: trade interactions now provide explicit mental recovery signals, and crisis timing uses day-aware elapsed time.
+
+Debug toggles during gameplay:
+- F1: noise debug overlay
+- F2: controls overlay
+- F3: district infection debug list
+
 ## Build Requirements (Windows, MSYS2 UCRT64)
 
 Install MSYS2 UCRT64 and these packages:

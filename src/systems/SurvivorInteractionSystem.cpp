@@ -254,6 +254,9 @@ SurvivorInteractionResult SurvivorInteractionSystem::tryTrade(World& world, Enti
 
         mMode = SurvivorInteractionMode::Trading;
         result.occurred = true;
+        result.tradeAccepted = true;
+        result.depressionRelief = 5.0f;
+        result.panicRelief = 2.0f;
         result.message = ai.name + " accepted " + item->name + " and offered " + reward + ".";
     }
     else

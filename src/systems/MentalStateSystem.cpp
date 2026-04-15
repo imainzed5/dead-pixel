@@ -21,7 +21,7 @@ constexpr float kZombieSightRange = 192.0f;
 constexpr float kMinDirectionLength2 = 0.0001f;
 }
 
-void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity playerEntity, float dtSeconds, double gameHours)
+void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity playerEntity, float dtSeconds, double gameHours, int currentDay)
 {
     if (playerEntity == kInvalidEntity ||
         !world.hasComponent<MentalState>(playerEntity) ||
@@ -203,6 +203,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
             // Enter crisis: start 24-hour countdown
             mental.inCrisis = true;
             mental.crisisStartHour = gameHours;
+            mental.crisisStartDay = currentDay;
             mental.crisisRecoveryBuffer = 0.0f;
         }
         // Crisis is active but depression still at max — check timer
@@ -219,8 +220,12 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         else
         {
             // Track elapsed crisis time
-            double elapsed = gameHours - mental.crisisStartHour;
-            if (elapsed < 0.0) elapsed += 24.0; // wrapped past midnight
+            const int dayDelta = std::max(0, currentDay - mental.crisisStartDay);
+            double elapsed = static_cast<double>(dayDelta) * 24.0 + (gameHours - mental.crisisStartHour);
+            if (elapsed < 0.0)
+            {
+                elapsed += 24.0;
+            }
             if (elapsed >= kCrisisWindowHours)
             {
                 mForceRetire = true;

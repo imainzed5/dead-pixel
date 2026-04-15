@@ -655,6 +655,31 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
         return std::sqrt(dx * dx + dy * dy);
     };
 
+    // Keep key spawn categories off the same tile so one interactable doesn't hide another.
+    std::vector<glm::ivec2> reservedTiles;
+    reservedTiles.reserve(256);
+
+    auto isReservedTile = [&](const glm::ivec2& tile) -> bool
+    {
+        return std::any_of(
+            reservedTiles.begin(),
+            reservedTiles.end(),
+            [&](const glm::ivec2& existing)
+            {
+                return existing.x == tile.x && existing.y == tile.y;
+            });
+    };
+
+    auto reserveTile = [&](const glm::ivec2& tile)
+    {
+        if (!isReservedTile(tile))
+        {
+            reservedTiles.push_back(tile);
+        }
+    };
+
+    reserveTile(outSpawns.playerStart);
+
     // Collect outdoor passable tiles for zombie outdoor spawns
     std::vector<glm::ivec2> outdoorTiles;
     for (int y = 2; y < mHeight - 2; y += 3) // sample every 3 tiles for speed
@@ -672,8 +697,8 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
     // Scale spawn counts by map area (baseline 150*100 = 15000)
     const float areaScale = static_cast<float>(mWidth * mHeight) / 15000.0f;
 
-    // Zombie spawns: 30-50 base, scaled by area
-    const int baseZombie = std::uniform_int_distribution<int>(30, 50)(mRng);
+    // Zombie spawns: slightly reduced baseline for early-run survivability
+    const int baseZombie = std::uniform_int_distribution<int>(24, 42)(mRng);
     const int zombieCount = static_cast<int>(static_cast<float>(baseZombie) * areaScale);
     const int indoorZombies = zombieCount * 6 / 10;
     const int outdoorZombies = zombieCount - indoorZombies;
@@ -688,7 +713,7 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             for (const auto& t : bf.tiles)
             {
                 if (placed >= indoorZombies) break;
-                if (distFromPlayer(t) < 15.0f) continue;
+                if (distFromPlayer(t) < 18.0f) continue;
                 outSpawns.zombieSpawns.push_back(t);
                 ++placed;
                 break; // 1 per building first pass
@@ -701,7 +726,7 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             if (bf.buildingIdx == playerBuildingIdx) continue;
             for (std::size_t ti = 1; ti < bf.tiles.size() && placed < indoorZombies; ++ti)
             {
-                if (distFromPlayer(bf.tiles[ti]) < 15.0f) continue;
+                if (distFromPlayer(bf.tiles[ti]) < 18.0f) continue;
                 outSpawns.zombieSpawns.push_back(bf.tiles[ti]);
                 ++placed;
             }
@@ -714,7 +739,7 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
         for (const auto& t : outdoorTiles)
         {
             if (placed >= outdoorZombies) break;
-            if (distFromPlayer(t) < 20.0f) continue;
+            if (distFromPlayer(t) < 24.0f) continue;
             outSpawns.zombieSpawns.push_back(t);
             ++placed;
         }
@@ -724,7 +749,8 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
     // preferredType: if >= 0, buildings of that district type get 3x weight (visited 3x more often)
     auto pickBuildingTiles = [&](int count, std::vector<glm::ivec2>& out,
                                  bool avoidPlayerBuilding = false,
-                                 int preferredType = -1)
+                                 int preferredType = -1,
+                                 bool avoidReserved = true)
     {
         // Build a weighted order: preferred-type buildings appear 3x
         std::vector<std::size_t> order;
@@ -746,8 +772,22 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             {
                 const std::size_t bi = order[oi];
                 auto& bf = buildingFloors[bi];
-                if (cursor[bi] >= bf.tiles.size()) continue;
-                out.push_back(bf.tiles[cursor[bi]]);
+                while (cursor[bi] < bf.tiles.size() && avoidReserved && isReservedTile(bf.tiles[cursor[bi]]))
+                {
+                    ++cursor[bi];
+                }
+
+                if (cursor[bi] >= bf.tiles.size())
+                {
+                    continue;
+                }
+
+                const glm::ivec2 chosen = bf.tiles[cursor[bi]];
+                out.push_back(chosen);
+                if (avoidReserved)
+                {
+                    reserveTile(chosen);
+                }
                 ++cursor[bi];
                 ++placed;
             }
@@ -784,7 +824,7 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
 
     // Indoor decor: shelves, beds, blood inside buildings
     const int indoorDecorCount = static_cast<int>(std::uniform_int_distribution<int>(20, 40)(mRng) * areaScale);
-    pickBuildingTiles(indoorDecorCount, outSpawns.decorIndoorSpawns);
+    pickBuildingTiles(indoorDecorCount, outSpawns.decorIndoorSpawns, false, -1, true);
 
     // Outdoor decor: graves, debris scattered across the map
     {

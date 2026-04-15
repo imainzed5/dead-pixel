@@ -8,6 +8,9 @@
 struct SurvivorInteractionResult
 {
     bool occurred = false;
+    bool tradeAccepted = false;
+    float depressionRelief = 0.0f;
+    float panicRelief = 0.0f;
     std::string message;
 };
 

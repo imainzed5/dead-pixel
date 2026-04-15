@@ -21,6 +21,7 @@ struct MentalState
     // Depression crisis window (M5)
     bool inCrisis = false;            // true when depression >= 100
     double crisisStartHour = 0.0;     // game-hour when crisis began
+    int crisisStartDay = 1;           // in-game day when crisis began
     float crisisRecoveryBuffer = 0.0f;// depression reduction during crisis before retirement
 
     // Social recovery

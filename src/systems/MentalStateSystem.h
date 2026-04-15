@@ -6,7 +6,7 @@
 class MentalStateSystem
 {
 public:
-    void update(World& world, NoiseModel& noiseModel, Entity playerEntity, float dtSeconds, double gameHours = 12.0);
+    void update(World& world, NoiseModel& noiseModel, Entity playerEntity, float dtSeconds, double gameHours = 12.0, int currentDay = 1);
 
     // Returns true if the player should be force-retired this frame
     [[nodiscard]] bool shouldForceRetire() const { return mForceRetire; }

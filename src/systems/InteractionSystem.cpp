@@ -1,6 +1,7 @@
 #include "systems/InteractionSystem.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <glm/glm.hpp>
 #include <glm/geometric.hpp>
@@ -24,6 +25,26 @@ constexpr float kSpriteHalfSize = 16.0f;
 constexpr float kSleepThreatRangePixels = 128.0f;
 constexpr float kMinimumSleepDebt = 18.0f;
 constexpr float kMinimumFatigue = 25.0f;
+
+int interactionPriority(InteractableType type)
+{
+    switch (type)
+    {
+    case InteractableType::FoodPickup:
+    case InteractableType::WaterPickup:
+    case InteractableType::WeaponPickup:
+    case InteractableType::BandagePickup:
+        return 4;
+    case InteractableType::Container:
+        return 3;
+    case InteractableType::JournalNote:
+    case InteractableType::GraveMarker:
+        return 2;
+    case InteractableType::SleepSpot:
+    default:
+        return 1;
+    }
+}
 }
 
 std::string InteractionSystem::update(World& world, const Input& input, Entity playerEntity, const ItemDatabase* itemDb) const
@@ -57,18 +78,22 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
 
     Entity bestEntity = kInvalidEntity;
     float bestDistanceSq = kInteractRangePixels * kInteractRangePixels;
+    int bestPriority = -1;
 
     world.forEach<Interactable, Transform>(
-        [&](Entity entity, Interactable&, Transform& transform)
+        [&](Entity entity, Interactable& interactable, Transform& transform)
         {
             const glm::vec2 itemCenter(transform.x + kSpriteHalfSize, transform.y + kSpriteHalfSize);
             const glm::vec2 delta = itemCenter - playerCenter;
             const float distanceSq = glm::dot(delta, delta);
+            const int priority = interactionPriority(interactable.type);
 
-            if (distanceSq <= bestDistanceSq)
+            if (distanceSq < bestDistanceSq - 0.01f ||
+                (std::abs(distanceSq - bestDistanceSq) <= 0.01f && priority > bestPriority))
             {
                 bestEntity = entity;
                 bestDistanceSq = distanceSq;
+                bestPriority = priority;
             }
         });
 
@@ -300,18 +325,22 @@ ProximityPrompt InteractionSystem::getProximityPrompt(World& world, Entity playe
 
     Entity bestEntity = kInvalidEntity;
     float bestDistanceSq = kInteractRangePixels * kInteractRangePixels;
+    int bestPriority = -1;
 
     world.forEach<Interactable, Transform>(
-        [&](Entity entity, Interactable&, Transform& transform)
+        [&](Entity entity, Interactable& interactable, Transform& transform)
         {
             const glm::vec2 itemCenter(transform.x + kSpriteHalfSize, transform.y + kSpriteHalfSize);
             const glm::vec2 delta = itemCenter - playerCenter;
             const float distanceSq = glm::dot(delta, delta);
+            const int priority = interactionPriority(interactable.type);
 
-            if (distanceSq <= bestDistanceSq)
+            if (distanceSq < bestDistanceSq - 0.01f ||
+                (std::abs(distanceSq - bestDistanceSq) <= 0.01f && priority > bestPriority))
             {
                 bestEntity = entity;
                 bestDistanceSq = distanceSq;
+                bestPriority = priority;
             }
         });
 
@@ -322,6 +351,82 @@ ProximityPrompt InteractionSystem::getProximityPrompt(World& world, Entity playe
 
     const Interactable& interactable = world.getComponent<Interactable>(bestEntity);
     result.entity = bestEntity;
-    result.text = "E: " + interactable.prompt;
+
+    std::string action = interactable.prompt;
+    switch (interactable.type)
+    {
+    case InteractableType::SleepSpot:
+    {
+        if (world.hasComponent<Sleeping>(playerEntity))
+        {
+            action = "Already sleeping";
+            break;
+        }
+
+        if (world.hasComponent<Needs>(playerEntity))
+        {
+            const Needs& needs = world.getComponent<Needs>(playerEntity);
+            if (needs.sleepDebt < kMinimumSleepDebt && needs.fatigue < kMinimumFatigue)
+            {
+                action = "Sleep (Not tired)";
+                break;
+            }
+        }
+
+        bool nearbyThreat = false;
+        world.forEach<ZombieAI, Transform>(
+            [&](Entity, ZombieAI&, Transform& transform)
+            {
+                if (nearbyThreat)
+                {
+                    return;
+                }
+
+                const glm::vec2 zombieCenter(transform.x + kSpriteHalfSize, transform.y + kSpriteHalfSize);
+                const glm::vec2 delta = zombieCenter - playerCenter;
+                if (glm::dot(delta, delta) < kSleepThreatRangePixels * kSleepThreatRangePixels)
+                {
+                    nearbyThreat = true;
+                }
+            });
+
+        if (nearbyThreat)
+        {
+            action = "Sleep (Too dangerous)";
+        }
+        break;
+    }
+
+    case InteractableType::Container:
+    {
+        if (world.hasComponent<Inventory>(bestEntity))
+        {
+            const Inventory& containerInv = world.getComponent<Inventory>(bestEntity);
+            bool hasLoot = false;
+            for (const auto& slot : containerInv.slots)
+            {
+                if (slot.itemId >= 0 && slot.count > 0)
+                {
+                    hasLoot = true;
+                    break;
+                }
+            }
+            if (!hasLoot)
+            {
+                action = "Search (Empty)";
+            }
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    if (action.empty())
+    {
+        action = "Interact";
+    }
+    result.text = "E: " + action;
     return result;
 }

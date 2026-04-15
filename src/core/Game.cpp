@@ -28,6 +28,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -45,6 +46,261 @@ constexpr float kMaxFrameStepSeconds = 0.25f;
 constexpr double kFixedTimeStepSeconds = 1.0 / 60.0;
 constexpr double kGameHoursPerRealSecond = 1.0 / 60.0;
 constexpr double kDeathRestartDelaySeconds = 3.0;
+
+constexpr std::array<const char*, 3> kTitleSaveSlots = {
+    "default_slot",
+    "frontier_slot",
+    "ironman_slot"
+};
+
+constexpr std::array<const char*, 3> kTitleSaveLabels = {
+    "Default",
+    "Frontier",
+    "Ironman"
+};
+
+constexpr std::array<const char*, 3> kTitleModeNames = {
+    "SURVIVAL",
+    "SCAVENGER",
+    "OVERRUN"
+};
+
+constexpr std::array<const char*, 3> kTitleModeDescriptions = {
+    "Balanced pressure with standard supplies",
+    "Lower pressure and extra resources",
+    "High pressure and reduced resources"
+};
+
+constexpr std::array<const char*, 8> kBriefingLines = {
+    "Noise travels farther than courage.",
+    "One bad hallway can end a week-long run.",
+    "Water first. Heroics later.",
+    "You are not clearing the city. You are outlasting it.",
+    "Night rewards discipline, not speed.",
+    "Every grave was someone who thought they had one more fight.",
+    "Caches buy time. Time buys options.",
+    "When panic rises, decisions collapse."
+};
+
+constexpr std::array<const char*, 7> kTitleMenuItems = {
+    "Continue Run",
+    "Start New Run",
+    "Save Slot",
+    "Mode",
+    "Options",
+    "Credits",
+    "Quit"
+};
+
+int wrapIndex(int value, int count)
+{
+    if (count <= 0)
+    {
+        return 0;
+    }
+    int wrapped = value % count;
+    if (wrapped < 0)
+    {
+        wrapped += count;
+    }
+    return wrapped;
+}
+
+std::string truncateHudText(const std::string& text, std::size_t maxChars)
+{
+    if (text.size() <= maxChars)
+    {
+        return text;
+    }
+    if (maxChars <= 3)
+    {
+        return text.substr(0, maxChars);
+    }
+    return text.substr(0, maxChars - 3) + "...";
+}
+
+struct TitlePanelLayout
+{
+    float panelX = 0.0f;
+    float panelY = 0.0f;
+    float panelW = 0.0f;
+    float panelH = 0.0f;
+
+    float leftColX = 0.0f;
+    float leftColY = 0.0f;
+    float leftColW = 0.0f;
+    float leftColH = 0.0f;
+
+    float rightColX = 0.0f;
+    float rightColY = 0.0f;
+    float rightColW = 0.0f;
+    float rightColH = 0.0f;
+
+    float menuRowX = 0.0f;
+    float menuRowY = 0.0f;
+    float menuRowW = 0.0f;
+    float menuRowH = 22.0f;
+    float menuRowStep = 24.0f;
+
+    float rightCardTopX = 0.0f;
+    float rightCardTopY = 0.0f;
+    float rightCardTopW = 0.0f;
+    float rightCardTopH = 170.0f;
+
+    float rightCardMidX = 0.0f;
+    float rightCardMidY = 0.0f;
+    float rightCardMidW = 0.0f;
+    float rightCardMidH = 86.0f;
+
+    float rightCardBottomX = 0.0f;
+    float rightCardBottomY = 0.0f;
+    float rightCardBottomW = 0.0f;
+    float rightCardBottomH = 0.0f;
+
+    float leftTextX = 0.0f;
+    float rightTextX = 0.0f;
+};
+
+TitlePanelLayout computeTitlePanelLayout(int windowWidth, int windowHeight)
+{
+    TitlePanelLayout layout;
+    const float w = static_cast<float>(windowWidth);
+    const float h = static_cast<float>(windowHeight);
+
+    layout.panelW = std::floor(std::max(820.0f, std::min(1060.0f, w - 32.0f)));
+    layout.panelH = std::floor(std::max(520.0f, std::min(610.0f, h - 36.0f)));
+    layout.panelX = std::floor((w - layout.panelW) * 0.5f);
+    layout.panelY = std::floor((h - layout.panelH) * 0.5f);
+
+    constexpr float kOuterPadding = 14.0f;
+    constexpr float kColumnTopInset = 70.0f;
+    constexpr float kColumnBottomInset = 16.0f;
+    constexpr float kColumnGap = 14.0f;
+
+    const float contentW = layout.panelW - kOuterPadding * 2.0f;
+    const float contentH = layout.panelH - kColumnTopInset - kColumnBottomInset;
+
+    layout.leftColX = layout.panelX + kOuterPadding;
+    layout.leftColY = layout.panelY + kColumnTopInset;
+    layout.leftColW = std::floor(contentW * 0.52f);
+    layout.leftColH = contentH;
+
+    layout.rightColX = std::floor(layout.leftColX + layout.leftColW + kColumnGap);
+    layout.rightColY = layout.leftColY;
+    layout.rightColW = std::floor(contentW - layout.leftColW - kColumnGap);
+    layout.rightColH = contentH;
+
+    layout.menuRowX = layout.leftColX + 8.0f;
+    layout.menuRowY = layout.panelY + 108.0f;
+    layout.menuRowW = layout.leftColW - 16.0f;
+
+    layout.rightCardTopX = layout.rightColX + 8.0f;
+    layout.rightCardTopY = layout.rightColY + 8.0f;
+    layout.rightCardTopW = layout.rightColW - 16.0f;
+    layout.rightCardTopH = std::min(200.0f, layout.rightColH * 0.38f);
+
+    layout.rightCardMidX = layout.rightColX + 8.0f;
+    layout.rightCardMidY = layout.rightCardTopY + layout.rightCardTopH + 8.0f;
+    layout.rightCardMidW = layout.rightColW - 16.0f;
+    layout.rightCardMidH = std::min(106.0f, layout.rightColH * 0.18f);
+
+    layout.rightCardBottomX = layout.rightColX + 8.0f;
+    layout.rightCardBottomY = layout.rightCardMidY + layout.rightCardMidH + 8.0f;
+    layout.rightCardBottomW = layout.rightColW - 16.0f;
+    layout.rightCardBottomH = std::max(96.0f, layout.rightColH - (layout.rightCardBottomY - layout.rightColY) - 8.0f);
+
+    layout.leftTextX = layout.menuRowX + 8.0f;
+    layout.rightTextX = layout.rightCardTopX + 10.0f;
+
+    return layout;
+}
+
+std::size_t approximateCharBudget(float widthPixels, float glyphWidthPixels = 8.0f)
+{
+    if (glyphWidthPixels <= 0.0f)
+    {
+        return 12;
+    }
+    return static_cast<std::size_t>(std::max(12.0f, std::floor(widthPixels / glyphWidthPixels)));
+}
+
+enum class LegacyEventKind
+{
+    None,
+    Death,
+    Retirement
+};
+
+struct LatestLegacyEvent
+{
+    LegacyEventKind kind = LegacyEventKind::None;
+    const GraveRecord* death = nullptr;
+    const RetirementRecord* retirement = nullptr;
+};
+
+LatestLegacyEvent pickLatestLegacyEvent(const std::vector<GraveRecord>& graves, const std::vector<RetirementRecord>& retirements)
+{
+    LatestLegacyEvent output;
+
+    const GraveRecord* lastDeath = graves.empty() ? nullptr : &graves.back();
+    const RetirementRecord* lastRetirement = retirements.empty() ? nullptr : &retirements.back();
+
+    if (lastDeath == nullptr && lastRetirement == nullptr)
+    {
+        return output;
+    }
+    if (lastDeath != nullptr && lastRetirement == nullptr)
+    {
+        output.kind = LegacyEventKind::Death;
+        output.death = lastDeath;
+        return output;
+    }
+    if (lastDeath == nullptr)
+    {
+        output.kind = LegacyEventKind::Retirement;
+        output.retirement = lastRetirement;
+        return output;
+    }
+
+    if (lastDeath->runIndex != lastRetirement->runIndex)
+    {
+        if (lastDeath->runIndex > lastRetirement->runIndex)
+        {
+            output.kind = LegacyEventKind::Death;
+            output.death = lastDeath;
+        }
+        else
+        {
+            output.kind = LegacyEventKind::Retirement;
+            output.retirement = lastRetirement;
+        }
+        return output;
+    }
+
+    if (lastDeath->day >= lastRetirement->day)
+    {
+        output.kind = LegacyEventKind::Death;
+        output.death = lastDeath;
+    }
+    else
+    {
+        output.kind = LegacyEventKind::Retirement;
+        output.retirement = lastRetirement;
+    }
+    return output;
+}
+
+std::string formatTileLocation(float worldX, float worldY, const TileMap& tileMap)
+{
+    const int tileW = std::max(1, tileMap.tileWidth());
+    const int tileH = std::max(1, tileMap.tileHeight());
+    const int tileX = static_cast<int>(std::floor(worldX / static_cast<float>(tileW)));
+    const int tileY = static_cast<int>(std::floor(worldY / static_cast<float>(tileH)));
+
+    std::ostringstream out;
+    out << "T(" << tileX << "," << tileY << ")";
+    return out.str();
+}
 
 std::filesystem::path getExecutableDirectory()
 {
@@ -182,6 +438,86 @@ std::string generateCharacterName(std::uint32_t seed)
 
     return std::string(firstNames[firstDist(rng)]) + " " + std::string(lastNames[lastDist(rng)]);
 }
+
+void hashValue(std::uint64_t& hash, std::uint64_t value)
+{
+    constexpr std::uint64_t kFnvPrime = 1099511628211ull;
+    hash ^= value;
+    hash *= kFnvPrime;
+}
+
+void hashIntVector(std::uint64_t& hash, const std::vector<int>& values)
+{
+    for (int value : values)
+    {
+        hashValue(hash, static_cast<std::uint64_t>(static_cast<std::uint32_t>(value)));
+    }
+}
+
+std::uint64_t computeLayoutFingerprint(const LayoutData& layout)
+{
+    std::uint64_t hash = 1469598103934665603ull;
+
+    hashValue(hash, static_cast<std::uint64_t>(layout.width));
+    hashValue(hash, static_cast<std::uint64_t>(layout.height));
+    hashValue(hash, static_cast<std::uint64_t>(static_cast<std::int64_t>(layout.playerStart.x)));
+    hashValue(hash, static_cast<std::uint64_t>(static_cast<std::int64_t>(layout.playerStart.y)));
+
+    hashIntVector(hash, layout.ground);
+    hashIntVector(hash, layout.collision);
+    hashIntVector(hash, layout.surface);
+    hashIntVector(hash, layout.district);
+
+    for (const auto& building : layout.buildings)
+    {
+        hashValue(hash, static_cast<std::uint64_t>(building.x));
+        hashValue(hash, static_cast<std::uint64_t>(building.y));
+        hashValue(hash, static_cast<std::uint64_t>(building.w));
+        hashValue(hash, static_cast<std::uint64_t>(building.h));
+    }
+
+    for (const auto& door : layout.doors)
+    {
+        hashValue(hash, static_cast<std::uint64_t>(door.x));
+        hashValue(hash, static_cast<std::uint64_t>(door.y));
+    }
+
+    for (const auto& district : layout.districts)
+    {
+        hashValue(hash, static_cast<std::uint64_t>(district.id));
+        hashValue(hash, static_cast<std::uint64_t>(district.type));
+        hashValue(hash, static_cast<std::uint64_t>(district.minX));
+        hashValue(hash, static_cast<std::uint64_t>(district.minY));
+        hashValue(hash, static_cast<std::uint64_t>(district.maxX));
+        hashValue(hash, static_cast<std::uint64_t>(district.maxY));
+        for (int idx : district.buildingIndices)
+        {
+            hashValue(hash, static_cast<std::uint64_t>(idx));
+        }
+        for (int idx : district.adjacentDistricts)
+        {
+            hashValue(hash, static_cast<std::uint64_t>(idx));
+        }
+    }
+
+    return hash;
+}
+
+const char* districtTypeLabel(int districtType)
+{
+    switch (static_cast<DistrictType>(districtType))
+    {
+    case DistrictType::Residential:
+        return "Residential";
+    case DistrictType::Commercial:
+        return "Commercial";
+    case DistrictType::Industrial:
+        return "Industrial";
+    case DistrictType::Wilderness:
+    default:
+        return "Wilderness";
+    }
+}
 }
 
 Game::~Game()
@@ -294,35 +630,14 @@ bool Game::initialize()
 
     const std::filesystem::path assetsRoot = getExecutableDirectory() / "assets";
 
-    // Load save slot first — we need the world seed before generating the layout
-    if (!mSaveManager.loadOrCreateSlot("default_slot"))
+    mTitleSaveSlotIndex = 0;
+    mActiveSaveSlot = kTitleSaveSlots[static_cast<std::size_t>(mTitleSaveSlotIndex)];
+    if (!loadSlotAndWorld(mActiveSaveSlot))
     {
-        std::cerr << "Failed to load save slot metadata." << '\n';
+        std::cerr << "Failed to initialize save slot and world data." << '\n';
         shutdown();
         return false;
     }
-
-    // Load or create the permanent world layout
-    if (mSaveManager.hasWorldLayout())
-    {
-        LayoutData layout = mSaveManager.loadWorldLayout();
-        if (layout.width > 0 && layout.height > 0)
-        {
-            mMapGenerator.loadLayout(layout);
-        }
-        else
-        {
-            // Layout file was corrupt — regenerate
-            LayoutData newLayout = mMapGenerator.generateLayout(mSaveManager.worldSeed());
-            mSaveManager.saveWorldLayout(newLayout);
-        }
-    }
-    else
-    {
-        LayoutData layout = mMapGenerator.generateLayout(mSaveManager.worldSeed());
-        mSaveManager.saveWorldLayout(layout);
-    }
-    mMapGenerator.applyToTileMap(mTileMap);
 
     const std::string vertexShaderPath = (assetsRoot / "shaders" / "sprite.vert").string();
     const std::string fragmentShaderPath = (assetsRoot / "shaders" / "sprite.frag").string();
@@ -385,9 +700,62 @@ bool Game::initialize()
     mCamera.clampToBounds(mTileMap.pixelSize());
     // Boot to title screen — do not start a run yet
     mRunState = RunState::TitleScreen;
+    mTitleMenuSelection = 0;
+    mTitleModeIndex = static_cast<int>(TitleRunMode::Survival);
+    mTitleHasCheckpoint = false;
+    mTitleCheckpointDay = 1;
+    mTitleCheckpointName.clear();
+    mTitleCheckpointX = 0.0f;
+    mTitleCheckpointY = 0.0f;
+    mShowTitleCredits = false;
+    mTitleStatusMessage.clear();
+    mTitleStatusTimer = 0.0f;
+    mTitlePulseTimer = 0.0f;
+    mIgnoreCheckpointRestoreOnce = false;
 
     mIsRunning = true;
     mShowNoiseDebug = false;
+    mShowDistrictDebug = false;
+    return true;
+}
+
+bool Game::loadSlotAndWorld(const std::string& slotName)
+{
+    if (!mSaveManager.loadOrCreateSlot(slotName))
+    {
+        return false;
+    }
+
+    if (mSaveManager.hasWorldLayout())
+    {
+        LayoutData layout = mSaveManager.loadWorldLayout();
+        if (layout.width > 0 && layout.height > 0)
+        {
+            mMapGenerator.loadLayout(layout);
+        }
+        else
+        {
+            LayoutData regenerated = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+            mSaveManager.saveWorldLayout(regenerated);
+        }
+    }
+    else
+    {
+        LayoutData layout = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+        mSaveManager.saveWorldLayout(layout);
+    }
+
+    mMapGenerator.applyToTileMap(mTileMap);
+    mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
+    mActiveSaveSlot = slotName;
+    mCamera.clampToBounds(mTileMap.pixelSize());
+
+    std::cout << "[World] slot=" << slotName
+              << " worldSeed=" << mSaveManager.worldSeed()
+              << " runSeed=" << mSaveManager.currentRunSeed()
+              << " layoutFingerprint=0x" << std::hex << mLayoutFingerprint << std::dec
+              << '\n';
+
     return true;
 }
 
@@ -447,13 +815,90 @@ void Game::startNewRun()
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
+
+    // Mode-specific spawn pressure tuning.
+    if (mTitleModeIndex == static_cast<int>(TitleRunMode::Scavenger))
+    {
+        auto reduceTo = [](std::vector<glm::ivec2>& list, float ratio)
+        {
+            if (list.empty()) return;
+            const std::size_t target = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(static_cast<float>(list.size()) * ratio)));
+            if (target < list.size())
+            {
+                list.resize(target);
+            }
+        };
+        auto duplicateTo = [](std::vector<glm::ivec2>& list, float ratio)
+        {
+            if (list.empty() || ratio <= 1.0f) return;
+            const std::size_t base = list.size();
+            const std::size_t target = static_cast<std::size_t>(std::round(static_cast<float>(base) * ratio));
+            for (std::size_t i = 0; list.size() < target; ++i)
+            {
+                list.push_back(list[i % base]);
+            }
+        };
+
+        reduceTo(mSpawnData.zombieSpawns, 0.78f);
+        duplicateTo(mSpawnData.foodSpawns, 1.20f);
+        duplicateTo(mSpawnData.waterSpawns, 1.25f);
+        duplicateTo(mSpawnData.bandageSpawns, 1.15f);
+    }
+    else if (mTitleModeIndex == static_cast<int>(TitleRunMode::Overrun))
+    {
+        auto reduceTo = [](std::vector<glm::ivec2>& list, float ratio)
+        {
+            if (list.empty()) return;
+            const std::size_t target = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(static_cast<float>(list.size()) * ratio)));
+            if (target < list.size())
+            {
+                list.resize(target);
+            }
+        };
+        auto duplicateTo = [](std::vector<glm::ivec2>& list, float ratio)
+        {
+            if (list.empty() || ratio <= 1.0f) return;
+            const std::size_t base = list.size();
+            const std::size_t target = static_cast<std::size_t>(std::round(static_cast<float>(base) * ratio));
+            for (std::size_t i = 0; list.size() < target; ++i)
+            {
+                list.push_back(list[i % base]);
+            }
+        };
+
+        duplicateTo(mSpawnData.zombieSpawns, 1.35f);
+        reduceTo(mSpawnData.foodSpawns, 0.75f);
+        reduceTo(mSpawnData.waterSpawns, 0.80f);
+        reduceTo(mSpawnData.bandageSpawns, 0.70f);
+    }
+
+    const std::uint64_t runLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
+    if (mLayoutFingerprint != 0 && runLayoutFingerprint != mLayoutFingerprint)
+    {
+        std::cerr << "[World] Layout fingerprint changed between runs. expected=0x"
+                  << std::hex << mLayoutFingerprint << " actual=0x" << runLayoutFingerprint << std::dec << '\n';
+    }
+    else if (mLayoutFingerprint == 0)
+    {
+        mLayoutFingerprint = runLayoutFingerprint;
+    }
+
     mCamera.clampToBounds(mTileMap.pixelSize());
 
     setupScene();
 
+    const bool allowCheckpointRestore = !mIgnoreCheckpointRestoreOnce;
+    mIgnoreCheckpointRestoreOnce = false;
+    bool restoredCheckpoint = false;
+
     // Attempt to restore from checkpoint
-    RunCheckpoint cp = mSaveManager.loadCheckpoint();
-    if (cp.valid && mPlayerEntity != kInvalidEntity)
+    RunCheckpoint cp;
+    if (allowCheckpointRestore)
+    {
+        cp = mSaveManager.loadCheckpoint();
+    }
+
+    if (allowCheckpointRestore && cp.valid && mPlayerEntity != kInvalidEntity)
     {
         if (mWorld.hasComponent<Transform>(mPlayerEntity))
         {
@@ -489,6 +934,20 @@ void Game::startNewRun()
 
         mInteractionMessage = "Resumed " + mCurrentCharacterName + "'s run.";
         mInteractionMessageTimer = 3.0f;
+        restoredCheckpoint = true;
+    }
+    else if (!allowCheckpointRestore)
+    {
+        mSaveManager.deleteCheckpoint();
+    }
+
+    if (!restoredCheckpoint)
+    {
+        if (mTitleModeIndex >= 0 && mTitleModeIndex < static_cast<int>(kTitleModeNames.size()))
+        {
+            mInteractionMessage = std::string("Mode: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
+            mInteractionMessageTimer = 2.5f;
+        }
     }
 }
 
@@ -559,10 +1018,27 @@ void Game::setupScene()
         Inventory playerInv{};
         mWorld.addComponent<Inventory>(mPlayerEntity, playerInv);
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+
+        int startBandages = 2;
+        int startFood = 3;
+        int startWater = 2;
+        if (mTitleModeIndex == static_cast<int>(TitleRunMode::Scavenger))
+        {
+            startBandages = 3;
+            startFood = 4;
+            startWater = 3;
+        }
+        else if (mTitleModeIndex == static_cast<int>(TitleRunMode::Overrun))
+        {
+            startBandages = 1;
+            startFood = 2;
+            startWater = 1;
+        }
+
         InventorySystem::addItem(inv, mItemDatabase, 5, 1);  // knife
-        InventorySystem::addItem(inv, mItemDatabase, 4, 1);  // bandage
-        InventorySystem::addItem(inv, mItemDatabase, 0, 2);  // 2 canned food
-        InventorySystem::addItem(inv, mItemDatabase, 3, 1);  // water bottle
+        InventorySystem::addItem(inv, mItemDatabase, 4, startBandages);
+        InventorySystem::addItem(inv, mItemDatabase, 0, startFood);
+        InventorySystem::addItem(inv, mItemDatabase, 3, startWater);
     }
     mWorld.addComponent<MentalState>(mPlayerEntity, MentalState{});
     mWorld.addComponent<Wounds>(mPlayerEntity, Wounds{});
@@ -1201,6 +1677,7 @@ void Game::beginDeathState(const std::string& cause)
     record.x = mDeathWorldPosition.x;
     record.y = mDeathWorldPosition.y;
     record.day = mCurrentDay;
+    record.runIndex = mSaveManager.runNumber();
     record.cause = cause;
 
     if (mSaveManager.recordDeath(record))
@@ -1313,6 +1790,7 @@ void Game::beginRetirementState()
     retRecord.x = mDeathWorldPosition.x;
     retRecord.y = mDeathWorldPosition.y;
     retRecord.day = mCurrentDay;
+    retRecord.runIndex = mSaveManager.runNumber();
     mSaveManager.recordRetirement(retRecord);
 
     // Save structures for next run
@@ -1437,7 +1915,18 @@ void Game::processInputEvents()
         }
         else if (mRunState == RunState::TitleScreen)
         {
-            mIsRunning = false;
+            if (mShowTitleCredits)
+            {
+                mShowTitleCredits = false;
+            }
+            else if (mShowControls)
+            {
+                mShowControls = false;
+            }
+            else
+            {
+                mIsRunning = false;
+            }
         }
     }
 }
@@ -1462,13 +1951,138 @@ void Game::update(float dtSeconds)
         mShowControls = !mShowControls;
     }
 
-    // Title screen: wait for Enter
+    if (mInput.wasKeyPressed(SDL_SCANCODE_F3))
+    {
+        mShowDistrictDebug = !mShowDistrictDebug;
+    }
+
+    // Title screen hub: briefing menu, mode, and save-slot selection.
     if (mRunState == RunState::TitleScreen)
     {
-        if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
-            mInput.wasKeyPressed(SDL_SCANCODE_SPACE))
+        mTitlePulseTimer += dtSeconds;
+        mTitleStatusTimer = std::max(0.0f, mTitleStatusTimer - dtSeconds);
+        if (mTitleStatusTimer <= 0.0f)
         {
-            startNewRun();
+            mTitleStatusMessage.clear();
+        }
+
+        const RunCheckpoint titleCheckpoint = mSaveManager.loadCheckpoint();
+        mTitleHasCheckpoint = titleCheckpoint.valid;
+        mTitleCheckpointDay = titleCheckpoint.valid ? titleCheckpoint.currentDay : 1;
+        mTitleCheckpointName = titleCheckpoint.valid ? titleCheckpoint.characterName : std::string{};
+        mTitleCheckpointX = titleCheckpoint.valid ? titleCheckpoint.playerX : 0.0f;
+        mTitleCheckpointY = titleCheckpoint.valid ? titleCheckpoint.playerY : 0.0f;
+
+        const int menuCount = static_cast<int>(kTitleMenuItems.size());
+        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        {
+            mTitleMenuSelection = wrapIndex(mTitleMenuSelection - 1, menuCount);
+        }
+        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        {
+            mTitleMenuSelection = wrapIndex(mTitleMenuSelection + 1, menuCount);
+        }
+
+        auto adjustMenuValue = [&](int delta)
+        {
+            if (mTitleMenuSelection == 2) // Save Slot
+            {
+                const int oldIndex = mTitleSaveSlotIndex;
+                const int newIndex = wrapIndex(mTitleSaveSlotIndex + delta, static_cast<int>(kTitleSaveSlots.size()));
+                if (newIndex == oldIndex)
+                {
+                    return;
+                }
+
+                if (loadSlotAndWorld(kTitleSaveSlots[static_cast<std::size_t>(newIndex)]))
+                {
+                    mTitleSaveSlotIndex = newIndex;
+                    mTitleStatusMessage = std::string("Active slot: ") + kTitleSaveLabels[static_cast<std::size_t>(newIndex)];
+                    mTitleStatusTimer = 2.0f;
+                }
+                else
+                {
+                    mTitleStatusMessage = "Unable to load slot data.";
+                    mTitleStatusTimer = 2.5f;
+                }
+                return;
+            }
+
+            if (mTitleMenuSelection == 3) // Mode
+            {
+                mTitleModeIndex = wrapIndex(mTitleModeIndex + delta, static_cast<int>(kTitleModeNames.size()));
+                mTitleStatusMessage = std::string("Mode: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
+                mTitleStatusTimer = 2.0f;
+            }
+        };
+
+        if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT) || mInput.wasKeyPressed(SDL_SCANCODE_A))
+        {
+            adjustMenuValue(-1);
+        }
+        if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT) || mInput.wasKeyPressed(SDL_SCANCODE_D))
+        {
+            adjustMenuValue(1);
+        }
+
+        const bool activate =
+            mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
+            mInput.wasKeyPressed(SDL_SCANCODE_SPACE);
+
+        if (activate)
+        {
+            switch (mTitleMenuSelection)
+            {
+            case 0: // Continue Run
+                if (mTitleHasCheckpoint)
+                {
+                    mIgnoreCheckpointRestoreOnce = false;
+                    startNewRun();
+                }
+                else
+                {
+                    mTitleStatusMessage = "No checkpoint found for this slot.";
+                    mTitleStatusTimer = 2.5f;
+                }
+                break;
+
+            case 1: // Start New Run
+                mSaveManager.deleteCheckpoint();
+                mIgnoreCheckpointRestoreOnce = true;
+                startNewRun();
+                break;
+
+            case 2: // Save Slot
+                adjustMenuValue(1);
+                break;
+
+            case 3: // Mode
+                adjustMenuValue(1);
+                break;
+
+            case 4: // Options
+                mShowControls = !mShowControls;
+                if (mShowControls)
+                {
+                    mShowTitleCredits = false;
+                }
+                break;
+
+            case 5: // Credits
+                mShowTitleCredits = !mShowTitleCredits;
+                if (mShowTitleCredits)
+                {
+                    mShowControls = false;
+                }
+                break;
+
+            case 6: // Quit
+                mIsRunning = false;
+                break;
+
+            default:
+                break;
+            }
         }
         return;
     }
@@ -1592,7 +2206,7 @@ void Game::update(float dtSeconds)
     }
 
     // Mental state system
-    mMentalStateSystem.update(mWorld, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours);
+    mMentalStateSystem.update(mWorld, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
 
     // Weather system
     mWeatherSystem.update(mWeatherState, dtSeconds, mGameHours, mCurrentDay);
@@ -1944,6 +2558,20 @@ void Game::update(float dtSeconds)
         }
     }
 
+    // Depression crisis penalties: heavy movement slowdown while in crisis state.
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<MentalState>(mPlayerEntity) &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+        if (mental.inCrisis)
+        {
+            Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+            vel.dx *= 0.6f;
+            vel.dy *= 0.6f;
+        }
+    }
+
     // Encumbrance slowdown
     if (mPlayerEntity != kInvalidEntity &&
         mWorld.hasComponent<Inventory>(mPlayerEntity) &&
@@ -2045,6 +2673,15 @@ void Game::update(float dtSeconds)
             else
             {
                 mInteractionMessage = "Slept, but supplies are running down.";
+
+                if (mWorld.hasComponent<MentalState>(mPlayerEntity))
+                {
+                    MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+                    const float depressionRelief = sleeping.quality >= 0.85f
+                        ? 2.0f
+                        : std::max(0.4f, sleeping.quality * 1.4f);
+                    mental.depression = std::max(0.0f, mental.depression - depressionRelief);
+                }
 
                 // Checkpoint after a full sleep cycle
                 if (mPlayerEntity != kInvalidEntity)
@@ -2236,6 +2873,13 @@ void Game::update(float dtSeconds)
                 mInteractionMessage = result.message;
                 mInteractionMessageTimer = 4.0f;
             }
+
+            if (result.tradeAccepted && mWorld.hasComponent<MentalState>(mPlayerEntity))
+            {
+                MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+                mental.depression = std::max(0.0f, mental.depression - result.depressionRelief);
+                mental.panic = std::max(0.0f, mental.panic - result.panicRelief);
+            }
         }
     }
 
@@ -2284,7 +2928,15 @@ void Game::update(float dtSeconds)
         }
     }
 
-    mZombieAISystem.update(mWorld, mTileMap, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
+    mZombieAISystem.update(
+        mWorld,
+        mTileMap,
+        mNoiseModel,
+        mPlayerEntity,
+        dtSeconds,
+        mGameHours,
+        mCurrentDay,
+        &mDistrictInfectionSystem);
 
     // Zombie audio: growls from chasing zombies, attack sounds
     mZombieGrowlTimer = std::max(0.0f, mZombieGrowlTimer - dtSeconds);
@@ -2542,6 +3194,7 @@ void Game::render()
     mShader.setInt("uLightCount", 0);
 
     mSpriteBatch.begin();
+    renderTitleScreen();
     renderNeedsHudOverlay();
     renderAttackArcOverlay();
     renderNoiseDebugOverlay();
@@ -3049,6 +3702,101 @@ void Game::renderTextOverlays()
                         glm::vec4(0.7f, 0.5f, 0.5f, 0.7f), 1.0f, TextAlign::Right);
     }
 
+    // Current district infection indicator (always visible while playing).
+    if (mRunState == RunState::Playing &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+        const int tileX = static_cast<int>(pt.x) / std::max(1, mTileMap.tileWidth());
+        const int tileY = static_cast<int>(pt.y) / std::max(1, mTileMap.tileHeight());
+        const int districtId = mTileMap.getDistrictId(tileX, tileY);
+
+        if (districtId > 0)
+        {
+            float infection = mDistrictInfectionSystem.getInfection(districtId);
+            const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(districtId);
+            int districtType = static_cast<int>(DistrictType::Wilderness);
+            for (const auto& def : mMapGenerator.layoutData().districts)
+            {
+                if (def.id == districtId)
+                {
+                    districtType = def.type;
+                    break;
+                }
+            }
+
+            std::ostringstream districtLine;
+            districtLine << "District " << districtId << " (" << districtTypeLabel(districtType)
+                         << ") Infection " << static_cast<int>(std::round(infection)) << "%";
+            if (overwhelmed)
+            {
+                districtLine << " OVERWHELMED";
+            }
+
+            mFont.drawText(
+                mSpriteBatch,
+                glm::vec2(static_cast<float>(mWindowWidth) - 12.0f, 140.0f),
+                districtLine.str(),
+                overwhelmed ? glm::vec4(0.95f, 0.45f, 0.35f, 0.95f) : glm::vec4(0.85f, 0.7f, 0.35f, 0.85f),
+                1.0f,
+                TextAlign::Right);
+        }
+    }
+
+    // F3 infection debug: top infected districts for tuning and verification.
+    if (mShowDistrictDebug && mRunState == RunState::Playing)
+    {
+        std::vector<DistrictInfection> sortedDistricts = mDistrictInfectionSystem.districts();
+        std::sort(
+            sortedDistricts.begin(),
+            sortedDistricts.end(),
+            [](const DistrictInfection& a, const DistrictInfection& b)
+            {
+                return a.infection > b.infection;
+            });
+
+        float debugY = 230.0f;
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(12.0f, debugY),
+            "INFECTION DEBUG (F3)",
+            glm::vec4(0.95f, 0.85f, 0.55f, 1.0f),
+            1.5f);
+        debugY += 18.0f;
+
+        const auto& defs = mMapGenerator.layoutData().districts;
+        const std::size_t listCount = std::min<std::size_t>(sortedDistricts.size(), 8);
+        for (std::size_t i = 0; i < listCount; ++i)
+        {
+            const auto& entry = sortedDistricts[i];
+            int districtType = static_cast<int>(DistrictType::Wilderness);
+            for (const auto& def : defs)
+            {
+                if (def.id == entry.districtId)
+                {
+                    districtType = def.type;
+                    break;
+                }
+            }
+
+            std::ostringstream row;
+            row << "#" << entry.districtId << " " << districtTypeLabel(districtType)
+                << " " << static_cast<int>(std::round(entry.infection)) << "%";
+            if (entry.overwhelmed)
+            {
+                row << " OVERWHELMED";
+            }
+
+            const glm::vec4 rowColor = entry.overwhelmed
+                ? glm::vec4(0.95f, 0.45f, 0.35f, 1.0f)
+                : glm::vec4(0.75f, 0.75f, 0.68f, 0.92f);
+
+            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, debugY), row.str(), rowColor, 1.0f);
+            debugY += 14.0f;
+        }
+    }
+
     // Hotbar display (bottom of screen)
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity) && mRunState == RunState::Playing)
     {
@@ -3245,32 +3993,296 @@ void Game::renderTextOverlays()
         }
     }
 
-    // Title screen text
+    // Title screen briefing hub text
     if (mRunState == RunState::TitleScreen)
     {
-        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
-        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
+        const TitlePanelLayout layout = computeTitlePanelLayout(mWindowWidth, mWindowHeight);
+        const float leftX = layout.leftTextX;
+        const float rightX = layout.rightTextX;
+        const std::size_t menuCharBudget = approximateCharBudget(layout.menuRowW - 20.0f, 8.0f);
+        const std::size_t rightCharBudget = approximateCharBudget(layout.rightCardTopW - 24.0f, 8.0f);
+        const std::size_t rightBottomBudget = approximateCharBudget(layout.rightCardBottomW - 24.0f, 8.0f);
 
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 60.0f), "DEAD PIXEL SURVIVAL",
-                        glm::vec4(0.85f, 0.2f, 0.2f, 1.0f), 3.0f, TextAlign::Center);
+        const auto& graveHistory = mSaveManager.graves();
+        const auto& retirementHistory = mSaveManager.retirements();
+        const GraveRecord* lastGrave = graveHistory.empty() ? nullptr : &graveHistory.back();
+        const RetirementRecord* lastRetirement = retirementHistory.empty() ? nullptr : &retirementHistory.back();
+        const LatestLegacyEvent latestEvent = pickLatestLegacyEvent(graveHistory, retirementHistory);
 
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 10.0f), "Press Enter to begin",
-                        glm::vec4(0.7f, 0.7f, 0.65f, 0.9f), kTextScale, TextAlign::Center);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(leftX, layout.panelY + 16.0f),
+            "DEAD PIXEL SURVIVAL",
+            glm::vec4(0.95f, 0.36f, 0.30f, 1.0f),
+            3.0f);
 
-        // Show run number and cumulative stats
-        std::string runInfo = "Run #" + std::to_string(mSaveManager.runNumber());
-        if (mSaveManager.runNumber() > 1)
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(leftX, layout.panelY + 48.0f),
+            "FIELD BRIEFING // PRE-RUN STAGING",
+            glm::vec4(0.84f, 0.78f, 0.66f, 0.95f),
+            1.2f);
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(leftX, layout.panelY + 75.0f),
+            "Set slot, review intel, then deploy.",
+            glm::vec4(0.72f, 0.74f, 0.69f, 0.92f),
+            1.15f);
+
+        float menuY = layout.menuRowY + 3.0f;
+        for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
         {
-            runInfo += " | Best: Day " + std::to_string(mSaveManager.longestRunDays())
-                     + " | Total kills: " + std::to_string(mSaveManager.totalKills())
-                     + " | Days survived: " + std::to_string(mSaveManager.totalDaysSurvived());
-        }
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 40.0f), runInfo,
-                        glm::vec4(0.5f, 0.5f, 0.5f, 0.7f), kSmallScale, TextAlign::Center);
+            std::string itemText = kTitleMenuItems[static_cast<std::size_t>(i)];
+            if (i == 2)
+            {
+                itemText += "  < " + std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) + " >";
+            }
+            else if (i == 3)
+            {
+                itemText += "  < " + std::string(kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)]) + " >";
+            }
 
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, static_cast<float>(mWindowHeight) - 30.0f),
-                        "Seed: " + std::to_string(mSaveManager.worldSeed()),
-                        glm::vec4(0.35f, 0.35f, 0.35f, 0.6f), 1.0f, TextAlign::Center);
+            glm::vec4 color(0.83f, 0.83f, 0.80f, 0.96f);
+            if (i == 0 && !mTitleHasCheckpoint)
+            {
+                color = glm::vec4(0.72f, 0.44f, 0.44f, 0.95f);
+                itemText += " [NO CHECKPOINT]";
+            }
+
+            if (i == mTitleMenuSelection)
+            {
+                color = glm::vec4(1.0f, 0.94f, 0.72f, 1.0f);
+                itemText = ">> " + itemText;
+            }
+            else
+            {
+                itemText = "   " + itemText;
+            }
+
+            mFont.drawText(
+                mSpriteBatch,
+                glm::vec2(leftX, menuY),
+                truncateHudText(itemText, menuCharBudget),
+                color,
+                i == mTitleMenuSelection ? 1.65f : 1.45f);
+            menuY += layout.menuRowStep;
+        }
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(leftX, layout.panelY + layout.panelH - 44.0f),
+            "W/S Move  A/D Change  Enter Select  Esc Close/Quit",
+            glm::vec4(0.74f, 0.75f, 0.71f, 0.95f),
+            1.15f);
+
+        float topY = layout.rightCardTopY + 10.0f;
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY),
+            "ACTIVE SLOT",
+            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
+            1.15f);
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY + 19.0f),
+            truncateHudText(std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) + " [" + mActiveSaveSlot + "]", rightCharBudget),
+            glm::vec4(0.92f, 0.92f, 0.86f, 0.98f),
+            1.25f);
+
+        const int completedRuns = std::max(0, mSaveManager.runNumber() - 1);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY + 42.0f),
+            "Runs Completed: " + std::to_string(completedRuns),
+            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
+            1.08f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY + 58.0f),
+            "Best Streak: Day " + std::to_string(mSaveManager.longestRunDays()),
+            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
+            1.08f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY + 74.0f),
+            truncateHudText("Total Kills: " + std::to_string(mSaveManager.totalKills()) +
+                "  |  Days Survived: " + std::to_string(mSaveManager.totalDaysSurvived()), rightCharBudget),
+            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
+            1.08f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY + 90.0f),
+            truncateHudText("Graves: " + std::to_string(graveHistory.size()) +
+                "  |  Retirements: " + std::to_string(retirementHistory.size()), rightCharBudget),
+            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
+            1.08f);
+
+        std::string checkpointLine = "Checkpoint: none";
+        std::string checkpointLoc = "Location: --";
+        if (mTitleHasCheckpoint)
+        {
+            checkpointLine = "Checkpoint Day " + std::to_string(mTitleCheckpointDay) +
+                " // " + truncateHudText(mTitleCheckpointName, 16);
+            checkpointLoc = "Location: " + formatTileLocation(mTitleCheckpointX, mTitleCheckpointY, mTileMap);
+        }
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY + 114.0f),
+            truncateHudText(checkpointLine, rightCharBudget),
+            mTitleHasCheckpoint ? glm::vec4(0.68f, 0.90f, 0.70f, 0.98f) : glm::vec4(0.62f, 0.62f, 0.62f, 0.90f),
+            1.08f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, topY + 130.0f),
+            truncateHudText(checkpointLoc, rightCharBudget),
+            mTitleHasCheckpoint ? glm::vec4(0.66f, 0.83f, 0.68f, 0.95f) : glm::vec4(0.60f, 0.60f, 0.60f, 0.85f),
+            1.0f);
+
+        float midY = layout.rightCardMidY + 10.0f;
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, midY),
+            "MODE PROFILE",
+            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
+            1.15f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, midY + 19.0f),
+            kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)],
+            glm::vec4(0.95f, 0.91f, 0.78f, 0.98f),
+            1.25f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, midY + 37.0f),
+            truncateHudText(kTitleModeDescriptions[static_cast<std::size_t>(mTitleModeIndex)], rightCharBudget),
+            glm::vec4(0.74f, 0.77f, 0.71f, 0.95f),
+            1.08f);
+
+        const std::size_t briefingIndex =
+            (static_cast<std::size_t>(mSaveManager.worldSeed()) +
+             static_cast<std::size_t>(mSaveManager.runNumber()) +
+             static_cast<std::size_t>(mTitlePulseTimer * 0.4f)) % kBriefingLines.size();
+
+        float bottomY = layout.rightCardBottomY + 10.0f;
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, bottomY),
+            "BRIEFING NOTE",
+            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
+            1.1f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, bottomY + 18.0f),
+            truncateHudText(kBriefingLines[briefingIndex], rightBottomBudget),
+            glm::vec4(0.77f, 0.80f, 0.74f, 0.98f),
+            1.05f);
+
+        std::string latestHeader = "Latest Event: none";
+        std::string latestLineA = "No completed runs in this slot.";
+        std::string latestLineB = "Start or continue a run to build history.";
+        glm::vec4 latestColor(0.63f, 0.63f, 0.63f, 0.9f);
+
+        if (latestEvent.kind == LegacyEventKind::Death && latestEvent.death != nullptr)
+        {
+            latestHeader = "Latest Event: DEATH (D" + std::to_string(latestEvent.death->day) + ")";
+            latestLineA = truncateHudText(
+                latestEvent.death->name + " @ " + formatTileLocation(latestEvent.death->x, latestEvent.death->y, mTileMap),
+                rightBottomBudget);
+            latestLineB = "Cause: " + truncateHudText(latestEvent.death->cause, rightBottomBudget > 7 ? rightBottomBudget - 7 : rightBottomBudget);
+            latestColor = glm::vec4(0.88f, 0.66f, 0.66f, 0.98f);
+        }
+        else if (latestEvent.kind == LegacyEventKind::Retirement && latestEvent.retirement != nullptr)
+        {
+            latestHeader = "Latest Event: RETIREMENT (D" + std::to_string(latestEvent.retirement->day) + ")";
+            latestLineA = truncateHudText(
+                latestEvent.retirement->name + " @ " + formatTileLocation(latestEvent.retirement->x, latestEvent.retirement->y, mTileMap),
+                rightBottomBudget);
+            latestLineB = "Status: Survivor exited run";
+            latestColor = glm::vec4(0.76f, 0.86f, 0.74f, 0.98f);
+        }
+
+        std::string secondaryLine = "Previous Event: none";
+        if (latestEvent.kind == LegacyEventKind::Death && lastRetirement != nullptr)
+        {
+            secondaryLine = "Previous: RETIRE D" + std::to_string(lastRetirement->day) +
+                " " + truncateHudText(lastRetirement->name, 12);
+        }
+        else if (latestEvent.kind == LegacyEventKind::Retirement && lastGrave != nullptr)
+        {
+            secondaryLine = "Previous: DEATH D" + std::to_string(lastGrave->day) +
+                " " + truncateHudText(lastGrave->name, 12);
+        }
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, bottomY + 42.0f),
+            "LATEST SLOT EVENT",
+            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
+            1.1f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, bottomY + 60.0f),
+            truncateHudText(latestHeader, rightBottomBudget),
+            latestColor,
+            1.05f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, bottomY + 76.0f),
+            truncateHudText(latestLineA, rightBottomBudget),
+            glm::vec4(0.76f, 0.80f, 0.74f, 0.95f),
+            1.0f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, bottomY + 92.0f),
+            truncateHudText(latestLineB, rightBottomBudget),
+            glm::vec4(0.72f, 0.74f, 0.71f, 0.95f),
+            1.0f);
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, bottomY + 108.0f),
+            truncateHudText(secondaryLine, rightBottomBudget),
+            glm::vec4(0.68f, 0.70f, 0.67f, 0.92f),
+            1.0f);
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, layout.panelY + layout.panelH - 42.0f),
+            truncateHudText("World Seed: " + std::to_string(mSaveManager.worldSeed()), rightCharBudget),
+            glm::vec4(0.67f, 0.69f, 0.66f, 0.90f),
+            1.05f);
+
+        if (!mTitleStatusMessage.empty() && mTitleStatusTimer > 0.0f)
+        {
+            mFont.drawText(
+                mSpriteBatch,
+                glm::vec2(layout.panelX + layout.panelW * 0.5f, layout.panelY + layout.panelH - 16.0f),
+                truncateHudText(mTitleStatusMessage, 64),
+                glm::vec4(0.99f, 0.86f, 0.58f, 0.98f),
+                1.25f,
+                TextAlign::Center);
+        }
+
+        if (mShowTitleCredits)
+        {
+            const float cx = layout.panelX + layout.panelW * 0.5f;
+            const float cy = layout.panelY + layout.panelH * 0.5f;
+            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy - 52.0f), "CREDITS",
+                            glm::vec4(0.96f, 0.86f, 0.60f, 1.0f), 2.2f, TextAlign::Center);
+            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy - 22.0f), "Dead Pixel Survival",
+                            glm::vec4(0.92f, 0.92f, 0.86f, 1.0f), 1.4f, TextAlign::Center);
+            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy - 4.0f), "Code + Design: In Progress Build",
+                            glm::vec4(0.80f, 0.82f, 0.78f, 0.98f), 1.1f, TextAlign::Center);
+            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy + 14.0f), "Engine: C++20 / SDL2 / OpenGL",
+                            glm::vec4(0.80f, 0.82f, 0.78f, 0.98f), 1.1f, TextAlign::Center);
+            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy + 34.0f), "Press Credits again or Esc to close",
+                            glm::vec4(0.72f, 0.74f, 0.70f, 0.95f), 1.05f, TextAlign::Center);
+        }
     }
 }
 
@@ -3864,7 +4876,148 @@ void Game::renderPauseOverlay()
 
 void Game::renderTitleScreen()
 {
-    // Rendered in renderTextOverlays
+    if (mRunState != RunState::TitleScreen)
+    {
+        return;
+    }
+
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const float w = static_cast<float>(mWindowWidth);
+    const float h = static_cast<float>(mWindowHeight);
+    const float pulse = 0.5f + 0.5f * std::sin(mTitlePulseTimer * 1.2f);
+    const TitlePanelLayout layout = computeTitlePanelLayout(mWindowWidth, mWindowHeight);
+
+    // Global dim to push the title UI to the foreground.
+    mSpriteBatch.draw(
+        glm::vec2(0.0f, 0.0f),
+        glm::vec2(w, h),
+        uiUv,
+        glm::vec4(0.02f, 0.03f, 0.04f, 0.78f));
+
+    // Main briefing panel.
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelX, layout.panelY),
+        glm::vec2(layout.panelW, layout.panelH),
+        uiUv,
+        glm::vec4(0.07f, 0.08f, 0.09f, 0.95f));
+
+    // Outer border.
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelX - 1.0f, layout.panelY - 1.0f),
+        glm::vec2(layout.panelW + 2.0f, 1.0f),
+        uiUv,
+        glm::vec4(0.75f, 0.40f, 0.30f, 0.60f));
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelX - 1.0f, layout.panelY + layout.panelH),
+        glm::vec2(layout.panelW + 2.0f, 1.0f),
+        uiUv,
+        glm::vec4(0.75f, 0.40f, 0.30f, 0.35f));
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelX - 1.0f, layout.panelY),
+        glm::vec2(1.0f, layout.panelH),
+        uiUv,
+        glm::vec4(0.75f, 0.40f, 0.30f, 0.35f));
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelX + layout.panelW, layout.panelY),
+        glm::vec2(1.0f, layout.panelH),
+        uiUv,
+        glm::vec4(0.75f, 0.40f, 0.30f, 0.60f));
+
+    // Header stripe.
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelX, layout.panelY),
+        glm::vec2(layout.panelW, 56.0f),
+        uiUv,
+        glm::vec4(0.20f, 0.08f, 0.06f, 0.94f));
+
+    // Left interaction column.
+    mSpriteBatch.draw(
+        glm::vec2(layout.leftColX, layout.leftColY),
+        glm::vec2(layout.leftColW, layout.leftColH),
+        uiUv,
+        glm::vec4(0.11f, 0.12f, 0.13f, 0.88f));
+
+    // Right status column.
+    mSpriteBatch.draw(
+        glm::vec2(layout.rightColX, layout.rightColY),
+        glm::vec2(layout.rightColW, layout.rightColH),
+        uiUv,
+        glm::vec4(0.10f, 0.11f, 0.12f, 0.90f));
+
+    // Strong center divider between action and intel.
+    mSpriteBatch.draw(
+        glm::vec2(layout.rightColX - 6.0f, layout.leftColY),
+        glm::vec2(2.0f, layout.leftColH),
+        uiUv,
+        glm::vec4(0.30f, 0.20f, 0.17f, 0.55f));
+
+    // Right column section cards for readability.
+    mSpriteBatch.draw(
+        glm::vec2(layout.rightCardTopX, layout.rightCardTopY),
+        glm::vec2(layout.rightCardTopW, layout.rightCardTopH),
+        uiUv,
+        glm::vec4(0.12f, 0.14f, 0.16f, 0.72f));
+    mSpriteBatch.draw(
+        glm::vec2(layout.rightCardMidX, layout.rightCardMidY),
+        glm::vec2(layout.rightCardMidW, layout.rightCardMidH),
+        uiUv,
+        glm::vec4(0.12f, 0.14f, 0.16f, 0.68f));
+    mSpriteBatch.draw(
+        glm::vec2(layout.rightCardBottomX, layout.rightCardBottomY),
+        glm::vec2(layout.rightCardBottomW, layout.rightCardBottomH),
+        uiUv,
+        glm::vec4(0.12f, 0.14f, 0.16f, 0.64f));
+
+    // Menu row strips to make scanning options easier.
+    for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
+    {
+        const float rowY = layout.menuRowY + static_cast<float>(i) * layout.menuRowStep;
+        glm::vec4 rowColor = (i % 2 == 0)
+            ? glm::vec4(0.15f, 0.16f, 0.18f, 0.48f)
+            : glm::vec4(0.12f, 0.13f, 0.15f, 0.40f);
+
+        if (i == 0 && !mTitleHasCheckpoint)
+        {
+            rowColor = glm::vec4(0.20f, 0.12f, 0.12f, 0.44f);
+        }
+        if (i == mTitleMenuSelection)
+        {
+            rowColor = glm::vec4(0.40f, 0.26f, 0.16f, 0.70f);
+        }
+
+        mSpriteBatch.draw(
+            glm::vec2(layout.menuRowX, rowY),
+            glm::vec2(layout.menuRowW, layout.menuRowH),
+            uiUv,
+            rowColor);
+    }
+
+    // Accent pulse strip.
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelX + layout.panelW - 10.0f, layout.leftColY),
+        glm::vec2(4.0f, layout.leftColH),
+        uiUv,
+        glm::vec4(0.85f, 0.25f + 0.25f * pulse, 0.18f, 0.65f));
+
+    // Light scan lines for a briefing-terminal feel.
+    for (int i = 0; i < 14; ++i)
+    {
+        const float lineY = layout.panelY + 74.0f + static_cast<float>(i) * ((layout.panelH - 100.0f) / 13.0f);
+        mSpriteBatch.draw(
+            glm::vec2(layout.panelX + 16.0f, lineY),
+            glm::vec2(layout.panelW - 32.0f, 1.0f),
+            uiUv,
+            glm::vec4(0.35f, 0.35f, 0.35f, 0.07f));
+    }
+
+    if (mShowTitleCredits)
+    {
+        mSpriteBatch.draw(
+            glm::vec2(layout.leftColX, layout.leftColY),
+            glm::vec2(layout.panelW - 24.0f, layout.leftColH),
+            uiUv,
+            glm::vec4(0.03f, 0.04f, 0.05f, 0.84f));
+    }
 }
 
 void Game::renderControlsOverlay()
@@ -3896,5 +5049,6 @@ void Game::renderControlsOverlay()
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Shift   Run", textColor, kSmallScale); y += 16.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "C       Crouch", textColor, kSmallScale); y += 16.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Esc     Pause", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F2      Controls", textColor, kSmallScale);
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F2      Controls", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F3      Infection Debug", textColor, kSmallScale);
 }

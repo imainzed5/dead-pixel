@@ -6,6 +6,7 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -68,7 +69,15 @@ private:
         Retired
     };
 
+    enum class TitleRunMode
+    {
+        Survival = 0,
+        Scavenger = 1,
+        Overrun = 2
+    };
+
     bool initialize();
+    bool loadSlotAndWorld(const std::string& slotName);
     void registerComponents();
     void startNewRun();
     void shutdown();
@@ -150,6 +159,22 @@ private:
     // Pause menu
     int mPauseSelection = 0; // 0=Resume, 1=Restart, 2=Quit
 
+    // Title screen hub
+    int mTitleMenuSelection = 0;
+    int mTitleSaveSlotIndex = 0;
+    int mTitleModeIndex = 0;
+    bool mTitleHasCheckpoint = false;
+    int mTitleCheckpointDay = 1;
+    std::string mTitleCheckpointName;
+    float mTitleCheckpointX = 0.0f;
+    float mTitleCheckpointY = 0.0f;
+    bool mShowTitleCredits = false;
+    std::string mTitleStatusMessage;
+    float mTitleStatusTimer = 0.0f;
+    float mTitlePulseTimer = 0.0f;
+    bool mIgnoreCheckpointRestoreOnce = false;
+    std::string mActiveSaveSlot = "default_slot";
+
     // Controls overlay
     bool mShowControls = false;
 
@@ -168,8 +193,10 @@ private:
     glm::mat4 mProjection{1.0f};
     glm::vec2 mMouseWorld{0.0f, 0.0f};
     bool mShowNoiseDebug = false;
+    bool mShowDistrictDebug = false;
     float mNoiseEmitTimer = 0.0f;
     NoiseTier mMovementNoiseTier = NoiseTier::None;
+    std::uint64_t mLayoutFingerprint = 0;
 
     double mDeathStateTimer = 0.0;
     std::string mDeathCause;

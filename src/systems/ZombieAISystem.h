@@ -6,10 +6,20 @@
 #include "map/TileMap.h"
 #include "noise/NoiseModel.h"
 
+class DistrictInfectionSystem;
+
 class ZombieAISystem
 {
 public:
-    void update(World& world, const TileMap& tileMap, const NoiseModel& noiseModel, Entity playerEntity, float dtSeconds, double gameHours = 12.0, int currentDay = 1) const;
+    void update(
+        World& world,
+        const TileMap& tileMap,
+        const NoiseModel& noiseModel,
+        Entity playerEntity,
+        float dtSeconds,
+        double gameHours = 12.0,
+        int currentDay = 1,
+        const DistrictInfectionSystem* infectionSystem = nullptr) const;
 
 private:
     static constexpr float kSpriteSize = 32.0f;

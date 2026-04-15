@@ -58,6 +58,16 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
             combat.phaseTimer = std::max(0.0f, combat.phaseTimer - dtSeconds);
             combat.recoveryDelayTimer = std::max(0.0f, combat.recoveryDelayTimer - dtSeconds);
 
+            float actionStaminaMultiplier = 1.0f;
+            if (world.hasComponent<MentalState>(playerEntity))
+            {
+                const MentalState& mental = world.getComponent<MentalState>(playerEntity);
+                if (mental.inCrisis)
+                {
+                    actionStaminaMultiplier = 1.5f;
+                }
+            }
+
             // --- Grab state machine ---
             if (combat.grabState != GrabState::None)
             {
@@ -142,9 +152,10 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
             }
 
             // --- Right-click: grab attempt ---
+            const float grabCost = kGrabStaminaCost * actionStaminaMultiplier;
             if (input.wasMouseButtonPressed(SDL_BUTTON_RIGHT) &&
                 combat.phase == AttackPhase::Idle &&
-                stamina.current >= kGrabStaminaCost)
+                stamina.current >= grabCost)
             {
                 const glm::vec2 pCenter = entityCenter(transform);
                 Entity closest = kInvalidEntity;
@@ -164,7 +175,7 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
 
                 if (closest != kInvalidEntity)
                 {
-                    stamina.current = std::max(0.0f, stamina.current - kGrabStaminaCost);
+                    stamina.current = std::max(0.0f, stamina.current - grabCost);
                     combat.grabState = GrabState::Grabbing;
                     combat.grabTimer = kGrabLungeSeconds;
                     combat.grabTarget = closest;
@@ -181,12 +192,13 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
 
                 // Ranged: check ammo
                 const bool canFire = combat.weapon.category != WeaponCategory::Ranged || combat.weapon.ammo > 0;
+                const float attackCost = combat.weapon.staminaCost * actionStaminaMultiplier;
 
                 if (input.wasMouseButtonPressed(SDL_BUTTON_LEFT) &&
-                    stamina.current >= combat.weapon.staminaCost * 0.5f &&
+                    stamina.current >= attackCost * 0.5f &&
                     canFire)
                 {
-                    stamina.current = std::max(0.0f, stamina.current - combat.weapon.staminaCost);
+                    stamina.current = std::max(0.0f, stamina.current - attackCost);
                     combat.recoveryDelayTimer = kRecoveryDelayAfterAttackSeconds;
                     combat.phase = AttackPhase::Windup;
                     combat.phaseTimer = kWindupSeconds;

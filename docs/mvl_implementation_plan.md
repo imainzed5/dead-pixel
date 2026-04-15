@@ -1,5 +1,13 @@
 # Plan: Dead Pixel Survival — MVL Implementation
 
+Status: archived reference (superseded)
+
+This document describes an original from-scratch MVL path and is no longer the active implementation plan.
+Use these documents for current planning and execution:
+- `docs/dead_pixel_current_state_audit.md`
+- `docs/milestone_backlog.md`
+- `docs/world_foundation_refactor_spec.md`
+
 ## TL;DR
 Build the Minimum Viable Loop (GDD §21.1) from zero — no code exists yet. The developer is brand new to C++ with only VS Code installed on Windows. The plan covers environment setup through a playable loop: move, eat, fight zombies, die, see grave next run. Ten phases, each independently verifiable, structured so each phase teaches necessary C++ concepts incrementally.
 

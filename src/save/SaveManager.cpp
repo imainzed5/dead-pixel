@@ -197,6 +197,7 @@ bool SaveManager::loadLegacy()
                 record.x = graveJson.value("x", 0.0f);
                 record.y = graveJson.value("y", 0.0f);
                 record.day = std::max(1, graveJson.value("day", 1));
+                record.runIndex = std::max(0, graveJson.value("runIndex", 0));
                 record.cause = graveJson.value("cause", std::string("Unknown"));
                 mGraves.push_back(record);
             }
@@ -212,6 +213,7 @@ bool SaveManager::loadLegacy()
                 record.x = retJson.value("x", 0.0f);
                 record.y = retJson.value("y", 0.0f);
                 record.day = std::max(1, retJson.value("day", 1));
+                record.runIndex = std::max(0, retJson.value("runIndex", 0));
                 mRetirements.push_back(record);
             }
         }
@@ -269,6 +271,7 @@ bool SaveManager::writeLegacy() const
         graveJson["x"] = grave.x;
         graveJson["y"] = grave.y;
         graveJson["day"] = grave.day;
+        graveJson["runIndex"] = grave.runIndex;
         graveJson["cause"] = grave.cause;
         json["graves"].push_back(graveJson);
     }
@@ -280,6 +283,7 @@ bool SaveManager::writeLegacy() const
         retJson["x"] = ret.x;
         retJson["y"] = ret.y;
         retJson["day"] = ret.day;
+        retJson["runIndex"] = ret.runIndex;
         json["retirements"].push_back(retJson);
     }
 
