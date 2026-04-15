@@ -588,11 +588,68 @@ def gen_env_sprite(img, ox, oy, name):
             for px in range(8, 24):
                 img.putpixel((ox + px, oy + y), (120, 95, 55, 255))
     elif name == "env_shelf":
-        draw_small_rect(img, ox, oy, 6, 8, 26, 24, (130, 105, 65))
-        draw_small_rect(img, ox, oy, 6, 14, 26, 16, (110, 88, 50))
+        draw_small_rect(img, ox, oy, 8, 4, 24, 28, (120, 90, 50))
+        for y in [8, 14, 20]:
+            draw_small_rect(img, ox, oy, 6, y, 26, y + 2, (100, 75, 40))
+        # Add random clutter on shelves
+        for y in [8, 14, 20]:
+            if random.random() > 0.3:
+                cx = random.randint(10, 20)
+                cc = random.choice([(180, 50, 40), (60, 120, 200), (180, 180, 180), (220, 220, 220)])
+                draw_small_rect(img, ox, oy, cx, y - 4, cx + 4, y, cc)
     elif name == "env_bed":
-        draw_small_rect(img, ox, oy, 6, 10, 26, 24, (70, 80, 130))
-        draw_small_rect(img, ox, oy, 6, 10, 12, 16, (200, 195, 185))
+        # Wooden frame
+        draw_small_rect(img, ox, oy, 4, 8, 28, 28, (110, 85, 45))
+        # Mattress
+        draw_small_rect(img, ox, oy, 6, 12, 26, 26, (220, 220, 215))
+        # Blanket
+        draw_small_rect(img, ox, oy, 6, 16, 26, 26, (80, 100, 160))
+        # Pillow
+        draw_small_rect(img, ox, oy, 8, 10, 24, 14, (240, 240, 240))
+    elif name == "env_chair":
+        # Seat
+        draw_small_rect(img, ox, oy, 10, 16, 22, 20, (130, 105, 65))
+        # Backrest
+        draw_small_rect(img, ox, oy, 10, 10, 22, 16, (110, 88, 50))
+        # Legs
+        draw_small_rect(img, ox, oy, 10, 20, 12, 26, (90, 70, 40))
+        draw_small_rect(img, ox, oy, 20, 20, 22, 26, (90, 70, 40))
+    elif name == "env_table":
+        # Table top
+        draw_small_rect(img, ox, oy, 6, 12, 26, 18, (140, 115, 75))
+        # Legs
+        draw_small_rect(img, ox, oy, 8, 18, 10, 26, (100, 80, 50))
+        draw_small_rect(img, ox, oy, 22, 18, 24, 26, (100, 80, 50))
+    elif name == "env_cabinet":
+        # Frame
+        draw_small_rect(img, ox, oy, 8, 6, 24, 26, (120, 95, 55))
+        # Doors
+        draw_small_rect(img, ox, oy, 10, 8, 15, 24, (100, 75, 40))
+        draw_small_rect(img, ox, oy, 17, 8, 22, 24, (100, 75, 40))
+        # Handles
+        draw_small_rect(img, ox, oy, 14, 14, 15, 18, (200, 200, 200))
+        draw_small_rect(img, ox, oy, 17, 14, 18, 18, (200, 200, 200))
+    elif name == "env_couch":
+        # Frame/Base
+        draw_small_rect(img, ox, oy, 4, 14, 28, 22, (90, 120, 90))
+        # Backrest
+        draw_small_rect(img, ox, oy, 6, 8, 26, 14, (70, 100, 70))
+        # Armrests
+        draw_small_rect(img, ox, oy, 4, 12, 8, 20, (80, 110, 80))
+        draw_small_rect(img, ox, oy, 24, 12, 28, 20, (80, 110, 80))
+        # Cushions
+        draw_small_rect(img, ox, oy, 8, 14, 16, 20, (100, 130, 100))
+        draw_small_rect(img, ox, oy, 16, 14, 24, 20, (100, 130, 100))
+    elif name == "env_lamp":
+        # Base
+        draw_small_rect(img, ox, oy, 14, 24, 18, 26, (80, 80, 80))
+        # Pole
+        draw_small_rect(img, ox, oy, 15, 10, 17, 24, (100, 100, 100))
+        # Shade
+        draw_small_rect(img, ox, oy, 12, 6, 20, 12, (240, 230, 200))
+        # Light glow (if not off)
+        img.putpixel((ox + 16, oy + 11), (255, 255, 200, 255))
+        img.putpixel((ox + 15, oy + 11), (255, 255, 200, 255))
     elif name == "env_campfire_lit":
         gen_item_sprite(img, ox, oy, "item_campfire")
         for _ in range(12):
@@ -768,6 +825,7 @@ def generate_atlas():
         "env_crate", "env_shelf", "env_bed", "env_campfire_lit",
         "env_barricade", "env_noise_trap", "env_campfire", "env_sleeping_area",
         "item_wood", "item_scrap", "item_rope", "item_fuel",
+        "env_chair", "env_table", "env_cabinet", "env_couch", "env_lamp",
     ]
     for i, name in enumerate(env_row):
         x = i * ITEM_SIZE

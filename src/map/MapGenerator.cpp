@@ -341,7 +341,9 @@ void MapGenerator::placeBuildings()
     std::uniform_int_distribution<int> buildingsPerBlock(1, 3);
     std::uniform_int_distribution<int> widthDist(7, 14);
     std::uniform_int_distribution<int> heightDist(6, 10);
-    std::uniform_int_distribution<int> surfDist(0, 2); // interior surface variety
+    std::uniform_int_distribution<int> surfRoll(0, 99);
+    std::uniform_int_distribution<int> notchChance(0, 99);
+    std::uniform_int_distribution<int> notchSizeDist(2, 3);
 
     // Find city blocks by flood-filling grass areas
     std::vector<bool> visited(static_cast<std::size_t>(mWidth * mHeight), false);
@@ -406,6 +408,29 @@ void MapGenerator::placeBuildings()
             const int bx = usedX;
             const int by = block.y + 1;
 
+            enum class BuildingArchetype
+            {
+                Residential,
+                Commercial,
+                Industrial
+            };
+
+            BuildingArchetype archetype = BuildingArchetype::Residential;
+            if (bw <= 9)
+            {
+                archetype = BuildingArchetype::Residential;
+            }
+            else if (bw <= 11)
+            {
+                archetype = BuildingArchetype::Commercial;
+            }
+            else
+            {
+                archetype = BuildingArchetype::Industrial;
+            }
+
+            const int wallTile = (archetype == BuildingArchetype::Industrial) ? kGidMetal : kGidWall;
+
             // Walls
             for (int tx = bx; tx < bx + bw; ++tx)
             {
@@ -415,44 +440,120 @@ void MapGenerator::placeBuildings()
                     const int idx = index(tx, ty);
                     if (tx == bx || tx == bx + bw - 1 || ty == by || ty == by + bh - 1)
                     {
-                        mGround[idx] = kGidWall;
+                        mGround[idx] = wallTile;
                         mCollision[idx] = 1;
-                        mSurface[idx] = kSurfDefault;
+                        mSurface[idx] = (archetype == BuildingArchetype::Industrial) ? kSurfMetal : kSurfDefault;
                     }
                     else
                     {
-                        // Interior floor — randomly use carpet or concrete
-                        const int sv = surfDist(mRng);
-                        if (sv == 0)
+                        // Interior floor by building archetype for clearer district identity.
+                        const int roll = surfRoll(mRng);
+                        if (archetype == BuildingArchetype::Residential)
                         {
-                            mGround[idx] = kGidCarpet;
-                            mSurface[idx] = kSurfCarpet;
+                            if (roll < 68)
+                            {
+                                mGround[idx] = kGidCarpet;
+                                mSurface[idx] = kSurfCarpet;
+                            }
+                            else if (roll < 92)
+                            {
+                                mGround[idx] = kGidFloor;
+                                mSurface[idx] = kSurfDefault;
+                            }
+                            else
+                            {
+                                mGround[idx] = kGidDirt;
+                                mSurface[idx] = kSurfDefault;
+                            }
+                        }
+                        else if (archetype == BuildingArchetype::Commercial)
+                        {
+                            if (roll < 14)
+                            {
+                                mGround[idx] = kGidCarpet;
+                                mSurface[idx] = kSurfCarpet;
+                            }
+                            else if (roll < 82)
+                            {
+                                mGround[idx] = kGidFloor;
+                                mSurface[idx] = kSurfDefault;
+                            }
+                            else
+                            {
+                                mGround[idx] = kGidGravel;
+                                mSurface[idx] = kSurfGravel;
+                            }
                         }
                         else
                         {
-                            mGround[idx] = kGidFloor;
-                            mSurface[idx] = kSurfDefault;
+                            if (roll < 38)
+                            {
+                                mGround[idx] = kGidFloor;
+                                mSurface[idx] = kSurfDefault;
+                            }
+                            else if (roll < 78)
+                            {
+                                mGround[idx] = kGidGravel;
+                                mSurface[idx] = kSurfGravel;
+                            }
+                            else
+                            {
+                                mGround[idx] = kGidMetal;
+                                mSurface[idx] = kSurfMetal;
+                            }
                         }
                     }
                 }
             }
 
+            // Add occasional corner notch to break box-like footprints and improve silhouette readability.
+            if (bw >= 10 && bh >= 8 && notchChance(mRng) < 45)
+            {
+                const int notchW = notchSizeDist(mRng);
+                const int notchH = notchSizeDist(mRng);
+                const int corner = std::uniform_int_distribution<int>(0, 3)(mRng);
+
+                int startX = bx;
+                int startY = by;
+                if (corner == 1 || corner == 3)
+                {
+                    startX = bx + bw - notchW;
+                }
+                if (corner == 2 || corner == 3)
+                {
+                    startY = by + bh - notchH;
+                }
+
+                for (int ty = startY; ty < startY + notchH; ++ty)
+                {
+                    for (int tx = startX; tx < startX + notchW; ++tx)
+                    {
+                        if (!inBounds(tx, ty)) continue;
+                        const int idx = index(tx, ty);
+                        mGround[idx] = kGidGrass2;
+                        mCollision[idx] = 0;
+                        mSurface[idx] = kSurfGrass;
+                    }
+                }
+            }
+
             // Doorways: one on bottom wall, one on side wall if building is large
+            int primaryDoorX = bx + bw / 2;
+            int primaryDoorY = by + bh - 1;
             {
                 std::uniform_int_distribution<int> doorXDist(bx + 2, bx + bw - 3);
-                const int doorX = doorXDist(mRng);
-                const int doorY = by + bh - 1;
-                if (inBounds(doorX, doorY))
+                primaryDoorX = doorXDist(mRng);
+                if (inBounds(primaryDoorX, primaryDoorY))
                 {
-                    mGround[index(doorX, doorY)] = kGidFloor;
-                    mCollision[index(doorX, doorY)] = 0;
-                    mSurface[index(doorX, doorY)] = kSurfDefault;
-                    mDoorTiles.emplace_back(doorX, doorY);
+                    mGround[index(primaryDoorX, primaryDoorY)] = kGidFloor;
+                    mCollision[index(primaryDoorX, primaryDoorY)] = 0;
+                    mSurface[index(primaryDoorX, primaryDoorY)] = kSurfDefault;
+                    mDoorTiles.emplace_back(primaryDoorX, primaryDoorY);
                 }
                 // Clear the tile just outside the door so it's reachable
-                if (inBounds(doorX, doorY + 1) && mGround[index(doorX, doorY + 1)] == kGidGrass)
+                if (inBounds(primaryDoorX, primaryDoorY + 1) && mGround[index(primaryDoorX, primaryDoorY + 1)] == kGidGrass)
                 {
-                    mCollision[index(doorX, doorY + 1)] = 0;
+                    mCollision[index(primaryDoorX, primaryDoorY + 1)] = 0;
                 }
             }
 
@@ -471,6 +572,35 @@ void MapGenerator::placeBuildings()
                 }
             }
 
+            // Exterior entrance treatment by archetype to improve district readability.
+            auto paintExteriorTile = [&](int x, int y, int gid, int surface)
+            {
+                if (!inBounds(x, y)) return;
+                const int idx = index(x, y);
+                if (mCollision[idx] != 0) return;
+                mGround[idx] = gid;
+                mSurface[idx] = surface;
+            };
+
+            if (archetype == BuildingArchetype::Residential)
+            {
+                paintExteriorTile(primaryDoorX, primaryDoorY + 1, kGidDirt, kSurfDefault);
+                paintExteriorTile(primaryDoorX - 1, primaryDoorY + 1, kGidGrass2, kSurfGrass);
+                paintExteriorTile(primaryDoorX + 1, primaryDoorY + 1, kGidGrass2, kSurfGrass);
+            }
+            else if (archetype == BuildingArchetype::Commercial)
+            {
+                paintExteriorTile(primaryDoorX, primaryDoorY + 1, kGidGravel, kSurfGravel);
+                paintExteriorTile(primaryDoorX - 1, primaryDoorY + 1, kGidGravel, kSurfGravel);
+                paintExteriorTile(primaryDoorX + 1, primaryDoorY + 1, kGidGravel, kSurfGravel);
+            }
+            else
+            {
+                paintExteriorTile(primaryDoorX, primaryDoorY + 1, kGidMetal, kSurfMetal);
+                paintExteriorTile(primaryDoorX - 1, primaryDoorY + 1, kGidGravel, kSurfGravel);
+                paintExteriorTile(primaryDoorX + 1, primaryDoorY + 1, kGidGravel, kSurfGravel);
+            }
+
             mBuildings.push_back({bx, by, bw, bh});
             usedX = bx + bw + 2; // gap between buildings
         }
@@ -479,30 +609,113 @@ void MapGenerator::placeBuildings()
 
 void MapGenerator::addInteriorWalls()
 {
+    std::uniform_int_distribution<int> sideDist(0, 1);
+    std::uniform_int_distribution<int> jitterDist(-1, 1);
+
+    auto addInteriorDoorTile = [&](int x, int y)
+    {
+        if (!inBounds(x, y)) return;
+        const int idx = index(x, y);
+        mGround[idx] = kGidFloor;
+        mCollision[idx] = 0;
+        mSurface[idx] = kSurfDefault;
+        mDoorTiles.emplace_back(x, y);
+    };
+
     for (const auto& bldg : mBuildings)
     {
-        if (bldg.w < 10 && bldg.h < 8) continue;
+        if (bldg.w < 9 && bldg.h < 7) continue;
 
-        // Add a vertical dividing wall at the midpoint
-        const int wallX = bldg.x + bldg.w / 2;
-        std::uniform_int_distribution<int> gapDist(bldg.y + 2, bldg.y + bldg.h - 3);
-        const int gapY = gapDist(mRng);
-
-        for (int y = bldg.y + 1; y < bldg.y + bldg.h - 1; ++y)
+        const bool primaryVertical = bldg.w >= bldg.h;
+        if (primaryVertical)
         {
-            if (y == gapY) continue; // doorway gap
-            if (!inBounds(wallX, y)) continue;
-            const int idx = index(wallX, y);
-            mGround[idx] = kGidWall;
-            mCollision[idx] = 1;
-            mSurface[idx] = kSurfDefault;
+            const int wallX = bldg.x + bldg.w / 2;
+            if (wallX <= bldg.x + 1 || wallX >= bldg.x + bldg.w - 2) continue;
+
+            std::uniform_int_distribution<int> gapDist(bldg.y + 2, bldg.y + bldg.h - 3);
+            const int gapY = gapDist(mRng);
+
+            for (int y = bldg.y + 1; y < bldg.y + bldg.h - 1; ++y)
+            {
+                if (y == gapY) continue;
+                if (!inBounds(wallX, y)) continue;
+                const int idx = index(wallX, y);
+                mGround[idx] = kGidWall;
+                mCollision[idx] = 1;
+                mSurface[idx] = kSurfDefault;
+            }
+            addInteriorDoorTile(wallX, gapY);
+
+            if (bldg.w >= 12 && bldg.h >= 8)
+            {
+                int wallY = bldg.y + bldg.h / 2 + jitterDist(mRng);
+                wallY = std::clamp(wallY, bldg.y + 2, bldg.y + bldg.h - 3);
+
+                const bool leftHalf = sideDist(mRng) == 0;
+                const int startX = leftHalf ? bldg.x + 1 : wallX + 1;
+                const int endX = leftHalf ? wallX - 1 : bldg.x + bldg.w - 2;
+                if (endX - startX >= 2)
+                {
+                    std::uniform_int_distribution<int> gapXDist(startX + 1, endX - 1);
+                    const int gapX = gapXDist(mRng);
+
+                    for (int x = startX; x <= endX; ++x)
+                    {
+                        if (x == gapX) continue;
+                        if (!inBounds(x, wallY)) continue;
+                        const int idx = index(x, wallY);
+                        mGround[idx] = kGidWall;
+                        mCollision[idx] = 1;
+                        mSurface[idx] = kSurfDefault;
+                    }
+                    addInteriorDoorTile(gapX, wallY);
+                }
+            }
         }
-        // Mark the gap as a door tile
-        if (inBounds(wallX, gapY))
+        else
         {
-            mGround[index(wallX, gapY)] = kGidFloor;
-            mCollision[index(wallX, gapY)] = 0;
-            mDoorTiles.emplace_back(wallX, gapY);
+            const int wallY = bldg.y + bldg.h / 2;
+            if (wallY <= bldg.y + 1 || wallY >= bldg.y + bldg.h - 2) continue;
+
+            std::uniform_int_distribution<int> gapDist(bldg.x + 2, bldg.x + bldg.w - 3);
+            const int gapX = gapDist(mRng);
+
+            for (int x = bldg.x + 1; x < bldg.x + bldg.w - 1; ++x)
+            {
+                if (x == gapX) continue;
+                if (!inBounds(x, wallY)) continue;
+                const int idx = index(x, wallY);
+                mGround[idx] = kGidWall;
+                mCollision[idx] = 1;
+                mSurface[idx] = kSurfDefault;
+            }
+            addInteriorDoorTile(gapX, wallY);
+
+            if (bldg.h >= 10 && bldg.w >= 8)
+            {
+                int wallX = bldg.x + bldg.w / 2 + jitterDist(mRng);
+                wallX = std::clamp(wallX, bldg.x + 2, bldg.x + bldg.w - 3);
+
+                const bool topHalf = sideDist(mRng) == 0;
+                const int startY = topHalf ? bldg.y + 1 : wallY + 1;
+                const int endY = topHalf ? wallY - 1 : bldg.y + bldg.h - 2;
+                if (endY - startY >= 2)
+                {
+                    std::uniform_int_distribution<int> gapYDist(startY + 1, endY - 1);
+                    const int gapY = gapYDist(mRng);
+
+                    for (int y = startY; y <= endY; ++y)
+                    {
+                        if (y == gapY) continue;
+                        if (!inBounds(wallX, y)) continue;
+                        const int idx = index(wallX, y);
+                        mGround[idx] = kGidWall;
+                        mCollision[idx] = 1;
+                        mSurface[idx] = kSurfDefault;
+                    }
+                    addInteriorDoorTile(wallX, gapY);
+                }
+            }
         }
     }
 }
@@ -573,6 +786,8 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
         int buildingIdx;
         int districtType; // DistrictType as int (0=Wilderness, 1=Res, 2=Com, 3=Ind)
         std::vector<glm::ivec2> tiles;
+        std::vector<glm::ivec2> nearWallTiles;
+        std::vector<glm::ivec2> openTiles;
     };
     std::vector<BuildingFloors> buildingFloors;
     buildingFloors.reserve(mBuildings.size());
@@ -602,7 +817,31 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             {
                 if (isFloorTile(x, y) && !isDoorTile(x, y))
                 {
-                    bf.tiles.emplace_back(x, y);
+                    const glm::ivec2 tile(x, y);
+                    bf.tiles.push_back(tile);
+
+                    bool nearWall = false;
+                    constexpr int kDirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                    for (const auto& d : kDirs)
+                    {
+                        const int nx = x + d[0];
+                        const int ny = y + d[1];
+                        if (!inBounds(nx, ny)) continue;
+                        if (mCollision[index(nx, ny)] != 0)
+                        {
+                            nearWall = true;
+                            break;
+                        }
+                    }
+
+                    if (nearWall)
+                    {
+                        bf.nearWallTiles.push_back(tile);
+                    }
+                    else
+                    {
+                        bf.openTiles.push_back(tile);
+                    }
                 }
             }
         }
@@ -747,11 +986,36 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
 
     // Helper to pick N tiles from buildings (round-robin, avoiding player building)
     // preferredType: if >= 0, buildings of that district type get 3x weight (visited 3x more often)
+    enum class SpawnTileBias
+    {
+        Any,
+        NearWall,
+        OpenSpace
+    };
+
     auto pickBuildingTiles = [&](int count, std::vector<glm::ivec2>& out,
                                  bool avoidPlayerBuilding = false,
                                  int preferredType = -1,
-                                 bool avoidReserved = true)
+                                 bool avoidReserved = true,
+                                 SpawnTileBias bias = SpawnTileBias::Any)
     {
+        auto sourceTiles = [&](const BuildingFloors& bf) -> const std::vector<glm::ivec2>&
+        {
+            if (bias == SpawnTileBias::NearWall)
+            {
+                if (!bf.nearWallTiles.empty()) return bf.nearWallTiles;
+                if (!bf.openTiles.empty()) return bf.openTiles;
+                return bf.tiles;
+            }
+            if (bias == SpawnTileBias::OpenSpace)
+            {
+                if (!bf.openTiles.empty()) return bf.openTiles;
+                if (!bf.nearWallTiles.empty()) return bf.nearWallTiles;
+                return bf.tiles;
+            }
+            return bf.tiles;
+        };
+
         // Build a weighted order: preferred-type buildings appear 3x
         std::vector<std::size_t> order;
         order.reserve(buildingFloors.size() * 3);
@@ -772,17 +1036,23 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             {
                 const std::size_t bi = order[oi];
                 auto& bf = buildingFloors[bi];
-                while (cursor[bi] < bf.tiles.size() && avoidReserved && isReservedTile(bf.tiles[cursor[bi]]))
-                {
-                    ++cursor[bi];
-                }
-
-                if (cursor[bi] >= bf.tiles.size())
+                const auto& source = sourceTiles(bf);
+                if (source.empty())
                 {
                     continue;
                 }
 
-                const glm::ivec2 chosen = bf.tiles[cursor[bi]];
+                while (cursor[bi] < source.size() && avoidReserved && isReservedTile(source[cursor[bi]]))
+                {
+                    ++cursor[bi];
+                }
+
+                if (cursor[bi] >= source.size())
+                {
+                    continue;
+                }
+
+                const glm::ivec2 chosen = source[cursor[bi]];
                 out.push_back(chosen);
                 if (avoidReserved)
                 {
@@ -797,34 +1067,94 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
     // Item spawns inside buildings (scaled by area, district-biased)
     // Residential→food/sleep, Commercial→weapons/medical, Industrial→materials/bandages
     const int foodCount = static_cast<int>(std::uniform_int_distribution<int>(14, 20)(mRng) * areaScale);
-    pickBuildingTiles(foodCount, outSpawns.foodSpawns, false, static_cast<int>(DistrictType::Residential));
+    pickBuildingTiles(
+        foodCount,
+        outSpawns.foodSpawns,
+        false,
+        static_cast<int>(DistrictType::Residential),
+        true,
+        SpawnTileBias::OpenSpace);
 
     const int waterCount = static_cast<int>(std::uniform_int_distribution<int>(10, 16)(mRng) * areaScale);
-    pickBuildingTiles(waterCount, outSpawns.waterSpawns, false, static_cast<int>(DistrictType::Residential));
+    pickBuildingTiles(
+        waterCount,
+        outSpawns.waterSpawns,
+        false,
+        static_cast<int>(DistrictType::Residential),
+        true,
+        SpawnTileBias::OpenSpace);
 
     const int weaponCount = static_cast<int>(std::uniform_int_distribution<int>(6, 10)(mRng) * areaScale);
-    pickBuildingTiles(weaponCount, outSpawns.weaponSpawns, false, static_cast<int>(DistrictType::Commercial));
+    pickBuildingTiles(
+        weaponCount,
+        outSpawns.weaponSpawns,
+        false,
+        static_cast<int>(DistrictType::Commercial),
+        true,
+        SpawnTileBias::NearWall);
 
     const int bandageCount = static_cast<int>(std::uniform_int_distribution<int>(6, 10)(mRng) * areaScale);
-    pickBuildingTiles(bandageCount, outSpawns.bandageSpawns, false, static_cast<int>(DistrictType::Industrial));
+    pickBuildingTiles(
+        bandageCount,
+        outSpawns.bandageSpawns,
+        false,
+        static_cast<int>(DistrictType::Industrial),
+        true,
+        SpawnTileBias::NearWall);
 
     const int medicalCacheCount = std::max(2, static_cast<int>(std::uniform_int_distribution<int>(2, 4)(mRng) * areaScale));
-    pickBuildingTiles(medicalCacheCount, outSpawns.medicalCacheSpawns, true, static_cast<int>(DistrictType::Commercial));
+    pickBuildingTiles(
+        medicalCacheCount,
+        outSpawns.medicalCacheSpawns,
+        true,
+        static_cast<int>(DistrictType::Commercial),
+        true,
+        SpawnTileBias::NearWall);
 
     const int supplyCacheCount = std::max(3, static_cast<int>(std::uniform_int_distribution<int>(3, 5)(mRng) * areaScale));
-    pickBuildingTiles(supplyCacheCount, outSpawns.supplyCacheSpawns, true, static_cast<int>(DistrictType::Industrial));
+    pickBuildingTiles(
+        supplyCacheCount,
+        outSpawns.supplyCacheSpawns,
+        true,
+        static_cast<int>(DistrictType::Industrial),
+        true,
+        SpawnTileBias::NearWall);
 
     // Sleep spots: prefer residential buildings
     const int sleepCount = static_cast<int>(std::uniform_int_distribution<int>(5, 8)(mRng) * areaScale);
-    pickBuildingTiles(sleepCount, outSpawns.sleepSpawns, false, static_cast<int>(DistrictType::Residential));
+    pickBuildingTiles(
+        sleepCount,
+        outSpawns.sleepSpawns,
+        false,
+        static_cast<int>(DistrictType::Residential),
+        true,
+        SpawnTileBias::NearWall);
+
+    // Home furniture dressing pass: mostly residential, with a near-wall bias.
+    const int homeFurnitureCount = static_cast<int>(std::uniform_int_distribution<int>(18, 30)(mRng) * areaScale);
+    const int homeNearWallCount = (homeFurnitureCount * 7) / 10;
+    pickBuildingTiles(
+        homeNearWallCount,
+        outSpawns.homeFurnitureSpawns,
+        false,
+        static_cast<int>(DistrictType::Residential),
+        true,
+        SpawnTileBias::NearWall);
+    pickBuildingTiles(
+        homeFurnitureCount - homeNearWallCount,
+        outSpawns.homeFurnitureSpawns,
+        false,
+        static_cast<int>(DistrictType::Residential),
+        true,
+        SpawnTileBias::OpenSpace);
 
     // Containers
     const int containerCount = static_cast<int>(std::uniform_int_distribution<int>(10, 16)(mRng) * areaScale);
-    pickBuildingTiles(containerCount, outSpawns.containerSpawns, true);
+    pickBuildingTiles(containerCount, outSpawns.containerSpawns, true, -1, true, SpawnTileBias::NearWall);
 
-    // Indoor decor: shelves, beds, blood inside buildings
-    const int indoorDecorCount = static_cast<int>(std::uniform_int_distribution<int>(20, 40)(mRng) * areaScale);
-    pickBuildingTiles(indoorDecorCount, outSpawns.decorIndoorSpawns, false, -1, true);
+    // Indoor decor: ambient utility and distress dressing inside buildings
+    const int indoorDecorCount = static_cast<int>(std::uniform_int_distribution<int>(12, 24)(mRng) * areaScale);
+    pickBuildingTiles(indoorDecorCount, outSpawns.decorIndoorSpawns, false, -1, true, SpawnTileBias::NearWall);
 
     // Outdoor decor: graves, debris scattered across the map
     {

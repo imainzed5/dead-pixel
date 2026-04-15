@@ -125,13 +125,13 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
             if (result.added > 0)
             {
                 world.destroyEntity(bestEntity);
-                return "Picked up food.";
+                return "Recovered food rations.";
             }
             return "Inventory full.";
         }
         playerNeeds.hunger = std::min(playerNeeds.maxHunger, playerNeeds.hunger + interactable.hungerRestore);
         world.destroyEntity(bestEntity);
-        return "Ate food (hunger restored).";
+        return "Ate on the spot.";
     }
 
     case InteractableType::WaterPickup:
@@ -144,13 +144,13 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
             if (result.added > 0)
             {
                 world.destroyEntity(bestEntity);
-                return "Picked up water.";
+                return "Recovered bottled water.";
             }
             return "Inventory full.";
         }
         playerNeeds.thirst = std::min(playerNeeds.maxThirst, playerNeeds.thirst + interactable.thirstRestore);
         world.destroyEntity(bestEntity);
-        return "Drank water (thirst restored).";
+        return "Drank on the spot.";
     }
 
     case InteractableType::SleepSpot:
@@ -211,7 +211,7 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
             if (result.added > 0)
             {
                 world.destroyEntity(bestEntity);
-                return "Picked up weapon.";
+                return "Secured a weapon.";
             }
             return "Inventory full.";
         }
@@ -242,7 +242,7 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
             if (result.added > 0)
             {
                 world.destroyEntity(bestEntity);
-                return "Picked up bandage.";
+                return "Recovered a bandage.";
             }
             return "Inventory full.";
         }
@@ -286,9 +286,9 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
 
         if (totalTransferred == 0)
         {
-            return "Container empty or inventory full.";
+            return "Stash picked clean or inventory full.";
         }
-        return "Looted " + std::to_string(totalTransferred) + " items.";
+        return "Recovered " + std::to_string(totalTransferred) + " supplies.";
     }
 
     case InteractableType::GraveMarker:

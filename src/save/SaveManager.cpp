@@ -31,6 +31,15 @@ std::string readFileToString(const std::string& filePath)
     buffer << input.rdbuf();
     return buffer.str();
 }
+
+std::pair<int, int> normalizeRecipePair(int itemA, int itemB)
+{
+    if (itemA <= itemB)
+    {
+        return {itemA, itemB};
+    }
+    return {itemB, itemA};
+}
 }
 
 bool SaveManager::loadOrCreateSlot(const std::string& slotName)
@@ -819,6 +828,45 @@ bool SaveManager::addLootedPosition(int tileX, int tileY)
     return true;
 }
 
+bool SaveManager::addDiscoveredRecipe(int itemA, int itemB)
+{
+    if (itemA < 0 || itemB < 0)
+    {
+        return false;
+    }
+
+    const auto normalized = normalizeRecipePair(itemA, itemB);
+    for (const auto& [a, b] : mDiscoveredRecipes)
+    {
+        if (a == normalized.first && b == normalized.second)
+        {
+            return false;
+        }
+    }
+
+    mDiscoveredRecipes.push_back(normalized);
+    return true;
+}
+
+bool SaveManager::isRecipeDiscovered(int itemA, int itemB) const
+{
+    if (itemA < 0 || itemB < 0)
+    {
+        return false;
+    }
+
+    const auto normalized = normalizeRecipePair(itemA, itemB);
+    for (const auto& [a, b] : mDiscoveredRecipes)
+    {
+        if (a == normalized.first && b == normalized.second)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool SaveManager::saveLootedPositions()
 {
     nlohmann::json json;
@@ -826,6 +874,12 @@ bool SaveManager::saveLootedPositions()
     for (const auto& [x, y] : mLootedPositions)
     {
         json["looted"].push_back({{"x", x}, {"y", y}});
+    }
+
+    json["recipes"] = nlohmann::json::array();
+    for (const auto& [a, b] : mDiscoveredRecipes)
+    {
+        json["recipes"].push_back({{"a", a}, {"b", b}});
     }
 
     const std::string tempPath = mWorldMemoryPath + ".tmp";
@@ -846,9 +900,15 @@ bool SaveManager::saveLootedPositions()
     return !ec;
 }
 
+bool SaveManager::saveDiscoveredRecipes()
+{
+    return saveLootedPositions();
+}
+
 bool SaveManager::loadLootedPositions()
 {
     mLootedPositions.clear();
+    mDiscoveredRecipes.clear();
     std::string contents = readFileToString(mWorldMemoryPath);
     if (contents.empty()) return true;
 
@@ -864,6 +924,36 @@ bool SaveManager::loadLootedPositions()
             mLootedPositions.emplace_back(x, y);
         }
     }
+
+    if (json.contains("recipes") && json["recipes"].is_array())
+    {
+        for (const auto& rj : json["recipes"])
+        {
+            const int a = rj.value("a", -1);
+            const int b = rj.value("b", -1);
+            if (a < 0 || b < 0)
+            {
+                continue;
+            }
+
+            const auto normalized = normalizeRecipePair(a, b);
+            bool seen = false;
+            for (const auto& [ea, eb] : mDiscoveredRecipes)
+            {
+                if (ea == normalized.first && eb == normalized.second)
+                {
+                    seen = true;
+                    break;
+                }
+            }
+
+            if (!seen)
+            {
+                mDiscoveredRecipes.push_back(normalized);
+            }
+        }
+    }
+
     return true;
 }
 

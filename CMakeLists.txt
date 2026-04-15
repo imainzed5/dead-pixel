@@ -36,6 +36,7 @@ add_executable(dead_pixel_survival
     src/systems/RenderSystem.cpp
     src/systems/InventorySystem.cpp
     src/systems/MentalStateSystem.cpp
+    src/systems/CraftingSystem.cpp
     src/systems/ProjectileSystem.cpp
     src/systems/WoundSystem.cpp
     src/systems/BuildSystem.cpp

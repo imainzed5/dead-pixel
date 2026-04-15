@@ -1,0 +1,56 @@
+{
+  "recipes": [
+    {
+      "name": "Disinfected Bandage",
+      "a": 4,
+      "b": 15,
+      "out": 24,
+      "count": 1,
+      "category": "MED",
+      "tools": [],
+      "craftTimeSeconds": 60,
+      "notes": "Bleach can substitute Alcohol at 2x panic cost.",
+      "startsKnown": false,
+      "requiresWorkbench": false
+    },
+    {
+      "name": "Soaked Rag",
+      "a": 4,
+      "b": 12,
+      "out": 25,
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [],
+      "craftTimeSeconds": 40,
+      "notes": "Core intermediate for fire tools.",
+      "startsKnown": false,
+      "requiresWorkbench": false
+    },
+    {
+      "name": "Molotov",
+      "a": 3,
+      "b": 25,
+      "out": 26,
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [19],
+      "craftTimeSeconds": 90,
+      "notes": "Use from range. Fire draws attention fast.",
+      "startsKnown": false,
+      "requiresWorkbench": false
+    },
+    {
+      "name": "Spiked Bat",
+      "a": 6,
+      "b": 10,
+      "out": 27,
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [17],
+      "craftTimeSeconds": 75,
+      "notes": "Durable but noisy in close quarters.",
+      "startsKnown": false,
+      "requiresWorkbench": true
+    }
+  ]
+}

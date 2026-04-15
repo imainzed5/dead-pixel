@@ -7,7 +7,9 @@
 #include <glm/vec2.hpp>
 
 #include <cstdint>
+#include <deque>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/Input.h"
@@ -35,6 +37,7 @@
 #include "systems/AnimationSystem.h"
 #include "systems/BleedingSystem.h"
 #include "systems/BuildSystem.h"
+#include "systems/CraftingSystem.h"
 #include "systems/InventorySystem.h"
 #include "systems/MentalStateSystem.h"
 #include "systems/ParticleSystem.h"
@@ -80,6 +83,7 @@ private:
     bool loadSlotAndWorld(const std::string& slotName);
     void registerComponents();
     void startNewRun();
+    void returnToTitleScreen();
     void shutdown();
     void setupScene();
     void beginDeathState(const std::string& cause);
@@ -103,6 +107,7 @@ private:
     void renderNoiseDebugOverlay();
     void updateWindowTitle(double frameSeconds);
     void renderInventoryOverlay();
+    void renderCraftingOverlay();
     void renderBuildModeOverlay();
     void renderContainerOverlay();
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
@@ -141,6 +146,7 @@ private:
     BleedingSystem mBleedingSystem;
     MentalStateSystem mMentalStateSystem;
     BuildSystem mBuildSystem;
+    CraftingSystem mCraftingSystem;
     ProjectileSystem mProjectileSystem;
     WoundSystem mWoundSystem;
     RenderSystem mRenderSystem;
@@ -157,7 +163,7 @@ private:
     RunState mRunState = RunState::TitleScreen;
 
     // Pause menu
-    int mPauseSelection = 0; // 0=Resume, 1=Restart, 2=Quit
+    int mPauseSelection = 0; // 0=Resume, 1=Back to Menu, 2=Restart, 3=Quit
 
     // Title screen hub
     int mTitleMenuSelection = 0;
@@ -210,6 +216,23 @@ private:
     int mCurrentDay = 1;
     bool mShowInventory = false;
     int mInventoryCursor = 0; // navigable cursor across all 20 slots
+
+    // Crafting panel state
+    bool mShowCrafting = false;
+    int mCraftingRecipeCursor = 0;
+    int mCraftingQuantity = 1;
+    int mCraftingCategory = 0; // 0=ALL, 1=TOOLS, 2=MED
+    bool mCraftingNotebookView = false;
+    std::vector<std::pair<int, int>> mSessionDiscoveredRecipes;
+    bool mCraftingRenderTextPass = false;
+
+    struct CraftQueueEntry
+    {
+        int recipeIndex = -1;
+        int remaining = 0;
+    };
+    std::deque<CraftQueueEntry> mCraftQueue;
+    float mActiveCraftProgressSeconds = 0.0f;
 
     // Container view state
     bool mContainerOpen = false;

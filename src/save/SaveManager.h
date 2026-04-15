@@ -105,8 +105,12 @@ public:
 
     // World memory (looted containers)
     [[nodiscard]] const std::vector<std::pair<int,int>>& lootedPositions() const { return mLootedPositions; }
+    [[nodiscard]] const std::vector<std::pair<int,int>>& discoveredRecipes() const { return mDiscoveredRecipes; }
     bool addLootedPosition(int tileX, int tileY);
+    bool addDiscoveredRecipe(int itemA, int itemB);
+    [[nodiscard]] bool isRecipeDiscovered(int itemA, int itemB) const;
     bool saveLootedPositions();
+    bool saveDiscoveredRecipes();
     bool loadLootedPositions();
 
     // Cumulative stats
@@ -159,4 +163,5 @@ private:
     std::vector<RetirementRecord> mRetirements;
     std::vector<StructureRecord> mStructures;
     std::vector<std::pair<int,int>> mLootedPositions;
+    std::vector<std::pair<int,int>> mDiscoveredRecipes;
 };

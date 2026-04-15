@@ -20,6 +20,7 @@ struct SpawnData
     std::vector<glm::ivec2> medicalCacheSpawns;
     std::vector<glm::ivec2> supplyCacheSpawns;
     std::vector<glm::ivec2> sleepSpawns;
+    std::vector<glm::ivec2> homeFurnitureSpawns; // visual furniture pass for lived-in interiors
     std::vector<glm::ivec2> containerSpawns;
     std::vector<glm::ivec2> decorIndoorSpawns;   // shelves, beds, blood inside buildings
     std::vector<glm::ivec2> decorOutdoorSpawns;  // graves, debris outside

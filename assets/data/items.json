@@ -251,6 +251,61 @@
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
+    },
+    {
+      "id": 23,
+      "name": "Notebook",
+      "category": "material",
+      "weight": 0.2,
+      "maxStack": 1,
+      "sprite": "item_bandage",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 24,
+      "name": "Disinfected Bandage",
+      "category": "medical",
+      "weight": 0.1,
+      "maxStack": 5,
+      "sprite": "item_bandage",
+      "woundTreatment": 1,
+      "stopsBleeding": true,
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 25,
+      "name": "Soaked Rag",
+      "category": "material",
+      "weight": 0.1,
+      "maxStack": 5,
+      "sprite": "item_bandage",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 26,
+      "name": "Molotov",
+      "category": "material",
+      "weight": 1.1,
+      "maxStack": 2,
+      "sprite": "item_fuel",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 27,
+      "name": "Spiked Bat",
+      "category": "weapon",
+      "weight": 1.8,
+      "maxStack": 1,
+      "sprite": "item_bat",
+      "weaponCategory": 2
     }
   ]
 }
