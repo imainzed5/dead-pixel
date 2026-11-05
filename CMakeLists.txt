@@ -58,6 +58,8 @@ add_library(dead_pixel_core STATIC
     src/systems/SurvivorInteractionSystem.cpp
     src/systems/WeatherSystem.cpp
     src/systems/DistrictInfectionSystem.cpp
+    src/systems/ThreatDirectorSystem.cpp
+    src/world/EntityFactory.cpp
     src/items/ItemDatabase.cpp
     src/rendering/Camera.cpp
     src/rendering/Shader.cpp
@@ -108,6 +110,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_mapgen.cpp
         tests/test_save.cpp
         tests/test_simulation.cpp
+        tests/test_survival.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

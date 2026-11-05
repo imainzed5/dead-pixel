@@ -8,7 +8,6 @@ struct MentalState
 
     // Depression: 0 = fine, 100 = retirement
     float depression = 0.0f;
-    float depressionDecayPerSecond = 0.1f;
 
     // Desensitisation: 0 = fresh, 100 = numb
     float desensitisation = 0.0f;

@@ -32,6 +32,8 @@ public:
 
     [[nodiscard]] bool isKeyDown(SDL_Scancode key) const;
     [[nodiscard]] bool wasKeyPressed(SDL_Scancode key) const;
+    // Any key or mouse button pressed since the last tick.
+    [[nodiscard]] bool anyKeyPressed() const;
     [[nodiscard]] bool wasKeyReleased(SDL_Scancode key) const;
 
     [[nodiscard]] bool isMouseButtonDown(Uint8 button) const;

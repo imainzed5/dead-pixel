@@ -36,8 +36,8 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | 0 | Branch, plan, CI fix | done |
 | 1 | Dev harness: scripted autoplay, offscreen screenshots, metrics, input-latch fix | done |
 | 2 | Baseline screenshots and assessment | done |
-| 3 | Test target: core library, save round-trip and logic tests | in progress |
-| 4 | Wave 1a: simulation pressure (mental, needs/temperature, zombie pressure) | |
+| 3 | Test target: core library, save round-trip and logic tests | done |
+| 4 | Wave 1a: simulation pressure (mental, needs/temperature, zombie pressure) | done |
 | 5 | Wave 1b: readability (scale/zoom, HUD rework, night lighting) | |
 | 6 | Walls with height, wall/roof occlusion, art generator upgrade | |
 | 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | |
@@ -79,11 +79,64 @@ soak (`tools/harness/soak_idle.txt`, world seed 1234):
 **Engine**
 - Harness runs ~4,000 ticks/s hidden (2 game days in 43 s, Release).
 
+## Wave 1a: survival model (2026-11-05)
+
+Rates are per real second; 60 s = 1 game hour, 1440 s = 1 game day.
+
+**Zombie pressure** (`ThreatDirectorSystem`, `ZombieAISystem`)
+- Wandering is a correlated random walk with per-zombie RNG, idle pauses and
+  wall bounces; long trips follow A* paths.
+- Threat director, after a 150 s grace period: when fewer zombies than "desired"
+  are within 14 tiles (day 1 + 0.5/day, night 3 + 1/day), it sends 2 (day) or 3
+  (night) far wanderers toward a point 6–14 tiles from the player, every 70 s by
+  day and 35 s by night.
+- Population grows toward initial × (1 + 0.18/day) × (1 + infection rise) ×
+  mode scale, spawning at least 24 tiles from the player, weighted toward
+  infected districts. Threat modes scale migration and population.
+- Attacks are telegraphed lunges: 0.55 s wind-up, hit only if the player is
+  still in reach, 60% hit chance, 7 damage, 1.5 s cooldown. A lone zombie needs
+  about 50 s to kill a player who does nothing. 35% of hits wound; 30% of
+  wounds are bites and half of those are dirty.
+
+**Needs and temperature** (`NeedsSystem`)
+- Thirst empties in ~37 game hours, hunger in ~67, sleep debt reaches "tired"
+  (70) after ~20 waking hours. Sleep halves the drain and pauses debt.
+- Penalties ramp: stamina cap first (hungry/thirsty, parched/starving, cold,
+  sick), then illness, then slow HP loss (dehydration ~8 h to death, starvation
+  ~16 h, grave illness ~40 h).
+- Body temperature drifts toward a target set by the air it feels: outdoor
+  temperature, +10 under a roof, −4 for rain and −4 for wind outdoors, +18 near a
+  fire or campfire, +5 with a jacket in the pack, plus heat from walking or
+  running. Spring nights outdoors are chilly; rainy autumn nights are cold;
+  winter nights outdoors are hypothermic and need a fire even indoors.
+- Bites heal in 18 h, cuts in 6 h, bruises in 2 h. A dirty bite left untreated
+  for 3 h becomes infected: +3 illness per game hour until antibiotics.
+
+**Mind** (`MentalStateSystem`)
+- Panic comes from zombies in line of sight within 7 tiles (hunters count fully,
+  unaware wanderers 35%), low HP, and being outdoors at night (rises to a floor
+  of 20, never higher). At 90+ with a hunter in view the character screams.
+- Depression: +14/day alone, +3/night awake, +29/day per unmet need (hungry,
+  thirsty, tired, cold, sick). Relief: −17/day sheltered with needs met, −72/day
+  of company, −8 per full night's sleep.
+
+**Idle soak results** (two days standing still, seeds 1234 / 42 / 777): found
+and killed at 14:00 day 1 / 21:00 day 1 / survived one encounter, then died of
+thirst at 07:30 on day 3. Idle play is never safe for long, but the timing
+varies.
+
 ## Known issues found during revival
 
-- Input transitions (`wasKeyPressed`) are cleared per render frame, not per
-  simulation tick. Presses can be dropped (0 ticks in a frame) or fire twice
-  (2 ticks in a frame).
+- ~~Input transitions cleared per render frame, not per tick~~ (fixed: latched
+  per tick).
+- ~~Any zombie death counted as a player kill~~ (fixed: kills credit the last
+  damage source).
+- ~~Bites could never infect: wounds healed before the infection timer~~ (fixed).
+- ~~Title screen re-read the checkpoint file every tick~~ (fixed: refresh on
+  input or once a second).
+- Buildings have open doorways and no doors, so no shelter can be closed off.
+- HUD status thresholds (e.g. "HYPOTHERMIC" below 35.5 °C) predate the Wave 1a
+  thresholds; the Wave 1b HUD rework will read them from `NeedsSystem`.
 - Tone presets are stored and shown but have no gameplay effect.
 - `beginDeathState` and `beginRetirementState` duplicate ~50 lines of
   persistence code verbatim.
@@ -94,3 +147,8 @@ soak (`tools/harness/soak_idle.txt`, world seed 1234):
 
 - 2026-11-05: Reviewed project, committed shelved M8–M10 work (`11926fb`),
   fixed CI dependencies (`5183a9c`), opened `revival` branch.
+- 2026-11-05: Dev harness and per-tick input latching (`16b7400`); unit test
+  runner and depression-crisis fix (`8d8590f`).
+- 2026-11-05: Wave 1a survival model: threat director, zombie AI rewrite,
+  needs/temperature/panic/depression retune, telegraphed attacks, wound fixes,
+  kill attribution, building layer on the tile map.

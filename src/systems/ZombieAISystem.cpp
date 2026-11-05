@@ -5,21 +5,73 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include "ai/Pathfinder.h"
 #include "components/Health.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
 #include "components/Wounds.h"
-#include "components/ZombieAI.h"
 #include "systems/DistrictInfectionSystem.h"
 
 namespace
 {
+constexpr float kTwoPi = 6.2831853f;
+
 glm::vec2 entityCenter(const Transform& transform)
 {
     return glm::vec2(transform.x + 16.0f, transform.y + 16.0f);
 }
+
+glm::ivec2 worldToTile(const TileMap& tileMap, const glm::vec2& world)
+{
+    return glm::ivec2(
+        static_cast<int>(std::floor(world.x / static_cast<float>(tileMap.tileWidth()))),
+        static_cast<int>(std::floor(world.y / static_cast<float>(tileMap.tileHeight()))));
+}
+
+void setVelocityToward(Velocity& velocity, const glm::vec2& from, const glm::vec2& to, float speed)
+{
+    const glm::vec2 delta = to - from;
+    const float len2 = glm::dot(delta, delta);
+    if (len2 < 1.0f)
+    {
+        velocity.dx = 0.0f;
+        velocity.dy = 0.0f;
+        return;
+    }
+    const glm::vec2 dir = delta / std::sqrt(len2);
+    velocity.dx = dir.x * speed;
+    velocity.dy = dir.y * speed;
+}
+} // namespace
+
+float ZombieAISystem::nextRandom(ZombieAI& zombie, Entity entity)
+{
+    if (zombie.rngState == 0)
+    {
+        zombie.rngState = 0x9E3779B9u ^ (static_cast<std::uint32_t>(entity) * 0x85EBCA6Bu);
+        if (zombie.rngState == 0) zombie.rngState = 1;
+    }
+    // xorshift32
+    std::uint32_t x = zombie.rngState;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    zombie.rngState = x;
+    return static_cast<float>(x >> 8) / 16777216.0f;
+}
+
+void ZombieAISystem::sendTo(ZombieAI& zombie, const glm::vec2& targetWorld, bool migrating)
+{
+    zombie.state = ZombieState::Investigate;
+    zombie.targetWorld = targetWorld;
+    zombie.stateTimer = 0.0f;
+    zombie.idleTimer = 0.0f;
+    zombie.migrating = migrating;
+    zombie.attackWindup = 0.0f;
+    zombie.path.clear();
+    zombie.pathIndex = 0;
 }
 
 void ZombieAISystem::update(
@@ -34,26 +86,41 @@ void ZombieAISystem::update(
 {
     const bool isNight = (gameHours >= 20.0 || gameHours < 5.0);
     const float visionMultiplier = isNight ? 1.5f : 1.0f;
+    const float tileSize = static_cast<float>(tileMap.tileWidth());
 
     const bool playerValid =
         playerEntity != kInvalidEntity &&
         world.hasComponent<Transform>(playerEntity) &&
         world.hasComponent<Health>(playerEntity);
 
-    Transform* playerTransform = nullptr;
     Health* playerHealth = nullptr;
     glm::vec2 playerCenter(0.0f, 0.0f);
 
     if (playerValid)
     {
-        playerTransform = &world.getComponent<Transform>(playerEntity);
         playerHealth = &world.getComponent<Health>(playerEntity);
-        playerCenter = entityCenter(*playerTransform);
+        playerCenter = entityCenter(world.getComponent<Transform>(playerEntity));
     }
+
+    // Snapshot living zombie positions for separation.
+    std::vector<std::pair<Entity, glm::vec2>> zombieCenters;
+    world.forEach<ZombieAI, Transform>(
+        [&](Entity e, ZombieAI&, Transform& t)
+        {
+            if (world.hasComponent<Health>(e) && world.getComponent<Health>(e).current <= 0.0f) return;
+            zombieCenters.emplace_back(e, entityCenter(t));
+        });
 
     world.forEach<ZombieAI, Transform, Velocity>(
         [&](Entity zombieEntity, ZombieAI& zombieAI, Transform& zombieTransform, Velocity& zombieVelocity)
         {
+            if (world.hasComponent<Health>(zombieEntity) && world.getComponent<Health>(zombieEntity).current <= 0.0f)
+            {
+                zombieVelocity.dx = 0.0f;
+                zombieVelocity.dy = 0.0f;
+                return;
+            }
+
             zombieAI.stateTimer += dtSeconds;
             zombieAI.pathRepathTimer += dtSeconds;
             zombieAI.attackCooldown = std::max(0.0f, zombieAI.attackCooldown - dtSeconds);
@@ -65,7 +132,6 @@ void ZombieAISystem::update(
             else if (age <= 20) zombieAI.decomp = DecompStage::Decayed;
             else zombieAI.decomp = DecompStage::Skeletal;
 
-            // Decomposition modifiers: speed and damage
             float speedMultiplier = 1.0f;
             float damageMultiplier = 1.0f;
             switch (zombieAI.decomp)
@@ -77,10 +143,8 @@ void ZombieAISystem::update(
             }
 
             const glm::vec2 zombieCenter = entityCenter(zombieTransform);
-
-            const int zombieTileX = static_cast<int>(zombieCenter.x / static_cast<float>(tileMap.tileWidth()));
-            const int zombieTileY = static_cast<int>(zombieCenter.y / static_cast<float>(tileMap.tileHeight()));
-            const int districtId = tileMap.getDistrictId(zombieTileX, zombieTileY);
+            const glm::ivec2 zombieTile = worldToTile(tileMap, zombieCenter);
+            const int districtId = tileMap.getDistrictId(zombieTile.x, zombieTile.y);
 
             float localInfection = 0.0f;
             bool overwhelmedDistrict = false;
@@ -91,18 +155,11 @@ void ZombieAISystem::update(
             }
 
             const float infectionFactor = glm::clamp(localInfection / 100.0f, 0.0f, 1.0f);
-            const float infectionSpeedBoost = overwhelmedDistrict
-                ? (1.0f + infectionFactor * 0.35f)
-                : (1.0f + infectionFactor * 0.20f);
-            const float infectionDamageBoost = overwhelmedDistrict
-                ? (1.0f + infectionFactor * 0.25f)
-                : (1.0f + infectionFactor * 0.12f);
+            speedMultiplier *= overwhelmedDistrict ? (1.0f + infectionFactor * 0.35f) : (1.0f + infectionFactor * 0.20f);
+            damageMultiplier *= overwhelmedDistrict ? (1.0f + infectionFactor * 0.25f) : (1.0f + infectionFactor * 0.12f);
             const float localVisionMultiplier = visionMultiplier * (overwhelmedDistrict
                 ? (1.0f + infectionFactor * 0.65f)
                 : (1.0f + infectionFactor * 0.35f));
-
-            speedMultiplier *= infectionSpeedBoost;
-            damageMultiplier *= infectionDamageBoost;
 
             const float sensedNoise = noiseModel.getNoiseAtPosition(zombieCenter);
             const float investigateThreshold = std::max(0.02f, kZombieNoiseInvestigateThreshold - infectionFactor * 0.04f);
@@ -110,18 +167,9 @@ void ZombieAISystem::update(
 
             const bool canSeePlayer = [&]()
             {
-                if (!playerValid)
-                {
-                    return false;
-                }
-
-                const glm::vec2 delta = playerCenter - zombieCenter;
-                const float distanceTiles = glm::length(delta) / static_cast<float>(tileMap.tileWidth());
-                if (distanceTiles > zombieAI.visionRangeTiles * localVisionMultiplier)
-                {
-                    return false;
-                }
-
+                if (!playerValid) return false;
+                const float distanceTiles = glm::length(playerCenter - zombieCenter) / tileSize;
+                if (distanceTiles > zombieAI.visionRangeTiles * localVisionMultiplier) return false;
                 return hasLineOfSight(tileMap, zombieCenter, playerCenter);
             }();
 
@@ -130,31 +178,33 @@ void ZombieAISystem::update(
 
             if (canSeePlayer)
             {
-                zombieAI.state = isInAttackRange ? ZombieState::Attack : ZombieState::Chase;
+                if (zombieAI.state != ZombieState::Chase && zombieAI.state != ZombieState::Attack)
+                {
+                    zombieAI.pathRepathTimer = kZombieRepathSeconds; // repath immediately
+                }
+                // A lunge in progress finishes even if the player steps back.
+                const bool lunging = zombieAI.state == ZombieState::Attack && zombieAI.attackWindup > 0.0f;
+                zombieAI.state = (isInAttackRange || lunging) ? ZombieState::Attack : ZombieState::Chase;
                 zombieAI.targetWorld = playerCenter;
                 zombieAI.stateTimer = 0.0f;
+                zombieAI.migrating = false;
+                zombieAI.idleTimer = 0.0f;
             }
-            else if (zombieAI.state == ZombieState::Chase && !canSeePlayer)
+            else if (zombieAI.state == ZombieState::Chase)
             {
-                zombieAI.state = ZombieState::Investigate;
-                zombieAI.stateTimer = 0.0f;
+                // Lost sight: go to the last known position.
+                sendTo(zombieAI, zombieAI.targetWorld, false);
             }
             else if (canHearNoise && (zombieAI.state == ZombieState::Wander || zombieAI.state == ZombieState::Investigate))
             {
-                const auto& events = noiseModel.activeEvents();
                 const NoiseEvent* bestEvent = nullptr;
                 float bestDistanceSq = 0.0f;
-
-                for (const NoiseEvent& event : events)
+                for (const NoiseEvent& event : noiseModel.activeEvents())
                 {
-                    const float radiusWorld = static_cast<float>(event.radiusTiles * tileMap.tileWidth());
+                    const float radiusWorld = static_cast<float>(event.radiusTiles) * tileSize;
                     const glm::vec2 toEvent = event.worldPosition - zombieCenter;
                     const float distSq = glm::dot(toEvent, toEvent);
-                    if (distSq > radiusWorld * radiusWorld)
-                    {
-                        continue;
-                    }
-
+                    if (distSq > radiusWorld * radiusWorld) continue;
                     if (bestEvent == nullptr || distSq < bestDistanceSq)
                     {
                         bestEvent = &event;
@@ -162,10 +212,12 @@ void ZombieAISystem::update(
                     }
                 }
 
-                if (bestEvent != nullptr)
+                // Re-target only when the noise is meaningfully somewhere else.
+                if (bestEvent != nullptr &&
+                    (zombieAI.state == ZombieState::Wander ||
+                     glm::length(bestEvent->worldPosition - zombieAI.targetWorld) > tileSize * 2.0f))
                 {
-                    zombieAI.state = ZombieState::Investigate;
-                    zombieAI.targetWorld = bestEvent->worldPosition;
+                    sendTo(zombieAI, bestEvent->worldPosition, false);
                 }
             }
 
@@ -173,62 +225,125 @@ void ZombieAISystem::update(
             {
             case ZombieState::Wander:
             {
-                if (zombieAI.stateTimer >= 1.3f || zombieAI.targetWorld == glm::vec2(0.0f, 0.0f))
+                if (zombieAI.idleTimer > 0.0f)
                 {
-                    const glm::ivec2 selfTile(
-                        static_cast<int>(zombieCenter.x / static_cast<float>(tileMap.tileWidth())),
-                        static_cast<int>(zombieCenter.y / static_cast<float>(tileMap.tileHeight())));
-
-                    // Deterministic pseudo-random selection around each zombie using its entity ID and timer.
-                    const int selector = static_cast<int>(zombieEntity * 13 + zombieAI.stateTimer * 1000.0f) % 16;
-                    const glm::ivec2 offsets[16] = {
-                        glm::ivec2(2, 0), glm::ivec2(-2, 0), glm::ivec2(0, 2), glm::ivec2(0, -2),
-                        glm::ivec2(3, 1), glm::ivec2(-3, -1), glm::ivec2(1, 3), glm::ivec2(-1, -3),
-                        glm::ivec2(4, 0), glm::ivec2(0, 4), glm::ivec2(-4, 0), glm::ivec2(0, -4),
-                        glm::ivec2(2, 2), glm::ivec2(-2, 2), glm::ivec2(2, -2), glm::ivec2(-2, -2)};
-
-                    glm::ivec2 targetTile = selfTile + offsets[selector];
-                    targetTile.x = glm::clamp(targetTile.x, 0, tileMap.width() - 1);
-                    targetTile.y = glm::clamp(targetTile.y, 0, tileMap.height() - 1);
-
-                    if (!tileMap.isSolid(targetTile.x, targetTile.y))
-                    {
-                        zombieAI.targetWorld = tileCenterWorld(tileMap, targetTile);
-                    }
-
-                    zombieAI.stateTimer = 0.0f;
+                    zombieAI.idleTimer -= dtSeconds;
+                    zombieVelocity.dx = 0.0f;
+                    zombieVelocity.dy = 0.0f;
+                    break;
                 }
 
                 const glm::vec2 toTarget = zombieAI.targetWorld - zombieCenter;
-                if (glm::dot(toTarget, toTarget) < 9.0f)
+                const bool reached = glm::dot(toTarget, toTarget) < 16.0f;
+                const bool stuck = zombieAI.stateTimer >= kWanderStuckSeconds;
+                if (reached || stuck || zombieAI.targetWorld == glm::vec2(0.0f, 0.0f))
                 {
-                    zombieVelocity.dx = 0.0f;
-                    zombieVelocity.dy = 0.0f;
+                    zombieAI.stateTimer = 0.0f;
+
+                    // Sometimes pause, like a shambling body losing interest.
+                    if (reached && nextRandom(zombieAI, zombieEntity) < 0.3f)
+                    {
+                        zombieAI.idleTimer = 1.0f + nextRandom(zombieAI, zombieEntity) * 3.0f;
+                        zombieVelocity.dx = 0.0f;
+                        zombieVelocity.dy = 0.0f;
+                        break;
+                    }
+
+                    // Drift the heading; turn around harder when stuck.
+                    const float turn = stuck ? (1.6f + nextRandom(zombieAI, zombieEntity) * 3.0f)
+                                             : (nextRandom(zombieAI, zombieEntity) - 0.5f) * 1.8f;
+                    zombieAI.heading = std::fmod(zombieAI.heading + turn + kTwoPi, kTwoPi);
+
+                    const float stepTiles = 2.0f + nextRandom(zombieAI, zombieEntity) * 3.0f;
+                    const glm::vec2 dir(std::cos(zombieAI.heading), std::sin(zombieAI.heading));
+                    glm::vec2 candidate = zombieCenter + dir * stepTiles * tileSize;
+                    const glm::ivec2 candidateTile = worldToTile(tileMap, candidate);
+
+                    if (!tileMap.inBounds(candidateTile.x, candidateTile.y) || tileMap.isSolid(candidateTile.x, candidateTile.y))
+                    {
+                        // Blocked: reverse next time and stand for a beat.
+                        zombieAI.heading = std::fmod(zombieAI.heading + 3.14159f, kTwoPi);
+                        zombieAI.targetWorld = zombieCenter;
+                        zombieVelocity.dx = 0.0f;
+                        zombieVelocity.dy = 0.0f;
+                        break;
+                    }
+                    zombieAI.targetWorld = tileCenterWorld(tileMap, candidateTile);
                 }
-                else
-                {
-                    const glm::vec2 moveDir = glm::normalize(toTarget);
-                    zombieVelocity.dx = moveDir.x * zombieAI.moveSpeed * 0.55f * speedMultiplier;
-                    zombieVelocity.dy = moveDir.y * zombieAI.moveSpeed * 0.55f * speedMultiplier;
-                }
+
+                setVelocityToward(zombieVelocity, zombieCenter, zombieAI.targetWorld,
+                                  zombieAI.moveSpeed * kWanderSpeedFactor * speedMultiplier);
                 break;
             }
 
             case ZombieState::Investigate:
             {
-                const glm::vec2 toTarget = zombieAI.targetWorld - zombieCenter;
-                if (glm::dot(toTarget, toTarget) < 25.0f)
+                const glm::vec2 toGoal = zombieAI.targetWorld - zombieCenter;
+                if (glm::dot(toGoal, toGoal) < 64.0f)
                 {
                     zombieAI.state = ZombieState::Wander;
                     zombieAI.stateTimer = 0.0f;
+                    zombieAI.migrating = false;
+                    zombieAI.path.clear();
+                    zombieAI.idleTimer = 1.0f + nextRandom(zombieAI, zombieEntity) * 2.0f;
                     zombieVelocity.dx = 0.0f;
                     zombieVelocity.dy = 0.0f;
+                    break;
+                }
+
+                const float speedFactor = zombieAI.migrating ? kMigrateSpeedFactor : kInvestigateSpeedFactor;
+                const float speed = zombieAI.moveSpeed * speedFactor * speedMultiplier;
+                const bool far = glm::length(toGoal) > kPathfindDistanceTiles * tileSize;
+
+                if (far)
+                {
+                    const bool needPath = zombieAI.path.empty() ||
+                        glm::length(zombieAI.pathGoal - zombieAI.targetWorld) > tileSize * 0.5f;
+                    if (needPath)
+                    {
+                        zombieAI.path = Pathfinder::findPath(tileMap, zombieTile, worldToTile(tileMap, zombieAI.targetWorld));
+                        zombieAI.pathIndex = zombieAI.path.size() >= 2 ? 1 : 0;
+                        zombieAI.pathGoal = zombieAI.targetWorld;
+                        if (zombieAI.path.empty())
+                        {
+                            // Unreachable: give up and wander.
+                            zombieAI.state = ZombieState::Wander;
+                            zombieAI.migrating = false;
+                            zombieAI.stateTimer = 0.0f;
+                            break;
+                        }
+                    }
+
+                    while (zombieAI.pathIndex < zombieAI.path.size())
+                    {
+                        const glm::vec2 waypoint = tileCenterWorld(tileMap, zombieAI.path[zombieAI.pathIndex]);
+                        const glm::vec2 toWaypoint = waypoint - zombieCenter;
+                        if (glm::dot(toWaypoint, toWaypoint) < 36.0f)
+                        {
+                            ++zombieAI.pathIndex;
+                            continue;
+                        }
+                        setVelocityToward(zombieVelocity, zombieCenter, waypoint, speed);
+                        break;
+                    }
+                    if (zombieAI.pathIndex >= zombieAI.path.size())
+                    {
+                        setVelocityToward(zombieVelocity, zombieCenter, zombieAI.targetWorld, speed);
+                    }
                 }
                 else
                 {
-                    const glm::vec2 moveDir = glm::normalize(toTarget);
-                    zombieVelocity.dx = moveDir.x * zombieAI.moveSpeed * 0.8f * speedMultiplier;
-                    zombieVelocity.dy = moveDir.y * zombieAI.moveSpeed * 0.8f * speedMultiplier;
+                    zombieAI.path.clear();
+                    setVelocityToward(zombieVelocity, zombieCenter, zombieAI.targetWorld, speed);
+                }
+
+                // Give up on goals that take far too long (blocked by structures, etc.).
+                if (zombieAI.stateTimer > 90.0f)
+                {
+                    zombieAI.state = ZombieState::Wander;
+                    zombieAI.migrating = false;
+                    zombieAI.path.clear();
+                    zombieAI.stateTimer = 0.0f;
                 }
                 break;
             }
@@ -237,6 +352,7 @@ void ZombieAISystem::update(
             {
                 zombieVelocity.dx = 0.0f;
                 zombieVelocity.dy = 0.0f;
+                zombieAI.attackWindup = 0.0f;
 
                 if (!playerValid)
                 {
@@ -247,33 +363,16 @@ void ZombieAISystem::update(
                 if (zombieAI.pathRepathTimer >= kZombieRepathSeconds)
                 {
                     zombieAI.pathRepathTimer = 0.0f;
-
-                    const glm::ivec2 startTile(
-                        static_cast<int>(zombieCenter.x / static_cast<float>(tileMap.tileWidth())),
-                        static_cast<int>(zombieCenter.y / static_cast<float>(tileMap.tileHeight())));
-                    const glm::ivec2 goalTile(
-                        static_cast<int>(playerCenter.x / static_cast<float>(tileMap.tileWidth())),
-                        static_cast<int>(playerCenter.y / static_cast<float>(tileMap.tileHeight())));
-
-                    const std::vector<glm::ivec2> path = Pathfinder::findPath(tileMap, startTile, goalTile);
-                    if (path.size() >= 2)
-                    {
-                        zombieAI.targetWorld = tileCenterWorld(tileMap, path[1]);
-                    }
-                    else
-                    {
-                        zombieAI.targetWorld = playerCenter;
-                    }
+                    const std::vector<glm::ivec2> path =
+                        Pathfinder::findPath(tileMap, zombieTile, worldToTile(tileMap, playerCenter));
+                    zombieAI.targetWorld = path.size() >= 2 ? tileCenterWorld(tileMap, path[1]) : playerCenter;
                 }
 
-                const glm::vec2 toTarget = zombieAI.targetWorld - zombieCenter;
-                if (glm::dot(toTarget, toTarget) > 1.0f)
-                {
-                    const glm::vec2 moveDir = glm::normalize(toTarget);
-                    zombieVelocity.dx = moveDir.x * zombieAI.moveSpeed * speedMultiplier;
-                    zombieVelocity.dy = moveDir.y * zombieAI.moveSpeed * speedMultiplier;
-                }
-
+                // With a clear line, close in directly instead of tile-stepping.
+                const glm::vec2 chaseTarget = glm::length(playerCenter - zombieCenter) < tileSize * 1.5f
+                    ? playerCenter
+                    : zombieAI.targetWorld;
+                setVelocityToward(zombieVelocity, zombieCenter, chaseTarget, zombieAI.moveSpeed * speedMultiplier);
                 break;
             }
 
@@ -282,36 +381,81 @@ void ZombieAISystem::update(
                 zombieVelocity.dx = 0.0f;
                 zombieVelocity.dy = 0.0f;
 
-                if (!playerValid || !isInAttackRange)
+                // Mid-lunge the zombie commits; otherwise it follows a retreating player.
+                if (zombieAI.attackWindup <= 0.0f && (!playerValid || !isInAttackRange))
                 {
-                    zombieAI.state = ZombieState::Investigate;
+                    zombieAI.state = ZombieState::Chase;
+                    zombieAI.pathRepathTimer = kZombieRepathSeconds;
                     zombieAI.stateTimer = 0.0f;
                     break;
                 }
 
-                if (zombieAI.attackCooldown <= 0.0f && playerHealth != nullptr)
+                if (zombieAI.attackWindup <= 0.0f)
                 {
-                    playerHealth->current = std::max(0.0f, playerHealth->current - kZombieAttackDamage * damageMultiplier);
-                    zombieAI.attackCooldown = kZombieAttackCooldownSeconds;
-
-                    // Inflict wound on player
-                    if (world.hasComponent<Wounds>(playerEntity))
+                    if (zombieAI.attackCooldown <= 0.0f)
                     {
-                        Wounds& wounds = world.getComponent<Wounds>(playerEntity);
-                        Wound w{};
-                        // Random wound type: 50% bite, 30% cut, 20% bruise
-                        const float r = static_cast<float>(zombieAI.attackCooldown * 100.0f);
-                        const int roll = static_cast<int>(r) % 10;
-                        if (roll < 5) w.type = WoundType::Bite;
-                        else if (roll < 8) w.type = WoundType::Cut;
-                        else w.type = WoundType::Bruise;
-                        w.severity = 0.5f + (static_cast<float>(roll) / 20.0f);
-                        wounds.active.push_back(w);
+                        zombieAI.attackWindup = kZombieAttackWindupSeconds;
                     }
+                    break;
+                }
+
+                zombieAI.attackWindup -= dtSeconds;
+                if (zombieAI.attackWindup > 0.0f)
+                {
+                    break;
+                }
+
+                // Resolve the lunge.
+                zombieAI.attackWindup = 0.0f;
+                zombieAI.attackCooldown = kZombieAttackCooldownSeconds * (0.85f + nextRandom(zombieAI, zombieEntity) * 0.3f);
+                const bool stillInReach = playerValid && distanceToPlayer <= kZombieAttackRange * kZombieAttackReachScale;
+                if (!stillInReach || playerHealth == nullptr || nextRandom(zombieAI, zombieEntity) >= kZombieHitChance)
+                {
+                    break; // dodged or missed
+                }
+
+                playerHealth->current = std::max(0.0f, playerHealth->current - kZombieAttackDamage * damageMultiplier);
+
+                if (world.hasComponent<Wounds>(playerEntity) && nextRandom(zombieAI, zombieEntity) < kZombieWoundChance)
+                {
+                    Wounds& wounds = world.getComponent<Wounds>(playerEntity);
+                    Wound w{};
+                    const float roll = nextRandom(zombieAI, zombieEntity);
+                    if (roll < kZombieBiteShare)
+                    {
+                        w.type = WoundType::Bite;
+                        w.contaminated = nextRandom(zombieAI, zombieEntity) < kBiteContaminationChance;
+                    }
+                    else if (roll < kZombieBiteShare + 0.4f)
+                    {
+                        w.type = WoundType::Cut;
+                    }
+                    else
+                    {
+                        w.type = WoundType::Bruise;
+                    }
+                    w.severity = 0.5f + nextRandom(zombieAI, zombieEntity) * 0.5f;
+                    wounds.active.push_back(w);
                 }
                 break;
             }
             }
+
+            // Separation: keep bodies from stacking into one sprite.
+            glm::vec2 push(0.0f);
+            for (const auto& [other, otherCenter] : zombieCenters)
+            {
+                if (other == zombieEntity) continue;
+                const glm::vec2 away = zombieCenter - otherCenter;
+                const float d2 = glm::dot(away, away);
+                if (d2 > 0.01f && d2 < kSeparationRadius * kSeparationRadius)
+                {
+                    const float d = std::sqrt(d2);
+                    push += (away / d) * (kSeparationRadius - d);
+                }
+            }
+            zombieVelocity.dx += push.x * 4.0f;
+            zombieVelocity.dy += push.y * 4.0f;
         });
 }
 

@@ -16,6 +16,7 @@ void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
     mCollisionLayer.assign(size, 0);
     mSurfaceLayer.assign(size, 0);
     mDistrictLayer.assign(size, 0);
+    mBuildingLayer.assign(size, 0);
 }
 
 void TileMap::setTileset(const TilesetInfo& tileset)
@@ -41,6 +42,11 @@ void TileMap::setSurfaceLayer(std::vector<int> layerData)
 void TileMap::setDistrictLayer(std::vector<int> layerData)
 {
     mDistrictLayer = std::move(layerData);
+}
+
+void TileMap::setBuildingLayer(std::vector<int> layerData)
+{
+    mBuildingLayer = std::move(layerData);
 }
 
 bool TileMap::gidToUvRect(int gid, glm::vec4& outUvRect) const
@@ -195,4 +201,25 @@ int TileMap::getDistrictId(int tileX, int tileY) const
     }
 
     return mDistrictLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))];
+}
+
+int TileMap::getBuildingId(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return 0;
+    }
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return index < mBuildingLayer.size() ? mBuildingLayer[index] : 0;
+}
+
+bool TileMap::isIndoorsAtWorld(float worldX, float worldY) const
+{
+    if (mTileWidth <= 0 || mTileHeight <= 0)
+    {
+        return false;
+    }
+    const int tileX = static_cast<int>(std::floor(worldX / static_cast<float>(mTileWidth)));
+    const int tileY = static_cast<int>(std::floor(worldY / static_cast<float>(mTileHeight)));
+    return isIndoors(tileX, tileY);
 }

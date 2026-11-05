@@ -89,6 +89,26 @@ void MapGenerator::applyToTileMap(TileMap& outMap) const
     outMap.setCollisionLayer(mLayout.collision);
     outMap.setSurfaceLayer(mLayout.surface);
     outMap.setDistrictLayer(mLayout.district);
+
+    // Building footprints, derived from the saved layout so older saves get them
+    // too. Notched corners were carved back to grass, so skip grass tiles.
+    std::vector<int> buildingLayer(static_cast<std::size_t>(mLayout.width) * static_cast<std::size_t>(mLayout.height), 0);
+    for (std::size_t i = 0; i < mLayout.buildings.size(); ++i)
+    {
+        const auto& b = mLayout.buildings[i];
+        for (int ty = b.y; ty < b.y + b.h; ++ty)
+        {
+            for (int tx = b.x; tx < b.x + b.w; ++tx)
+            {
+                if (tx < 0 || ty < 0 || tx >= mLayout.width || ty >= mLayout.height) continue;
+                const auto idx = static_cast<std::size_t>(ty * mLayout.width + tx);
+                const int gid = idx < mLayout.ground.size() ? mLayout.ground[idx] : 0;
+                if (gid == kGidGrass || gid == kGidGrass2) continue;
+                buildingLayer[idx] = static_cast<int>(i) + 1;
+            }
+        }
+    }
+    outMap.setBuildingLayer(std::move(buildingLayer));
 }
 
 void MapGenerator::generateSpawns(SpawnData& outSpawns, std::uint32_t runSeed)

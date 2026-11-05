@@ -51,6 +51,7 @@
 #include "systems/SurvivorInteractionSystem.h"
 #include "systems/WeatherSystem.h"
 #include "systems/DistrictInfectionSystem.h"
+#include "systems/ThreatDirectorSystem.h"
 #include "components/Weather.h"
 
 class DevHarness;
@@ -107,6 +108,8 @@ private:
     void setupLightingUniforms();
     void snapshotPositions();
     void updateNoiseModel(float dtSeconds);
+    [[nodiscard]] NeedsEnvironment buildNeedsEnvironment();
+    void refreshTitleCheckpoint();
     void renderNoiseDebugOverlay();
     void updateWindowTitle(double frameSeconds);
     void renderInventoryOverlay();
@@ -165,6 +168,7 @@ private:
     SurvivorInteractionSystem mSurvivorInteractionSystem;
     WeatherSystem mWeatherSystem;
     DistrictInfectionSystem mDistrictInfectionSystem;
+    ThreatDirectorSystem mThreatDirector;
 
     WeatherState mWeatherState;
 
@@ -186,6 +190,7 @@ private:
     std::string mTitleCheckpointName;
     float mTitleCheckpointX = 0.0f;
     float mTitleCheckpointY = 0.0f;
+    float mTitleCheckpointRefreshTimer = 0.0f;
     bool mShowTitleCredits = false;
     std::string mTitleStatusMessage;
     float mTitleStatusTimer = 0.0f;

@@ -63,3 +63,15 @@ DP_TEST(input_scroll_is_consumed_once)
     DP_CHECK_EQ(input.consumeScroll(), 3);
     DP_CHECK_EQ(input.consumeScroll(), 0);
 }
+
+DP_TEST(input_any_key_pressed_tracks_latches)
+{
+    Input input;
+    DP_CHECK(!input.anyKeyPressed());
+    input.setKeyState(SDL_SCANCODE_Q, true);
+    DP_CHECK(input.anyKeyPressed());
+    input.consumeTransitions();
+    DP_CHECK(!input.anyKeyPressed()); // still held, but no new press
+    input.setMouseButtonState(SDL_BUTTON_LEFT, true);
+    DP_CHECK(input.anyKeyPressed());
+}

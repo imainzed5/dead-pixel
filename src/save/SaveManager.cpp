@@ -1123,6 +1123,8 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         wj["severity"] = w.severity;
         wj["infected"] = w.infected;
         wj["infectionTimer"] = w.infectionTimer;
+        wj["contaminated"] = w.contaminated;
+        wj["healTimer"] = w.healTimer;
         json["wounds"].push_back(wj);
     }
     json["bleeding"] = cp.bleeding;
@@ -1201,6 +1203,8 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             w.severity = wj.value("severity", 1.0f);
             w.infected = wj.value("infected", false);
             w.infectionTimer = wj.value("infectionTimer", 0.0f);
+            w.contaminated = wj.value("contaminated", w.type == WoundType::Bite);
+            w.healTimer = wj.value("healTimer", 0.0f);
             cp.wounds.push_back(w);
         }
     }

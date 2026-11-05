@@ -137,6 +137,10 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
                         {
                             Health& zh = world.getComponent<Health>(combat.grabTarget);
                             zh.current = std::max(0.0f, zh.current - kGrabExecuteDamage);
+                            if (world.hasComponent<ZombieAI>(combat.grabTarget))
+                            {
+                                world.getComponent<ZombieAI>(combat.grabTarget).lastDamagedBy = playerEntity;
+                            }
                             if (zh.current <= 0.0f)
                             {
                                 destroyedEntities.push_back(combat.grabTarget);
@@ -423,7 +427,7 @@ void CombatSystem::resolveSwing(
     const float knockback = combat.weapon.knockbackPixels;
 
     world.forEach<ZombieAI, Transform, Velocity, Health>(
-        [&](Entity zombieEntity, ZombieAI&, Transform& zombieTransform, Velocity& zombieVelocity, Health& zombieHealth)
+        [&](Entity zombieEntity, ZombieAI& zombieAI, Transform& zombieTransform, Velocity& zombieVelocity, Health& zombieHealth)
         {
             const glm::vec2 zombieCenter = entityCenter(zombieTransform);
             if (!isPointInsideArc(playerCenter, facingRadians, arcDegrees, rangePixels, zombieCenter))
@@ -449,6 +453,7 @@ void CombatSystem::resolveSwing(
             }
 
             zombieHealth.current = std::max(0.0f, zombieHealth.current - finalDamage);
+            zombieAI.lastDamagedBy = playerEntity;
             ++combat.lastHitCount;
 
             // Apply bleeding from bladed weapons to surviving zombies

@@ -1,0 +1,10 @@
+# Soak: start a run and stand still for two game days, metrics every game hour.
+# Measures how fast needs drain and how long the world takes to find an idle
+# player. No pass/fail: an idle player is supposed to be found eventually.
+# Run it from an empty working directory so no earlier world memory leaks in:
+#   dead_pixel_survival --script soak_idle.txt --hidden --world-seed 1234 --metrics m.csv
+newrun
+metrics 3600
+waits 2880
+log soak finished
+quit

@@ -1,5 +1,7 @@
 #include "core/Input.h"
 
+#include <algorithm>
+
 std::size_t Input::buttonToIndex(Uint8 button)
 {
     const std::size_t index = static_cast<std::size_t>(button);
@@ -160,4 +162,11 @@ bool Input::wasMouseButtonPressed(Uint8 button) const
 bool Input::wasMouseButtonReleased(Uint8 button) const
 {
     return mMouseReleasedLatch[buttonToIndex(button)] != 0;
+}
+
+bool Input::anyKeyPressed() const
+{
+    const auto pressed = [](Uint8 v) { return v != 0; };
+    return std::any_of(mKeyPressedLatch.begin(), mKeyPressedLatch.end(), pressed) ||
+           std::any_of(mMousePressedLatch.begin(), mMousePressedLatch.end(), pressed);
 }

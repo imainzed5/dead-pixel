@@ -26,6 +26,7 @@
 #include "components/ZombieAI.h"
 #include "components/SurvivorAI.h"
 #include "dev/DevHarness.h"
+#include "world/EntityFactory.h"
 
 #include <algorithm>
 #include <array>
@@ -314,6 +315,21 @@ struct ThreatBehaviorTuning
     float speedScale = 1.0f;
     float visionScale = 1.0f;
 };
+
+ThreatDirectorSystem::Tuning threatDirectorTuning(SaveThreatMode mode)
+{
+    ThreatDirectorSystem::Tuning tuning{};
+    switch (mode)
+    {
+    case SaveThreatMode::OverwhelmingSwarm: tuning.migrationScale = 1.3f; tuning.populationScale = 1.45f; break;
+    case SaveThreatMode::Stalker:           tuning.migrationScale = 1.6f; tuning.populationScale = 0.7f;  break;
+    case SaveThreatMode::MutatingThreat:    tuning.migrationScale = 1.0f; tuning.populationScale = 1.15f; break;
+    case SaveThreatMode::InfectedSociety:   tuning.migrationScale = 0.8f; tuning.populationScale = 0.9f;  break;
+    case SaveThreatMode::Unknown:           tuning.migrationScale = 1.1f; tuning.populationScale = 1.1f;  break;
+    case SaveThreatMode::Hybrid:            tuning.migrationScale = 1.25f; tuning.populationScale = 1.3f; break;
+    }
+    return tuning;
+}
 
 ThreatBehaviorTuning computeThreatBehaviorTuning(
     SaveThreatMode mode,
@@ -1651,12 +1667,7 @@ void Game::returnToTitleScreen()
     mTitleStatusMessage = "Returned to title menu.";
     mTitleStatusTimer = 2.0f;
 
-    const RunCheckpoint titleCheckpoint = mSaveManager.loadCheckpoint();
-    mTitleHasCheckpoint = titleCheckpoint.valid;
-    mTitleCheckpointDay = titleCheckpoint.valid ? titleCheckpoint.currentDay : 1;
-    mTitleCheckpointName = titleCheckpoint.valid ? titleCheckpoint.characterName : std::string{};
-    mTitleCheckpointX = titleCheckpoint.valid ? titleCheckpoint.playerX : 0.0f;
-    mTitleCheckpointY = titleCheckpoint.valid ? titleCheckpoint.playerY : 0.0f;
+    refreshTitleCheckpoint();
 
     const auto& layout = mMapGenerator.layoutData();
     if (layout.width > 0 && layout.height > 0)
@@ -1791,20 +1802,13 @@ void Game::setupScene()
     {
         if (mTileMap.isSolid(tile.x, tile.y)) continue;
 
-        Entity zombie = mWorld.createEntity();
-        Transform zt{}; zt.x = static_cast<float>(tile.x * mTileMap.tileWidth()); zt.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-        Sprite zs{}; zs.textureId = sheetTex; zs.uvRect = mSpriteSheet.uvRect("zombie_idle"); zs.color = glm::vec4(1.0f); zs.layer = 8;
-        Animation za{}; za.currentAnim = "zombie_idle"; za.frameDuration = 0.18f;
-        ZombieAI zai{}; zai.targetWorld = glm::vec2(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
-        const float hp = hpDist(runRng);
-        zai.moveSpeed = 112.0f * speedMul(runRng);
-        zai.spawnDay = mCurrentDay;
-        mWorld.addComponent<Transform>(zombie, zt);
-        mWorld.addComponent<Sprite>(zombie, zs);
-        mWorld.addComponent<Animation>(zombie, za);
-        mWorld.addComponent<Velocity>(zombie, Velocity{});
-        mWorld.addComponent<ZombieAI>(zombie, zai);
-        mWorld.addComponent<Health>(zombie, Health{hp, hp});
+        EntityFactory::ZombieParams params;
+        params.topLeftWorld = glm::vec2(static_cast<float>(tile.x * mTileMap.tileWidth()),
+                                        static_cast<float>(tile.y * mTileMap.tileHeight()));
+        params.health = hpDist(runRng);
+        params.baseMoveSpeed = 112.0f * speedMul(runRng);
+        params.spawnDay = mCurrentDay;
+        EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
     }
 
     // --- NPC Survivors ---
@@ -1935,6 +1939,7 @@ void Game::setupScene()
 
     // Initialize district infection system
     mDistrictInfectionSystem.initialize(mMapGenerator.layoutData());
+    mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(saveThreatModeFromIndex(mTitleModeIndex)));
 
     const auto& layoutDistricts = mMapGenerator.layoutData().districts;
     auto getDistrictType = [&](int tileX, int tileY) -> DistrictType
@@ -3568,12 +3573,13 @@ void Game::update(float dtSeconds)
             mTitleStatusMessage.clear();
         }
 
-        const RunCheckpoint titleCheckpoint = mSaveManager.loadCheckpoint();
-        mTitleHasCheckpoint = titleCheckpoint.valid;
-        mTitleCheckpointDay = titleCheckpoint.valid ? titleCheckpoint.currentDay : 1;
-        mTitleCheckpointName = titleCheckpoint.valid ? titleCheckpoint.characterName : std::string{};
-        mTitleCheckpointX = titleCheckpoint.valid ? titleCheckpoint.playerX : 0.0f;
-        mTitleCheckpointY = titleCheckpoint.valid ? titleCheckpoint.playerY : 0.0f;
+        // The checkpoint lives on disk: re-read it after input (slot changes,
+        // deletes) or once a second, not every tick.
+        mTitleCheckpointRefreshTimer -= dtSeconds;
+        if (mTitleCheckpointRefreshTimer <= 0.0f || mInput.anyKeyPressed())
+        {
+            refreshTitleCheckpoint();
+        }
 
         const int menuCount = static_cast<int>(kTitleMenuItems.size());
         if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
@@ -3950,42 +3956,10 @@ void Game::update(float dtSeconds)
 
     advanceGameClock(static_cast<double>(dtSeconds) * kGameHoursPerRealSecond, mGameHours, mCurrentDay);
 
-    mNeedsSystem.update(mWorld, dtSeconds, mGameHours);
+    const NeedsEnvironment needsEnvironment = buildNeedsEnvironment();
+    mNeedsSystem.update(mWorld, dtSeconds, needsEnvironment);
     mBleedingSystem.update(mWorld, dtSeconds);
     mWoundSystem.update(mWorld, mPlayerEntity, dtSeconds, mGameHours);
-
-    // Campfire warmth: warm player body temperature when near a campfire
-    if (mPlayerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Needs>(mPlayerEntity) &&
-        mWorld.hasComponent<Transform>(mPlayerEntity))
-    {
-        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-        const glm::vec2 pc(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
-        bool nearCampfire = false;
-
-        mWorld.forEach<Structure, Transform>(
-            [&](Entity, Structure& structure, Transform& st)
-            {
-                if (nearCampfire) return;
-                if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
-                const glm::vec2 sc(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
-                if (glm::distance(pc, sc) < 96.0f)
-                {
-                    nearCampfire = true;
-                }
-            });
-
-        if (nearCampfire)
-        {
-            Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-            constexpr float kCampfireWarmRate = 0.5f;
-            constexpr float kCampfireTargetTemp = 37.5f;
-            if (needs.bodyTemperature < kCampfireTargetTemp)
-            {
-                needs.bodyTemperature = std::min(kCampfireTargetTemp, needs.bodyTemperature + kCampfireWarmRate * dtSeconds);
-            }
-        }
-    }
 
     // Inventory food spoilage
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
@@ -3996,21 +3970,10 @@ void Game::update(float dtSeconds)
     }
 
     // Mental state system
-    mMentalStateSystem.update(mWorld, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
+    mMentalStateSystem.update(mWorld, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay, &mTileMap);
 
     // Weather system
     mWeatherSystem.update(mWeatherState, dtSeconds, mGameHours, mCurrentDay);
-
-    // Weather effects on player body temperature
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
-    {
-        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-        // Push body temperature toward ambient weather temperature
-        const float ambientTarget = std::clamp(mWeatherState.temperature, -10.0f, 45.0f);
-        const float tempPressure = (ambientTarget < 15.0f) ? -0.1f : (ambientTarget > 35.0f ? 0.05f : 0.0f);
-        needs.bodyTemperature += tempPressure * dtSeconds;
-        needs.bodyTemperature = std::clamp(needs.bodyTemperature, 30.0f, 42.0f);
-    }
 
     // Fire interaction key (L): active-slot Molotov ignites, active-slot water suppresses.
     if (playerAlive &&
@@ -4233,6 +4196,10 @@ void Game::update(float dtSeconds)
 
                         const float damage = (target == mPlayerEntity) ? 14.0f : 18.0f;
                         health.current = std::max(0.0f, health.current - damage * fire.intensity * dtSeconds);
+                        if (mWorld.hasComponent<ZombieAI>(target))
+                        {
+                            mWorld.getComponent<ZombieAI>(target).lastDamagedBy = fireEntity;
+                        }
                     });
 
                 // Structures on burning tiles take accelerated damage.
@@ -5200,7 +5167,7 @@ void Game::update(float dtSeconds)
 
         if (extraDtSeconds > 0.0f)
         {
-            mNeedsSystem.update(mWorld, extraDtSeconds, mGameHours);
+            mNeedsSystem.update(mWorld, extraDtSeconds, buildNeedsEnvironment());
             mBleedingSystem.update(mWorld, extraDtSeconds);
             mWoundSystem.update(mWorld, mPlayerEntity, extraDtSeconds, mGameHours);
 
@@ -5267,9 +5234,10 @@ void Game::update(float dtSeconds)
                 if (mWorld.hasComponent<MentalState>(mPlayerEntity))
                 {
                     MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+                    // A full night's sleep is the main way to shake off a bad day.
                     const float depressionRelief = sleeping.quality >= 0.85f
-                        ? 2.0f
-                        : std::max(0.4f, sleeping.quality * 1.4f);
+                        ? 8.0f
+                        : std::max(2.0f, sleeping.quality * 6.0f);
                     mental.depression = std::max(0.0f, mental.depression - depressionRelief);
                 }
 
@@ -5522,13 +5490,16 @@ void Game::update(float dtSeconds)
     {
         MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
         mWorld.forEach<ZombieAI, Health>(
-            [&](Entity, ZombieAI&, Health& h)
+            [&](Entity, ZombieAI& zombieAI, Health& h)
             {
-                // Zombie just died this frame (low HP after being hit)
+                // Zombie died since last check: only the player's own kills count.
                 if (h.current <= 0.0f && h.current > -999.0f)
                 {
-                    mental.desensitisation = std::min(100.0f, mental.desensitisation + 1.5f);
-                    ++mRunStats.kills;
+                    if (zombieAI.lastDamagedBy == mPlayerEntity)
+                    {
+                        mental.desensitisation = std::min(100.0f, mental.desensitisation + 1.5f);
+                        ++mRunStats.kills;
+                    }
                     h.current = -1000.0f; // mark as counted
                 }
             });
@@ -5560,9 +5531,25 @@ void Game::update(float dtSeconds)
             [&](Entity zombieEntity, ZombieAI& zombieAI)
             {
                 const ThreatBehaviorTuning tuning = computeThreatBehaviorTuning(threatMode, mCurrentDay, zombieEntity, runSeed);
-                zombieAI.moveSpeed = 112.0f * tuning.speedScale;
+                zombieAI.moveSpeed = zombieAI.baseMoveSpeed * tuning.speedScale;
                 zombieAI.visionRangeTiles = 8.0f * tuning.visionScale;
             });
+    }
+
+    // Threat director: migration toward the player's area and population growth.
+    {
+        std::vector<ThreatDirectorSystem::SpawnRequest> spawns;
+        mThreatDirector.update(mWorld, mTileMap, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay,
+                               &mDistrictInfectionSystem, spawns);
+        for (const auto& request : spawns)
+        {
+            EntityFactory::ZombieParams params;
+            params.topLeftWorld = request.topLeftWorld;
+            params.health = request.health;
+            params.baseMoveSpeed = request.baseMoveSpeed;
+            params.spawnDay = mCurrentDay;
+            EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
+        }
     }
 
     mZombieAISystem.update(
@@ -5643,7 +5630,7 @@ void Game::update(float dtSeconds)
         {
             bool hitZombie = false;
             mWorld.forEach<ZombieAI, Transform, Health>(
-                [&](Entity, ZombieAI&, Transform& zt, Health& zh)
+                [&](Entity, ZombieAI& zai, Transform& zt, Health& zh)
                 {
                     if (hitZombie || zh.current <= 0.0f)
                     {
@@ -5654,6 +5641,7 @@ void Game::update(float dtSeconds)
                     if (glm::distance(vehicleCenter, zombieCenter) <= kVehicleCollisionRangePixels)
                     {
                         zh.current = std::max(0.0f, zh.current - 65.0f);
+                        zai.lastDamagedBy = mPlayerEntity; // only the player drives
                         vehicle.condition = std::max(0.0f, vehicle.condition - 6.0f);
                         vehicle.collisionDamageCooldown = 0.22f;
                         hitZombie = true;
@@ -7839,6 +7827,63 @@ void Game::renderAttackArcOverlay()
             debugUvRect,
             baseColor);
     }
+}
+
+void Game::refreshTitleCheckpoint()
+{
+    const RunCheckpoint titleCheckpoint = mSaveManager.loadCheckpoint();
+    mTitleHasCheckpoint = titleCheckpoint.valid;
+    mTitleCheckpointDay = titleCheckpoint.valid ? titleCheckpoint.currentDay : 1;
+    mTitleCheckpointName = titleCheckpoint.valid ? titleCheckpoint.characterName : std::string{};
+    mTitleCheckpointX = titleCheckpoint.valid ? titleCheckpoint.playerX : 0.0f;
+    mTitleCheckpointY = titleCheckpoint.valid ? titleCheckpoint.playerY : 0.0f;
+    mTitleCheckpointRefreshTimer = 1.0f;
+}
+
+NeedsEnvironment Game::buildNeedsEnvironment()
+{
+    NeedsEnvironment environment;
+    environment.gameHours = mGameHours;
+    environment.outdoorTemperature = mWeatherState.temperature;
+    environment.rainIntensity = mWeatherState.rainIntensity;
+    environment.windStrength = mWeatherState.windStrength;
+    environment.tileMap = &mTileMap;
+
+    mWorld.forEach<Structure, Transform>(
+        [&](Entity, Structure& structure, Transform& st)
+        {
+            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
+            environment.heatSources.emplace_back(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
+        });
+    mWorld.forEach<Fire, Transform>(
+        [&](Entity, Fire& fire, Transform& ft)
+        {
+            if (fire.intensity <= 0.1f) return;
+            environment.heatSources.emplace_back(ft.x + kSpriteSize * 0.5f, ft.y + kSpriteSize * 0.5f);
+        });
+
+    // Clothing: a jacket in the pack counts as worn.
+    if (mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Needs>(mPlayerEntity) &&
+        mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        constexpr float kJacketInsulation = 5.0f;
+        const ItemDef* jacket = mItemDatabase.findByName("Jacket");
+        bool wearingJacket = false;
+        if (jacket != nullptr)
+        {
+            for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+            {
+                if (slot.itemId == jacket->id && slot.count > 0)
+                {
+                    wearingJacket = true;
+                    break;
+                }
+            }
+        }
+        mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation = wearingJacket ? kJacketInsulation : 0.0f;
+    }
+    return environment;
 }
 
 void Game::updateNoiseModel(float dtSeconds)

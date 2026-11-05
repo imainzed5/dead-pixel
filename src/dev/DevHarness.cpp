@@ -129,7 +129,7 @@ bool DevHarness::loadScript(std::string& error)
         }
         mMetrics << "tick,seconds,day,hour,state,hp,hp_max,hunger,thirst,fatigue,sleep_debt,"
                     "body_temp,illness,stamina,panic,depression,zombies,zombies_near,kills,"
-                    "inventory_items\n";
+                    "inventory_items,z_investigate,z_chase,z_attack,z_migrating,indoors,pop_target\n";
     }
 
     std::error_code ec;
@@ -474,19 +474,32 @@ void DevHarness::writeMetricsRow(Game& game)
 
     int zombies = 0;
     int zombiesNear = 0;
+    int zInvestigate = 0;
+    int zChase = 0;
+    int zAttack = 0;
+    int zMigrating = 0;
     const float nearRadius = kNearZombieRadiusTiles * static_cast<float>(game.mTileMap.tileWidth());
     world.forEach<ZombieAI, Transform>(
-        [&](Entity e, ZombieAI&, Transform& zt)
+        [&](Entity e, ZombieAI& ai, Transform& zt)
         {
             if (world.hasComponent<Health>(e) && world.getComponent<Health>(e).current <= 0.0f) return;
             ++zombies;
+            if (ai.state == ZombieState::Investigate) ++zInvestigate;
+            if (ai.state == ZombieState::Chase) ++zChase;
+            if (ai.state == ZombieState::Attack) ++zAttack;
+            if (ai.migrating) ++zMigrating;
             if (hasPlayer && std::hypot(zt.x - playerPos.x, zt.y - playerPos.y) <= nearRadius) ++zombiesNear;
         });
+
+    const bool indoors = hasPlayer &&
+        game.mTileMap.isIndoorsAtWorld(playerPos.x + 16.0f, playerPos.y + 16.0f);
 
     mMetrics << mTick << ',' << static_cast<double>(mTick) / kTicksPerSecond << ',' << game.mCurrentDay << ','
              << game.mGameHours << ',' << runStateName(static_cast<int>(game.mRunState)) << ',' << hp << ',' << hpMax
              << ',' << hunger << ',' << thirst << ',' << fatigue << ',' << sleepDebt << ',' << temp << ',' << illness
              << ',' << stamina << ',' << panic << ',' << depression << ',' << zombies << ',' << zombiesNear << ','
-             << game.mRunStats.kills << ',' << inventoryItems << '\n';
+             << game.mRunStats.kills << ',' << inventoryItems << ',' << zInvestigate << ',' << zChase << ','
+             << zAttack << ',' << zMigrating << ',' << (indoors ? 1 : 0) << ','
+             << game.mThreatDirector.populationTarget() << '\n';
     mMetrics.flush();
 }

@@ -3,6 +3,7 @@
 #include "components/Health.h"
 #include "components/MentalState.h"
 #include "components/Needs.h"
+#include "components/Sleeping.h"
 #include "components/SurvivorAI.h"
 #include "components/Traits.h"
 #include "components/Transform.h"
@@ -31,6 +32,7 @@ struct MentalFixture
         world.registerComponent<Traits>();
         world.registerComponent<ZombieAI>();
         world.registerComponent<SurvivorAI>();
+        world.registerComponent<Sleeping>();
 
         player = world.createEntity();
         world.addComponent(player, Transform{});

@@ -37,6 +37,9 @@ public:
     void setCollisionLayer(std::vector<int> layerData);
     void setSurfaceLayer(std::vector<int> layerData);
     void setDistrictLayer(std::vector<int> layerData);
+    // Per-tile building id (index + 1) for building footprints, 0 outside.
+    // Covers interior floors, walls and doorways.
+    void setBuildingLayer(std::vector<int> layerData);
 
     [[nodiscard]] bool gidToUvRect(int gid, glm::vec4& outUvRect) const;
     [[nodiscard]] int groundGid(int tileX, int tileY) const;
@@ -45,6 +48,9 @@ public:
     [[nodiscard]] bool isSolidAtWorldDiamond(float centerX, float centerY, float radiusX, float radiusY) const;
     [[nodiscard]] SurfaceType getSurfaceType(int tileX, int tileY) const;
     [[nodiscard]] int getDistrictId(int tileX, int tileY) const;
+    [[nodiscard]] int getBuildingId(int tileX, int tileY) const;
+    [[nodiscard]] bool isIndoors(int tileX, int tileY) const { return getBuildingId(tileX, tileY) > 0; }
+    [[nodiscard]] bool isIndoorsAtWorld(float worldX, float worldY) const;
 
     [[nodiscard]] int width() const { return mWidth; }
     [[nodiscard]] int height() const { return mHeight; }
@@ -52,9 +58,9 @@ public:
     [[nodiscard]] int tileHeight() const { return mTileHeight; }
     [[nodiscard]] glm::vec2 pixelSize() const;
     [[nodiscard]] const TilesetInfo& tileset() const { return mTileset; }
+    [[nodiscard]] bool inBounds(int tileX, int tileY) const;
 
 private:
-    [[nodiscard]] bool inBounds(int tileX, int tileY) const;
     [[nodiscard]] int tileIndex(int tileX, int tileY) const;
 
     int mWidth = 0;
@@ -67,4 +73,5 @@ private:
     std::vector<int> mCollisionLayer;
     std::vector<int> mSurfaceLayer;
     std::vector<int> mDistrictLayer;
+    std::vector<int> mBuildingLayer;
 };
