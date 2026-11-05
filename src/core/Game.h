@@ -53,6 +53,7 @@
 #include "systems/DistrictInfectionSystem.h"
 #include "systems/ThreatDirectorSystem.h"
 #include "components/Weather.h"
+#include "ui/Hud.h"
 
 class DevHarness;
 
@@ -94,12 +95,14 @@ private:
     void render();
     void renderMap();
     void renderAttackArcOverlay();
-    void renderNeedsHudOverlay();
+    void buildHudState();
+    void updateDistrictToast(float dtSeconds);
     void renderDeathOverlay();
     void renderRetirementOverlay();
     void renderTextOverlays();
     void renderPauseOverlay();
     void renderTitleScreen();
+    void renderControlsPanel();
     void renderControlsOverlay();
     void renderDayNightOverlay();
     void renderMinimapOverlay();
@@ -114,6 +117,7 @@ private:
     void refreshTitleCheckpoint();
     void renderNoiseDebugOverlay();
     void updateWindowTitle(double frameSeconds);
+    void renderInventoryPanel();
     void renderInventoryOverlay();
     void renderCraftingOverlay();
     void renderBuildModeOverlay();
@@ -232,6 +236,14 @@ private:
     std::string mInteractionMessage;
     float mInteractionMessageTimer = 0.0f;
     std::string mProximityPrompt;
+
+    Hud mHud;
+    HudState mHudState;
+    float mHudClock = 0.0f;
+    int mHudDistrictId = -1;
+    float mDistrictToastTimer = 0.0f;
+    std::string mDistrictToastText;
+    bool mDistrictToastDanger = false;
 
     bool mShowWorldMap = false;
     bool mShowNotebook = false;

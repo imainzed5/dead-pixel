@@ -387,6 +387,173 @@ ThreatBehaviorTuning computeThreatBehaviorTuning(
     return tuning;
 }
 
+// Inventory grid geometry shared by input hit-testing and both render passes.
+// Slots 1-8 (the first two rows) are the hotbar.
+struct InventoryLayout
+{
+    glm::vec2 panelPos{0.0f};
+    glm::vec2 panelSize{0.0f};
+    glm::vec2 gridPos{0.0f};
+    float titleY = 0.0f;
+    float weightY = 0.0f;
+    float detailY = 0.0f;
+    float footerY = 0.0f;
+    static constexpr int kColumns = 4;
+    static constexpr int kRows = 5;
+    static constexpr float kSlot = 48.0f;
+    static constexpr float kGap = 6.0f;
+
+    [[nodiscard]] glm::vec2 slotPos(int index) const
+    {
+        const int column = index % kColumns;
+        const int row = index / kColumns;
+        // A little extra space separates the hotbar rows from the backpack.
+        const float hotbarGap = row >= 2 ? 10.0f : 0.0f;
+        return gridPos + glm::vec2(static_cast<float>(column) * (kSlot + kGap),
+                                   static_cast<float>(row) * (kSlot + kGap) + hotbarGap);
+    }
+
+    [[nodiscard]] int slotAt(const glm::vec2& point) const
+    {
+        for (int i = 0; i < kColumns * kRows; ++i)
+        {
+            const glm::vec2 pos = slotPos(i);
+            if (point.x >= pos.x && point.x < pos.x + kSlot && point.y >= pos.y && point.y < pos.y + kSlot)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+};
+
+InventoryLayout computeInventoryLayout(int windowWidth, int windowHeight)
+{
+    InventoryLayout layout;
+    const float gridW = InventoryLayout::kColumns * InventoryLayout::kSlot + (InventoryLayout::kColumns - 1) * InventoryLayout::kGap;
+    const float gridH = InventoryLayout::kRows * InventoryLayout::kSlot + (InventoryLayout::kRows - 1) * InventoryLayout::kGap + 10.0f;
+    layout.panelSize = glm::vec2(340.0f, 20.0f + 26.0f + 22.0f + 12.0f + gridH + 14.0f + 44.0f + 18.0f + 12.0f);
+    layout.panelPos = glm::vec2(
+        std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
+        std::round(std::max(96.0f, (static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f - 40.0f)));
+    layout.titleY = layout.panelPos.y + 20.0f;
+    layout.weightY = layout.titleY + 26.0f;
+    layout.gridPos = glm::vec2(std::round(layout.panelPos.x + (layout.panelSize.x - gridW) * 0.5f),
+                               layout.weightY + 22.0f + 12.0f);
+    layout.detailY = layout.gridPos.y + gridH + 14.0f;
+    layout.footerY = layout.detailY + 44.0f;
+    return layout;
+}
+
+// One-line summary of what an item does, for the inventory details.
+std::string itemEffectSummary(const ItemDef& item)
+{
+    std::string summary;
+    auto add = [&](const std::string& part)
+    {
+        if (!summary.empty()) summary += ", ";
+        summary += part;
+    };
+    if (item.hungerRestore > 0.0f) add("+" + std::to_string(static_cast<int>(item.hungerRestore)) + " food");
+    if (item.thirstRestore > 0.0f) add("+" + std::to_string(static_cast<int>(item.thirstRestore)) + " water");
+    if (item.healthRestore > 0.0f) add("+" + std::to_string(static_cast<int>(item.healthRestore)) + " health");
+    if (item.stopsBleeding) add("stops bleeding");
+    if (item.woundTreatment > 0) add("treats wounds");
+    if (item.curesInfection) add("fights infection");
+    if (item.illnessRelief > 0.0f) add("eases illness");
+    if (item.panicRelief > 0.0f) add("calms nerves");
+    if (item.weaponCategory >= 0) add("weapon");
+    return summary;
+}
+
+struct ControlBinding
+{
+    const char* key;
+    const char* action;
+};
+
+constexpr std::array<ControlBinding, 24> kControlBindings = {{
+    {"WASD", "Move"},
+    {"Shift", "Run"},
+    {"C", "Crouch"},
+    {"Mouse", "Aim"},
+    {"LClick", "Attack"},
+    {"RClick", "Grab"},
+    {"E", "Interact"},
+    {"F", "Use item"},
+    {"Q", "Flashlight"},
+    {"1-8", "Hotbar slot"},
+    {"Tab", "Inventory"},
+    {"Arrows", "Inventory cursor"},
+    {"Enter", "Swap to hotbar"},
+    {"N", "Crafting"},
+    {"B", "Build"},
+    {"L", "Fire action"},
+    {"V", "Enter/exit car"},
+    {"Shift+V", "Refuel car"},
+    {"M", "World map"},
+    {"J", "Notebook"},
+    {"+/-", "Minimap zoom"},
+    {"Esc", "Pause"},
+    {"F2", "Controls"},
+    {"F3", "Infection debug"},
+}};
+
+struct ControlsLayout
+{
+    glm::vec2 panelPos{0.0f};
+    glm::vec2 panelSize{0.0f};
+    float rowsY = 0.0f;
+    float columnWidth = 0.0f;
+    static constexpr float kRowH = 22.0f;
+    static constexpr float kKeyColumn = 108.0f;
+    static constexpr std::size_t kRowsPerColumn = 12;
+};
+
+ControlsLayout computeControlsLayout(int windowWidth, int windowHeight)
+{
+    ControlsLayout layout;
+    layout.columnWidth = 320.0f;
+    layout.panelSize = glm::vec2(layout.columnWidth * 2.0f + 48.0f,
+                                 64.0f + ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) + 20.0f);
+    layout.panelPos = glm::vec2(
+        std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
+        std::round((static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f));
+    layout.rowsY = layout.panelPos.y + 64.0f;
+    return layout;
+}
+
+// Pause menu geometry shared by the panel pass and the text pass.
+struct PauseLayout
+{
+    glm::vec2 panelPos{0.0f};
+    glm::vec2 panelSize{0.0f};
+    float titleY = 0.0f;
+    float nameY = 0.0f;
+    float runLineY = 0.0f;
+    float statsLineY = 0.0f;
+    float traitsLineY = 0.0f;
+    float optionsY = 0.0f;
+    static constexpr float kOptionH = 30.0f;
+    static constexpr int kOptionCount = 5;
+};
+
+PauseLayout computePauseLayout(int windowWidth, int windowHeight)
+{
+    PauseLayout layout;
+    layout.panelSize = glm::vec2(440.0f, 312.0f);
+    layout.panelPos = glm::vec2(
+        std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
+        std::round((static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f));
+    layout.titleY = layout.panelPos.y + 18.0f;
+    layout.nameY = layout.panelPos.y + 60.0f;
+    layout.runLineY = layout.panelPos.y + 86.0f;
+    layout.statsLineY = layout.panelPos.y + 100.0f;
+    layout.traitsLineY = layout.panelPos.y + 114.0f;
+    layout.optionsY = layout.panelPos.y + 140.0f;
+    return layout;
+}
+
 struct TitlePanelLayout
 {
     float panelX = 0.0f;
@@ -785,6 +952,22 @@ const char* districtTypeLabel(int districtType)
     default:
         return "Wilderness";
     }
+}
+
+const char* weatherConditionLabel(WeatherCondition condition)
+{
+    switch (condition)
+    {
+    case WeatherCondition::Clear: return "Clear";
+    case WeatherCondition::Cloudy: return "Cloudy";
+    case WeatherCondition::Rain: return "Rain";
+    case WeatherCondition::HeavyRain: return "Heavy rain";
+    case WeatherCondition::Thunderstorm: return "Storm";
+    case WeatherCondition::Fog: return "Fog";
+    case WeatherCondition::Blizzard: return "Blizzard";
+    case WeatherCondition::Heatwave: return "Heatwave";
+    }
+    return "Clear";
 }
 
 const char* craftingCategoryLabel(int category)
@@ -1601,11 +1784,8 @@ void Game::startNewRun()
     {
         if (mTitleModeIndex >= 0 && mTitleModeIndex < static_cast<int>(kTitleModeNames.size()))
         {
-            mInteractionMessage = std::string("Mode: ")
-                + kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)]
-                + " | Threat: "
-                + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
-            mInteractionMessageTimer = 2.5f;
+            mInteractionMessage = "You are " + mCurrentCharacterName + ".";
+            mInteractionMessageTimer = 3.5f;
         }
     }
 }
@@ -1942,6 +2122,8 @@ void Game::setupScene()
     mDistrictInfectionSystem.initialize(mMapGenerator.layoutData());
     mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(saveThreatModeFromIndex(mTitleModeIndex)));
     mFlashlightOn = false;
+    mHudDistrictId = -1;
+    mDistrictToastTimer = 0.0f;
 
     const auto& layoutDistricts = mMapGenerator.layoutData().districts;
     auto getDistrictType = [&](int tileX, int tileY) -> DistrictType
@@ -3507,6 +3689,7 @@ void Game::update(float dtSeconds)
     {
         mInteractionMessage.clear();
     }
+    updateDistrictToast(dtSeconds);
 
     if (mInput.wasKeyPressed(SDL_SCANCODE_F1))
     {
@@ -4863,20 +5046,11 @@ void Game::update(float dtSeconds)
     {
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
-        const float panelX = static_cast<float>(mWindowWidth) * 0.5f - 140.0f;
-        const float rowStartY = 60.0f + 24.0f + 18.0f;
-        const float rowStep = 14.0f;
-        const float rowEndY = rowStartY + rowStep * static_cast<float>(Inventory::kMaxSlots);
-        const float mouseX = static_cast<float>(mInput.mouseX());
-        const float mouseY = static_cast<float>(mInput.mouseY());
+        const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
+        const int hoveredSlot = layout.slotAt(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
 
-        if (mouseX >= panelX - 8.0f && mouseX <= panelX + 360.0f && mouseY >= rowStartY && mouseY <= rowEndY)
+        if (hoveredSlot >= 0)
         {
-            const int hoveredSlot = std::clamp(
-                static_cast<int>((mouseY - rowStartY) / rowStep),
-                0,
-                Inventory::kMaxSlots - 1);
-
             mInventoryCursor = hoveredSlot;
 
             if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
@@ -4897,11 +5071,21 @@ void Game::update(float dtSeconds)
             }
         }
 
+        // Grid navigation: W/S or Up/Down move a row, Left/Right move a slot.
+        constexpr int kRowStep = InventoryLayout::kColumns;
         if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        {
+            mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - kRowStep) % Inventory::kMaxSlots;
+        }
+        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        {
+            mInventoryCursor = (mInventoryCursor + kRowStep) % Inventory::kMaxSlots;
+        }
+        if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
         {
             mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - 1) % Inventory::kMaxSlots;
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
         {
             mInventoryCursor = (mInventoryCursor + 1) % Inventory::kMaxSlots;
         }
@@ -5926,6 +6110,8 @@ void Game::render()
     mShader.setMat4("uProjection", mProjection);
     mShader.setInt("uTexture", 0);
     setupLightingUniforms();
+    buildHudState();
+    const glm::vec2 viewport(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
 
     // Pass 1: Map tiles (tileset texture)
     mSpriteBatch.begin();
@@ -5976,7 +6162,7 @@ void Game::render()
 
     mSpriteBatch.begin();
     renderTitleScreen();
-    renderNeedsHudOverlay();
+    mHud.drawShapes(mSpriteBatch, mSpriteSheet, mFont, mHudState, viewport);
     renderMinimapOverlay();
     renderAttackArcOverlay();
     renderNoiseDebugOverlay();
@@ -5987,6 +6173,11 @@ void Game::render()
     renderPauseOverlay();
     mCraftingRenderTextPass = false;
     renderCraftingOverlay();
+    renderInventoryPanel();
+    if (!mShowCrafting)
+    {
+        renderControlsPanel();
+    }
     mSpriteBatch.end();
 
     mSpriteSheet.bindTexture(GL_TEXTURE0);
@@ -5999,6 +6190,7 @@ void Game::render()
     mShader.setInt("uSpotEnabled", 0);
 
     mSpriteBatch.begin();
+    mHud.drawText(mSpriteBatch, mFont, mHudState, viewport);
     if (!mShowCrafting)
     {
         renderTextOverlays();
@@ -6018,74 +6210,298 @@ void Game::render()
     mSpriteBatch.flush();
 }
 
-void Game::renderNeedsHudOverlay()
+void Game::updateDistrictToast(float dtSeconds)
 {
-    if (mPlayerEntity == kInvalidEntity ||
-        !mWorld.hasComponent<Needs>(mPlayerEntity))
+    mHudClock += dtSeconds;
+    mDistrictToastTimer = std::max(0.0f, mDistrictToastTimer - dtSeconds);
+
+    if (mRunState != RunState::Playing ||
+        mPlayerEntity == kInvalidEntity ||
+        !mWorld.hasComponent<Transform>(mPlayerEntity))
     {
         return;
     }
 
-    const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-
-    // Panel background for all needs bars
-    const glm::vec2 panelPos(12.0f, 12.0f);
-    const glm::vec2 panelSize(180.0f, 142.0f);
-    mSpriteBatch.draw(panelPos, panelSize, uiUv, glm::vec4(0.04f, 0.06f, 0.08f, 0.55f));
-
-    struct NeedBar
+    const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+    const int tileX = static_cast<int>(pt.x) / std::max(1, mTileMap.tileWidth());
+    const int tileY = static_cast<int>(pt.y) / std::max(1, mTileMap.tileHeight());
+    const int districtId = mTileMap.getDistrictId(tileX, tileY);
+    if (districtId == mHudDistrictId)
     {
-        const char* iconName;
-        float ratio;
-        glm::vec4 fillColor;
-        glm::vec4 iconTint;
-    };
-
-    const float hungerRatio = needs.maxHunger > 0.0f ? std::clamp(needs.hunger / needs.maxHunger, 0.0f, 1.0f) : 0.0f;
-    const float thirstRatio = needs.maxThirst > 0.0f ? std::clamp(needs.thirst / needs.maxThirst, 0.0f, 1.0f) : 0.0f;
-    const float fatigueRatio = 1.0f - (needs.maxFatigue > 0.0f ? std::clamp(needs.fatigue / needs.maxFatigue, 0.0f, 1.0f) : 0.0f);
-    const float sleepRatio = 1.0f - (needs.maxSleepDebt > 0.0f ? std::clamp(needs.sleepDebt / needs.maxSleepDebt, 0.0f, 1.0f) : 0.0f);
-    const float tempRatio = std::clamp((needs.bodyTemperature - 33.0f) / 6.0f, 0.0f, 1.0f);
-    const float wellnessRatio = 1.0f - std::clamp(needs.illness / 100.0f, 0.0f, 1.0f);
-
-    const NeedBar bars[] = {
-        {"ui_hunger", hungerRatio, glm::vec4(0.92f, 0.72f, 0.20f, 0.95f), glm::vec4(1.0f, 0.95f, 0.75f, 1.0f)},
-        {"ui_thirst", thirstRatio, glm::vec4(0.30f, 0.65f, 0.95f, 0.95f), glm::vec4(0.75f, 0.90f, 1.0f, 1.0f)},
-        {"ui_stamina", fatigueRatio, glm::vec4(0.35f, 0.85f, 0.45f, 0.95f), glm::vec4(0.70f, 1.0f, 0.75f, 1.0f)},
-        {"ui_sleep", sleepRatio, glm::vec4(0.60f, 0.50f, 0.85f, 0.95f), glm::vec4(0.85f, 0.75f, 1.0f, 1.0f)},
-        {"ui_heart", tempRatio, glm::vec4(0.85f, 0.45f, 0.30f, 0.95f), glm::vec4(1.0f, 0.75f, 0.65f, 1.0f)},
-        {"ui_skull", wellnessRatio, glm::vec4(0.70f, 0.70f, 0.70f, 0.95f), glm::vec4(0.90f, 0.90f, 0.90f, 1.0f)},
-    };
-
-    constexpr float kBarHeight = 10.0f;
-    constexpr float kBarWidth = 120.0f;
-    constexpr float kRowSpacing = 20.0f;
-    constexpr float kIconSize = 16.0f;
-
-    for (int i = 0; i < 6; ++i)
-    {
-        const float yOff = panelPos.y + 10.0f + static_cast<float>(i) * kRowSpacing;
-        const glm::vec4 iconUv = mSpriteSheet.uvRect(bars[i].iconName);
-        mSpriteBatch.draw(glm::vec2(panelPos.x + 10.0f, yOff - 2.0f), glm::vec2(kIconSize, kIconSize), iconUv, bars[i].iconTint);
-
-        const glm::vec2 barPos(panelPos.x + 34.0f, yOff);
-        mSpriteBatch.draw(barPos, glm::vec2(kBarWidth, kBarHeight), uiUv, glm::vec4(0.08f, 0.08f, 0.08f, 0.85f));
-        mSpriteBatch.draw(barPos, glm::vec2(kBarWidth * bars[i].ratio, kBarHeight), uiUv, bars[i].fillColor);
+        return;
     }
 
-    // Sleeping indicator
-    if (mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    mHudDistrictId = districtId;
+    if (districtId <= 0)
     {
-        const float yOff = panelPos.y + panelSize.y + 4.0f;
-        mSpriteBatch.draw(glm::vec2(panelPos.x, yOff), glm::vec2(180.0f, 18.0f), uiUv, glm::vec4(0.15f, 0.10f, 0.25f, 0.7f));
+        return;
     }
 
-    // Bleeding indicator
-    if (mWorld.hasComponent<Bleeding>(mPlayerEntity))
+    int districtType = static_cast<int>(DistrictType::Wilderness);
+    for (const auto& def : mMapGenerator.layoutData().districts)
     {
-        const float yOff = panelPos.y + panelSize.y + 24.0f;
-        mSpriteBatch.draw(glm::vec2(panelPos.x, yOff), glm::vec2(180.0f, 18.0f), uiUv, glm::vec4(0.4f, 0.05f, 0.05f, 0.7f));
+        if (def.id == districtId)
+        {
+            districtType = def.type;
+            break;
+        }
+    }
+
+    const int infection = static_cast<int>(std::round(mDistrictInfectionSystem.getInfection(districtId)));
+    const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(districtId);
+    mDistrictToastText = std::string(districtTypeLabel(districtType)) + " district - "
+        + (overwhelmed ? std::string("OVERWHELMED") : std::to_string(infection) + "% infected");
+    mDistrictToastDanger = overwhelmed || infection >= 60;
+    mDistrictToastTimer = 4.0f;
+}
+
+void Game::buildHudState()
+{
+    HudState& hud = mHudState;
+    hud = HudState{};
+    hud.visible = mRunState == RunState::Playing &&
+        !mShowCrafting &&
+        !mShowWorldMap &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Transform>(mPlayerEntity);
+    if (!hud.visible)
+    {
+        return;
+    }
+
+    hud.timeSeconds = mHudClock;
+
+    if (mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        hud.health = health.current;
+        hud.healthMax = health.maximum;
+    }
+    if (mWorld.hasComponent<Stamina>(mPlayerEntity))
+    {
+        const Stamina& stamina = mWorld.getComponent<Stamina>(mPlayerEntity);
+        hud.stamina = stamina.current;
+        hud.staminaMax = stamina.maximum;
+        hud.staminaBaseMax = stamina.baseMaximum > 0.0f ? stamina.baseMaximum : stamina.maximum;
+    }
+
+    // Conditions.
+    HudConditionInputs conditions;
+    if (mWorld.hasComponent<Needs>(mPlayerEntity))
+    {
+        const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+        conditions.hunger = needs.hunger;
+        conditions.thirst = needs.thirst;
+        conditions.sleepDebt = needs.sleepDebt;
+        conditions.fatigue = needs.fatigue;
+        conditions.bodyTemperature = needs.bodyTemperature;
+        conditions.illness = needs.illness;
+    }
+    if (mWorld.hasComponent<MentalState>(mPlayerEntity))
+    {
+        const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+        conditions.panic = mental.panic;
+        conditions.depression = mental.depression;
+        conditions.desensitisation = mental.desensitisation;
+        conditions.inCrisis = mental.inCrisis;
+    }
+    conditions.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
+    conditions.sleeping = mWorld.hasComponent<Sleeping>(mPlayerEntity);
+    bool wounded = false;
+    if (mWorld.hasComponent<Wounds>(mPlayerEntity))
+    {
+        const Wounds& wounds = mWorld.getComponent<Wounds>(mPlayerEntity);
+        wounded = !wounds.active.empty();
+        for (const auto& wound : wounds.active)
+        {
+            if (wound.type == WoundType::Bite)
+            {
+                ++conditions.bites;
+            }
+            else if (wound.type == WoundType::Cut)
+            {
+                ++conditions.cuts;
+            }
+            conditions.infected = conditions.infected || wound.infected;
+        }
+    }
+    const Inventory* inventory = mWorld.hasComponent<Inventory>(mPlayerEntity)
+        ? &mWorld.getComponent<Inventory>(mPlayerEntity)
+        : nullptr;
+    if (inventory)
+    {
+        conditions.overburdened = InventorySystem::totalWeight(*inventory, mItemDatabase) > Inventory::kMaxCarryWeight;
+    }
+    hud.conditions = Hud::buildConditions(conditions);
+    if (mFlashlightOn)
+    {
+        hud.conditions.push_back(HudStatus{"Flashlight on", HudSeverity::Info, ""});
+    }
+
+    // Clock and weather.
+    hud.day = mCurrentDay;
+    hud.hours = mGameHours;
+    hud.weather = weatherConditionLabel(mWeatherState.condition);
+    hud.outdoorTemperature = mWeatherState.temperature;
+    hud.characterName = mCurrentCharacterName;
+
+    // Objective: the most urgent thing to do next.
+    {
+        const bool campaignMode = (mTitleGameModeIndex == 0);
+        std::string title = campaignMode ? "Reach the objective" : "Survive";
+        std::string detail = campaignMode ? "Objective not yet located" : "Standing still burns food, water and daylight";
+        glm::vec4 color(0.92f, 0.80f, 0.34f, 1.0f);
+
+        if (campaignMode && mCampaignObjective.completed)
+        {
+            title = "Objective secured";
+            detail = "Extraction route confirmed. Legacy recorded.";
+            color = glm::vec4(0.58f, 0.88f, 0.56f, 1.0f);
+        }
+        else if (campaignMode && mCampaignObjective.active)
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            const int tx = static_cast<int>(std::floor(pt.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
+            const int ty = static_cast<int>(std::floor(pt.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
+            const int distance = std::abs(mCampaignObjective.tileX - tx) + std::abs(mCampaignObjective.tileY - ty);
+            detail = std::to_string(distance) + " tiles away";
+            if (mCampaignObjective.infectionDeadlineDay > 0)
+            {
+                const int daysRemaining = std::max(0, mCampaignObjective.infectionDeadlineDay - mCurrentDay);
+                detail += ", " + std::to_string(daysRemaining) + " days before the deadline";
+                if (daysRemaining <= 5)
+                {
+                    color = glm::vec4(0.95f, 0.42f, 0.38f, 1.0f);
+                }
+            }
+        }
+        else if (campaignMode && mCampaignObjective.infectionDeadlineDay > 0 &&
+                 mCurrentDay > mCampaignObjective.infectionDeadlineDay)
+        {
+            title = "Objective failed";
+            detail = "The infection deadline has passed.";
+            color = glm::vec4(0.95f, 0.42f, 0.38f, 1.0f);
+        }
+
+        const glm::vec4 medicalColor(0.95f, 0.50f, 0.45f, 1.0f);
+        if (hud.health < hud.healthMax * 0.85f)
+        {
+            title = "Find medical supplies";
+            detail = conditions.bleeding ? "Stop the bleeding first" : "Patch up before the next fight";
+            color = medicalColor;
+        }
+        else if (conditions.bleeding || wounded)
+        {
+            title = "Treat your wounds";
+            detail = conditions.bleeding ? "Stop the bleeding before nightfall" : "Untreated wounds turn into illness";
+            color = medicalColor;
+        }
+        else if (conditions.thirst < 55.0f)
+        {
+            title = "Find water";
+            detail = "Thirst kills faster than hunger";
+            color = glm::vec4(0.45f, 0.75f, 0.95f, 1.0f);
+        }
+        else if (conditions.hunger < 55.0f)
+        {
+            title = "Find food";
+            detail = "Search kitchens and stores";
+        }
+        else if (conditions.sleepDebt > NeedsSystem::kTiredAbove)
+        {
+            title = "Find somewhere safe to sleep";
+            detail = "Indoors, away from the dead";
+            color = glm::vec4(0.70f, 0.66f, 0.95f, 1.0f);
+        }
+        else if (mRunStats.itemsLooted < 6)
+        {
+            title = "Search nearby buildings";
+            detail = "Look for food, water and medicine before dusk";
+        }
+
+        hud.objectiveTitle = title;
+        hud.objectiveDetail = detail;
+        hud.objectiveColor = color;
+    }
+
+    // Hotbar.
+    if (inventory)
+    {
+        hud.activeSlot = inventory->activeSlot;
+        for (std::size_t i = 0; i < hud.hotbar.size() && i < inventory->slots.size(); ++i)
+        {
+            const auto& slot = inventory->slots[i];
+            if (slot.itemId < 0 || slot.count <= 0)
+            {
+                continue;
+            }
+            const ItemDef* item = mItemDatabase.find(slot.itemId);
+            if (!item)
+            {
+                continue;
+            }
+            HudSlot& out = hud.hotbar[i];
+            out.empty = false;
+            out.icon = item->sprite;
+            out.name = item->name;
+            out.count = slot.count;
+        }
+    }
+
+    // Messages.
+    if (!mInteractionMessage.empty() && mInteractionMessageTimer > 0.0f)
+    {
+        hud.message = mInteractionMessage;
+        hud.messageAlpha = std::min(1.0f, mInteractionMessageTimer / 0.5f);
+    }
+    hud.prompt = mProximityPrompt;
+
+    // Vehicle readout: the car you drive, or the nearest one in reach.
+    {
+        Entity statusVehicle = mActiveVehicleEntity;
+        if (statusVehicle == kInvalidEntity)
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            const glm::vec2 playerCenter(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
+            float bestDistSq = kVehicleInteractRangePixels * kVehicleInteractRangePixels;
+            mWorld.forEach<Vehicle, Transform>(
+                [&](Entity entity, Vehicle&, Transform& vt)
+                {
+                    const glm::vec2 vc(vt.x + kSpriteSize * 0.5f, vt.y + kSpriteSize * 0.5f);
+                    const glm::vec2 d = vc - playerCenter;
+                    const float distSq = glm::dot(d, d);
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        statusVehicle = entity;
+                    }
+                });
+        }
+
+        if (statusVehicle != kInvalidEntity && mWorld.hasComponent<Vehicle>(statusVehicle))
+        {
+            const Vehicle& vehicle = mWorld.getComponent<Vehicle>(statusVehicle);
+            hud.driving = (statusVehicle == mActiveVehicleEntity);
+            hud.vehicleLine = std::string(hud.driving ? "Driving" : "Car")
+                + "  " + vehicleConditionLabel(vehicle.condition)
+                + "  Fuel " + std::to_string(static_cast<int>(std::round(vehicle.fuel)))
+                + "/" + std::to_string(static_cast<int>(std::round(vehicle.maxFuel)));
+        }
+    }
+
+    // District you are standing in, and a toast when you cross into a new one.
+    if (mHudDistrictId > 0)
+    {
+        const int infection = static_cast<int>(std::round(mDistrictInfectionSystem.getInfection(mHudDistrictId)));
+        const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(mHudDistrictId);
+        hud.districtLine = overwhelmed ? std::string("Overwhelmed") : "Infection " + std::to_string(infection) + "%";
+        hud.districtLineDanger = overwhelmed || infection >= 60;
+    }
+    if (mDistrictToastTimer > 0.0f)
+    {
+        hud.districtToast = mDistrictToastText;
+        hud.districtToastAlpha = std::min(1.0f, mDistrictToastTimer / 0.6f);
+        hud.districtDanger = mDistrictToastDanger;
     }
 }
 
@@ -6773,414 +7189,6 @@ void Game::renderTextOverlays()
     constexpr float kTextScale = 2.0f;
     constexpr float kSmallScale = 1.5f;
 
-    // Needs status text labels (positioned below the HUD bar panel)
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
-    {
-        const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-        float statusY = 160.0f;
-        const glm::vec4 warnColor(1.0f, 0.6f, 0.3f, 1.0f);
-
-        if (needs.hunger <= 10.0f)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "STARVING", warnColor, kSmallScale);
-            statusY += 16.0f;
-        }
-        if (needs.thirst <= 10.0f)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "DEHYDRATED", glm::vec4(0.4f, 0.7f, 1.0f, 1.0f), kSmallScale);
-            statusY += 16.0f;
-        }
-        if (needs.fatigue > 80.0f)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "EXHAUSTED", glm::vec4(0.5f, 0.9f, 0.5f, 1.0f), kSmallScale);
-            statusY += 16.0f;
-        }
-        if (needs.sleepDebt > 60.0f)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "SLEEP-DEPRIVED", glm::vec4(0.7f, 0.6f, 0.9f, 1.0f), kSmallScale);
-            statusY += 16.0f;
-        }
-        if (needs.bodyTemperature < 35.5f)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "HYPOTHERMIC", glm::vec4(0.6f, 0.8f, 1.0f, 1.0f), kSmallScale);
-            statusY += 16.0f;
-        }
-        if (needs.illness > 20.0f)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "SICK", glm::vec4(0.75f, 0.75f, 0.55f, 1.0f), kSmallScale);
-            statusY += 16.0f;
-        }
-        if (mWorld.hasComponent<Sleeping>(mPlayerEntity))
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "SLEEPING...", glm::vec4(0.6f, 0.5f, 0.85f, 0.9f), kSmallScale);
-            statusY += 16.0f;
-        }
-        if (mWorld.hasComponent<Bleeding>(mPlayerEntity))
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "BLEEDING", glm::vec4(0.9f, 0.2f, 0.2f, 1.0f), kSmallScale);
-            statusY += 16.0f;
-        }
-
-        // Wound indicators
-        if (mWorld.hasComponent<Wounds>(mPlayerEntity))
-        {
-            const Wounds& wounds = mWorld.getComponent<Wounds>(mPlayerEntity);
-            int bites = 0, cuts = 0, bruises = 0;
-            bool anyInfected = false;
-            for (const auto& w : wounds.active)
-            {
-                if (w.type == WoundType::Bite) ++bites;
-                else if (w.type == WoundType::Cut) ++cuts;
-                else ++bruises;
-                if (w.infected) anyInfected = true;
-            }
-            if (bites > 0)
-            {
-                std::string label = "BITE x" + std::to_string(bites);
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), label, glm::vec4(0.85f, 0.25f, 0.35f, 1.0f), kSmallScale);
-                statusY += 16.0f;
-            }
-            if (cuts > 0)
-            {
-                std::string label = "CUT x" + std::to_string(cuts);
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), label, glm::vec4(0.9f, 0.5f, 0.3f, 1.0f), kSmallScale);
-                statusY += 16.0f;
-            }
-            if (bruises > 0)
-            {
-                std::string label = "BRUISE x" + std::to_string(bruises);
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), label, glm::vec4(0.6f, 0.5f, 0.8f, 1.0f), kSmallScale);
-                statusY += 16.0f;
-            }
-            if (anyInfected)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "INFECTED!", glm::vec4(0.4f, 0.9f, 0.2f, 1.0f), kSmallScale);
-                statusY += 16.0f;
-            }
-        }
-
-        // Mental state warnings
-        if (mWorld.hasComponent<MentalState>(mPlayerEntity))
-        {
-            const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-            if (mental.panic >= 75.0f)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "PANICKING!", glm::vec4(1.0f, 0.3f, 0.1f, 1.0f), kSmallScale);
-                statusY += 16.0f;
-            }
-            else if (mental.panic >= 25.0f)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "ANXIOUS", glm::vec4(0.9f, 0.7f, 0.3f, 0.9f), kSmallScale);
-                statusY += 16.0f;
-            }
-            if (mental.depression >= 60.0f)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "DEPRESSED", glm::vec4(0.5f, 0.5f, 0.7f, 1.0f), kSmallScale);
-                statusY += 16.0f;
-            }
-            if (mental.desensitisation >= 50.0f)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "NUMB", glm::vec4(0.6f, 0.6f, 0.6f, 0.85f), kSmallScale);
-                statusY += 16.0f;
-            }
-        }
-
-        // Encumbrance warning
-        if (mWorld.hasComponent<Inventory>(mPlayerEntity))
-        {
-            const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-            const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
-            if (weight > Inventory::kMaxCarryWeight)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(12.0f, statusY), "OVERBURDENED", glm::vec4(0.9f, 0.6f, 0.2f, 1.0f), kSmallScale);
-                statusY += 16.0f;
-            }
-        }
-    }
-
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
-    {
-        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
-        std::string hpStr = "HP " + std::to_string(static_cast<int>(health.current)) + "/" + std::to_string(static_cast<int>(health.maximum));
-        mFont.drawText(mSpriteBatch, glm::vec2(200.0f, 12.0f), hpStr, glm::vec4(0.85f, 0.35f, 0.35f, 1.0f), kSmallScale);
-    }
-
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Stamina>(mPlayerEntity))
-    {
-        const Stamina& stamina = mWorld.getComponent<Stamina>(mPlayerEntity);
-        std::string staStr = "STA " + std::to_string(static_cast<int>(stamina.current)) + "/" + std::to_string(static_cast<int>(stamina.maximum));
-        mFont.drawText(mSpriteBatch, glm::vec2(200.0f, 28.0f), staStr, glm::vec4(0.35f, 0.75f, 0.85f, 1.0f), kSmallScale);
-    }
-
-    // M8: compact vehicle and fire status readout.
-    {
-        std::size_t fireCount = 0;
-        mWorld.forEach<Fire>([&](Entity, Fire&) { ++fireCount; });
-
-        Entity statusVehicle = mActiveVehicleEntity;
-        if (statusVehicle == kInvalidEntity &&
-            mPlayerEntity != kInvalidEntity &&
-            mWorld.hasComponent<Transform>(mPlayerEntity))
-        {
-            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-            const glm::vec2 playerCenter(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
-            float bestDistSq = kVehicleInteractRangePixels * kVehicleInteractRangePixels;
-            mWorld.forEach<Vehicle, Transform>(
-                [&](Entity entity, Vehicle&, Transform& vt)
-                {
-                    const glm::vec2 vc(vt.x + kSpriteSize * 0.5f, vt.y + kSpriteSize * 0.5f);
-                    const glm::vec2 d = vc - playerCenter;
-                    const float distSq = glm::dot(d, d);
-                    if (distSq < bestDistSq)
-                    {
-                        bestDistSq = distSq;
-                        statusVehicle = entity;
-                    }
-                });
-        }
-
-        if (statusVehicle != kInvalidEntity && mWorld.hasComponent<Vehicle>(statusVehicle))
-        {
-            const Vehicle& vehicle = mWorld.getComponent<Vehicle>(statusVehicle);
-            std::ostringstream vehicleLine;
-            vehicleLine << (statusVehicle == mActiveVehicleEntity ? "SEDAN [DRIVING] " : "SEDAN ")
-                        << vehicleConditionLabel(vehicle.condition)
-                        << "  Fuel " << static_cast<int>(std::round(vehicle.fuel))
-                        << "/" << static_cast<int>(std::round(vehicle.maxFuel));
-
-            mFont.drawText(
-                mSpriteBatch,
-                glm::vec2(200.0f, 44.0f),
-                vehicleLine.str(),
-                statusVehicle == mActiveVehicleEntity
-                    ? glm::vec4(0.86f, 0.86f, 0.54f, 1.0f)
-                    : glm::vec4(0.62f, 0.76f, 0.82f, 0.95f),
-                1.1f);
-        }
-
-        if (fireCount > 0)
-        {
-            mFont.drawText(
-                mSpriteBatch,
-                glm::vec2(200.0f, 58.0f),
-                "Fires: " + std::to_string(fireCount),
-                glm::vec4(0.95f, 0.52f, 0.32f, 0.95f),
-                1.1f);
-        }
-    }
-
-    const float rightX = static_cast<float>(mWindowWidth) - 12.0f;
-    float rightY = 12.0f;
-    const bool minimapVisible =
-        mRunState == RunState::Playing &&
-        !mShowWorldMap &&
-        mPlayerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Transform>(mPlayerEntity);
-    const float rightColumnLimitY = minimapVisible
-        ? static_cast<float>(mWindowHeight) - 164.0f
-        : static_cast<float>(mWindowHeight) - 96.0f;
-
-    auto drawRightLine = [&](const std::string& text,
-                             const glm::vec4& color,
-                             float scale,
-                             float lineAdvance,
-                             std::size_t maxChars)
-    {
-        if (text.empty() || rightY + lineAdvance > rightColumnLimitY)
-        {
-            return false;
-        }
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, rightY),
-            truncateHudText(text, maxChars),
-            color,
-            scale,
-            TextAlign::Right);
-        rightY += lineAdvance;
-        return true;
-    };
-
-    // Day / time display
-    {
-        const int hour = static_cast<int>(mGameHours) % 24;
-        const int minute = static_cast<int>((mGameHours - std::floor(mGameHours)) * 60.0);
-        std::ostringstream timeStr;
-        timeStr << "DAY " << mCurrentDay << "  "
-                << std::setfill('0') << std::setw(2) << hour << ":"
-                << std::setfill('0') << std::setw(2) << minute;
-        drawRightLine(timeStr.str(), glm::vec4(0.9f, 0.9f, 0.8f, 1.0f), kSmallScale, 18.0f, 42);
-    }
-
-    drawRightLine(mCurrentCharacterName, glm::vec4(0.7f, 0.7f, 0.65f, 0.85f), kSmallScale, 18.0f, 36);
-
-    // Trait display below character name
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
-    {
-        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        if (traits.positive != PositiveTrait::None)
-        {
-            drawRightLine(traits.positiveName(), glm::vec4(0.4f, 0.85f, 0.4f, 0.8f), 1.0f, 14.0f, 40);
-        }
-        if (traits.negative != NegativeTrait::None)
-        {
-            drawRightLine(traits.negativeName(), glm::vec4(0.85f, 0.4f, 0.4f, 0.8f), 1.0f, 14.0f, 40);
-        }
-        if (traits.bloodline != BloodlineTrait::None)
-        {
-            drawRightLine(
-                std::string("Bloodline: ") + traits.bloodlineName(),
-                glm::vec4(0.72f, 0.82f, 0.56f, 0.85f),
-                1.0f,
-                14.0f,
-                46);
-        }
-    }
-
-    rightY += 4.0f;
-
-    // Objective display
-    if (mRunState == RunState::Playing)
-    {
-        const bool campaignMode = (mTitleGameModeIndex == 0);
-        std::string primaryObj = campaignMode
-            ? "Campaign: Reach the objective before infection deadline"
-            : "Endless: Survive and preserve world memory";
-        std::string secondaryObj = campaignMode
-            ? "Objective not yet triangulated"
-            : "Standing still burns food, water, and daylight";
-        glm::vec4 primaryColor(0.9f, 0.8f, 0.3f, 0.9f);
-
-        if (campaignMode && mCampaignObjective.completed)
-        {
-            primaryObj = "Campaign objective secured";
-            secondaryObj = "Extraction route confirmed. Legacy recorded.";
-            primaryColor = glm::vec4(0.58f, 0.88f, 0.56f, 0.95f);
-        }
-        else if (campaignMode && mCampaignObjective.active && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
-        {
-            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-            const int tx = static_cast<int>(std::floor(pt.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
-            const int ty = static_cast<int>(std::floor(pt.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
-            const int manhattan = std::abs(mCampaignObjective.tileX - tx) + std::abs(mCampaignObjective.tileY - ty);
-            secondaryObj = "Objective distance: " + std::to_string(manhattan) + " tiles";
-
-            if (mCampaignObjective.infectionDeadlineDay > 0)
-            {
-                const int daysRemaining = mCampaignObjective.infectionDeadlineDay - mCurrentDay;
-                primaryObj += " (D-" + std::to_string(std::max(0, daysRemaining)) + ")";
-                if (daysRemaining <= 5)
-                {
-                    primaryColor = glm::vec4(0.95f, 0.42f, 0.38f, 0.95f);
-                }
-            }
-        }
-        else if (campaignMode && mCampaignObjective.infectionDeadlineDay > 0 && mCurrentDay > mCampaignObjective.infectionDeadlineDay)
-        {
-            primaryObj = "Campaign objective failed";
-            secondaryObj = "Infection deadline has passed.";
-            primaryColor = glm::vec4(0.95f, 0.42f, 0.38f, 0.95f);
-        }
-
-        const bool bleeding = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Bleeding>(mPlayerEntity);
-        const bool wounded = mPlayerEntity != kInvalidEntity &&
-            mWorld.hasComponent<Wounds>(mPlayerEntity) &&
-            !mWorld.getComponent<Wounds>(mPlayerEntity).active.empty();
-
-        if (mPlayerEntity != kInvalidEntity &&
-            mWorld.hasComponent<Health>(mPlayerEntity) &&
-            mWorld.getComponent<Health>(mPlayerEntity).current < mWorld.getComponent<Health>(mPlayerEntity).maximum * 0.85f)
-        {
-            primaryObj = "Find a medical cache";
-            secondaryObj = bleeding ? "Stop bleeding before pushing farther" : "Patch up before the next fight";
-            primaryColor = glm::vec4(0.95f, 0.5f, 0.45f, 0.95f);
-        }
-        else if (bleeding || wounded)
-        {
-            primaryObj = "Find a medical cache";
-            secondaryObj = bleeding ? "Stop bleeding before nightfall" : "Treat wounds before they turn into illness";
-            primaryColor = glm::vec4(0.95f, 0.5f, 0.45f, 0.95f);
-        }
-        else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
-        {
-            const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-            if (needs.thirst < 55.0f)
-            {
-                primaryObj = "Find water or a supply cache";
-                secondaryObj = "Thirst will kill a static run fast";
-                primaryColor = glm::vec4(0.45f, 0.75f, 0.95f, 0.95f);
-            }
-            else if (needs.hunger < 55.0f)
-            {
-                primaryObj = "Scavenge food before night";
-                secondaryObj = "Sleeping through the day now costs supplies";
-            }
-            else if (mRunStats.itemsLooted < 6)
-            {
-                primaryObj = "Sweep nearby interiors";
-                secondaryObj = "Look for med and supply caches before dusk";
-            }
-        }
-
-        drawRightLine(primaryObj, primaryColor, 1.0f, 14.0f, 74);
-        drawRightLine(secondaryObj, glm::vec4(0.6f, 0.7f, 0.6f, 0.7f), 1.0f, 14.0f, 74);
-
-        std::string scavengeObj = "Looted: " + std::to_string(mRunStats.itemsLooted) + " | Kills: " + std::to_string(mRunStats.kills);
-        drawRightLine(scavengeObj, glm::vec4(0.7f, 0.5f, 0.5f, 0.7f), 1.0f, 14.0f, 62);
-
-        std::string modeLine = std::string("Run: ")
-            + kTitleGameModeNames[static_cast<std::size_t>(wrapIndex(mTitleGameModeIndex, static_cast<int>(kTitleGameModeNames.size())))];
-        std::string threatToneLine = std::string("Threat: ")
-            + kTitleModeNames[static_cast<std::size_t>(wrapIndex(mTitleModeIndex, static_cast<int>(kTitleModeNames.size())))]
-            + " | Tone: "
-            + kTitleToneNames[static_cast<std::size_t>(wrapIndex(mTitleToneIndex, static_cast<int>(kTitleToneNames.size())))];
-
-        drawRightLine(modeLine, glm::vec4(0.72f, 0.78f, 0.84f, 0.85f), 0.95f, 13.0f, 52);
-        drawRightLine(threatToneLine, glm::vec4(0.72f, 0.78f, 0.84f, 0.82f), 0.92f, 13.0f, 74);
-    }
-
-    // Current district infection indicator (always visible while playing).
-    if (mRunState == RunState::Playing &&
-        mPlayerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Transform>(mPlayerEntity))
-    {
-        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-        const int tileX = static_cast<int>(pt.x) / std::max(1, mTileMap.tileWidth());
-        const int tileY = static_cast<int>(pt.y) / std::max(1, mTileMap.tileHeight());
-        const int districtId = mTileMap.getDistrictId(tileX, tileY);
-
-        if (districtId > 0)
-        {
-            float infection = mDistrictInfectionSystem.getInfection(districtId);
-            const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(districtId);
-            int districtType = static_cast<int>(DistrictType::Wilderness);
-            for (const auto& def : mMapGenerator.layoutData().districts)
-            {
-                if (def.id == districtId)
-                {
-                    districtType = def.type;
-                    break;
-                }
-            }
-
-            std::ostringstream districtLine;
-            districtLine << "District " << districtId << " (" << districtTypeLabel(districtType)
-                         << ") Infection " << static_cast<int>(std::round(infection)) << "%";
-            if (overwhelmed)
-            {
-                districtLine << " OVERWHELMED";
-            }
-
-            drawRightLine(
-                districtLine.str(),
-                overwhelmed ? glm::vec4(0.95f, 0.45f, 0.35f, 0.95f) : glm::vec4(0.85f, 0.7f, 0.35f, 0.85f),
-                1.0f,
-                14.0f,
-                74);
-        }
-    }
-
     // F3 infection debug: top infected districts for tuning and verification.
     if (mShowDistrictDebug && mRunState == RunState::Playing)
     {
@@ -7193,10 +7201,11 @@ void Game::renderTextOverlays()
                 return a.infection > b.infection;
             });
 
-        float debugY = 230.0f;
+        const float debugX = Hud::kMargin + Hud::kVitalsWidth + 16.0f;
+        float debugY = Hud::kMargin;
         mFont.drawText(
             mSpriteBatch,
-            glm::vec2(12.0f, debugY),
+            glm::vec2(debugX, debugY),
             "INFECTION DEBUG (F3)",
             glm::vec4(0.95f, 0.85f, 0.55f, 1.0f),
             1.5f);
@@ -7229,69 +7238,9 @@ void Game::renderTextOverlays()
                 ? glm::vec4(0.95f, 0.45f, 0.35f, 1.0f)
                 : glm::vec4(0.75f, 0.75f, 0.68f, 0.92f);
 
-            mFont.drawText(mSpriteBatch, glm::vec2(12.0f, debugY), row.str(), rowColor, 1.0f);
+            mFont.drawText(mSpriteBatch, glm::vec2(debugX, debugY), row.str(), rowColor, 1.0f);
             debugY += 14.0f;
         }
-    }
-
-    // Hotbar display (bottom of screen)
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity) && mRunState == RunState::Playing)
-    {
-        const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-        const float hotbarY = static_cast<float>(mWindowHeight) - 26.0f;
-        const float startX = (static_cast<float>(mWindowWidth) - 8.0f * 72.0f) * 0.5f;
-        for (int i = 0; i < 8; ++i)
-        {
-            const auto& slot = inv.slots[static_cast<std::size_t>(i)];
-            const float slotX = startX + static_cast<float>(i) * 72.0f;
-            const bool isActive = (i == inv.activeSlot);
-            const glm::vec4 slotColor = isActive ? glm::vec4(1.0f, 1.0f, 0.6f, 1.0f) : glm::vec4(0.6f, 0.6f, 0.55f, 0.8f);
-            std::string label = std::to_string(i + 1) + ":";
-            if (slot.itemId >= 0 && slot.count > 0)
-            {
-                const ItemDef* item = mItemDatabase.find(slot.itemId);
-                if (item)
-                {
-                    label += item->name.substr(0, 6);
-                    if (slot.count > 1)
-                    {
-                        label += "x" + std::to_string(slot.count);
-                    }
-                }
-            }
-            else
-            {
-                label += "---";
-            }
-            mFont.drawText(mSpriteBatch, glm::vec2(slotX, hotbarY), label, slotColor, 1.0f);
-        }
-    }
-
-    // Interaction message
-    if (!mInteractionMessage.empty() && mInteractionMessageTimer > 0.0f)
-    {
-        const float alpha = std::min(1.0f, mInteractionMessageTimer / 0.5f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(static_cast<float>(mWindowWidth) * 0.5f,
-                       static_cast<float>(mWindowHeight) - 60.0f),
-            mInteractionMessage,
-            glm::vec4(1.0f, 1.0f, 0.8f, alpha),
-            kTextScale,
-            TextAlign::Center);
-    }
-
-    // Proximity prompt (E: action)
-    if (!mProximityPrompt.empty() && mRunState == RunState::Playing && mInteractionMessageTimer <= 0.0f)
-    {
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(static_cast<float>(mWindowWidth) * 0.5f,
-                       static_cast<float>(mWindowHeight) - 60.0f),
-            mProximityPrompt,
-            glm::vec4(0.9f, 0.9f, 0.7f, 0.85f),
-            kTextScale,
-            TextAlign::Center);
     }
 
     // Death overlay text
@@ -7425,21 +7374,53 @@ void Game::renderTextOverlays()
     // Pause overlay text
     if (mRunState == RunState::Paused)
     {
-        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
-        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
+        const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight);
+        const float centerX = layout.panelPos.x + layout.panelSize.x * 0.5f;
 
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 50.0f), "PAUSED",
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.titleY), "PAUSED",
                         glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 3.0f, TextAlign::Center);
 
+        // Who you are and how the run is going.
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.nameY), mCurrentCharacterName,
+                        glm::vec4(0.94f, 0.88f, 0.70f, 1.0f), 2.0f, TextAlign::Center);
+        const std::string runLine = std::string(kTitleGameModeNames[static_cast<std::size_t>(
+                wrapIndex(mTitleGameModeIndex, static_cast<int>(kTitleGameModeNames.size())))])
+            + " run  |  Threat: "
+            + kTitleModeNames[static_cast<std::size_t>(wrapIndex(mTitleModeIndex, static_cast<int>(kTitleModeNames.size())))]
+            + "  |  Tone: "
+            + kTitleToneNames[static_cast<std::size_t>(wrapIndex(mTitleToneIndex, static_cast<int>(kTitleToneNames.size())))];
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.runLineY), runLine,
+                        glm::vec4(0.66f, 0.72f, 0.80f, 0.95f), 1.0f, TextAlign::Center);
+        const std::string statsLine = "Day " + std::to_string(mCurrentDay)
+            + "  |  Kills " + std::to_string(mRunStats.kills)
+            + "  |  Items looted " + std::to_string(mRunStats.itemsLooted);
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.statsLineY), statsLine,
+                        glm::vec4(0.66f, 0.72f, 0.80f, 0.95f), 1.0f, TextAlign::Center);
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            std::string traitLine;
+            auto append = [&](const std::string& part)
+            {
+                if (!traitLine.empty()) traitLine += "  |  ";
+                traitLine += part;
+            };
+            if (traits.positive != PositiveTrait::None) append(traits.positiveName());
+            if (traits.negative != NegativeTrait::None) append(traits.negativeName());
+            if (traits.bloodline != BloodlineTrait::None) append(std::string("Bloodline: ") + traits.bloodlineName());
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.traitsLineY), traitLine,
+                            glm::vec4(0.62f, 0.82f, 0.58f, 0.95f), 1.0f, TextAlign::Center);
+        }
+
         static const char* options[] = {"Resume", "Save", "Back to Menu", "Restart", "Quit"};
-        for (int i = 0; i < 5; ++i)
+        for (int i = 0; i < PauseLayout::kOptionCount; ++i)
         {
             const bool selected = (i == mPauseSelection);
             const glm::vec4 color = selected
                 ? glm::vec4(1.0f, 1.0f, 0.7f, 1.0f)
                 : glm::vec4(0.6f, 0.6f, 0.6f, 0.8f);
             mFont.drawText(mSpriteBatch,
-                glm::vec2(centerX, centerY + 10.0f + static_cast<float>(i) * 28.0f),
+                glm::vec2(centerX, layout.optionsY + static_cast<float>(i) * PauseLayout::kOptionH + 5.0f),
                 options[i], color, kTextScale, TextAlign::Center);
         }
     }
@@ -8205,6 +8186,84 @@ glm::vec2 Game::screenToWorld(const glm::vec2& screenPosition) const
     return mCamera.screenToWorld(screenPosition);
 }
 
+void Game::renderInventoryPanel()
+{
+    if (!mShowInventory || mShowCrafting || mRunState != RunState::Playing ||
+        mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        return;
+    }
+
+    const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+    const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+
+    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.05f, 0.06f, 0.09f, 0.94f));
+    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+
+    // Carry weight bar.
+    const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
+    const float weightRatio = std::clamp(weight / Inventory::kMaxCarryWeight, 0.0f, 1.0f);
+    const glm::vec2 barPos(layout.panelPos.x + 20.0f, layout.weightY + 14.0f);
+    const float barW = layout.panelSize.x - 40.0f;
+    mSpriteBatch.draw(barPos, glm::vec2(barW, 4.0f), uiUv, glm::vec4(0.12f, 0.12f, 0.13f, 1.0f));
+    mSpriteBatch.draw(barPos, glm::vec2(std::round(barW * weightRatio), 4.0f), uiUv,
+                      weight > Inventory::kMaxCarryWeight ? glm::vec4(0.95f, 0.40f, 0.30f, 1.0f)
+                                                          : glm::vec4(0.72f, 0.66f, 0.50f, 1.0f));
+
+    for (int i = 0; i < Inventory::kMaxSlots; ++i)
+    {
+        const glm::vec2 pos = layout.slotPos(i);
+        const bool isHotbar = i < 8;
+        const bool isCursor = i == mInventoryCursor;
+        const bool isActive = i == inv.activeSlot;
+        mSpriteBatch.draw(pos, glm::vec2(InventoryLayout::kSlot), uiUv,
+                          isHotbar ? glm::vec4(0.10f, 0.10f, 0.08f, 0.95f) : glm::vec4(0.08f, 0.09f, 0.11f, 0.95f));
+
+        glm::vec4 frame = isHotbar ? glm::vec4(0.50f, 0.46f, 0.36f, 0.7f) : glm::vec4(0.36f, 0.38f, 0.42f, 0.6f);
+        float thickness = 1.0f;
+        if (isActive)
+        {
+            frame = glm::vec4(0.98f, 0.84f, 0.38f, 0.9f);
+            thickness = 2.0f;
+        }
+        if (isCursor)
+        {
+            frame = glm::vec4(1.0f, 1.0f, 0.85f, 1.0f);
+            thickness = 2.0f;
+        }
+        mSpriteBatch.draw(pos, glm::vec2(InventoryLayout::kSlot, thickness), uiUv, frame);
+        mSpriteBatch.draw(pos + glm::vec2(0.0f, InventoryLayout::kSlot - thickness), glm::vec2(InventoryLayout::kSlot, thickness), uiUv, frame);
+        mSpriteBatch.draw(pos, glm::vec2(thickness, InventoryLayout::kSlot), uiUv, frame);
+        mSpriteBatch.draw(pos + glm::vec2(InventoryLayout::kSlot - thickness, 0.0f), glm::vec2(thickness, InventoryLayout::kSlot), uiUv, frame);
+
+        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
+        if (slot.itemId < 0 || slot.count <= 0)
+        {
+            continue;
+        }
+        const ItemDef* item = mItemDatabase.find(slot.itemId);
+        if (!item)
+        {
+            continue;
+        }
+        const glm::vec4 iconUv = mSpriteSheet.uvRect(item->sprite);
+        if (iconUv.z > 0.0f)
+        {
+            mSpriteBatch.draw(pos + glm::vec2(8.0f, 10.0f), glm::vec2(32.0f), iconUv, glm::vec4(1.0f));
+        }
+        // Freshness strip along the bottom for food that spoils.
+        if (item->spoilHours > 0.0f && slot.condition < 0.999f)
+        {
+            const float fresh = std::clamp(slot.condition, 0.0f, 1.0f);
+            const glm::vec4 color = fresh > 0.5f ? glm::vec4(0.46f, 0.80f, 0.40f, 1.0f)
+                : fresh > 0.2f ? glm::vec4(0.92f, 0.74f, 0.28f, 1.0f) : glm::vec4(0.92f, 0.30f, 0.24f, 1.0f);
+            mSpriteBatch.draw(pos + glm::vec2(4.0f, InventoryLayout::kSlot - 6.0f),
+                              glm::vec2(std::round((InventoryLayout::kSlot - 8.0f) * fresh), 2.0f), uiUv, color);
+        }
+    }
+}
+
 void Game::renderInventoryOverlay()
 {
     if (!mShowInventory || mShowCrafting || mRunState != RunState::Playing ||
@@ -8213,77 +8272,81 @@ void Game::renderInventoryOverlay()
         return;
     }
 
-    constexpr float kSmallScale = 1.5f;
     const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+    const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
+    const float centerX = layout.panelPos.x + layout.panelSize.x * 0.5f;
 
-    const float panelX = static_cast<float>(mWindowWidth) * 0.5f - 140.0f;
-    float y = 60.0f;
-
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "INVENTORY", glm::vec4(1.0f, 0.95f, 0.7f, 1.0f), 2.0f);
-    y += 24.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + 20.0f, layout.titleY), "INVENTORY",
+                   glm::vec4(0.94f, 0.86f, 0.60f, 1.0f), 2.0f);
 
     const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
     std::ostringstream weightStr;
-    weightStr << std::fixed << std::setprecision(1) << weight << "/" << Inventory::kMaxCarryWeight << " kg";
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), weightStr.str(), glm::vec4(0.7f, 0.7f, 0.65f, 0.9f), kSmallScale);
-    y += 18.0f;
+    weightStr << std::fixed << std::setprecision(1) << weight << " / " << std::setprecision(0) << Inventory::kMaxCarryWeight << " kg";
+    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + layout.panelSize.x - 20.0f, layout.titleY + 4.0f), weightStr.str(),
+                   weight > Inventory::kMaxCarryWeight ? glm::vec4(0.95f, 0.45f, 0.35f, 1.0f) : glm::vec4(0.72f, 0.72f, 0.68f, 0.95f),
+                   1.0f, TextAlign::Right);
+    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + 20.0f, layout.weightY), "HOTBAR 1-8  /  BACKPACK",
+                   glm::vec4(0.56f, 0.56f, 0.52f, 0.9f), 1.0f);
 
     for (int i = 0; i < Inventory::kMaxSlots; ++i)
     {
-        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
-        std::string line;
+        const glm::vec2 pos = layout.slotPos(i);
         if (i < 8)
         {
-            line = "[" + std::to_string(i + 1) + "] ";
+            mFont.drawText(mSpriteBatch, pos + glm::vec2(4.0f, 4.0f), std::to_string(i + 1),
+                           i == inv.activeSlot ? glm::vec4(0.98f, 0.84f, 0.38f, 1.0f) : glm::vec4(0.66f, 0.64f, 0.56f, 0.9f), 1.0f);
         }
-        else
+        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
+        if (slot.itemId >= 0 && slot.count > 1)
         {
-            line = "[" + std::to_string(i + 1) + "] ";
+            mFont.drawText(mSpriteBatch, pos + glm::vec2(InventoryLayout::kSlot - 4.0f, InventoryLayout::kSlot - 14.0f),
+                           std::to_string(slot.count), glm::vec4(0.94f, 0.93f, 0.86f, 1.0f), 1.0f, TextAlign::Right);
         }
-
-        if (slot.itemId >= 0 && slot.count > 0)
+        else if (slot.itemId >= 0 && slot.count > 0)
         {
             const ItemDef* item = mItemDatabase.find(slot.itemId);
-            if (item)
+            if (item && mSpriteSheet.uvRect(item->sprite).z <= 0.0f)
             {
-                line += item->name;
-                if (slot.count > 1)
-                {
-                    line += " x" + std::to_string(slot.count);
-                }
-                if (item->spoilHours > 0.0f && slot.condition < 0.9f)
-                {
-                    const int pct = static_cast<int>(slot.condition * 100.0f);
-                    line += " (" + std::to_string(pct) + "%)";
-                }
-            }
-            else
-            {
-                line += "??? x" + std::to_string(slot.count);
+                mFont.drawText(mSpriteBatch, pos + glm::vec2(InventoryLayout::kSlot * 0.5f, 20.0f), item->name.substr(0, 3),
+                               glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 1.0f, TextAlign::Center);
             }
         }
-        else
-        {
-            line += "---";
-        }
-
-        const bool isCursor = (i == mInventoryCursor);
-        const bool active = (i == inv.activeSlot);
-        glm::vec4 color;
-        if (isCursor)
-            color = glm::vec4(1.0f, 1.0f, 0.2f, 1.0f); // bright yellow for cursor
-        else if (active)
-            color = glm::vec4(1.0f, 1.0f, 0.6f, 1.0f);
-        else
-            color = glm::vec4(0.75f, 0.75f, 0.7f, 0.85f);
-
-        std::string prefix = isCursor ? "> " : "  ";
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), prefix + line, color, kSmallScale);
-        y += 14.0f;
     }
 
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y + 4.0f), "Hover/Click: Use | Right Click: Swap | F: Use | N: Craft | Enter: Swap | Tab: Close",
-                    glm::vec4(0.5f, 0.5f, 0.45f, 0.8f), 1.0f);
+    // Details for the slot under the cursor.
+    const int cursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
+    const auto& slot = inv.slots[static_cast<std::size_t>(cursor)];
+    const ItemDef* item = (slot.itemId >= 0 && slot.count > 0) ? mItemDatabase.find(slot.itemId) : nullptr;
+    if (item)
+    {
+        std::string title = item->name;
+        if (slot.count > 1) title += " x" + std::to_string(slot.count);
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY), truncateHudText(title, 24),
+                       glm::vec4(1.0f, 0.96f, 0.80f, 1.0f), 2.0f, TextAlign::Center);
+
+        std::ostringstream info;
+        info << std::fixed << std::setprecision(1) << item->weight * static_cast<float>(slot.count) << " kg";
+        if (item->spoilHours > 0.0f)
+        {
+            info << "  |  " << static_cast<int>(std::round(std::clamp(slot.condition, 0.0f, 1.0f) * 100.0f)) << "% fresh";
+        }
+        const std::string effects = itemEffectSummary(*item);
+        if (!effects.empty())
+        {
+            info << "  |  " << effects;
+        }
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY + 24.0f), truncateHudText(info.str(), 52),
+                       glm::vec4(0.70f, 0.74f, 0.70f, 0.95f), 1.0f, TextAlign::Center);
+    }
+    else
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY + 4.0f), "Empty slot",
+                       glm::vec4(0.50f, 0.50f, 0.48f, 0.9f), 2.0f, TextAlign::Center);
+    }
+
+    mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.footerY),
+                   "Click/F use  -  Right click swap  -  Tab close",
+                   glm::vec4(0.54f, 0.54f, 0.50f, 0.9f), 1.0f, TextAlign::Center);
 }
 
 void Game::renderCraftingOverlay()
@@ -8840,19 +8903,19 @@ void Game::renderPauseOverlay()
         uiUv,
         glm::vec4(0.0f, 0.0f, 0.0f, 0.65f));
 
-    // Panel
-    const glm::vec2 panelSize(340.0f, 204.0f);
-    const glm::vec2 panelPos(
-        (static_cast<float>(mWindowWidth) - panelSize.x) * 0.5f,
-        (static_cast<float>(mWindowHeight) - panelSize.y) * 0.5f);
-    mSpriteBatch.draw(panelPos, panelSize, uiUv, glm::vec4(0.08f, 0.08f, 0.12f, 0.9f));
+    const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight);
+    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.06f, 0.07f, 0.10f, 0.94f));
+    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelPos.x + 20.0f, layout.optionsY - 10.0f),
+        glm::vec2(layout.panelSize.x - 40.0f, 1.0f),
+        uiUv,
+        glm::vec4(0.72f, 0.62f, 0.40f, 0.35f));
 
     // Highlight selected option
-    const float optionStartY = panelPos.y + 58.0f;
-    const float optionH = 28.0f;
     mSpriteBatch.draw(
-        glm::vec2(panelPos.x + 10.0f, optionStartY + static_cast<float>(mPauseSelection) * optionH - 2.0f),
-        glm::vec2(panelSize.x - 20.0f, optionH),
+        glm::vec2(layout.panelPos.x + 60.0f, layout.optionsY + static_cast<float>(mPauseSelection) * PauseLayout::kOptionH),
+        glm::vec2(layout.panelSize.x - 120.0f, PauseLayout::kOptionH - 2.0f),
         uiUv,
         glm::vec4(0.25f, 0.4f, 0.55f, 0.5f));
 }
@@ -9003,6 +9066,24 @@ void Game::renderTitleScreen()
     }
 }
 
+void Game::renderControlsPanel()
+{
+    if (!mShowControls)
+    {
+        return;
+    }
+
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
+    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.05f, 0.06f, 0.09f, 0.94f));
+    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+    mSpriteBatch.draw(
+        glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.rowsY),
+        glm::vec2(1.0f, ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) - 4.0f),
+        uiUv,
+        glm::vec4(0.72f, 0.62f, 0.40f, 0.3f));
+}
+
 void Game::renderControlsOverlay()
 {
     if (!mShowControls)
@@ -9010,36 +9091,22 @@ void Game::renderControlsOverlay()
         return;
     }
 
-    constexpr float kSmallScale = 1.5f;
-    const float panelX = static_cast<float>(mWindowWidth) - 260.0f;
-    float y = 80.0f;
-    const glm::vec4 headerColor(0.9f, 0.85f, 0.6f, 1.0f);
-    const glm::vec4 textColor(0.7f, 0.7f, 0.65f, 0.9f);
+    const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
+    const glm::vec4 headerColor(0.94f, 0.86f, 0.60f, 1.0f);
+    const glm::vec4 keyColor(0.98f, 0.84f, 0.38f, 1.0f);
+    const glm::vec4 textColor(0.80f, 0.80f, 0.76f, 0.95f);
 
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "CONTROLS", headerColor, 2.0f);
-    y += 24.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "WASD    Move", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Mouse   Aim", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "LClick  Attack", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "RClick  Grab", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "E       Interact", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F       Use Item", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "B       Build", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "N       Crafting Panel", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "V       Enter/Exit Sedan", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Shift+V Refuel Sedan", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "L       Fire Action", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "M       World Map", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "J       Notebook", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Ctrl+Wheel Minimap Zoom", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "+/-     Minimap Zoom", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Tab     Inventory", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "1-8     Hotbar", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "W/S     Navigate (Inv)", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Enter   Swap to hotbar", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Shift   Run", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "C       Crouch", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Esc     Pause", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F2      Controls", textColor, kSmallScale); y += 16.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F3      Infection Debug", textColor, kSmallScale);
+    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.panelPos.y + 18.0f),
+                   "CONTROLS", headerColor, 3.0f, TextAlign::Center);
+
+    for (std::size_t i = 0; i < kControlBindings.size(); ++i)
+    {
+        const std::size_t column = i / ControlsLayout::kRowsPerColumn;
+        const std::size_t row = i % ControlsLayout::kRowsPerColumn;
+        const float x = layout.panelPos.x + 24.0f + static_cast<float>(column) * (layout.columnWidth + 8.0f);
+        const float y = layout.rowsY + static_cast<float>(row) * ControlsLayout::kRowH;
+        mFont.drawText(mSpriteBatch, glm::vec2(x, y), kControlBindings[i].key, keyColor, 2.0f);
+        mFont.drawText(mSpriteBatch, glm::vec2(x + ControlsLayout::kKeyColumn, y), kControlBindings[i].action,
+                       textColor, 2.0f);
+    }
 }

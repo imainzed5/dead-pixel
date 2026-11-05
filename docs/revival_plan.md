@@ -38,7 +38,7 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | 2 | Baseline screenshots and assessment | done |
 | 3 | Test target: core library, save round-trip and logic tests | done |
 | 4 | Wave 1a: simulation pressure (mental, needs/temperature, zombie pressure) | done |
-| 5 | Wave 1b: readability (scale/zoom, HUD rework, night lighting) | |
+| 5 | Wave 1b: readability (scale/zoom, HUD rework, night lighting) | done |
 | 6 | Walls with height, wall/roof occlusion, art generator upgrade | |
 | 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | |
 | 8 | Wave 2: make the legacy hook visible | |
@@ -125,6 +125,37 @@ and killed at 14:00 day 1 / 21:00 day 1 / survived one encounter, then died of
 thirst at 07:30 on day 3. Idle play is never safe for long, but the timing
 varies.
 
+## Wave 1b: readability (2026-11-05)
+
+**Scale and light**
+- Characters draw at 64 px (pickups 24 px); default zoom 1.5, minimum 0.75.
+- Night: ambient drops to 20% with dusk and dawn tints; light pools are
+  ellipses on the iso ground; the player carries a faint personal light;
+  campfires and fires flicker. Q toggles a flashlight cone (if carried) that
+  doubles how far zombies can see you at night.
+
+**HUD** (`src/ui/Hud.h/.cpp`, built from a `HudState` snapshot each frame)
+- Top left: health and stamina bars with values. The part of the stamina bar
+  that needs have taken away is drawn dark red.
+- Below it, conditions in the style of status icons: only problems are listed,
+  worst first, colored by severity (info, mild, serious, critical; critical
+  pulses). Thresholds come from `NeedsSystem`, with early warnings (Peckish,
+  Thirsty, Drowsy) shown before penalties start.
+- Top right: day, clock (blue at night, amber at dusk), weather and outdoor
+  temperature, and the infection of the district you stand in. Below it, one
+  objective: the most urgent thing to do next (medical, water, food, sleep,
+  search, or the campaign goal).
+- Top center: a toast when you enter a new district.
+- Bottom center: hotbar with item icons, counts and the selected item's name,
+  with messages and the interaction prompt above it. Bottom left: car readout
+  when driving or near a car.
+- Red vignette below 40% health.
+- Run mode, threat, tone, kills, loot and traits moved to the pause panel.
+- Inventory (Tab) is a 4×5 slot grid matching the hotbar, with item details,
+  freshness strips and a carry weight bar. Controls (F2) is a centered panel.
+- Harness: `set STAT VALUE` forces player stats; `tools/harness/hud_states.txt`
+  screenshots a fresh, a stressed and a night character.
+
 ## Known issues found during revival
 
 - ~~Input transitions cleared per render frame, not per tick~~ (fixed: latched
@@ -135,8 +166,11 @@ varies.
 - ~~Title screen re-read the checkpoint file every tick~~ (fixed: refresh on
   input or once a second).
 - Buildings have open doorways and no doors, so no shelter can be closed off.
-- HUD status thresholds (e.g. "HYPOTHERMIC" below 35.5 °C) predate the Wave 1a
-  thresholds; the Wave 1b HUD rework will read them from `NeedsSystem`.
+- ~~HUD status thresholds predated the Wave 1a thresholds~~ (fixed: the HUD reads
+  them from `NeedsSystem`).
+- The crafting screen lists undiscovered recipes as "???" with no hint of how
+  to discover them.
+- Several items reuse other items' sprites (Flashlight, Jacket, Matches, ...).
 - Tone presets are stored and shown but have no gameplay effect.
 - `beginDeathState` and `beginRetirementState` duplicate ~50 lines of
   persistence code verbatim.
@@ -152,3 +186,8 @@ varies.
 - 2026-11-05: Wave 1a survival model: threat director, zombie AI rewrite,
   needs/temperature/panic/depression retune, telegraphed attacks, wound fixes,
   kill attribution, building layer on the tile map.
+- 2026-11-05: Wave 1b scale, default zoom, night lighting and flashlight
+  (`76d40cb`).
+- 2026-11-06: Wave 1b HUD rework: `Hud` module, conditions list, clock and
+  objective panel, icon hotbar, district toast, inventory grid, controls and
+  pause panels, harness `set` command.

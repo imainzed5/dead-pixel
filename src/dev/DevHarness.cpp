@@ -347,6 +347,48 @@ void DevHarness::execute(Game& game, const Command& command)
         }
         InventorySystem::addItem(game.mWorld.getComponent<Inventory>(game.mPlayerEntity), game.mItemDatabase, item->id, count);
     }
+    else if (op == "set")
+    {
+        // set STAT VALUE: force a player stat, for screenshots and tuning.
+        if (!need(2)) return;
+        const Entity player = game.mPlayerEntity;
+        if (player == kInvalidEntity)
+        {
+            fail(command, "no player");
+            return;
+        }
+        const std::string stat = lower(a[1]);
+        const float value = std::stof(a[2]);
+        World& world = game.mWorld;
+        bool applied = false;
+        if (world.hasComponent<Needs>(player))
+        {
+            Needs& needs = world.getComponent<Needs>(player);
+            if (stat == "hunger") { needs.hunger = value; applied = true; }
+            else if (stat == "thirst") { needs.thirst = value; applied = true; }
+            else if (stat == "sleepdebt") { needs.sleepDebt = value; applied = true; }
+            else if (stat == "fatigue") { needs.fatigue = value; applied = true; }
+            else if (stat == "temp") { needs.bodyTemperature = value; applied = true; }
+            else if (stat == "illness") { needs.illness = value; applied = true; }
+        }
+        if (world.hasComponent<MentalState>(player))
+        {
+            MentalState& mental = world.getComponent<MentalState>(player);
+            if (stat == "panic") { mental.panic = value; applied = true; }
+            else if (stat == "depression") { mental.depression = value; applied = true; }
+        }
+        if (stat == "hp" && world.hasComponent<Health>(player))
+        {
+            world.getComponent<Health>(player).current = value;
+            applied = true;
+        }
+        if (stat == "stamina" && world.hasComponent<Stamina>(player))
+        {
+            world.getComponent<Stamina>(player).current = value;
+            applied = true;
+        }
+        if (!applied) fail(command, "unknown stat '" + stat + "'");
+    }
     else if (op == "metrics")
     {
         if (!need(1)) return;

@@ -30,6 +30,8 @@ class Game;
 //   teleport TX TY                move the player to a tile and snap the camera
 //   zoom Z                        set camera zoom
 //   god on|off                    keep the player's health topped up
+//   give ITEM NAME [COUNT]        add items to the player's inventory
+//   set STAT VALUE                hp|stamina|hunger|thirst|sleepdebt|fatigue|temp|illness|panic|depression
 //   metrics TICKS                 metrics row every TICKS ticks (0 = off)
 //   shot NAME                     save shots/NAME.png
 //   expect alive|dead|playing|title

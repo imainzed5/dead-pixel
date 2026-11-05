@@ -67,6 +67,7 @@ add_library(dead_pixel_core STATIC
     src/rendering/SpriteBatch.cpp
     src/rendering/BitmapFont.cpp
     src/rendering/SpriteSheet.cpp
+    src/ui/Hud.cpp
     src/systems/AnimationSystem.cpp
     src/systems/ParticleSystem.cpp
     src/audio/AudioManager.cpp
@@ -111,6 +112,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_save.cpp
         tests/test_simulation.cpp
         tests/test_survival.cpp
+        tests/test_hud.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE
