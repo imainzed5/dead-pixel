@@ -1,0 +1,32 @@
+# Doors: closed at the start of a run, E opens and shuts them, and the dead
+# batter a closed door down when it stands between them and you.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/doors.txt --hidden --world-seed 1234 --shots shots/doors
+
+newrun
+god on
+waits 1
+doors
+shot 01_start_closed
+goto door
+waits 0.3
+shot 02_at_door
+tap E
+waits 0.4
+doors
+shot 03_opened
+tap E
+waits 0.4
+doors
+shot 04_shut_again
+# Four of them, all heading for you; walls between, so they find the door.
+zombie 6 0
+zombie 0 6
+zombie -6 0
+zombie 0 -6
+waits 6
+shot 05_battering
+waits 18
+doors
+shot 06_broken_in
+quit

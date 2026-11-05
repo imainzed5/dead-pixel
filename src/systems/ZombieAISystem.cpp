@@ -82,7 +82,8 @@ void ZombieAISystem::update(
     float dtSeconds,
     double gameHours,
     int currentDay,
-    const DistrictInfectionSystem* infectionSystem) const
+    const DistrictInfectionSystem* infectionSystem,
+    std::vector<glm::ivec2>* doorBlows) const
 {
     const bool isNight = (gameHours >= 20.0 || gameHours < 5.0);
     const float visionMultiplier = isNight ? (mPlayerLit ? kNightVisionLit : kNightVisionDark) : 1.0f;
@@ -303,7 +304,11 @@ void ZombieAISystem::update(
 
                 const float speedFactor = zombieAI.migrating ? kMigrateSpeedFactor : kInvestigateSpeedFactor;
                 const float speed = zombieAI.moveSpeed * speedFactor * speedMultiplier;
-                const bool far = glm::length(toGoal) > kPathfindDistanceTiles * tileSize;
+                // Path when the goal is far, or when walls stand between: a
+                // straight line would only press the zombie into them (and a
+                // path through a closed door leads it to batter the door).
+                const bool far = glm::length(toGoal) > kPathfindDistanceTiles * tileSize ||
+                                 !hasLineOfSight(tileMap, zombieCenter, zombieAI.targetWorld);
 
                 if (far)
                 {
@@ -449,6 +454,25 @@ void ZombieAISystem::update(
                 }
                 break;
             }
+            }
+
+            // Pressing into a closed door on the way somewhere: batter it.
+            // Paths lead through closed doors, so this is where they stop.
+            if (doorBlows != nullptr &&
+                (zombieAI.state == ZombieState::Chase || zombieAI.state == ZombieState::Investigate))
+            {
+                const glm::vec2 heading(zombieVelocity.dx, zombieVelocity.dy);
+                const float speed2 = glm::dot(heading, heading);
+                if (speed2 > 1.0f)
+                {
+                    const glm::vec2 ahead = zombieCenter + heading / std::sqrt(speed2) * (tileSize * 0.75f);
+                    const glm::ivec2 aheadTile = worldToTile(tileMap, ahead);
+                    if (tileMap.isClosedDoor(aheadTile.x, aheadTile.y) &&
+                        glm::length(tileCenterWorld(tileMap, aheadTile) - zombieCenter) < tileSize * 1.3f)
+                    {
+                        doorBlows->push_back(aheadTile);
+                    }
+                }
             }
 
             // Separation: keep bodies from stacking into one sprite.

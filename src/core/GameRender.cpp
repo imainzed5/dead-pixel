@@ -27,7 +27,7 @@ void Game::render()
     // Pass 2: Entity sprites + particles (spritesheet texture, with lighting)
     mSpriteBatch.begin();
     mStaticSprites.clear();
-    mStructureView.collect(mCamera, playerTile(), mStructureSprites, mStaticSprites);
+    mStructureView.collect(mCamera, playerTile(), mStructureSprites, mStaticSprites, &mTileMap);
     RenderExtras extras;
     extras.statics = &mStaticSprites;
     extras.isHiddenAt = [this](int tileX, int tileY) { return mStructureView.isHiddenAt(tileX, tileY); };

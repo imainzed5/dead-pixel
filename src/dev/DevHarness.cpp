@@ -20,6 +20,8 @@
 #include "components/ZombieAI.h"
 #include "core/Game.h"
 #include "systems/InventorySystem.h"
+#include "systems/ZombieAISystem.h"
+#include "world/EntityFactory.h"
 
 namespace
 {
@@ -290,6 +292,43 @@ void DevHarness::execute(Game& game, const Command& command)
         game.startNewRun();
         mWasAlive = true;
     }
+    else if (op == "zombie")
+    {
+        // zombie DX DY: a zombie DX, DY tiles from the player, heading for them.
+        if (!need(2)) return;
+        if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+        {
+            fail(command, "no player");
+            return;
+        }
+        const int tileW = std::max(1, game.mTileMap.tileWidth());
+        const int tileH = std::max(1, game.mTileMap.tileHeight());
+        const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+        const glm::vec2 playerCentre(pt.x + 16.0f, pt.y + 16.0f);
+        const int tx = static_cast<int>(playerCentre.x / static_cast<float>(tileW)) + std::stoi(a[1]);
+        const int ty = static_cast<int>(playerCentre.y / static_cast<float>(tileH)) + std::stoi(a[2]);
+        if (game.mTileMap.isSolid(tx, ty))
+        {
+            fail(command, "tile " + std::to_string(tx) + "," + std::to_string(ty) + " is solid");
+            return;
+        }
+        EntityFactory::ZombieParams params;
+        params.topLeftWorld = glm::vec2(static_cast<float>(tx * tileW), static_cast<float>(ty * tileH));
+        params.health = 60.0f;
+        params.baseMoveSpeed = 112.0f;
+        params.spawnDay = game.mCurrentDay;
+        const Entity zombie = EntityFactory::spawnZombie(game.mWorld, game.mSpriteSheet, params);
+        if (zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
+        {
+            ZombieAISystem::sendTo(game.mWorld.getComponent<ZombieAI>(zombie), playerCentre, false);
+        }
+    }
+    else if (op == "doors")
+    {
+        std::cout << "[harness] tick " << mTick << ": doors closed=" << game.mDoors.count(game.mTileMap, DoorState::Closed)
+                  << " open=" << game.mDoors.count(game.mTileMap, DoorState::Open)
+                  << " broken=" << game.mDoors.count(game.mTileMap, DoorState::Broken) << '\n';
+    }
     else if (op == "slay")
     {
         // slay R: zombies within R tiles drop dead, credited to the player.
@@ -319,8 +358,36 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "goto")
     {
         // goto risen|pack|grave: teleport beside the first such legacy entity.
+        // goto door: stand just inside the door nearest the player.
         if (!need(1)) return;
         const std::string kind = lower(a[1]);
+        if (kind == "door")
+        {
+            if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+            {
+                fail(command, "no player");
+                return;
+            }
+            const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+            const Doors::Door* door = game.mDoors.nearest(game.mTileMap, glm::vec2(pt.x + 16.0f, pt.y + 16.0f), 1.0e9f);
+            if (door == nullptr)
+            {
+                fail(command, "no doors");
+                return;
+            }
+            const glm::ivec2 sides[4] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+            for (const glm::ivec2& side : sides)
+            {
+                const glm::ivec2 tile = door->tile + side;
+                if (!game.mTileMap.isSolid(tile.x, tile.y) && game.mTileMap.getBuildingId(tile.x, tile.y) > 0)
+                {
+                    execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
+                    return;
+                }
+            }
+            fail(command, "no floor inside the nearest door");
+            return;
+        }
         LegacyLinkKind want = LegacyLinkKind::Grave;
         if (kind == "risen") want = LegacyLinkKind::Risen;
         else if (kind == "pack") want = LegacyLinkKind::Pack;

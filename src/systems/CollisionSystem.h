@@ -8,7 +8,7 @@ class CollisionSystem
 public:
     void update(World& world, const TileMap& tileMap, float dtSeconds) const;
 
-private:
+    // Body footprints (also used to keep doorways clear before a door shuts).
     static constexpr float kSpriteSize = 32.0f;
     static constexpr float kCollisionWidth = 20.0f;
     static constexpr float kCollisionHeight = 20.0f;
@@ -16,5 +16,7 @@ private:
     static constexpr float kPlayerCollisionWidth = 10.0f;
     static constexpr float kPlayerCollisionHeight = 8.0f;
     static constexpr float kPlayerCollisionCenterYOffset = 22.0f;
+
+private:
     static constexpr float kStructureCollisionSize = 28.0f;
 };

@@ -60,6 +60,10 @@ StructureSprites StructureSprites::fromSheet(const SpriteSheet& sheet)
         s.windowRight[i] = sheet.uvRect(base + "_window_r");
         s.doorLeft[i] = sheet.uvRect(base + "_door_l");
         s.doorRight[i] = sheet.uvRect(base + "_door_r");
+        s.doorClosedLeft[i] = sheet.uvRect(base + "_doorclosed_l");
+        s.doorClosedRight[i] = sheet.uvRect(base + "_doorclosed_r");
+        s.doorBrokenLeft[i] = sheet.uvRect(base + "_doorbroken_l");
+        s.doorBrokenRight[i] = sheet.uvRect(base + "_doorbroken_r");
         s.roof[i] = sheet.uvRect(std::string("roof_") + kRoofs[i]);
     }
     return s;
@@ -270,7 +274,7 @@ bool StructureView::isCutAway(const glm::ivec2& wall, const glm::ivec2& player) 
 }
 
 void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, const StructureSprites& sprites,
-                            std::vector<StaticSprite>& out) const
+                            std::vector<StaticSprite>& out, const TileMap* doors) const
 {
     const float zoom = camera.zoom();
     const glm::vec2 viewport = camera.viewportSize();
@@ -324,12 +328,26 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
                     out.push_back(StaticSprite{
                         glm::vec2(left, top - height), glm::vec2(tileW, tileH + height), uv, glm::vec4(1.0f), depth});
                 }
-                else if (!cut)
+                else
                 {
-                    const glm::vec4 uv = t.run == StructureRun::AlongY ? sprites.doorRight[m] : sprites.doorLeft[m];
-                    // Slightly behind anyone standing in the doorway.
-                    out.push_back(StaticSprite{
-                        glm::vec2(left, top - wallH), glm::vec2(tileW, tileH + wallH), uv, glm::vec4(1.0f), depth - 8.0f});
+                    const DoorState door = doors != nullptr ? doors->doorState(x, y) : DoorState::Open;
+                    const bool alongY = t.run == StructureRun::AlongY;
+                    if (!cut)
+                    {
+                        glm::vec4 uv = alongY ? sprites.doorRight[m] : sprites.doorLeft[m];
+                        if (door == DoorState::Closed) uv = alongY ? sprites.doorClosedRight[m] : sprites.doorClosedLeft[m];
+                        if (door == DoorState::Broken) uv = alongY ? sprites.doorBrokenRight[m] : sprites.doorBrokenLeft[m];
+                        // Slightly behind anyone standing in the doorway.
+                        out.push_back(StaticSprite{
+                            glm::vec2(left, top - wallH), glm::vec2(tileW, tileH + wallH), uv, glm::vec4(1.0f), depth - 8.0f});
+                    }
+                    else if (door == DoorState::Closed)
+                    {
+                        // Cut away, a closed door still shows: a wooden stub in the gap.
+                        out.push_back(StaticSprite{
+                            glm::vec2(left, top - lowH), glm::vec2(tileW, tileH + lowH), sprites.wallLow[m],
+                            glm::vec4(0.80f, 0.58f, 0.38f, 1.0f), depth});
+                    }
                 }
             }
 

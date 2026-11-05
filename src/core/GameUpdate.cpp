@@ -369,9 +369,9 @@ void Game::update(float dtSeconds)
         const ProximityPrompt prompt = mInteractionSystem.getProximityPrompt(mWorld, mPlayerEntity);
         mProximityPrompt = prompt.text;
 
-        // Intercept container interactions to open container view instead of auto-loot
-        bool interceptedContainer = false;
-        if (mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
+        // A door within reach takes E before anything else nearby.
+        bool interceptedContainer = handleDoorInteraction(prompt);
+        if (!interceptedContainer && mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
             mWorld.hasComponent<Interactable>(prompt.entity))
         {
             const Interactable& inter = mWorld.getComponent<Interactable>(prompt.entity);
@@ -573,7 +573,9 @@ void Game::update(float dtSeconds)
         dtSeconds,
         mGameHours,
         mCurrentDay,
-        &mDistrictInfectionSystem);
+        &mDistrictInfectionSystem,
+        &mDoorBlows);
+    updateDoors(dtSeconds);
 
     // Zombie audio: growls from chasing zombies, attack sounds
     mZombieGrowlTimer = std::max(0.0f, mZombieGrowlTimer - dtSeconds);

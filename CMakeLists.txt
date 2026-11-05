@@ -40,6 +40,7 @@ add_library(dead_pixel_core STATIC
     src/core/GameFire.cpp
     src/core/GameInventory.cpp
     src/core/GameLegacy.cpp
+    src/core/GameDoors.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
     src/ecs/EntityManager.cpp
@@ -70,6 +71,7 @@ add_library(dead_pixel_core STATIC
     src/systems/DistrictInfectionSystem.cpp
     src/systems/ThreatDirectorSystem.cpp
     src/world/EntityFactory.cpp
+    src/world/Doors.cpp
     src/items/ItemDatabase.cpp
     src/rendering/Camera.cpp
     src/rendering/Shader.cpp
@@ -128,6 +130,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_structures.cpp
         tests/test_legacy.cpp
         tests/test_tone.cpp
+        tests/test_doors.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

@@ -1249,11 +1249,49 @@ def face_color(material, left, u, h, height, rng):
     return c
 
 
+DOOR_WOOD = (122, 84, 50)
+
+
+def door_panel(u, h, left):
+    """A closed wooden door filling the doorway (u 10..21, h 0..43)."""
+    c = DOOR_WOOD
+    if u % 4 == 1:
+        c = shade(c, -16)  # gaps between vertical planks
+    elif u % 4 == 3:
+        c = shade(c, 8)
+    if h in (10, 11, 32, 33):
+        c = shade(DOOR_WOOD, -24)  # cross rails
+    if u in (19, 20) and 20 <= h <= 22:
+        c = (204, 172, 86)  # handle
+    if not left:
+        c = shade(c, -18)
+    return c
+
+
+def door_remains(u, h, left):
+    """Splintered boards left on the hinges; None where it is broken through."""
+    jag = (u * 7 + h * 3) % 5
+    keep = u <= 11 + (1 if jag == 0 else 0)          # hinge-side stiles
+    keep = keep or h <= 3 + (u * 5) % 4               # stump of the bottom rail
+    keep = keep or (31 <= h <= 33 and u <= 14 + jag)  # a rail snapped off mid-way
+    if not keep:
+        return None
+    c = DOOR_WOOD if jag else shade(DOOR_WOOD, 26)    # pale fresh splinters
+    if u % 4 == 1:
+        c = shade(c, -16)
+    if not left:
+        c = shade(c, -18)
+    return c
+
+
 def make_block(material, height, feature=None, seed=0):
     """A wall block: top cap diamond plus the two faces the camera sees.
 
-    feature: None, "window_l", "window_r", "door_l", "door_r". The suffix says
-    which face carries it (l = left/south face, r = right/east face).
+    feature: None, "window_l", "window_r", "door_l", "door_r", "doorclosed_l",
+    "doorclosed_r", "doorbroken_l", "doorbroken_r". The suffix says which face
+    carries it (l = left/south face, r = right/east face). "door" is an open
+    doorway; "doorclosed" holds a wooden door; "doorbroken" is what is left of
+    one after the dead got through.
     """
     rng = random.Random(seed)
     lc, rc, cap, accent = WALL_MATERIALS[material]
@@ -1282,6 +1320,12 @@ def make_block(material, height, feature=None, seed=0):
                     if 9 <= u <= 22 and h <= 44:
                         if u in (9, 22) or h == 44:
                             c = shade(accent, -10) if material != "brick" else (92, 86, 80)
+                        elif feature.startswith("doorclosed"):
+                            c = door_panel(u, h, left)
+                        elif feature.startswith("doorbroken"):
+                            c = door_remains(u, h, left)
+                            if c is None:
+                                alpha = 0
                         else:
                             alpha = 0  # open doorway: see straight through
             if alpha:
@@ -1356,6 +1400,17 @@ def add_structure_sprites(img, sprites):
         img.paste(roof, (x, y_low), roof)
         sprites["roof_" + kind] = {"x": x, "y": y_low, "w": ISO_TILE_W, "h": ISO_TILE_H}
         x += ISO_TILE_W
+
+    # Doors: closed and broken, per material and face. Below the legacy props.
+    y_doors = 512
+    x = 0
+    for material in ("plaster", "brick", "metal"):
+        for feature in ("doorclosed_l", "doorclosed_r", "doorbroken_l", "doorbroken_r"):
+            block = make_block(material, WALL_H, feature, seed)
+            seed += 1
+            img.paste(block, (x, y_doors), block)
+            sprites["wall_" + material + "_" + feature] = {"x": x, "y": y_doors, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_H}
+            x += ISO_TILE_W
 
 
 # --- Legacy props ------------------------------------------------------------

@@ -296,6 +296,7 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
 
     mMapGenerator.applyToTileMap(mTileMap);
     mStructureView.build(mTileMap, mMapGenerator.layoutData());
+    mDoors.reset(mTileMap, mMapGenerator.layoutData()); // after build: closed doors are solid
     mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     mActiveSaveSlot = slotName;
     syncPresentationSettingsFromSave();

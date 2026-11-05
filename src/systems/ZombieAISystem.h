@@ -20,7 +20,8 @@ public:
         float dtSeconds,
         double gameHours = 12.0,
         int currentDay = 1,
-        const DistrictInfectionSystem* infectionSystem = nullptr) const;
+        const DistrictInfectionSystem* infectionSystem = nullptr,
+        std::vector<glm::ivec2>* doorBlows = nullptr) const;
 
     // Night vision depends on the player's light: darkness hides you, a lit
     // flashlight makes you visible from further away than in daylight.

@@ -17,6 +17,7 @@ void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
     mSurfaceLayer.assign(size, 0);
     mDistrictLayer.assign(size, 0);
     mBuildingLayer.assign(size, 0);
+    mDoorLayer.assign(size, DoorState::None);
 }
 
 void TileMap::setTileset(const TilesetInfo& tileset)
@@ -92,7 +93,28 @@ bool TileMap::isSolid(int tileX, int tileY) const
         return true;
     }
 
-    return mCollisionLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))] != 0;
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return mCollisionLayer[index] != 0 || (index < mDoorLayer.size() && mDoorLayer[index] == DoorState::Closed);
+}
+
+void TileMap::setDoorState(int tileX, int tileY, DoorState state)
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return;
+    }
+    mDoorLayer.resize(static_cast<std::size_t>(mWidth * mHeight), DoorState::None);
+    mDoorLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))] = state;
+}
+
+DoorState TileMap::doorState(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return DoorState::None;
+    }
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return index < mDoorLayer.size() ? mDoorLayer[index] : DoorState::None;
 }
 
 bool TileMap::isSolidAtWorldRect(float left, float top, float right, float bottom) const

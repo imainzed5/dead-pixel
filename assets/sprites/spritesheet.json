@@ -886,6 +886,78 @@
       "w": 64,
       "h": 32
     },
+    "wall_plaster_doorclosed_l": {
+      "x": 0,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_doorclosed_r": {
+      "x": 64,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_doorbroken_l": {
+      "x": 128,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_doorbroken_r": {
+      "x": 192,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_doorclosed_l": {
+      "x": 256,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_doorclosed_r": {
+      "x": 320,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_doorbroken_l": {
+      "x": 384,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_doorbroken_r": {
+      "x": 448,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_doorclosed_l": {
+      "x": 512,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_doorclosed_r": {
+      "x": 576,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_doorbroken_l": {
+      "x": 640,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_doorbroken_r": {
+      "x": 704,
+      "y": 512,
+      "w": 64,
+      "h": 88
+    },
     "prop_grave": {
       "x": 0,
       "y": 448,

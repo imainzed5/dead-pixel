@@ -3,6 +3,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,16 @@ enum class SurfaceType
     Gravel,
     Grass,
     Metal
+};
+
+// A doorway's door. A closed door is solid like a wall, except that a path
+// may still lead through it (to be opened, or battered down).
+enum class DoorState : std::uint8_t
+{
+    None = 0, // not a doorway
+    Open,
+    Closed,
+    Broken
 };
 
 struct TilesetInfo
@@ -52,6 +63,10 @@ public:
     [[nodiscard]] bool isIndoors(int tileX, int tileY) const { return getBuildingId(tileX, tileY) > 0; }
     [[nodiscard]] bool isIndoorsAtWorld(float worldX, float worldY) const;
 
+    void setDoorState(int tileX, int tileY, DoorState state);
+    [[nodiscard]] DoorState doorState(int tileX, int tileY) const;
+    [[nodiscard]] bool isClosedDoor(int tileX, int tileY) const { return doorState(tileX, tileY) == DoorState::Closed; }
+
     [[nodiscard]] int width() const { return mWidth; }
     [[nodiscard]] int height() const { return mHeight; }
     [[nodiscard]] int tileWidth() const { return mTileWidth; }
@@ -74,4 +89,5 @@ private:
     std::vector<int> mSurfaceLayer;
     std::vector<int> mDistrictLayer;
     std::vector<int> mBuildingLayer;
+    std::vector<DoorState> mDoorLayer;
 };

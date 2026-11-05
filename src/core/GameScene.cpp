@@ -1094,6 +1094,7 @@ void Game::setupScene()
     }
 
     spawnLegacy();
+    mDoors.reset(mTileMap, mMapGenerator.layoutData());
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(

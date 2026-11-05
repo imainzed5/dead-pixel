@@ -282,6 +282,22 @@ something the next one can find and act on:
     waiting, survivors;
   - the cursor skips "Continue Run" when there is nothing to continue;
   - "Options" is now named for what it opens: "Controls".
+- **Doors** (`src/world/Doors.h`, tested):
+  - Every doorway now holds a door, closed at the start of a run. A closed
+    door blocks movement and sight like a wall.
+  - Press **E** at a door to open or close it. It will not shut on someone
+    standing in the doorway.
+  - Zombies chasing or investigating something behind a closed door path to
+    it and batter it. Each bang draws more of them, and after about 15
+    zombie-seconds the door gives way: a loud crash, "A door gives way.",
+    and the doorway stays open for the rest of the run.
+  - Paths treat a closed door as expensive (cost 25), so the dead only batter
+    the door that stands between them and you, not every door on the way.
+  - Survivors open doors as they pass and leave them open.
+  - New sprites: closed and broken doors in each wall material. In cut-away
+    view, a closed door shows as a low wooden stub.
+  - Harness: `zombie DX DY`, `doors` and `goto door`; the script is
+    `tools/harness/doors.txt`.
 
 ## Known issues found during revival
 
@@ -292,7 +308,8 @@ something the next one can find and act on:
 - ~~Bites could never infect: wounds healed before the infection timer~~ (fixed).
 - ~~Title screen re-read the checkpoint file every tick~~ (fixed: refresh on
   input or once a second).
-- Buildings have open doorways and no doors, so no shelter can be closed off.
+- ~~Buildings have open doorways and no doors, so no shelter can be closed off~~
+  (fixed: doors).
 - ~~HUD status thresholds predated the Wave 1a thresholds~~ (fixed: the HUD reads
   them from `NeedsSystem`).
 - The crafting screen lists undiscovered recipes as "???" with no hint of how
@@ -302,8 +319,8 @@ something the next one can find and act on:
   `ToneTuning`).
 - ~~`beginDeathState` and `beginRetirementState` duplicate persistence code~~
   (fixed: shared `persistWorldForNextRun`).
-- Mid-run checkpoints do not save fires or burn scars; continuing a run
-  loses scars made earlier in it.
+- Mid-run checkpoints do not save fires, burn scars or door states;
+  continuing a run loses scars made earlier in it and shuts every door again.
 - The crafting screen is a bare debug-style layout.
 - ~~No wall/roof occlusion: indoor zombies and loot can hide behind walls~~
   (fixed: wall blocks, cut-away and roofs).
@@ -338,3 +355,7 @@ something the next one can find and act on:
 - 2026-11-06: Wave 2 legacy hook: risen characters, packs, retired survivors,
   run-start card, name labels, isometric town map, notebook rework, varied
   start homes, UI text layering fix, harness `slay`/`goto`.
+- 2026-11-06: Wave 3 run-end screen, tone presets with real effects, title
+  rework (`87a97ff`).
+- 2026-11-06: Wave 3 doors: open/close with E, zombies batter closed doors
+  down, survivors pass through, door sprites, harness `zombie`/`doors`.

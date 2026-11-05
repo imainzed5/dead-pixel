@@ -53,8 +53,12 @@ struct StructureSprites
     std::array<glm::vec4, 3> wallLow{};
     std::array<glm::vec4, 3> windowLeft{};
     std::array<glm::vec4, 3> windowRight{};
-    std::array<glm::vec4, 3> doorLeft{};
+    std::array<glm::vec4, 3> doorLeft{};       // open doorway
     std::array<glm::vec4, 3> doorRight{};
+    std::array<glm::vec4, 3> doorClosedLeft{};
+    std::array<glm::vec4, 3> doorClosedRight{};
+    std::array<glm::vec4, 3> doorBrokenLeft{};
+    std::array<glm::vec4, 3> doorBrokenRight{};
     std::array<glm::vec4, 3> roof{};
 
     [[nodiscard]] static StructureSprites fromSheet(const SpriteSheet& sheet);
@@ -82,8 +86,9 @@ public:
     void update(float dtSeconds, const glm::ivec2& playerTile);
     void snapRoofs(const glm::ivec2& playerTile);
 
+    // `doors` gives each doorway's door state; without it doorways draw open.
     void collect(const Camera& camera, const glm::ivec2& playerTile, const StructureSprites& sprites,
-                 std::vector<StaticSprite>& out) const;
+                 std::vector<StaticSprite>& out, const TileMap* doors = nullptr) const;
 
     // A thing standing on this tile is under a closed roof and not drawn.
     [[nodiscard]] bool isHiddenAt(int tileX, int tileY) const;

@@ -20,6 +20,7 @@
 #include "ecs/World.h"
 #include "items/ItemDatabase.h"
 #include "legacy/LegacyRules.h"
+#include "world/Doors.h"
 #include "map/MapGenerator.h"
 #include "map/TileMap.h"
 #include "map/TiledLoader.h"
@@ -110,6 +111,9 @@ private:
         float titleScale = 2.0f;
         float lineScale = 2.0f;
     };
+    void updateDoors(float dtSeconds);
+    // E at a door: opens or closes it. False when no door is in reach.
+    bool handleDoorInteraction(const ProximityPrompt& entityPrompt);
     void spawnLegacy();
     void spawnGrave(int graveIndex);
     void spawnLegacyPack(int graveIndex, const glm::vec2& topLeftWorld);
@@ -331,6 +335,8 @@ private:
     // M8 narrow slice state
     Entity mActiveVehicleEntity = kInvalidEntity;
     std::vector<std::pair<int, int>> mBurnedTiles;
+    Doors mDoors;
+    std::vector<glm::ivec2> mDoorBlows; // this tick's zombie blows on closed doors
 
     // This run's view of the grave records; written back by syncLegacyToSave.
     std::vector<GraveRecord> mLegacyGraves;
