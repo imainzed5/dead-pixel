@@ -1,0 +1,23 @@
+# Resume: a mid-run checkpoint brings back the dead as they were. Zombies you
+# put down stay down, and the rest stand where they stood.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/resume.txt --hidden --world-seed 1234 --shots shots/resume
+
+newrun
+god on
+waits 1
+zombies
+enter 4
+slay 12
+waits 0.5
+# Fewer walking now; the checkpoint must keep it that way.
+zombies
+shot 01_cleared
+save
+waits 0.5
+resume
+waits 0.5
+zombies
+shot 02_resumed
+expect alive
+quit

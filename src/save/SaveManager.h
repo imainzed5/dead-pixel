@@ -58,6 +58,17 @@ struct VehicleRecord
     std::vector<std::pair<int,int>> items; // persisted trunk storage
 };
 
+// A zombie walking the town at a checkpoint.
+struct ZombieRecord
+{
+    float x = 0.0f; // Transform position (sprite top-left)
+    float y = 0.0f;
+    float health = 50.0f;
+    float maxHealth = 50.0f;
+    float baseMoveSpeed = 112.0f;
+    int spawnDay = 1;
+};
+
 struct FireTileRecord
 {
     int tileX = 0;
@@ -185,6 +196,10 @@ struct RunCheckpoint
     std::vector<std::pair<int,int>> brokenDoors;
     std::vector<std::pair<int,int>> burnedTiles; // all scars, earlier runs' included
     std::vector<FireTileRecord> fires;
+    // The dead still walking (not the risen, who come back with their graves).
+    // Checkpoints from before zombies were saved leave this false.
+    bool zombiesSaved = false;
+    std::vector<ZombieRecord> zombies;
 };
 
 class SaveManager

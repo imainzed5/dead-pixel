@@ -1202,6 +1202,12 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         json["fires"].push_back(
             {{"tileX", fire.tileX}, {"tileY", fire.tileY}, {"intensity", fire.intensity}, {"lifeRemaining", fire.lifeRemaining}});
     }
+    json["zombies"] = nlohmann::json::array();
+    for (const ZombieRecord& z : cp.zombies)
+    {
+        json["zombies"].push_back({{"x", z.x}, {"y", z.y}, {"hp", z.health}, {"maxHp", z.maxHealth},
+                                   {"speed", z.baseMoveSpeed}, {"day", z.spawnDay}});
+    }
 
     const std::string tempPath = mCheckpointPath + ".tmp";
     {
@@ -1318,6 +1324,24 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             if (fire.lifeRemaining > 0.0f && fire.intensity > 0.0f)
             {
                 cp.fires.push_back(fire);
+            }
+        }
+    }
+    if (json.contains("zombies") && json["zombies"].is_array())
+    {
+        cp.zombiesSaved = true;
+        for (const auto& zj : json["zombies"])
+        {
+            ZombieRecord z;
+            z.x = zj.value("x", 0.0f);
+            z.y = zj.value("y", 0.0f);
+            z.maxHealth = std::max(1.0f, zj.value("maxHp", 50.0f));
+            z.health = std::clamp(zj.value("hp", z.maxHealth), 0.0f, z.maxHealth);
+            z.baseMoveSpeed = std::clamp(zj.value("speed", 112.0f), 10.0f, 400.0f);
+            z.spawnDay = std::max(1, zj.value("day", 1));
+            if (z.health > 0.0f)
+            {
+                cp.zombies.push_back(z);
             }
         }
     }

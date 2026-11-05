@@ -387,6 +387,20 @@ RunCheckpoint Game::buildRunCheckpoint()
             record.lifeRemaining = fire.lifeRemaining;
             cp.fires.push_back(record);
         });
+    cp.zombiesSaved = true;
+    mWorld.forEach<ZombieAI, Transform, Health>(
+        [&](Entity zombie, ZombieAI& ai, Transform& transform, Health& health)
+        {
+            if (health.current <= 0.0f || mWorld.hasComponent<LegacyLink>(zombie)) return;
+            ZombieRecord record;
+            record.x = transform.x;
+            record.y = transform.y;
+            record.health = health.current;
+            record.maxHealth = health.maximum;
+            record.baseMoveSpeed = ai.baseMoveSpeed;
+            record.spawnDay = ai.spawnDay;
+            cp.zombies.push_back(record);
+        });
     return cp;
 }
 

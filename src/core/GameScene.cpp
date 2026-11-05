@@ -74,9 +74,34 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
     for (std::size_t i = 0; i < cp.fires.size(); ++i)
     {
         const FireTileRecord& record = cp.fires[i];
-        if (mTileMap.inBounds(record.tileX, record.tileY) && !mTileMap.isSolid(record.tileX, record.tileY))
+        if (mTileMap.inBounds(record.tileX, record.tileY) && !mTileMap.blocksSight(record.tileX, record.tileY))
         {
             spawnFireTile(record, static_cast<float>(i) * 0.37f);
+        }
+    }
+
+    // The dead stand where they stood; the ones you put down stay down.
+    if (cp.zombiesSaved)
+    {
+        std::vector<Entity> fresh;
+        mWorld.forEach<ZombieAI>(
+            [&](Entity zombie, ZombieAI&)
+            {
+                if (!mWorld.hasComponent<LegacyLink>(zombie)) fresh.push_back(zombie);
+            });
+        for (Entity zombie : fresh)
+        {
+            mWorld.destroyEntity(zombie);
+        }
+        for (const ZombieRecord& record : cp.zombies)
+        {
+            EntityFactory::ZombieParams params;
+            params.topLeftWorld = glm::vec2(record.x, record.y);
+            params.health = record.maxHealth;
+            params.baseMoveSpeed = record.baseMoveSpeed;
+            params.spawnDay = record.spawnDay;
+            const Entity zombie = EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
+            mWorld.getComponent<Health>(zombie).current = record.health;
         }
     }
 }

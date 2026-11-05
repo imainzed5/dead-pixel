@@ -359,6 +359,11 @@ something the next one can find and act on:
   in hand. Weapon slots show a wear bar and a gold corner on the one in hand;
   the name reads "Knife - worn - in hand". Script:
   `tools/harness/weapon_wear.txt`.
+- **Checkpoints keep the dead:** zombies walking at a checkpoint come back
+  where they stood, wounds and all, and the ones you put down stay down (the
+  risen still return with their graves). Older checkpoints without zombie
+  data spawn a fresh town as before. Harness: `zombies`; script:
+  `tools/harness/resume.txt`.
 
 ## Known issues found during revival
 
@@ -381,7 +386,8 @@ something the next one can find and act on:
 - ~~`beginDeathState` and `beginRetirementState` duplicate persistence code~~
   (fixed: shared `persistWorldForNextRun`).
 - ~~Mid-run checkpoints do not save fires or burn scars~~ (fixed: checkpoints
-  keep doors, scars and fires). Zombies are still respawned on resume.
+  keep doors, scars and fires).
+- ~~Zombies are respawned fresh on resume~~ (fixed: checkpoints keep them).
 - ~~The crafting screen is a bare debug-style layout~~ (fixed).
 - ~~Equipping a weapon from the inventory resets its durability to full~~
   (fixed: wear lives in the item).
@@ -435,4 +441,6 @@ something the next one can find and act on:
 - 2026-11-06: Item icons: one per item in a single outlined style.
 - 2026-11-06: Furniture: furnished rooms, furniture containers and beds,
   furniture sprites; dead zombies cleared however they died (`07e665e`).
-- 2026-11-06: Weapon in hand is an inventory item with lasting wear.
+- 2026-11-06: Weapon in hand is an inventory item with lasting wear
+  (`5340380`); caches go into furniture (`513076d`); checkpoints keep
+  zombies.

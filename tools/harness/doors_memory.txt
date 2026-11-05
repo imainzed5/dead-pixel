@@ -10,8 +10,10 @@ goto door
 waits 0.3
 tap E
 waits 0.4
+tap E
+waits 0.4
 doors
-# Expect one more open door than at the start.
+# The door beside you is shut: the dead must break it down to reach you.
 zombie 6 0
 zombie -6 0
 zombie 0 6

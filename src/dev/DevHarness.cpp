@@ -678,6 +678,20 @@ void DevHarness::execute(Game& game, const Command& command)
         else ok = want == have;
         if (!ok) fail(command, "expected " + want + ", state is " + have);
     }
+    else if (op == "zombies")
+    {
+        // zombies: how many of the dead are walking, and their total health.
+        int count = 0;
+        float health = 0.0f;
+        game.mWorld.forEach<ZombieAI, Health>(
+            [&](Entity, ZombieAI&, Health& h)
+            {
+                if (h.current <= 0.0f) return;
+                ++count;
+                health += h.current;
+            });
+        std::cout << "[harness] tick " << mTick << ": zombies " << count << " health " << static_cast<int>(health) << '\n';
+    }
     else if (op == "log")
     {
         std::cout << "[harness] tick " << mTick << ":";
