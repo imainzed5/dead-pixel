@@ -1,5 +1,7 @@
 #include "core/Game.h"
 
+#include "map/TileIds.h"
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "components/Animation.h"
@@ -1308,6 +1310,7 @@ bool Game::initialize()
         shutdown();
         return false;
     }
+    mStructureSprites = StructureSprites::fromSheet(mSpriteSheet);
 
     if (!mAudioManager.initialize(assetsRoot.string()))
     {
@@ -1384,6 +1387,7 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
     }
 
     mMapGenerator.applyToTileMap(mTileMap);
+    mStructureView.build(mTileMap, mMapGenerator.layoutData());
     mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     mActiveSaveSlot = slotName;
     syncPresentationSettingsFromSave();
@@ -2124,6 +2128,7 @@ void Game::setupScene()
     mFlashlightOn = false;
     mHudDistrictId = -1;
     mDistrictToastTimer = 0.0f;
+    mStructureView.snapRoofs(playerTile());
 
     const auto& layoutDistricts = mMapGenerator.layoutData().districts;
     auto getDistrictType = [&](int tileX, int tileY) -> DistrictType
@@ -3690,6 +3695,7 @@ void Game::update(float dtSeconds)
         mInteractionMessage.clear();
     }
     updateDistrictToast(dtSeconds);
+    mStructureView.update(dtSeconds, playerTile());
 
     if (mInput.wasKeyPressed(SDL_SCANCODE_F1))
     {
@@ -6123,7 +6129,12 @@ void Game::render()
 
     // Pass 2: Entity sprites + particles (spritesheet texture, with lighting)
     mSpriteBatch.begin();
-    mRenderSystem.render(mWorld, mSpriteBatch, mCamera, mInterpolationAlpha);
+    mStaticSprites.clear();
+    mStructureView.collect(mCamera, playerTile(), mStructureSprites, mStaticSprites);
+    RenderExtras extras;
+    extras.statics = &mStaticSprites;
+    extras.isHiddenAt = [this](int tileX, int tileY) { return mStructureView.isHiddenAt(tileX, tileY); };
+    mRenderSystem.render(mWorld, mSpriteBatch, mCamera, mInterpolationAlpha, &extras);
 
     // Particles (rendered in world space, affected by lighting)
     const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
@@ -7068,6 +7079,20 @@ void Game::snapshotPositions()
         });
 }
 
+glm::ivec2 Game::playerTile() const
+{
+    if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        return glm::ivec2(-1000, -1000);
+    }
+    const Transform& t = mWorld.getComponent<Transform>(mPlayerEntity);
+    const float tileW = static_cast<float>(std::max(1, mTileMap.tileWidth()));
+    const float tileH = static_cast<float>(std::max(1, mTileMap.tileHeight()));
+    return glm::ivec2(
+        static_cast<int>(std::floor((t.x + kSpriteSize * 0.5f) / tileW)),
+        static_cast<int>(std::floor((t.y + kSpriteSize * 0.5f) / tileH)));
+}
+
 float Game::nightFactor() const
 {
     // 0 = full day, 1 = full night, with dusk 18-20 and dawn 5-6.
@@ -7772,10 +7797,18 @@ void Game::renderMap()
         {
             const int row = sum - col;
 
-            const int gid = mTileMap.groundGid(col, row);
-            if (gid == 0)
+            int gid = mTileMap.groundGid(col, row);
+            if (gid == 0 || mStructureView.coversGround(col, row))
             {
                 continue;
+            }
+
+            // Pick one of the tileset's variants from the tile position.
+            if (gid >= 1 && gid <= TileGid::kPerRow)
+            {
+                std::uint32_t h = static_cast<std::uint32_t>(col) * 73856093u ^ static_cast<std::uint32_t>(row) * 19349663u;
+                h ^= h >> 13;
+                gid += TileGid::kPerRow * static_cast<int>(h % static_cast<std::uint32_t>(TileGid::kVariants));
             }
 
             glm::vec4 uvRect;
@@ -7800,15 +7833,12 @@ void Game::renderMap()
                 continue;
             }
 
-            // Draw tile centered on its iso screen position. The placeholder
-            // diamonds stop a texel short of their cell, so grow each quad by
-            // one texel per side; back-to-front order hides the overlap.
-            const float overlapW = scaledTileW + 2.0f * zoom;
-            const float overlapH = scaledTileH + 2.0f * zoom;
+            // Tileset diamonds tile exactly; one extra screen pixel hides
+            // rounding gaps at fractional zoom levels.
             mSpriteBatch.draw(
-                glm::vec2(std::round(screenCenter.x - overlapW * 0.5f),
-                          std::round(screenCenter.y - overlapH * 0.5f)),
-                glm::vec2(overlapW, overlapH),
+                glm::vec2(std::round(screenCenter.x - scaledTileW * 0.5f),
+                          std::round(screenCenter.y - scaledTileH * 0.5f)),
+                glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f),
                 uvRect,
                 glm::vec4(1.0f));
         }

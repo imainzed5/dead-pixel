@@ -13,6 +13,27 @@ enum class DistrictType
     Industrial = 3
 };
 
+enum class BuildingArchetype
+{
+    Residential,
+    Commercial,
+    Industrial
+};
+
+// Building archetype is derived from footprint width (not saved).
+[[nodiscard]] inline BuildingArchetype archetypeForWidth(int width)
+{
+    if (width <= 9)
+    {
+        return BuildingArchetype::Residential;
+    }
+    if (width <= 11)
+    {
+        return BuildingArchetype::Commercial;
+    }
+    return BuildingArchetype::Industrial;
+}
+
 struct LayoutData
 {
     int width = 0;

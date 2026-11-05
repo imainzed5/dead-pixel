@@ -293,6 +293,44 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         if (need(1)) game.mGameHours = std::clamp(std::stod(a[1]), 0.0, 23.99);
     }
+    else if (op == "enter")
+    {
+        // enter N: teleport to the walkable floor tile nearest building N's centre.
+        if (!need(1)) return;
+        const auto& buildings = game.mMapGenerator.layoutData().buildings;
+        const int n = std::stoi(a[1]);
+        if (n < 0 || n >= static_cast<int>(buildings.size()))
+        {
+            fail(command, "no building " + a[1] + " (have " + std::to_string(buildings.size()) + ")");
+            return;
+        }
+        const auto& b = buildings[static_cast<std::size_t>(n)];
+        const int cx = b.x + b.w / 2;
+        const int cy = b.y + b.h / 2;
+        int best = -1;
+        int bestX = 0;
+        int bestY = 0;
+        for (int y = b.y; y < b.y + b.h; ++y)
+        {
+            for (int x = b.x; x < b.x + b.w; ++x)
+            {
+                if (game.mTileMap.isSolid(x, y) || game.mTileMap.getBuildingId(x, y) != n + 1) continue;
+                const int d = std::abs(x - cx) + std::abs(y - cy);
+                if (best < 0 || d < best)
+                {
+                    best = d;
+                    bestX = x;
+                    bestY = y;
+                }
+            }
+        }
+        if (best < 0)
+        {
+            fail(command, "building " + a[1] + " has no floor");
+            return;
+        }
+        execute(game, Command{command.line, {"teleport", std::to_string(bestX), std::to_string(bestY)}});
+    }
     else if (op == "teleport")
     {
         if (!need(2)) return;

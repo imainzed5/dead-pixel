@@ -7,6 +7,7 @@
 #include <glm/vec2.hpp>
 
 #include "map/LayoutData.h"
+#include "map/TileIds.h"
 #include "map/TileMap.h"
 
 struct SpawnData
@@ -57,6 +58,8 @@ private:
     void carveRoads();
     void placeBuildings();
     void addInteriorWalls();
+    void assignRoomFloors();
+    void paveSidewalks();
     void scatterDecor();
     void assignDistricts();
     void selectSpawns(SpawnData& outSpawns);
@@ -68,6 +71,8 @@ private:
     bool inBounds(int x, int y) const { return x >= 0 && x < mWidth && y >= 0 && y < mHeight; }
     bool isFloorTile(int x, int y) const;
     bool isDoorTile(int x, int y) const;
+    bool isNextToDoor(int x, int y) const;
+    int buildingIndexAt(int x, int y) const;
 
     int mWidth = 0;
     int mHeight = 0;
@@ -83,15 +88,19 @@ private:
 
     LayoutData mLayout;
 
-    static constexpr int kGidGrass = 9;
-    static constexpr int kGidGrass2 = 10;
-    static constexpr int kGidDirt = 4;
-    static constexpr int kGidFloor = 2;
-    static constexpr int kGidCarpet = 6;
-    static constexpr int kGidGravel = 3;
-    static constexpr int kGidWater = 5;
-    static constexpr int kGidWall = 7;
-    static constexpr int kGidMetal = 8;
+    static constexpr int kGidGrass = TileGid::kGrass;
+    static constexpr int kGidGrass2 = TileGid::kGrass2;
+    static constexpr int kGidDirt = TileGid::kDirt;
+    static constexpr int kGidFloor = TileGid::kFloor;
+    static constexpr int kGidCarpet = TileGid::kCarpet;
+    static constexpr int kGidGravel = TileGid::kGravel;
+    static constexpr int kGidWater = TileGid::kWater;
+    static constexpr int kGidWall = TileGid::kWall;
+    static constexpr int kGidMetal = TileGid::kMetal;
+    static constexpr int kGidWood = TileGid::kWood;
+    static constexpr int kGidTileFloor = TileGid::kTileFloor;
+    static constexpr int kGidAsphalt = TileGid::kAsphalt;
+    static constexpr int kGidSidewalk = TileGid::kSidewalk;
 
     static constexpr int kSurfDefault = 0;
     static constexpr int kSurfCarpet = 1;

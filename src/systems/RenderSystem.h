@@ -1,13 +1,30 @@
 #pragma once
 
+#include <functional>
+#include <vector>
+
 #include "ecs/World.h"
 #include "rendering/Camera.h"
 #include "rendering/SpriteBatch.h"
+#include "rendering/StaticSprite.h"
+
+// Extra inputs for the entity pass: non-entity sprites that sort with entities
+// (walls, roofs) and a filter for entities that should not be drawn.
+struct RenderExtras
+{
+    const std::vector<StaticSprite>* statics = nullptr;
+    std::function<bool(int tileX, int tileY)> isHiddenAt;
+};
 
 class RenderSystem
 {
 public:
-    void render(World& world, SpriteBatch& spriteBatch, const Camera& camera, float alpha = 1.0f) const;
+    // Sprite layers at or below this are flat on the ground (blood, decals) and
+    // draw under everything that stands up.
+    static constexpr int kFlatLayerMax = 3;
+
+    void render(World& world, SpriteBatch& spriteBatch, const Camera& camera, float alpha = 1.0f,
+                const RenderExtras* extras = nullptr) const;
 
 private:
     static constexpr float kSpriteSize = 32.0f;

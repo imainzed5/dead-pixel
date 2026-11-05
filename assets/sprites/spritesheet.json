@@ -1,6 +1,6 @@
 {
   "imageWidth": 1024,
-  "imageHeight": 512,
+  "imageHeight": 1024,
   "sprites": {
     "tile_grass": {
       "x": 0,
@@ -758,6 +758,132 @@
       "x": 320,
       "y": 288,
       "w": 32,
+      "h": 32
+    },
+    "wall_plaster": {
+      "x": 0,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_window_l": {
+      "x": 64,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_window_r": {
+      "x": 128,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_door_l": {
+      "x": 192,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_door_r": {
+      "x": 256,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick": {
+      "x": 320,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_window_l": {
+      "x": 384,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_window_r": {
+      "x": 448,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_door_l": {
+      "x": 512,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_brick_door_r": {
+      "x": 576,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal": {
+      "x": 640,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_window_l": {
+      "x": 704,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_window_r": {
+      "x": 768,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_door_l": {
+      "x": 832,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_metal_door_r": {
+      "x": 896,
+      "y": 320,
+      "w": 64,
+      "h": 88
+    },
+    "wall_plaster_low": {
+      "x": 0,
+      "y": 408,
+      "w": 64,
+      "h": 40
+    },
+    "wall_brick_low": {
+      "x": 64,
+      "y": 408,
+      "w": 64,
+      "h": 40
+    },
+    "wall_metal_low": {
+      "x": 128,
+      "y": 408,
+      "w": 64,
+      "h": 40
+    },
+    "roof_residential": {
+      "x": 192,
+      "y": 408,
+      "w": 64,
+      "h": 32
+    },
+    "roof_commercial": {
+      "x": 256,
+      "y": 408,
+      "w": 64,
+      "h": 32
+    },
+    "roof_industrial": {
+      "x": 320,
+      "y": 408,
+      "w": 64,
       "h": 32
     }
   }

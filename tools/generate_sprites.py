@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 
 # Atlas dimensions
 ATLAS_W = 1024
-ATLAS_H = 512
+ATLAS_H = 1024
 
 # Tile sizes
 ISO_TILE_W = 64
@@ -887,57 +887,474 @@ def generate_atlas():
         gen_solid(img, x, 288, color)
         sprites[name] = {"x": x, "y": 288, "w": ITEM_SIZE, "h": ITEM_SIZE}
 
+    # Rows 8+: structures (walls, doorways, roofs).
+    add_structure_sprites(img, sprites)
+
     return img, sprites
 
 
-def generate_tileset():
-    """Generate the isometric tileset image (placeholder.png) for tile map rendering.
+# ---------------------------------------------------------------------------
+# Exact 2:1 diamonds, ground textures and structures (walls, doorways, roofs).
+#
+# Everything below uses its own random.Random instances, so the older atlas
+# content above stays byte-identical when this file changes.
+# ---------------------------------------------------------------------------
 
-    Layout: 4 columns x 4 rows of 64x32 cells = 256x128 image.
-    GID mapping (firstGid=1, so localId = gid - 1):
-      localId 0 (GID 1): empty/unused
-      localId 1 (GID 2 = kGidFloor): concrete floor
-      localId 2 (GID 3 = kGidGravel): gravel
-      localId 3 (GID 4): dirt
-      localId 4 (GID 5 = kGidWater): water
-      localId 5 (GID 6): carpet
-      localId 6 (GID 7 = kGidWall): wall
-      localId 7 (GID 8): metal
-      localId 8 (GID 9 = kGidGrass): grass
-      localId 9-15: variants/unused
+WALL_H = 56       # full wall height in pixels at zoom 1 (a little taller than a person)
+WALL_LOW_H = 8    # cut-away stub drawn when a wall would hide the player
+TILE_VARIANTS = 4 # rows of variants per ground tile in the tileset
+
+
+def diamond_span(y):
+    """Inclusive x range of row y (0..31) in an exact 64x32 diamond.
+
+    Rows are 4k+2 pixels wide, so diamonds placed at (+-32, +-16) offsets
+    tile with no gaps and no overlap.
     """
-    ts_cols = 4
-    ts_rows = 4
-    ts_w = ts_cols * ISO_TILE_W   # 256
-    ts_h = ts_rows * ISO_TILE_H   # 128
-    img = Image.new("RGBA", (ts_w, ts_h), (0, 0, 0, 0))
+    k = y if y < 16 else 31 - y
+    return 31 - 2 * k, 32 + 2 * k
 
-    tile_generators = {
-        1: gen_tile_concrete,   # GID 2 = kGidFloor
-        2: gen_tile_gravel,     # GID 3 = kGidGravel
-        3: gen_tile_dirt,       # GID 4
-        4: gen_tile_water,      # GID 5 = kGidWater
-        5: gen_tile_carpet,     # GID 6
-        6: gen_tile_wall_top,   # GID 7 = kGidWall
-        7: gen_tile_metal,      # GID 8
-        8: gen_tile_grass,      # GID 9 = kGidGrass
-        9: gen_tile_grass2,     # GID 10
-        10: gen_tile_fence,     # GID 11
-        11: gen_tile_door_closed,  # GID 12
-        12: gen_tile_door_open,    # GID 13
-        13: gen_tile_window,       # GID 14
-        14: gen_tile_solid_white,  # GID 15
-        15: gen_tile_solid_dark,   # GID 16
-    }
 
-    for local_id, gen_func in tile_generators.items():
-        col = local_id % ts_cols
-        row = local_id // ts_cols
-        ox = col * ISO_TILE_W
-        oy = row * ISO_TILE_H
-        gen_func(img, ox, oy)
+def diamond_bottom(x):
+    """Lowest diamond row that contains column x (1..62)."""
+    xm = x if x <= 31 else 63 - x
+    k = (32 - xm) // 2
+    return 31 - k
 
+
+def tile_world(px, py):
+    """Local world coordinates (0..32) of diamond pixel (px, py)."""
+    wx = py + (px - 31.5) / 2.0
+    wy = py - (px - 31.5) / 2.0
+    return wx, wy
+
+
+def clamp8(v):
+    return max(0, min(255, int(round(v))))
+
+
+def mix(a, b, t):
+    return tuple(clamp8(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
+def shade(c, d):
+    return (clamp8(c[0] + d), clamp8(c[1] + d), clamp8(c[2] + d))
+
+
+def put(img, x, y, rgb, a=255):
+    img.putpixel((x, y), (rgb[0], rgb[1], rgb[2], a))
+
+
+def for_diamond(fn):
+    for py in range(32):
+        x0, x1 = diamond_span(py)
+        for px in range(x0, x1 + 1):
+            fn(px, py)
+
+
+# --- Ground textures -------------------------------------------------------
+# Each takes (img, ox, oy, rng) and paints one 64x32 diamond. Patterns are laid
+# out in tile-local world coordinates so they continue across tile borders.
+
+def tex_grass(img, ox, oy, rng, base=(64, 112, 48)):
+    def px_fn(px, py):
+        n = rng.randint(-10, 10)
+        put(img, ox + px, oy + py, shade(base, n))
+    for_diamond(px_fn)
+    # Blades: short vertical strokes, lighter on top.
+    for _ in range(70):
+        py = rng.randint(2, 29)
+        x0, x1 = diamond_span(py)
+        px = rng.randint(x0, x1)
+        light = rng.random() < 0.55
+        col = shade(base, 22 if light else -18)
+        put(img, ox + px, oy + py, col)
+        if py > 0:
+            a0, a1 = diamond_span(py - 1)
+            if a0 <= px <= a1:
+                put(img, ox + px, oy + py - 1, shade(col, 10 if light else -6))
+    # A few flowers/weeds.
+    for _ in range(rng.randint(0, 2)):
+        py = rng.randint(4, 27)
+        x0, x1 = diamond_span(py)
+        px = rng.randint(x0 + 2, x1 - 2) if x1 - x0 > 4 else x0
+        put(img, ox + px, oy + py, rng.choice([(196, 188, 92), (180, 150, 190), (210, 210, 200)]))
+
+
+def tex_grass_dark(img, ox, oy, rng):
+    tex_grass(img, ox, oy, rng, base=(58, 104, 45))
+
+
+def tex_dirt(img, ox, oy, rng):
+    base = (116, 88, 62)
+    def px_fn(px, py):
+        put(img, ox + px, oy + py, shade(base, rng.randint(-9, 9)))
+    for_diamond(px_fn)
+    for _ in range(26):
+        py = rng.randint(1, 30)
+        x0, x1 = diamond_span(py)
+        px = rng.randint(x0, x1)
+        put(img, ox + px, oy + py, shade(base, rng.choice([-24, -16, 14])))
+
+
+def tex_gravel(img, ox, oy, rng):
+    base = (122, 116, 104)
+    def px_fn(px, py):
+        put(img, ox + px, oy + py, shade(base, rng.randint(-14, 14)))
+    for_diamond(px_fn)
+    for _ in range(40):
+        py = rng.randint(1, 30)
+        x0, x1 = diamond_span(py)
+        px = rng.randint(x0, x1)
+        v = rng.randint(-34, 26)
+        put(img, ox + px, oy + py, shade(base, v))
+
+
+def tex_asphalt(img, ox, oy, rng):
+    base = (70, 72, 76)
+    def px_fn(px, py):
+        put(img, ox + px, oy + py, shade(base, rng.randint(-6, 6)))
+    for_diamond(px_fn)
+    for _ in range(22):
+        py = rng.randint(1, 30)
+        x0, x1 = diamond_span(py)
+        px = rng.randint(x0, x1)
+        put(img, ox + px, oy + py, shade(base, rng.choice([-12, 10, 16])))
+    # Occasional crack.
+    if rng.random() < 0.35:
+        py = rng.randint(6, 24)
+        x0, x1 = diamond_span(py)
+        px = rng.randint(x0 + 4, max(x0 + 4, x1 - 10))
+        for step in range(rng.randint(5, 11)):
+            cx = px + step
+            cy = py + (step // 3) * rng.choice([-1, 0, 1])
+            if 0 <= cy < 32:
+                a0, a1 = diamond_span(cy)
+                if a0 <= cx <= a1:
+                    put(img, ox + cx, oy + cy, shade(base, -22))
+
+
+def tex_sidewalk(img, ox, oy, rng):
+    base = (152, 150, 142)
+    slab = 16.0
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        c = shade(base, rng.randint(-5, 5))
+        fx = wx % slab
+        fy = wy % slab
+        if fx < 0.75 or fy < 0.75:
+            c = shade(base, -26)
+        elif fx < 1.5 or fy < 1.5:
+            c = shade(base, 8)
+        put(img, ox + px, oy + py, c)
+    for_diamond(px_fn)
+
+
+def tex_concrete(img, ox, oy, rng):
+    base = (138, 138, 132)
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        c = shade(base, rng.randint(-5, 5))
+        if wx < 0.6 or wy < 0.6:
+            c = shade(base, -14)
+        put(img, ox + px, oy + py, c)
+    for_diamond(px_fn)
+    for _ in range(rng.randint(0, 3)):
+        py = rng.randint(4, 27)
+        x0, x1 = diamond_span(py)
+        put(img, ox + rng.randint(x0, x1), oy + py, shade(base, -18))
+
+
+def tex_tile_floor(img, ox, oy, rng):
+    light = (196, 192, 178)
+    dark = (150, 146, 136)
+    cell = 8.0
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        checker = (int(wx // cell) + int(wy // cell)) % 2
+        c = light if checker == 0 else dark
+        c = shade(c, rng.randint(-3, 3))
+        if wx % cell < 0.6 or wy % cell < 0.6:
+            c = shade(c, -18)
+        put(img, ox + px, oy + py, c)
+    for_diamond(px_fn)
+
+
+def tex_wood_floor(img, ox, oy, rng):
+    plank_w = 6.4  # five planks per tile, running along world x
+    tones = [(128, 88, 56), (138, 96, 60), (120, 82, 52), (134, 92, 58), (124, 86, 54)]
+    rng.shuffle(tones)
+    joints = [rng.uniform(4.0, 28.0) for _ in tones]
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        i = min(len(tones) - 1, max(0, int(wy // plank_w)))
+        c = shade(tones[i], rng.randint(-4, 4))
+        if wy % plank_w < 0.7:
+            c = shade(c, -30)
+        elif abs(wx - joints[i]) < 0.6:
+            c = shade(c, -24)
+        elif (int(wx * 1.7 + i * 5) % 9) == 0:
+            c = shade(c, -8)  # grain
+        put(img, ox + px, oy + py, c)
+    for_diamond(px_fn)
+
+
+def tex_carpet(img, ox, oy, rng):
+    base = (112, 62, 58)
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        c = shade(base, rng.randint(-5, 5))
+        if (int(wx) + int(wy)) % 4 == 0:
+            c = shade(c, -10)
+        put(img, ox + px, oy + py, c)
+    for_diamond(px_fn)
+
+
+def tex_metal_floor(img, ox, oy, rng):
+    base = (102, 108, 114)
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        c = shade(base, rng.randint(-3, 3))
+        # Diamond plate: short raised dashes on a grid.
+        gx = wx % 6.0
+        gy = wy % 6.0
+        if 1.0 < gx < 3.4 and 1.4 < gy < 2.4:
+            c = shade(base, 22)
+        elif 1.0 < gx < 3.4 and 2.4 <= gy < 3.0:
+            c = shade(base, -16)
+        put(img, ox + px, oy + py, c)
+    for_diamond(px_fn)
+
+
+def tex_water(img, ox, oy, rng):
+    base = (40, 84, 128)
+    phase = rng.uniform(0, 6.28)
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        wave = math.sin((wx + wy) * 0.55 + phase) + 0.5 * math.sin(wx * 0.9 - phase)
+        c = shade(base, int(wave * 7) + rng.randint(-3, 3))
+        put(img, ox + px, oy + py, c)
+    for_diamond(px_fn)
+    for _ in range(6):
+        py = rng.randint(4, 27)
+        x0, x1 = diamond_span(py)
+        px = rng.randint(x0 + 2, max(x0 + 2, x1 - 4))
+        for d in range(rng.randint(2, 4)):
+            if px + d <= x1:
+                put(img, ox + px + d, oy + py, (120, 168, 200))
+
+
+def tex_wall_base(img, ox, oy, rng):
+    # Ground under wall blocks; covered by the block, kept for the minimap.
+    base = (88, 82, 74)
+    def px_fn(px, py):
+        put(img, ox + px, oy + py, shade(base, rng.randint(-4, 4)))
+    for_diamond(px_fn)
+
+
+def tex_solid(color):
+    def fn(img, ox, oy, rng):
+        def px_fn(px, py):
+            put(img, ox + px, oy + py, color)
+        for_diamond(px_fn)
+    return fn
+
+
+# GID -> texture. GIDs 11-14 were unused by the map and now hold new floors.
+GROUND_TEXTURES = {
+    2: tex_concrete,          # kGidFloor
+    3: tex_gravel,            # kGidGravel
+    4: tex_dirt,              # kGidDirt
+    5: tex_water,             # kGidWater
+    6: tex_carpet,            # kGidCarpet
+    7: tex_wall_base,         # kGidWall (under wall blocks)
+    8: tex_metal_floor,       # kGidMetal
+    9: tex_grass,             # kGidGrass
+    10: tex_grass_dark,       # kGidGrass2
+    11: tex_wood_floor,       # kGidWood
+    12: tex_tile_floor,       # kGidTileFloor
+    13: tex_asphalt,          # kGidAsphalt
+    14: tex_sidewalk,         # kGidSidewalk
+    15: tex_solid((255, 255, 255)),
+    16: tex_solid((20, 20, 20)),
+}
+
+
+def generate_tileset():
+    """Ground tileset (placeholder.png): 16 columns (GID 1..16) x 4 variant rows.
+
+    GID g, variant v lives at column g-1, row v, i.e. local id v*16 + g-1.
+    The renderer picks a variant per tile from a hash of its position.
+    """
+    cols = 16
+    img = Image.new("RGBA", (cols * ISO_TILE_W, TILE_VARIANTS * ISO_TILE_H), (0, 0, 0, 0))
+    for gid, fn in GROUND_TEXTURES.items():
+        for v in range(TILE_VARIANTS):
+            rng = random.Random(gid * 1009 + v * 7919)
+            fn(img, (gid - 1) * ISO_TILE_W, v * ISO_TILE_H, rng)
     return img
+
+
+# --- Structures ------------------------------------------------------------
+
+WALL_MATERIALS = {
+    # name: (left face, right face, top cap, accent)
+    "plaster": ((184, 168, 140), (146, 132, 108), (92, 86, 80), (120, 108, 90)),
+    "brick": ((156, 82, 62), (122, 64, 50), (88, 82, 78), (176, 160, 140)),
+    "metal": ((128, 138, 146), (98, 106, 114), (150, 156, 160), (84, 90, 96)),
+}
+
+ROOF_COLORS = {
+    "residential": (98, 66, 58),
+    "commercial": (92, 92, 96),
+    "industrial": (128, 136, 142),
+}
+
+
+def face_color(material, left, u, h, height, rng):
+    """Color of a wall face pixel. u runs along the face (0..31), h is the
+    height above the ground (0 at the bottom)."""
+    lc, rc, cap, accent = WALL_MATERIALS[material]
+    c = lc if left else rc
+    c = shade(c, rng.randint(-3, 3))
+    if material == "plaster":
+        # Horizontal siding boards with a dark baseboard and light top trim.
+        if h < 3:
+            return shade(c, -34)
+        if h >= height - 2:
+            return shade(c, 16)
+        if h % 7 == 0:
+            return shade(c, -16)
+        if h % 7 == 1:
+            return shade(c, 6)
+        return c
+    if material == "brick":
+        course = h // 4
+        if h < 2:
+            return shade(c, -30)
+        if h % 4 == 0:
+            return accent if left else shade(accent, -26)
+        offset = 4 if course % 2 else 0
+        if (u + offset) % 8 == 0:
+            return accent if left else shade(accent, -26)
+        return shade(c, (course * 7 % 5) - 2)
+    # metal: vertical corrugation
+    if h < 2:
+        return shade(c, -30)
+    if u % 4 == 0:
+        return shade(c, 16)
+    if u % 4 == 2:
+        return shade(c, -14)
+    return c
+
+
+def make_block(material, height, feature=None, seed=0):
+    """A wall block: top cap diamond plus the two faces the camera sees.
+
+    feature: None, "window_l", "window_r", "door_l", "door_r". The suffix says
+    which face carries it (l = left/south face, r = right/east face).
+    """
+    rng = random.Random(seed)
+    lc, rc, cap, accent = WALL_MATERIALS[material]
+    img = Image.new("RGBA", (ISO_TILE_W, ISO_TILE_H + height), (0, 0, 0, 0))
+
+    for px in range(1, 63):
+        left = px <= 31
+        u = px - 1 if left else 62 - px
+        yb = diamond_bottom(px)
+        for h in range(height):
+            y = yb + height - h
+            c = face_color(material, left, u, h, height, rng)
+            alpha = 255
+            if feature is not None and feature.endswith("_l" if left else "_r"):
+                if feature.startswith("window"):
+                    if 9 <= u <= 22 and 20 <= h <= 42 and height >= 40:
+                        if u in (9, 22) or h in (20, 42) or u == 15 or h == 31:
+                            c = (210, 204, 190) if material != "metal" else (170, 176, 180)
+                        else:
+                            glass = (58, 76, 92) if left else (46, 60, 74)
+                            # Simple reflection streak.
+                            if (u - h // 2) % 9 in (0, 1):
+                                glass = shade(glass, 30)
+                            c = glass
+                elif feature.startswith("door"):
+                    if 9 <= u <= 22 and h <= 44:
+                        if u in (9, 22) or h == 44:
+                            c = shade(accent, -10) if material != "brick" else (92, 86, 80)
+                        else:
+                            alpha = 0  # open doorway: see straight through
+            if alpha:
+                put(img, px, y, c, alpha)
+
+    # Top cap (drawn last so it sits over the faces' top rows).
+    for py in range(32):
+        x0, x1 = diamond_span(py)
+        for px in range(x0, x1 + 1):
+            # No outline: neighbouring caps merge into one continuous wall top.
+            put(img, px, py, shade(cap, rng.randint(-3, 3)))
+    return img
+
+
+def make_roof(kind, seed=0):
+    rng = random.Random(seed)
+    base = ROOF_COLORS[kind]
+    img = Image.new("RGBA", (ISO_TILE_W, ISO_TILE_H), (0, 0, 0, 0))
+    for py in range(32):
+        x0, x1 = diamond_span(py)
+        for px in range(x0, x1 + 1):
+            wx, wy = tile_world(px, py)
+            c = shade(base, rng.randint(-4, 4))
+            if kind == "residential":
+                # Shingle rows along world x, staggered tabs.
+                row = int(wy // 4)
+                if wy % 4 < 0.8:
+                    c = shade(base, -18)
+                elif (int(wx + (row % 2) * 3) % 6) == 0:
+                    c = shade(base, -10)
+                else:
+                    c = shade(c, (row % 3) * 3 - 3)
+            elif kind == "commercial":
+                if rng.random() < 0.08:
+                    c = shade(base, rng.choice([-16, 14]))
+                if wx % 16 < 0.6 or wy % 16 < 0.6:
+                    c = shade(base, -10)  # seams in the membrane
+            else:
+                if int(wy) % 4 == 0:
+                    c = shade(base, 14)
+                elif int(wy) % 4 == 2:
+                    c = shade(base, -12)
+            put(img, px, py, c)
+    return img
+
+
+def add_structure_sprites(img, sprites):
+    """Wall blocks, doorways and roofs, placed below the older atlas rows."""
+    y_full = 320
+    x = 0
+    seed = 1
+    for material in ("plaster", "brick", "metal"):
+        for feature, suffix in ((None, ""), ("window_l", "_window_l"), ("window_r", "_window_r"),
+                                ("door_l", "_door_l"), ("door_r", "_door_r")):
+            block = make_block(material, WALL_H, feature, seed)
+            seed += 1
+            img.paste(block, (x, y_full), block)
+            sprites["wall_" + material + suffix] = {"x": x, "y": y_full, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_H}
+            x += ISO_TILE_W
+
+    y_low = y_full + ISO_TILE_H + WALL_H
+    x = 0
+    for material in ("plaster", "brick", "metal"):
+        block = make_block(material, WALL_LOW_H, None, seed)
+        seed += 1
+        img.paste(block, (x, y_low), block)
+        sprites["wall_" + material + "_low"] = {"x": x, "y": y_low, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_LOW_H}
+        x += ISO_TILE_W
+    for kind in ("residential", "commercial", "industrial"):
+        roof = make_roof(kind, seed)
+        seed += 1
+        img.paste(roof, (x, y_low), roof)
+        sprites["roof_" + kind] = {"x": x, "y": y_low, "w": ISO_TILE_W, "h": ISO_TILE_H}
+        x += ISO_TILE_W
 
 
 def main():

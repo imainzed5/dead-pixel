@@ -39,7 +39,7 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | 3 | Test target: core library, save round-trip and logic tests | done |
 | 4 | Wave 1a: simulation pressure (mental, needs/temperature, zombie pressure) | done |
 | 5 | Wave 1b: readability (scale/zoom, HUD rework, night lighting) | done |
-| 6 | Walls with height, wall/roof occlusion, art generator upgrade | |
+| 6 | Walls with height, wall/roof occlusion, art generator upgrade | done |
 | 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | |
 | 8 | Wave 2: make the legacy hook visible | |
 | 9 | Wave 3: extras polish, tone presets with real effects | |
@@ -156,6 +156,41 @@ varies.
 - Harness: `set STAT VALUE` forces player stats; `tools/harness/hud_states.txt`
   screenshots a fresh, a stressed and a night character.
 
+## Walls, roofs and the town (2026-11-06)
+
+**Structures** (`src/rendering/StructureView.h/.cpp`)
+- Wall tiles draw as 56 px blocks (`kWallHeight`, must match `WALL_H` in the
+  generator) that sort with entities by iso depth, so you can stand behind a
+  wall. Each wall knows its run (along x, along y, corner), material (plaster
+  houses, brick shops and the map edge, metal industrial) and whether it is on
+  a building's outside edge. Outside walls get windows every few tiles;
+  doorways get a frame on the face they open through.
+- Each building has a flat roof (shingles, tar, ribbed metal) over its
+  interior. It fades out while you are inside or standing at one of its
+  doorways, and everything under a closed roof (zombies, loot) is not drawn.
+- Cut-away: walls of your own building that are in front of you drop to 8 px
+  stubs; outside, walls in a narrow band right in front of you do the same.
+
+**Map** (`MapGenerator`, `src/map/TileIds.h`)
+- Ground ids gained wood, tile floor, asphalt and sidewalk; each ground id has
+  four textured variants picked per tile. Roads are asphalt with sidewalks.
+- Rooms get one floor each by building type: houses wood/carpet/tile, shops
+  tile or concrete, industrial concrete or metal plate.
+- Buildings are closed: notch corners are walled, doors are only placed where
+  there is floor behind them, and interior walls never block a doorway.
+- Outdoor decor comes in clusters: dirt patches, small ponds, darker grass.
+
+**Art** (`tools/generate_sprites.py`) draws the tileset (1024×128) and the wall,
+window, doorway, stub and roof sprites; the old atlas content is unchanged.
+
+**Harness:** `enter N` teleports into building N; `tools/harness/interiors.txt`
+screenshots several interiors by day and night.
+
+**Tests:** `tests/test_structures.cpp` covers wall classification, roof
+open/fade/hiding, the cut-away rule, sprite collection and the generator
+guarantees (closed buildings, doors that lead inside, one floor per room,
+sidewalks along roads).
+
 ## Known issues found during revival
 
 - ~~Input transitions cleared per render frame, not per tick~~ (fixed: latched
@@ -174,7 +209,9 @@ varies.
 - Tone presets are stored and shown but have no gameplay effect.
 - `beginDeathState` and `beginRetirementState` duplicate ~50 lines of
   persistence code verbatim.
-- No wall/roof occlusion: indoor zombies and loot can hide behind walls.
+- ~~No wall/roof occlusion: indoor zombies and loot can hide behind walls~~
+  (fixed: wall blocks, cut-away and roofs).
+- Building interiors have no furniture; loot lies on bare floors.
 - Character sprites face only up/down/right; isometric movement is diagonal.
 
 ## Log
@@ -191,3 +228,6 @@ varies.
 - 2026-11-06: Wave 1b HUD rework: `Hud` module, conditions list, clock and
   objective panel, icon hotbar, district toast, inventory grid, controls and
   pause panels, harness `set` command.
+- 2026-11-06: Walls with height, roofs and cut-away (`StructureView`), tileset
+  variants, room floors, asphalt roads with sidewalks, closed buildings,
+  harness `enter` command.

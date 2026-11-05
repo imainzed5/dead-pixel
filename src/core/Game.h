@@ -28,6 +28,7 @@
 #include "rendering/SpriteBatch.h"
 #include "rendering/BitmapFont.h"
 #include "rendering/SpriteSheet.h"
+#include "rendering/StructureView.h"
 #include "rendering/Texture.h"
 #include "save/SaveManager.h"
 #include "systems/CollisionSystem.h"
@@ -110,6 +111,7 @@ private:
     void renderNotebookOverlay();
     void setupLightingUniforms();
     [[nodiscard]] float nightFactor() const;
+    [[nodiscard]] glm::ivec2 playerTile() const;
     [[nodiscard]] bool playerHasItem(const char* itemName) const;
     void snapshotPositions();
     void updateNoiseModel(float dtSeconds);
@@ -239,6 +241,10 @@ private:
 
     Hud mHud;
     HudState mHudState;
+
+    StructureView mStructureView;
+    StructureSprites mStructureSprites;
+    std::vector<StaticSprite> mStaticSprites;
     float mHudClock = 0.0f;
     int mHudDistrictId = -1;
     float mDistrictToastTimer = 0.0f;
