@@ -151,6 +151,7 @@ DP_TEST(save_world_memory_round_trips)
     sedan.items = {{4, 2}};
     save.setVehicleRecords({sedan});
     save.setBurnedTiles({{1, 2}, {3, 4}, {1, 2}});
+    save.setBrokenDoors({{7, 8}});
     DP_CHECK(save.saveLootedPositions());
 
     SaveManager reloaded;
@@ -163,6 +164,8 @@ DP_TEST(save_world_memory_round_trips)
     DP_CHECK_NEAR(reloaded.vehicles()[0].fuel, 9.5f, 0.001);
     DP_CHECK_EQ(reloaded.vehicles()[0].items.size(), std::size_t{1});
     DP_CHECK_EQ(reloaded.burnedTiles().size(), std::size_t{2}); // duplicates collapse
+    DP_CHECK_EQ(reloaded.brokenDoors().size(), std::size_t{1});
+    DP_CHECK_EQ(reloaded.brokenDoors()[0].first, 7);
 }
 
 DP_TEST(save_checkpoint_round_trips_and_is_run_scoped)
@@ -187,6 +190,15 @@ DP_TEST(save_checkpoint_round_trips_and_is_run_scoped)
     cp.inventory.slots[0].itemId = 2;
     cp.inventory.slots[0].count = 3;
     cp.kills = 5;
+    cp.openDoors = {{4, 5}};
+    cp.brokenDoors = {{6, 7}, {8, 9}};
+    cp.burnedTiles = {{1, 1}};
+    FireTileRecord fire;
+    fire.tileX = 2;
+    fire.tileY = 3;
+    fire.intensity = 1.2f;
+    fire.lifeRemaining = 20.0f;
+    cp.fires = {fire};
     DP_CHECK(save.saveCheckpoint(cp));
 
     const RunCheckpoint loaded = save.loadCheckpoint();
@@ -200,6 +212,14 @@ DP_TEST(save_checkpoint_round_trips_and_is_run_scoped)
     DP_CHECK_EQ(loaded.inventory.slots[0].itemId, 2);
     DP_CHECK_EQ(loaded.inventory.slots[0].count, 3);
     DP_CHECK_EQ(loaded.kills, 5);
+    // The town as the run left it.
+    DP_CHECK_EQ(loaded.openDoors.size(), std::size_t{1});
+    DP_CHECK_EQ(loaded.openDoors[0].second, 5);
+    DP_CHECK_EQ(loaded.brokenDoors.size(), std::size_t{2});
+    DP_CHECK_EQ(loaded.burnedTiles.size(), std::size_t{1});
+    DP_CHECK_EQ(loaded.fires.size(), std::size_t{1});
+    DP_CHECK_EQ(loaded.fires[0].tileY, 3);
+    DP_CHECK_NEAR(loaded.fires[0].lifeRemaining, 20.0f, 0.001);
 
     // A death ends the run: the old checkpoint must not restore into the next run.
     GraveRecord grave;

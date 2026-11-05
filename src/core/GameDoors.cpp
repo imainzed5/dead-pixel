@@ -19,6 +19,15 @@ constexpr float kBangHearingTiles = 18.0f;
 constexpr float kBreakMessageTiles = 14.0f;
 } // namespace
 
+void Game::resetDoors()
+{
+    mDoors.reset(mTileMap, mMapGenerator.layoutData());
+    for (const auto& [x, y] : mSaveManager.brokenDoors())
+    {
+        mDoors.setState(mTileMap, glm::ivec2(x, y), DoorState::Broken);
+    }
+}
+
 void Game::updateDoors(float dtSeconds)
 {
     mDoors.tick(dtSeconds);

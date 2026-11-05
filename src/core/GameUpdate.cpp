@@ -800,35 +800,7 @@ void Game::updateSleep(float dtSeconds)
                 // Checkpoint after a full sleep cycle
                 if (mPlayerEntity != kInvalidEntity)
                 {
-                    RunCheckpoint cp;
-                    cp.runSeed = mSaveManager.currentRunSeed();
-                    cp.characterName = mCurrentCharacterName;
-                    cp.currentDay = mCurrentDay;
-                    cp.gameHours = mGameHours;
-                    if (mWorld.hasComponent<Transform>(mPlayerEntity))
-                    {
-                        const auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
-                        cp.playerX = t.x; cp.playerY = t.y;
-                    }
-                    if (mWorld.hasComponent<Health>(mPlayerEntity))
-                    {
-                        const auto& h = mWorld.getComponent<Health>(mPlayerEntity);
-                        cp.healthCurrent = h.current; cp.healthMaximum = h.maximum;
-                    }
-                    if (mWorld.hasComponent<Needs>(mPlayerEntity))
-                        cp.needs = mWorld.getComponent<Needs>(mPlayerEntity);
-                    if (mWorld.hasComponent<MentalState>(mPlayerEntity))
-                        cp.mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-                    if (mWorld.hasComponent<Wounds>(mPlayerEntity))
-                        cp.wounds = mWorld.getComponent<Wounds>(mPlayerEntity).active;
-                    cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
-                    if (mWorld.hasComponent<Inventory>(mPlayerEntity))
-                        cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
-                    cp.kills = mRunStats.kills;
-                    cp.itemsLooted = mRunStats.itemsLooted;
-                    cp.structuresBuilt = mRunStats.structuresBuilt;
-                    cp.distanceWalked = mRunStats.distanceWalked;
-                    mSaveManager.saveCheckpoint(cp);
+                    mSaveManager.saveCheckpoint(buildRunCheckpoint());
                     mSaveManager.saveLootedPositions();
                 }
             }

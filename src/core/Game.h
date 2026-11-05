@@ -112,6 +112,8 @@ private:
         float lineScale = 2.0f;
     };
     void updateDoors(float dtSeconds);
+    // Every door closed, except those broken down in earlier runs.
+    void resetDoors();
     // E at a door: opens or closes it. False when no door is in reach.
     bool handleDoorInteraction(const ProximityPrompt& entityPrompt);
     void spawnLegacy();
@@ -175,6 +177,11 @@ private:
     void syncPresentationSettingsToSave();
     void ensureCampaignObjective();
     bool saveCurrentRunCheckpoint(const std::string& statusMessage = "Run checkpoint saved.");
+    [[nodiscard]] RunCheckpoint buildRunCheckpoint();
+    // The town as the checkpoint left it: doors, scars, fires.
+    void restoreTownFromCheckpoint(const RunCheckpoint& cp);
+    void spawnScorchMark(int tileX, int tileY);
+    void spawnFireTile(const FireTileRecord& record, float spreadPhase);
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
 
     LaunchOptions mLaunchOptions;

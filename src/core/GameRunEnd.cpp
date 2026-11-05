@@ -261,6 +261,16 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
         mSaveManager.setFireTileRecords(std::move(fireRecords));
     }
 
+    // Doors the dead broke down stay broken for whoever comes next.
+    {
+        std::vector<std::pair<int,int>> broken;
+        for (const glm::ivec2& tile : mDoors.tilesIn(mTileMap, DoorState::Broken))
+        {
+            broken.emplace_back(tile.x, tile.y);
+        }
+        mSaveManager.setBrokenDoors(std::move(broken));
+    }
+
     // Burn scars: earlier runs' scars are already in world memory, so only
     // tiles that burned during this run become new events.
     mSaveManager.setBurnedTiles(mBurnedTiles);

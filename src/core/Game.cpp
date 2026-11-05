@@ -296,7 +296,7 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
 
     mMapGenerator.applyToTileMap(mTileMap);
     mStructureView.build(mTileMap, mMapGenerator.layoutData());
-    mDoors.reset(mTileMap, mMapGenerator.layoutData()); // after build: closed doors are solid
+    resetDoors(); // after build: closed doors are solid
     mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     mActiveSaveSlot = slotName;
     syncPresentationSettingsFromSave();
@@ -331,6 +331,63 @@ void Game::syncPresentationSettingsToSave()
     mSaveManager.savePresentationSettings();
 }
 
+RunCheckpoint Game::buildRunCheckpoint()
+{
+    RunCheckpoint cp;
+    cp.runSeed = mSaveManager.currentRunSeed();
+    cp.characterName = mCurrentCharacterName;
+    cp.currentDay = mCurrentDay;
+    cp.gameHours = mGameHours;
+
+    if (mPlayerEntity != kInvalidEntity)
+    {
+        if (mWorld.hasComponent<Transform>(mPlayerEntity))
+        {
+            const auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
+            cp.playerX = t.x;
+            cp.playerY = t.y;
+        }
+        if (mWorld.hasComponent<Health>(mPlayerEntity))
+        {
+            const auto& h = mWorld.getComponent<Health>(mPlayerEntity);
+            cp.healthCurrent = h.current;
+            cp.healthMaximum = h.maximum;
+        }
+        if (mWorld.hasComponent<Needs>(mPlayerEntity))
+            cp.needs = mWorld.getComponent<Needs>(mPlayerEntity);
+        if (mWorld.hasComponent<MentalState>(mPlayerEntity))
+            cp.mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+        if (mWorld.hasComponent<Wounds>(mPlayerEntity))
+            cp.wounds = mWorld.getComponent<Wounds>(mPlayerEntity).active;
+        cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
+        if (mWorld.hasComponent<Inventory>(mPlayerEntity))
+            cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
+    }
+
+    cp.kills = mRunStats.kills;
+    cp.itemsLooted = mRunStats.itemsLooted;
+    cp.structuresBuilt = mRunStats.structuresBuilt;
+    cp.distanceWalked = mRunStats.distanceWalked;
+
+    for (const glm::ivec2& tile : mDoors.tilesIn(mTileMap, DoorState::Open))
+        cp.openDoors.emplace_back(tile.x, tile.y);
+    for (const glm::ivec2& tile : mDoors.tilesIn(mTileMap, DoorState::Broken))
+        cp.brokenDoors.emplace_back(tile.x, tile.y);
+    cp.burnedTiles = mBurnedTiles;
+    mWorld.forEach<Fire, Transform>(
+        [&](Entity, Fire& fire, Transform& transform)
+        {
+            const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(transform.x, transform.y));
+            FireTileRecord record;
+            record.tileX = tile.x;
+            record.tileY = tile.y;
+            record.intensity = fire.intensity;
+            record.lifeRemaining = fire.lifeRemaining;
+            cp.fires.push_back(record);
+        });
+    return cp;
+}
+
 bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
 {
     if (mPlayerEntity == kInvalidEntity)
@@ -340,54 +397,7 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
 
     syncLegacyToSave();
 
-    RunCheckpoint cp;
-    cp.runSeed = mSaveManager.currentRunSeed();
-    cp.characterName = mCurrentCharacterName;
-    cp.currentDay = mCurrentDay;
-    cp.gameHours = mGameHours;
-
-    if (mWorld.hasComponent<Transform>(mPlayerEntity))
-    {
-        const auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
-        cp.playerX = t.x;
-        cp.playerY = t.y;
-    }
-
-    if (mWorld.hasComponent<Health>(mPlayerEntity))
-    {
-        const auto& h = mWorld.getComponent<Health>(mPlayerEntity);
-        cp.healthCurrent = h.current;
-        cp.healthMaximum = h.maximum;
-    }
-
-    if (mWorld.hasComponent<Needs>(mPlayerEntity))
-    {
-        cp.needs = mWorld.getComponent<Needs>(mPlayerEntity);
-    }
-
-    if (mWorld.hasComponent<MentalState>(mPlayerEntity))
-    {
-        cp.mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-    }
-
-    if (mWorld.hasComponent<Wounds>(mPlayerEntity))
-    {
-        cp.wounds = mWorld.getComponent<Wounds>(mPlayerEntity).active;
-    }
-
-    cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
-
-    if (mWorld.hasComponent<Inventory>(mPlayerEntity))
-    {
-        cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
-    }
-
-    cp.kills = mRunStats.kills;
-    cp.itemsLooted = mRunStats.itemsLooted;
-    cp.structuresBuilt = mRunStats.structuresBuilt;
-    cp.distanceWalked = mRunStats.distanceWalked;
-
-    const bool ok = mSaveManager.saveCheckpoint(cp);
+    const bool ok = mSaveManager.saveCheckpoint(buildRunCheckpoint());
     if (ok)
     {
         mSaveManager.saveLootedPositions();
@@ -704,6 +714,7 @@ void Game::startNewRun()
         mRunStats.itemsLooted = cp.itemsLooted;
         mRunStats.structuresBuilt = cp.structuresBuilt;
         mRunStats.distanceWalked = cp.distanceWalked;
+        restoreTownFromCheckpoint(cp);
 
         mInteractionMessage = "Resumed " + mCurrentCharacterName + "'s run.";
         mInteractionMessageTimer = 3.0f;

@@ -179,6 +179,11 @@ struct RunCheckpoint
     int itemsLooted = 0;
     int structuresBuilt = 0;
     float distanceWalked = 0.0f;
+    // The town as this run has changed it so far.
+    std::vector<std::pair<int,int>> openDoors;
+    std::vector<std::pair<int,int>> brokenDoors;
+    std::vector<std::pair<int,int>> burnedTiles; // all scars, earlier runs' included
+    std::vector<FireTileRecord> fires;
 };
 
 class SaveManager
@@ -201,6 +206,8 @@ public:
     [[nodiscard]] const std::vector<VehicleRecord>& vehicles() const { return mVehicles; }
     [[nodiscard]] const std::vector<FireTileRecord>& fireTiles() const { return mFireTiles; }
     [[nodiscard]] const std::vector<std::pair<int,int>>& burnedTiles() const { return mBurnedTiles; }
+    // Doors the dead broke down in earlier runs stay broken.
+    [[nodiscard]] const std::vector<std::pair<int,int>>& brokenDoors() const { return mBrokenDoors; }
     [[nodiscard]] const std::vector<CharacterHistoryRecord>& characterHistory() const { return mCharacterHistory; }
     [[nodiscard]] const std::vector<WorldMemoryEventRecord>& worldMemoryEvents() const { return mWorldEvents; }
     [[nodiscard]] const RunPresentationSettings& presentationSettings() const { return mPresentationSettings; }
@@ -227,6 +234,7 @@ public:
     void setVehicleRecords(std::vector<VehicleRecord> vehicles);
     void setFireTileRecords(std::vector<FireTileRecord> fireTiles);
     void setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles);
+    void setBrokenDoors(std::vector<std::pair<int,int>> brokenDoors);
     bool addWorldMemoryEvent(const WorldMemoryEventRecord& record);
 
     // Cumulative stats
@@ -293,6 +301,7 @@ private:
     std::vector<VehicleRecord> mVehicles;
     std::vector<FireTileRecord> mFireTiles;
     std::vector<std::pair<int,int>> mBurnedTiles;
+    std::vector<std::pair<int,int>> mBrokenDoors;
     std::vector<CharacterHistoryRecord> mCharacterHistory;
     std::vector<WorldMemoryEventRecord> mWorldEvents;
     RunPresentationSettings mPresentationSettings{};

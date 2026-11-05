@@ -40,6 +40,9 @@ public:
     // Open <-> closed; broken doors stay broken. Returns the new state.
     DoorState toggle(TileMap& map, const glm::ivec2& tile);
     void open(TileMap& map, const glm::ivec2& tile);
+    // Restore a saved state (checkpoints, world memory). Unknown tiles are
+    // ignored; a broken door has no hp left.
+    void setState(TileMap& map, const glm::ivec2& tile, DoorState state);
     Blow batter(TileMap& map, const glm::ivec2& tile, float damage);
     void tick(float dtSeconds);
 
@@ -48,6 +51,7 @@ public:
     [[nodiscard]] const Door* nearest(const TileMap& map, const glm::vec2& world, float range) const;
     [[nodiscard]] const std::vector<Door>& all() const { return mDoors; }
     [[nodiscard]] int count(const TileMap& map, DoorState state) const;
+    [[nodiscard]] std::vector<glm::ivec2> tilesIn(const TileMap& map, DoorState state) const;
 
 private:
     [[nodiscard]] Door* findMutable(const glm::ivec2& tile);

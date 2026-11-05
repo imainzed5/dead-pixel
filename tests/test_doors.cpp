@@ -91,3 +91,25 @@ DP_TEST(doors_break_under_enough_blows_and_stay_broken)
     fresh.open(room.map, tile);
     DP_CHECK(fresh.batter(room.map, tile, 10.0f) == Doors::Blow::None);
 }
+
+DP_TEST(doors_restore_saved_states)
+{
+    Room room;
+    Doors doors;
+    doors.reset(room.map, room.layout);
+    const glm::ivec2 tile(1, 2);
+
+    doors.setState(room.map, tile, DoorState::Broken);
+    DP_CHECK(room.map.doorState(1, 2) == DoorState::Broken);
+    DP_CHECK_EQ(doors.tilesIn(room.map, DoorState::Broken).size(), std::size_t{1});
+    DP_CHECK(doors.tilesIn(room.map, DoorState::Closed).empty());
+
+    // Tiles that hold no door are ignored.
+    doors.setState(room.map, glm::ivec2(3, 3), DoorState::Open);
+    DP_CHECK(room.map.doorState(3, 3) == DoorState::None);
+
+    // A restored closed door is whole again.
+    doors.setState(room.map, tile, DoorState::Closed);
+    DP_CHECK(doors.find(tile)->hp == Doors::kMaxHp);
+    DP_CHECK(room.map.isSolid(1, 2));
+}

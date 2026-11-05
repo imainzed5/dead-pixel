@@ -322,6 +322,7 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     mVehicles.clear();
     mFireTiles.clear();
     mBurnedTiles.clear();
+    mBrokenDoors.clear();
     mCharacterHistory.clear();
     mWorldEvents.clear();
 
@@ -1181,6 +1182,26 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["structuresBuilt"] = cp.structuresBuilt;
     json["distanceWalked"] = cp.distanceWalked;
 
+    // The town as this run has changed it.
+    const auto tilesToJson = [](const std::vector<std::pair<int,int>>& tiles)
+    {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& [x, y] : tiles)
+        {
+            arr.push_back({x, y});
+        }
+        return arr;
+    };
+    json["openDoors"] = tilesToJson(cp.openDoors);
+    json["brokenDoors"] = tilesToJson(cp.brokenDoors);
+    json["burned"] = tilesToJson(cp.burnedTiles);
+    json["fires"] = nlohmann::json::array();
+    for (const FireTileRecord& fire : cp.fires)
+    {
+        json["fires"].push_back(
+            {{"tileX", fire.tileX}, {"tileY", fire.tileY}, {"intensity", fire.intensity}, {"lifeRemaining", fire.lifeRemaining}});
+    }
+
     const std::string tempPath = mCheckpointPath + ".tmp";
     {
         std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
@@ -1265,6 +1286,40 @@ RunCheckpoint SaveManager::loadCheckpoint() const
     cp.structuresBuilt = json.value("structuresBuilt", 0);
     cp.distanceWalked = json.value("distanceWalked", 0.0f);
 
+    const auto tilesFromJson = [&json](const char* key)
+    {
+        std::vector<std::pair<int,int>> tiles;
+        if (json.contains(key) && json[key].is_array())
+        {
+            for (const auto& tj : json[key])
+            {
+                if (tj.is_array() && tj.size() == 2 && tj[0].is_number_integer() && tj[1].is_number_integer())
+                {
+                    tiles.emplace_back(tj[0].get<int>(), tj[1].get<int>());
+                }
+            }
+        }
+        return tiles;
+    };
+    cp.openDoors = tilesFromJson("openDoors");
+    cp.brokenDoors = tilesFromJson("brokenDoors");
+    cp.burnedTiles = tilesFromJson("burned");
+    if (json.contains("fires") && json["fires"].is_array())
+    {
+        for (const auto& fj : json["fires"])
+        {
+            FireTileRecord fire;
+            fire.tileX = fj.value("tileX", 0);
+            fire.tileY = fj.value("tileY", 0);
+            fire.intensity = std::clamp(fj.value("intensity", 0.0f), 0.0f, 2.0f);
+            fire.lifeRemaining = std::max(0.0f, fj.value("lifeRemaining", 0.0f));
+            if (fire.lifeRemaining > 0.0f && fire.intensity > 0.0f)
+            {
+                cp.fires.push_back(fire);
+            }
+        }
+    }
+
     return cp;
 }
 
@@ -1333,6 +1388,15 @@ void SaveManager::setFireTileRecords(std::vector<FireTileRecord> fireTiles)
     mFireTiles = std::move(fireTiles);
 }
 
+void SaveManager::setBrokenDoors(std::vector<std::pair<int,int>> brokenDoors)
+{
+    mBrokenDoors.clear();
+    for (const auto& [x, y] : brokenDoors)
+    {
+        addUniqueTile(mBrokenDoors, x, y);
+    }
+}
+
 void SaveManager::setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles)
 {
     mBurnedTiles.clear();
@@ -1394,6 +1458,12 @@ bool SaveManager::saveLootedPositions()
         json["burned"].push_back({{"x", x}, {"y", y}});
     }
 
+    json["brokenDoors"] = nlohmann::json::array();
+    for (const auto& [x, y] : mBrokenDoors)
+    {
+        json["brokenDoors"].push_back({{"x", x}, {"y", y}});
+    }
+
     json["events"] = nlohmann::json::array();
     for (const WorldMemoryEventRecord& event : mWorldEvents)
     {
@@ -1438,6 +1508,7 @@ bool SaveManager::loadLootedPositions()
     mVehicles.clear();
     mFireTiles.clear();
     mBurnedTiles.clear();
+    mBrokenDoors.clear();
     mWorldEvents.clear();
     std::string contents = readFileToString(mWorldMemoryPath);
     if (contents.empty()) return true;
@@ -1536,6 +1607,14 @@ bool SaveManager::loadLootedPositions()
             const int x = bj.value("x", 0);
             const int y = bj.value("y", 0);
             addUniqueTile(mBurnedTiles, x, y);
+        }
+    }
+
+    if (json.contains("brokenDoors") && json["brokenDoors"].is_array())
+    {
+        for (const auto& dj : json["brokenDoors"])
+        {
+            addUniqueTile(mBrokenDoors, dj.value("x", 0), dj.value("y", 0));
         }
     }
 

@@ -294,10 +294,13 @@ something the next one can find and act on:
   - Paths treat a closed door as expensive (cost 25), so the dead only batter
     the door that stands between them and you, not every door on the way.
   - Survivors open doors as they pass and leave them open.
+  - **The town remembers broken doors**: a door the dead broke down is still
+    broken in every later run. Mid-run checkpoints keep open and broken
+    doors, this run's burn scars and burning fires.
   - New sprites: closed and broken doors in each wall material. In cut-away
     view, a closed door shows as a low wooden stub.
-  - Harness: `zombie DX DY`, `doors` and `goto door`; the script is
-    `tools/harness/doors.txt`.
+  - Harness: `zombie DX DY`, `doors`, `goto door`, `save` and `resume`; the
+    scripts are `tools/harness/doors.txt` and `tools/harness/doors_memory.txt`.
 
 ## Known issues found during revival
 
@@ -319,8 +322,8 @@ something the next one can find and act on:
   `ToneTuning`).
 - ~~`beginDeathState` and `beginRetirementState` duplicate persistence code~~
   (fixed: shared `persistWorldForNextRun`).
-- Mid-run checkpoints do not save fires, burn scars or door states;
-  continuing a run loses scars made earlier in it and shuts every door again.
+- ~~Mid-run checkpoints do not save fires or burn scars~~ (fixed: checkpoints
+  keep doors, scars and fires). Zombies are still respawned on resume.
 - The crafting screen is a bare debug-style layout.
 - ~~No wall/roof occlusion: indoor zombies and loot can hide behind walls~~
   (fixed: wall blocks, cut-away and roofs).
@@ -358,4 +361,7 @@ something the next one can find and act on:
 - 2026-11-06: Wave 3 run-end screen, tone presets with real effects, title
   rework (`87a97ff`).
 - 2026-11-06: Wave 3 doors: open/close with E, zombies batter closed doors
-  down, survivors pass through, door sprites, harness `zombie`/`doors`.
+  down, survivors pass through, door sprites, harness `zombie`/`doors`
+  (`88a3447`).
+- 2026-11-06: Broken doors persist across runs; checkpoints keep doors, burn
+  scars and fires; harness `save`/`resume`.

@@ -292,6 +292,21 @@ void DevHarness::execute(Game& game, const Command& command)
         game.startNewRun();
         mWasAlive = true;
     }
+    else if (op == "save")
+    {
+        // save: write a mid-run checkpoint, as the pause menu does.
+        if (!game.saveCurrentRunCheckpoint("Run checkpoint saved."))
+        {
+            fail(command, "checkpoint not saved");
+        }
+    }
+    else if (op == "resume")
+    {
+        // resume: rebuild the run from its checkpoint, as Continue Run does.
+        game.mIgnoreCheckpointRestoreOnce = false;
+        game.startNewRun();
+        mWasAlive = true;
+    }
     else if (op == "zombie")
     {
         // zombie DX DY: a zombie DX, DY tiles from the player, heading for them.

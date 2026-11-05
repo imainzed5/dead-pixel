@@ -45,6 +45,17 @@ void Doors::open(TileMap& map, const glm::ivec2& tile)
     }
 }
 
+void Doors::setState(TileMap& map, const glm::ivec2& tile, DoorState state)
+{
+    Door* door = findMutable(tile);
+    if (door == nullptr || state == DoorState::None)
+    {
+        return;
+    }
+    door->hp = state == DoorState::Broken ? 0.0f : kMaxHp;
+    map.setDoorState(tile.x, tile.y, state);
+}
+
 Doors::Blow Doors::batter(TileMap& map, const glm::ivec2& tile, float damage)
 {
     Door* door = findMutable(tile);
@@ -121,4 +132,17 @@ int Doors::count(const TileMap& map, DoorState state) const
         n += map.doorState(door.tile.x, door.tile.y) == state ? 1 : 0;
     }
     return n;
+}
+
+std::vector<glm::ivec2> Doors::tilesIn(const TileMap& map, DoorState state) const
+{
+    std::vector<glm::ivec2> tiles;
+    for (const Door& door : mDoors)
+    {
+        if (map.doorState(door.tile.x, door.tile.y) == state)
+        {
+            tiles.push_back(door.tile);
+        }
+    }
+    return tiles;
 }

@@ -3,6 +3,84 @@
 
 using namespace gameshared;
 
+void Game::spawnScorchMark(int tileX, int tileY)
+{
+    Entity scorch = mWorld.createEntity();
+    Transform t{};
+    t.x = static_cast<float>(tileX * mTileMap.tileWidth());
+    t.y = static_cast<float>(tileY * mTileMap.tileHeight());
+
+    Sprite s{};
+    s.textureId = mSpriteSheet.textureId();
+    s.uvRect = mSpriteSheet.uvRect("env_blood_large");
+    s.color = glm::vec4(0.10f, 0.08f, 0.08f, 0.42f);
+    s.layer = 2;
+
+    mWorld.addComponent<Transform>(scorch, t);
+    mWorld.addComponent<Sprite>(scorch, s);
+}
+
+void Game::spawnFireTile(const FireTileRecord& record, float spreadPhase)
+{
+    Entity fireEntity = mWorld.createEntity();
+
+    Transform t{};
+    t.x = static_cast<float>(record.tileX * mTileMap.tileWidth());
+    t.y = static_cast<float>(record.tileY * mTileMap.tileHeight());
+
+    Sprite s{};
+    s.textureId = mSpriteSheet.textureId();
+    s.uvRect = mSpriteSheet.uvRect("env_campfire_lit");
+    const float intensity = std::clamp(record.intensity, 0.0f, 2.0f);
+    s.color = glm::vec4(1.0f, 0.45f + intensity * 0.20f, 0.18f, 0.55f + intensity * 0.18f);
+    s.layer = 6;
+
+    Fire fire{};
+    fire.intensity = intensity;
+    fire.lifeRemaining = std::max(2.0f, record.lifeRemaining);
+    fire.spreadTimer = std::fmod(spreadPhase, 1.0f);
+    fire.noiseTimer = 0.0f;
+
+    mWorld.addComponent<Transform>(fireEntity, t);
+    mWorld.addComponent<Sprite>(fireEntity, s);
+    mWorld.addComponent<Fire>(fireEntity, fire);
+}
+
+void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
+{
+    for (const auto& [x, y] : cp.openDoors)
+        mDoors.setState(mTileMap, glm::ivec2(x, y), DoorState::Open);
+    for (const auto& [x, y] : cp.brokenDoors)
+        mDoors.setState(mTileMap, glm::ivec2(x, y), DoorState::Broken);
+
+    // Scars from earlier runs are already on the ground; add this run's.
+    for (const auto& [x, y] : cp.burnedTiles)
+    {
+        if (!mTileMap.inBounds(x, y) || hasTilePair(mBurnedTiles, x, y))
+        {
+            continue;
+        }
+        addUniqueTilePair(mBurnedTiles, x, y);
+        spawnScorchMark(x, y);
+    }
+
+    // Fires burning at the checkpoint replace the ones world memory relit.
+    std::vector<Entity> oldFires;
+    mWorld.forEach<Fire>([&](Entity e, Fire&) { oldFires.push_back(e); });
+    for (Entity e : oldFires)
+    {
+        mWorld.destroyEntity(e);
+    }
+    for (std::size_t i = 0; i < cp.fires.size(); ++i)
+    {
+        const FireTileRecord& record = cp.fires[i];
+        if (mTileMap.inBounds(record.tileX, record.tileY) && !mTileMap.isSolid(record.tileX, record.tileY))
+        {
+            spawnFireTile(record, static_cast<float>(i) * 0.37f);
+        }
+    }
+}
+
 void Game::setupScene()
 {
     const GLuint sheetTex = mSpriteSheet.textureId();
@@ -660,20 +738,7 @@ void Game::setupScene()
             }
 
             addUniqueTilePair(mBurnedTiles, tx, ty);
-
-            Entity scorch = mWorld.createEntity();
-            Transform t{};
-            t.x = static_cast<float>(tx * mTileMap.tileWidth());
-            t.y = static_cast<float>(ty * mTileMap.tileHeight());
-
-            Sprite s{};
-            s.textureId = sheetTex;
-            s.uvRect = mSpriteSheet.uvRect("env_blood_large");
-            s.color = glm::vec4(0.10f, 0.08f, 0.08f, 0.42f);
-            s.layer = 2;
-
-            mWorld.addComponent<Transform>(scorch, t);
-            mWorld.addComponent<Sprite>(scorch, s);
+            spawnScorchMark(tx, ty);
         }
         mBurnedTilesAtRunStart = mBurnedTiles.size();
     }
@@ -692,29 +757,7 @@ void Game::setupScene()
             {
                 continue;
             }
-
-            Entity fireEntity = mWorld.createEntity();
-
-            Transform t{};
-            t.x = static_cast<float>(fireRecord.tileX * mTileMap.tileWidth());
-            t.y = static_cast<float>(fireRecord.tileY * mTileMap.tileHeight());
-
-            Sprite s{};
-            s.textureId = sheetTex;
-            s.uvRect = mSpriteSheet.uvRect("env_campfire_lit");
-            const float intensity = std::clamp(fireRecord.intensity, 0.0f, 2.0f);
-            s.color = glm::vec4(1.0f, 0.45f + intensity * 0.20f, 0.18f, 0.55f + intensity * 0.18f);
-            s.layer = 6;
-
-            Fire fire{};
-            fire.intensity = intensity;
-            fire.lifeRemaining = std::max(2.0f, fireRecord.lifeRemaining);
-            fire.spreadTimer = std::fmod(static_cast<float>(runRng() % 1000) * 0.001f, 1.0f);
-            fire.noiseTimer = 0.0f;
-
-            mWorld.addComponent<Transform>(fireEntity, t);
-            mWorld.addComponent<Sprite>(fireEntity, s);
-            mWorld.addComponent<Fire>(fireEntity, fire);
+            spawnFireTile(fireRecord, static_cast<float>(runRng() % 1000) * 0.001f);
         }
     }
 
@@ -1094,7 +1137,7 @@ void Game::setupScene()
     }
 
     spawnLegacy();
-    mDoors.reset(mTileMap, mMapGenerator.layoutData());
+    resetDoors();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(
