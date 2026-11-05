@@ -12,6 +12,10 @@ find_package(SDL2_mixer REQUIRED CONFIG)
 find_package(OpenGL REQUIRED)
 find_package(glew REQUIRED CONFIG)
 find_package(glm REQUIRED CONFIG)
+find_package(nlohmann_json REQUIRED CONFIG)
+
+# stb ships headers only (no CMake package); fail at configure time if missing.
+find_path(STB_INCLUDE_DIR stb/stb_image.h REQUIRED)
 
 add_executable(dead_pixel_survival
     src/main.cpp
@@ -57,6 +61,7 @@ add_executable(dead_pixel_survival
 )
 
 target_include_directories(dead_pixel_survival PRIVATE src)
+target_include_directories(dead_pixel_survival SYSTEM PRIVATE ${STB_INCLUDE_DIR})
 
 if(TARGET SDL2::SDL2main)
     target_link_libraries(dead_pixel_survival PRIVATE SDL2::SDL2main)
@@ -68,6 +73,7 @@ target_link_libraries(dead_pixel_survival PRIVATE
     OpenGL::GL
     GLEW::GLEW
     glm::glm
+    nlohmann_json::nlohmann_json
 )
 
 add_custom_command(TARGET dead_pixel_survival POST_BUILD

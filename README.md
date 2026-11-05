@@ -37,6 +37,14 @@ Install MSYS2 UCRT64 and these packages:
 - mingw-w64-ucrt-x86_64-SDL2_mixer
 - mingw-w64-ucrt-x86_64-glew
 - mingw-w64-ucrt-x86_64-glm
+- mingw-w64-ucrt-x86_64-nlohmann-json
+- mingw-w64-ucrt-x86_64-stb
+
+One-line install from an MSYS2 UCRT64 shell:
+
+```bash
+pacman -S --needed mingw-w64-ucrt-x86_64-{toolchain,cmake,ninja,SDL2,SDL2_mixer,glew,glm,nlohmann-json,stb}
+```
 
 ## Build And Run (PowerShell)
 
