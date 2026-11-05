@@ -297,6 +297,7 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
     mMapGenerator.applyToTileMap(mTileMap);
     mStructureView.build(mTileMap, mMapGenerator.layoutData());
     resetDoors(); // after build: closed doors are solid
+    furnishWorld();
     mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     mActiveSaveSlot = slotName;
     syncPresentationSettingsFromSave();
@@ -572,6 +573,7 @@ void Game::startNewRun()
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
+    nudgeSpawnsOffFurniture();
 
     // Threat-mode spawn pressure tuning.
     {

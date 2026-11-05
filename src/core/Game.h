@@ -22,6 +22,7 @@
 #include "items/ItemDatabase.h"
 #include "legacy/LegacyRules.h"
 #include "world/Doors.h"
+#include "world/Furniture.h"
 #include "map/MapGenerator.h"
 #include "map/TileMap.h"
 #include "map/TiledLoader.h"
@@ -31,6 +32,7 @@
 #include "rendering/SpriteBatch.h"
 #include "rendering/BitmapFont.h"
 #include "rendering/SpriteSheet.h"
+#include "rendering/FurnitureView.h"
 #include "rendering/StructureView.h"
 #include "rendering/Texture.h"
 #include "save/SaveManager.h"
@@ -133,6 +135,11 @@ private:
     void updateDoors(float dtSeconds);
     // Every door closed, except those broken down in earlier runs.
     void resetDoors();
+    // Furnishes the town from the layout; furniture is part of the world,
+    // the same every run.
+    void furnishWorld();
+    // Moves run spawns that landed on furniture to a free tile beside it.
+    void nudgeSpawnsOffFurniture();
     // E at a door: opens or closes it. False when no door is in reach.
     bool handleDoorInteraction(const ProximityPrompt& entityPrompt);
     void spawnLegacy();
@@ -318,6 +325,8 @@ private:
     HudState mHudState;
 
     StructureView mStructureView;
+    std::vector<FurniturePiece> mFurniture;
+    FurnitureView mFurnitureView;
     StructureSprites mStructureSprites;
     std::vector<StaticSprite> mStaticSprites;
     float mHudClock = 0.0f;

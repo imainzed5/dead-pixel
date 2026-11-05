@@ -11,6 +11,7 @@
 #include <stb/stb_image_write.h>
 
 #include "components/Health.h"
+#include "components/Interactable.h"
 #include "components/Inventory.h"
 #include "components/LegacyLink.h"
 #include "components/MentalState.h"
@@ -374,8 +375,76 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         // goto risen|pack|grave: teleport beside the first such legacy entity.
         // goto door: stand just inside the door nearest the player.
+        // goto furniture [KIND|any] [stocked]: stand in front of the nearest
+        // piece (of a kind such as fridge or bed; with something in it).
         if (!need(1)) return;
         const std::string kind = lower(a[1]);
+        if (kind == "furniture")
+        {
+            if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+            {
+                fail(command, "no player");
+                return;
+            }
+            const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+            const glm::vec2 from((pt.x + 16.0f) / 32.0f, (pt.y + 16.0f) / 32.0f);
+            const std::string want = a.size() > 2 && lower(a[2]) != "any" ? "furn_" + lower(a[2]) : std::string{};
+            const bool wantStocked = a.size() > 3 && lower(a[3]) == "stocked";
+            // Pickups lying on a tile would take the E press first.
+            std::vector<glm::ivec2> pickups;
+            game.mWorld.forEach<Interactable, Transform>(
+                [&](Entity e, Interactable&, Transform& t)
+                {
+                    if (!game.mWorld.hasComponent<Inventory>(e))
+                    {
+                        pickups.emplace_back(static_cast<int>(t.x + 16.0f) / 32, static_cast<int>(t.y + 16.0f) / 32);
+                    }
+                });
+            std::vector<glm::ivec2> stocked;
+            game.mWorld.forEach<Interactable, Inventory, Transform>(
+                [&](Entity, Interactable&, Inventory& inv, Transform& t)
+                {
+                    for (const auto& slot : inv.slots)
+                    {
+                        if (slot.itemId < 0 || slot.count <= 0) continue;
+                        stocked.emplace_back(static_cast<int>(t.x) / 32, static_cast<int>(t.y) / 32);
+                        return;
+                    }
+                });
+            const FurniturePiece* best = nullptr;
+            float bestD = 0.0f;
+            for (const FurniturePiece& piece : game.mFurniture)
+            {
+                if (!want.empty() && want != furniture::info(piece.kind).sprite) continue;
+                if (wantStocked && std::find(stocked.begin(), stocked.end(), piece.tile) == stocked.end()) continue;
+                const glm::vec2 d = glm::vec2(piece.tile) + glm::vec2(0.5f) - from;
+                if (best == nullptr || glm::dot(d, d) < bestD)
+                {
+                    best = &piece;
+                    bestD = glm::dot(d, d);
+                }
+            }
+            if (best == nullptr)
+            {
+                fail(command, "no furniture" + (want.empty() ? std::string{} : " of kind " + a[2]));
+                return;
+            }
+            std::vector<glm::ivec2> spots;
+            if (furniture::info(best->kind).oriented) spots.push_back(furniture::frontTile(*best));
+            for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(0, 1), glm::ivec2(-1, 0), glm::ivec2(0, -1)})
+            {
+                spots.push_back(best->tile + side);
+            }
+            for (const glm::ivec2& tile : spots)
+            {
+                if (game.mTileMap.isSolid(tile.x, tile.y)) continue;
+                if (std::find(pickups.begin(), pickups.end(), tile) != pickups.end()) continue;
+                execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
+                return;
+            }
+            fail(command, "no free tile beside the nearest piece");
+            return;
+        }
         if (kind == "door")
         {
             if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))

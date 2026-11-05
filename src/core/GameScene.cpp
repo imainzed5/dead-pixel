@@ -450,10 +450,17 @@ void Game::setupScene()
         }
     }
 
-    // --- Sleeping bags ---
+    // --- Sleeping bags (where there is no bed) ---
+    std::vector<int> bedBuildings;
+    for (const FurniturePiece& piece : mFurniture)
+    {
+        if (piece.kind == FurnitureKind::Bed) bedBuildings.push_back(piece.building);
+    }
     for (const auto& tile : mSpawnData.sleepSpawns)
     {
         if (mTileMap.isSolid(tile.x, tile.y)) continue;
+        const int building = mTileMap.getBuildingId(tile.x, tile.y);
+        if (building > 0 && std::find(bedBuildings.begin(), bedBuildings.end(), building) != bedBuildings.end()) continue;
         Entity bed = mWorld.createEntity();
         Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
         Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_sleeping_bag"); s.color = glm::vec4(1.0f); s.layer = 5;
@@ -463,175 +470,25 @@ void Game::setupScene()
         mWorld.addComponent<Interactable>(bed, inter);
     }
 
-    // --- Home furniture dressing pass (visual-first worldbuilding) ---
+    // --- Indoor stains (distress cues inside buildings) ---
     {
-        const std::array<const char*, 10> residentialFurniture = {
-            "env_bed", "env_sleeping_area", "env_shelf", "env_crate", "env_shelf", "env_bed", "env_chair", "env_table", "env_cabinet", "env_couch"
-        };
-        const std::array<const char*, 7> commercialFurniture = {
-            "env_shelf", "env_crate", "env_shelf", "env_barricade", "env_crate", "env_table", "env_chair"
-        };
-        const std::array<const char*, 5> industrialFurniture = {
-            "env_crate", "env_shelf", "env_barricade", "env_noise_trap", "env_crate"
-        };
-        const std::array<const char*, 4> wildernessFurniture = {
-            "env_sleeping_area", "env_crate", "env_shelf", "env_barricade"
-        };
-
-        const auto spawnFurniture = [&](int tileX, int tileY, const char* spriteName, const glm::vec4& color, int layer)
-        {
-            Entity decor = mWorld.createEntity();
-            Transform t{};
-            t.x = static_cast<float>(tileX * mTileMap.tileWidth());
-            t.y = static_cast<float>(tileY * mTileMap.tileHeight());
-            Sprite s{};
-            s.textureId = sheetTex;
-            s.uvRect = mSpriteSheet.uvRect(spriteName);
-            s.color = color;
-            s.layer = layer;
-            mWorld.addComponent<Transform>(decor, t);
-            mWorld.addComponent<Sprite>(decor, s);
-        };
-
-        int furnitureIdx = 0;
-        for (const auto& tile : mSpawnData.homeFurnitureSpawns)
-        {
-            if (mTileMap.isSolid(tile.x, tile.y)) continue;
-
-            const DistrictType dt = getDistrictType(tile.x, tile.y);
-            const char* spriteName = "env_crate";
-            glm::vec4 tint = glm::vec4(0.88f, 0.84f, 0.78f, 1.0f);
-
-            switch (dt)
-            {
-            case DistrictType::Residential:
-                spriteName = residentialFurniture[furnitureIdx % residentialFurniture.size()];
-                tint = glm::vec4(0.93f, 0.88f, 0.80f, 1.0f);
-                break;
-            case DistrictType::Commercial:
-                spriteName = commercialFurniture[furnitureIdx % commercialFurniture.size()];
-                tint = glm::vec4(0.82f, 0.86f, 0.90f, 1.0f);
-                break;
-            case DistrictType::Industrial:
-                spriteName = industrialFurniture[furnitureIdx % industrialFurniture.size()];
-                tint = glm::vec4(0.82f, 0.76f, 0.68f, 1.0f);
-                break;
-            default:
-                spriteName = wildernessFurniture[furnitureIdx % wildernessFurniture.size()];
-                tint = glm::vec4(0.78f, 0.76f, 0.72f, 0.95f);
-                break;
-            }
-
-            spawnFurniture(tile.x, tile.y, spriteName, tint, 4);
-
-            // Lightweight micro-encounter accents for visual storytelling.
-            if ((furnitureIdx % 13) == 0)
-            {
-                const int nx = tile.x + (((furnitureIdx / 2) % 2 == 0) ? 1 : -1);
-                const int ny = tile.y + (((furnitureIdx / 5) % 2 == 0) ? 0 : 1);
-                if (!mTileMap.isSolid(nx, ny))
-                {
-                    const char* accentSprite = "env_crate";
-                    if (dt == DistrictType::Commercial)
-                    {
-                        accentSprite = "env_barricade";
-                    }
-                    else if (dt == DistrictType::Industrial)
-                    {
-                        accentSprite = "env_noise_trap";
-                    }
-                    spawnFurniture(nx, ny, accentSprite, tint * glm::vec4(0.94f, 0.94f, 0.94f, 0.9f), 4);
-                }
-            }
-
-            if ((furnitureIdx % 17) == 0)
-            {
-                const int sx = tile.x + (((furnitureIdx / 3) % 2 == 0) ? 0 : -1);
-                const int sy = tile.y + (((furnitureIdx / 4) % 2 == 0) ? 1 : 0);
-                if (!mTileMap.isSolid(sx, sy))
-                {
-                    const char* stain = (dt == DistrictType::Industrial) ? "env_blood_large" : "env_blood_small";
-                    spawnFurniture(sx, sy, stain, glm::vec4(0.78f, 0.18f, 0.14f, 0.70f), 3);
-                }
-            }
-
-            ++furnitureIdx;
-        }
-    }
-
-    // --- Indoor decor (ambient clutter and distress cues inside buildings) ---
-    {
-        const std::array<const char*, 5> residentialIndoor = {
-            "env_blood_small", "env_blood_large", "env_shelf", "env_crate", "env_sleeping_area"
-        };
-        const std::array<const char*, 5> commercialIndoor = {
-            "env_shelf", "env_crate", "env_blood_small", "env_blood_large", "env_shelf"
-        };
-        const std::array<const char*, 5> industrialIndoor = {
-            "env_crate", "env_noise_trap", "env_barricade", "env_blood_large", "env_shelf"
-        };
-        const std::array<const char*, 4> wildernessIndoor = {
-            "env_crate", "env_blood_small", "env_blood_large", "env_shelf"
-        };
-
-        const auto spawnDecor = [&](int tileX, int tileY, const char* spriteName, const glm::vec4& color, int layer)
-        {
-            Entity decor = mWorld.createEntity();
-            Transform t{};
-            t.x = static_cast<float>(tileX * mTileMap.tileWidth());
-            t.y = static_cast<float>(tileY * mTileMap.tileHeight());
-            Sprite s{};
-            s.textureId = sheetTex;
-            s.uvRect = mSpriteSheet.uvRect(spriteName);
-            s.color = color;
-            s.layer = layer;
-            mWorld.addComponent<Transform>(decor, t);
-            mWorld.addComponent<Sprite>(decor, s);
-        };
-
         int decorIdx = 0;
         for (const auto& tile : mSpawnData.decorIndoorSpawns)
         {
             if (mTileMap.isSolid(tile.x, tile.y)) continue;
-
-            const DistrictType dt = getDistrictType(tile.x, tile.y);
-            const char* spriteName = "env_crate";
-            glm::vec4 tint = glm::vec4(0.9f, 0.85f, 0.8f, 1.0f);
-
-            switch (dt)
-            {
-            case DistrictType::Residential:
-                spriteName = residentialIndoor[decorIdx % residentialIndoor.size()];
-                tint = glm::vec4(0.92f, 0.88f, 0.82f, 1.0f);
-                break;
-            case DistrictType::Commercial:
-                spriteName = commercialIndoor[decorIdx % commercialIndoor.size()];
-                tint = glm::vec4(0.86f, 0.88f, 0.90f, 1.0f);
-                break;
-            case DistrictType::Industrial:
-                spriteName = industrialIndoor[decorIdx % industrialIndoor.size()];
-                tint = glm::vec4(0.84f, 0.80f, 0.74f, 1.0f);
-                break;
-            default:
-                spriteName = wildernessIndoor[decorIdx % wildernessIndoor.size()];
-                tint = glm::vec4(0.80f, 0.78f, 0.74f, 0.95f);
-                break;
-            }
-
-            spawnDecor(tile.x, tile.y, spriteName, tint, 4);
-
-            if ((decorIdx % 9) == 0)
-            {
-                const int nx = tile.x + (((decorIdx / 3) % 2 == 0) ? 1 : -1);
-                const int ny = tile.y + (((decorIdx / 2) % 2 == 0) ? 0 : 1);
-                if (!mTileMap.isSolid(nx, ny))
-                {
-                    const char* clusterSprite = (dt == DistrictType::Industrial) ? "env_crate" : "env_shelf";
-                    spawnDecor(nx, ny, clusterSprite, tint * glm::vec4(0.95f, 0.95f, 0.95f, 0.9f), 4);
-                }
-            }
-
-            ++decorIdx;
+            const int i = decorIdx++;
+            if ((i % 2) != 0) continue;
+            Entity stain = mWorld.createEntity();
+            Transform t{};
+            t.x = static_cast<float>(tile.x * mTileMap.tileWidth());
+            t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            Sprite s{};
+            s.textureId = sheetTex;
+            s.uvRect = mSpriteSheet.uvRect((i % 4) == 0 ? "env_blood_large" : "env_blood_small");
+            s.color = glm::vec4(0.92f, 0.88f, 0.82f, 0.9f);
+            s.layer = 3;
+            mWorld.addComponent<Transform>(stain, t);
+            mWorld.addComponent<Sprite>(stain, s);
         }
     }
 
@@ -753,7 +610,7 @@ void Game::setupScene()
                 continue;
             }
 
-            if (mTileMap.isSolid(fireRecord.tileX, fireRecord.tileY))
+            if (mTileMap.blocksSight(fireRecord.tileX, fireRecord.tileY))
             {
                 continue;
             }
@@ -852,110 +709,74 @@ void Game::setupScene()
         }
     }
 
-    // --- Loot containers (district-aware loot profiles) ---
+    // --- Furniture: containers to search, beds to sleep in ---
     {
-        const int itemDbSize = static_cast<int>(mItemDatabase.allItems().size());
-        std::uniform_int_distribution<int> lootCountDist(2, 4);
-        std::uniform_int_distribution<int> lootQtyDist(1, 3);
+        std::mt19937 lootRng(mSaveManager.currentRunSeed() ^ 0xF00Du);
+        std::uniform_real_distribution<float> roll(0.0f, 1.0f);
+        // Most cupboards are already bare; tone scales how many are not.
+        const float stocked = std::clamp(0.45f * tone.suppliesScale, 0.0f, 0.9f);
 
-        // District loot tables (item IDs)
-        // Residential: food(0,1,2,21), drink(3), jacket(20), flashlight(18)
-        // Commercial: weapons(5-8,17), medical(4,15,16,22), general
-        // Industrial: materials(9-14,18-20), bandages(4), tools
-        const std::array<int, 9> residentialLoot = {0, 1, 2, 21, 3, 3, 23, 20, 18};
-        const std::array<int, 7> commercialLoot  = {5, 6, 7, 8, 17, 22, 23};
-        const std::array<int, 6> industrialLoot  = {9, 10, 11, 12, 18, 4};
-
-        const auto isSpecialCacheTile = [&](const glm::ivec2& tile)
+        const auto lootTable = [](FurnitureLoot loot) -> std::vector<int>
         {
-            const auto matchesTile = [&](const glm::ivec2& other)
+            switch (loot)
             {
-                return other.x == tile.x && other.y == tile.y;
-            };
-
-            return std::any_of(mSpawnData.medicalCacheSpawns.begin(), mSpawnData.medicalCacheSpawns.end(), matchesTile) ||
-                   std::any_of(mSpawnData.supplyCacheSpawns.begin(), mSpawnData.supplyCacheSpawns.end(), matchesTile);
+            case FurnitureLoot::Fridge: return {0, 1, 2, 3};
+            case FurnitureLoot::Kitchen: return {0, 3, 19, 5, 2};
+            case FurnitureLoot::Bathroom: return {4, 16, 15};
+            case FurnitureLoot::Bedroom: return {20, 23, 18, 16, 19};
+            case FurnitureLoot::Living: return {23, 19, 18};
+            case FurnitureLoot::Store: return {0, 3, 2, 4, 16, 19};
+            case FurnitureLoot::Checkout: return {23, 19, 18, 16};
+            case FurnitureLoot::Storage: return {9, 10, 11, 12, 13};
+            case FurnitureLoot::Workshop: return {17, 10, 11, 9, 7, 8};
+            case FurnitureLoot::None: break;
+            }
+            return {};
         };
 
-        // Build set of previously looted tile positions for fast lookup
         const auto& lootedPos = mSaveManager.lootedPositions();
-        auto isLooted = [&](int tx, int ty) -> bool
+        const auto isLooted = [&](int tx, int ty)
         {
-            for (const auto& [lx, ly] : lootedPos)
-            {
-                if (lx == tx && ly == ty) return true;
-            }
-            return false;
+            return std::any_of(lootedPos.begin(), lootedPos.end(),
+                               [&](const std::pair<int, int>& p) { return p.first == tx && p.second == ty; });
         };
 
-        for (const auto& tile : mSpawnData.containerSpawns)
+        for (const FurniturePiece& piece : mFurniture)
         {
-            if (isSpecialCacheTile(tile)) continue;
-            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            const FurnitureInfo& def = furniture::info(piece.kind);
+            if (def.prompt == nullptr) continue;
 
-            // Skip containers at previously looted positions
-            if (isLooted(tile.x, tile.y)) continue;
+            // No sprite: FurnitureView draws the piece.
+            Entity entity = mWorld.createEntity();
+            Transform t{};
+            t.x = static_cast<float>(piece.tile.x * mTileMap.tileWidth());
+            t.y = static_cast<float>(piece.tile.y * mTileMap.tileHeight());
+            mWorld.addComponent<Transform>(entity, t);
 
-            const DistrictType dt = getDistrictType(tile.x, tile.y);
-            const char* containerSprite = "env_crate";
-            glm::vec4 containerTint = glm::vec4(0.8f, 0.7f, 0.5f, 1.0f);
-            const char* containerPrompt = "Search stash";
-
-            switch (dt)
+            Interactable inter{};
+            inter.prompt = def.prompt;
+            if (piece.kind == FurnitureKind::Bed)
             {
-            case DistrictType::Residential:
-                containerSprite = "env_shelf";
-                containerTint = glm::vec4(0.83f, 0.79f, 0.72f, 1.0f);
-                containerPrompt = "Search pantry";
-                break;
-            case DistrictType::Commercial:
-                containerSprite = "env_crate";
-                containerTint = glm::vec4(0.72f, 0.76f, 0.80f, 1.0f);
-                containerPrompt = "Search storefront";
-                break;
-            case DistrictType::Industrial:
-                containerSprite = "env_crate";
-                containerTint = glm::vec4(0.80f, 0.72f, 0.58f, 1.0f);
-                containerPrompt = "Search workshop crate";
-                break;
-            default:
-                containerSprite = "env_crate";
-                containerTint = glm::vec4(0.72f, 0.69f, 0.62f, 1.0f);
-                containerPrompt = "Search abandoned stash";
-                break;
+                inter.type = InteractableType::SleepSpot;
+                inter.sleepHours = 8.0f;
+                inter.sleepQuality = 0.95f;
+                mWorld.addComponent<Interactable>(entity, inter);
+                continue;
             }
+            inter.type = InteractableType::Container;
+            mWorld.addComponent<Interactable>(entity, inter);
+            mWorld.addComponent<Inventory>(entity, Inventory{});
 
-            Entity container = mWorld.createEntity();
-            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(containerSprite); s.color = containerTint; s.layer = 5;
-            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = containerPrompt;
-            Inventory containerInv{};
-            mWorld.addComponent<Transform>(container, t);
-            mWorld.addComponent<Sprite>(container, s);
-            mWorld.addComponent<Interactable>(container, inter);
-            mWorld.addComponent<Inventory>(container, containerInv);
-            Inventory& inv = mWorld.getComponent<Inventory>(container);
-
-            const int lootTypes = lootCountDist(runRng);
-            for (int li = 0; li < lootTypes; ++li)
+            // Picked over in an earlier life: still empty.
+            if (isLooted(piece.tile.x, piece.tile.y)) continue;
+            const std::vector<int> table = lootTable(def.loot);
+            if (table.empty()) continue;
+            Inventory& inv = mWorld.getComponent<Inventory>(entity);
+            for (int stack = 0; stack < 2; ++stack)
             {
-                int itemId;
-                switch (dt)
-                {
-                case DistrictType::Residential:
-                    itemId = residentialLoot[runRng() % residentialLoot.size()];
-                    break;
-                case DistrictType::Commercial:
-                    itemId = commercialLoot[runRng() % commercialLoot.size()];
-                    break;
-                case DistrictType::Industrial:
-                    itemId = industrialLoot[runRng() % industrialLoot.size()];
-                    break;
-                default: // Wilderness — random from full database
-                    itemId = std::uniform_int_distribution<int>(0, std::max(0, itemDbSize - 1))(runRng);
-                    break;
-                }
-                InventorySystem::addItem(inv, mItemDatabase, itemId, lootQtyDist(runRng));
+                if (roll(lootRng) > (stack == 0 ? stocked : 0.25f)) break;
+                const int itemId = table[lootRng() % table.size()];
+                InventorySystem::addItem(inv, mItemDatabase, itemId, (lootRng() % 4) == 0 ? 2 : 1);
             }
         }
     }

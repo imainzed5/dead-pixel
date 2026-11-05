@@ -1156,6 +1156,12 @@ void Game::renderContainerOverlay()
     {
         const Interactable& inter = mWorld.getComponent<Interactable>(mOpenContainerEntity);
         if (!inter.prompt.empty()) header = inter.prompt;
+        std::string thing = searchedThing(inter.prompt);
+        if (!thing.empty())
+        {
+            thing[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(thing[0])));
+            header = thing;
+        }
     }
 
     std::vector<std::string> lines;

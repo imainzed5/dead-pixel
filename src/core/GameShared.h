@@ -48,6 +48,7 @@
 #include <limits>
 #include <random>
 #include <sstream>
+#include <cctype>
 #include <string>
 
 namespace gameshared
@@ -991,6 +992,13 @@ inline const char* weatherConditionLabel(WeatherCondition condition)
     case WeatherCondition::Heatwave: return "Heatwave";
     }
     return "Clear";
+}
+
+// What a "Search fridge" prompt searches ("fridge"); "" for other prompts.
+inline std::string searchedThing(const std::string& prompt)
+{
+    const std::string prefix = "Search ";
+    return prompt.rfind(prefix, 0) == 0 ? prompt.substr(prefix.size()) : std::string{};
 }
 
 // A weapon item's stats: its category's, improved by the item's own scales.

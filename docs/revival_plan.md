@@ -325,6 +325,29 @@ something the next one can find and act on:
   shapes, light from the top-left, 1px dark outline). There are 16 redrawn
   icons and 13 new ones, from `add_item_icons` in `generate_sprites.py`.
   Nothing else in the atlas changes.
+- **Furniture** (`src/world/Furniture.h`, `src/rendering/FurnitureView.h`, tested):
+  - Every building is furnished from its layout, the same in every run.
+    Rooms get a role from their floor and size: kitchen, bathroom, bedroom,
+    living room or a one-room home; shop floor or back room; workshop.
+  - 19 kinds of furniture, drawn as 64x80 isometric sprites that sort with
+    walls and characters. Pieces with a front (fridge, bed, shelves...) stand
+    with their back to a north or west wall; counters, shop shelves and racks
+    run along the wall. Tall pieces fade when they would hide the player.
+  - Furniture blocks movement but not sight, shots or fire, and it burns more
+    readily. Doorways and the tiles around them stay clear, every room stays
+    walkable end to end, and every piece can be reached (tests check this).
+  - Most pieces are containers ("Search fridge") with loot that fits them:
+    food in fridges, medicine in bathroom cabinets, tools in workshops. About
+    half are bare (tone scales it). Searched furniture stays empty in later
+    runs. Beds are sleep spots (8 h, better rest than a sleeping bag);
+    sleeping bags now only appear in buildings without a bed.
+  - The old stand-in props (flat crates, shelves and beds) and the district
+    "loot container" pass are gone; indoor blood stains remain. Run spawns
+    that land on furniture move to a free tile beside it.
+  - An empty container says what it is: "Search fridge (empty)", "The fridge
+    is empty.", and the panel header names it.
+  - Harness: `goto furniture [KIND|any] [stocked]`; the script is
+    `tools/harness/furniture.txt`.
 
 ## Known issues found during revival
 
@@ -352,7 +375,11 @@ something the next one can find and act on:
 - Equipping a weapon from the inventory resets its durability to full.
 - ~~No wall/roof occlusion: indoor zombies and loot can hide behind walls~~
   (fixed: wall blocks, cut-away and roofs).
-- Building interiors have no furniture; loot lies on bare floors.
+- ~~Building interiors have no furniture; loot lies on bare floors~~ (fixed:
+  furniture).
+- ~~Zombies killed by fire or gunshots stayed standing, frozen, and blocked
+  sleep nearby~~ (fixed: every dead zombie is cleared away).
+- Medical and supply caches still use the old flat crate and shelf sprites.
 - Character sprites face only up/down/right; isometric movement is diagonal.
 - ~~Notebook, world map and minimap text rendered as garbage~~ (fixed: each
   UI layer draws its shapes with the sprite sheet, then all of its text with
@@ -393,3 +420,5 @@ something the next one can find and act on:
 - 2026-11-06: Crafting screen rework, ingredient clues, recipes in the
   notebook, crafted items with real effects, Spear.
 - 2026-11-06: Item icons: one per item in a single outlined style.
+- 2026-11-06: Furniture: furnished rooms, furniture containers and beds,
+  furniture sprites; dead zombies cleared however they died.

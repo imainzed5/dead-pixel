@@ -517,6 +517,22 @@ void Game::update(float dtSeconds)
             });
     }
 
+    // Clear away the dead however they died. Melee kills are removed by the
+    // combat system; burned or shot zombies used to stay standing, frozen,
+    // and kept anyone nearby from sleeping.
+    {
+        std::vector<Entity> dead;
+        mWorld.forEach<ZombieAI, Health>(
+            [&](Entity zombie, ZombieAI&, Health& h)
+            {
+                if (h.current <= 0.0f) dead.push_back(zombie);
+            });
+        for (const Entity zombie : dead)
+        {
+            mWorld.destroyEntity(zombie);
+        }
+    }
+
     // Combat audio
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Combat>(mPlayerEntity))
     {

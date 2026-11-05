@@ -18,6 +18,7 @@ void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
     mDistrictLayer.assign(size, 0);
     mBuildingLayer.assign(size, 0);
     mDoorLayer.assign(size, DoorState::None);
+    mFurnitureLayer.assign(size, 0);
 }
 
 void TileMap::setTileset(const TilesetInfo& tileset)
@@ -94,7 +95,43 @@ bool TileMap::isSolid(int tileX, int tileY) const
     }
 
     const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return blocksSight(tileX, tileY) || (index < mFurnitureLayer.size() && mFurnitureLayer[index] != 0);
+}
+
+bool TileMap::blocksSight(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return true;
+    }
+
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
     return mCollisionLayer[index] != 0 || (index < mDoorLayer.size() && mDoorLayer[index] == DoorState::Closed);
+}
+
+void TileMap::setFurniture(int tileX, int tileY, bool present)
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return;
+    }
+    mFurnitureLayer.resize(static_cast<std::size_t>(mWidth * mHeight), 0);
+    mFurnitureLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))] = present ? 1 : 0;
+}
+
+bool TileMap::hasFurniture(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return false;
+    }
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return index < mFurnitureLayer.size() && mFurnitureLayer[index] != 0;
+}
+
+void TileMap::clearFurniture()
+{
+    std::fill(mFurnitureLayer.begin(), mFurnitureLayer.end(), std::uint8_t{0});
 }
 
 void TileMap::setDoorState(int tileX, int tileY, DoorState state)

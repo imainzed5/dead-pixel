@@ -417,7 +417,7 @@ ProximityPrompt InteractionSystem::getProximityPrompt(World& world, Entity playe
             }
             if (!hasLoot)
             {
-                action = "Search (Empty)";
+                action = (interactable.prompt.empty() ? std::string("Search") : interactable.prompt) + " (empty)";
             }
         }
         break;

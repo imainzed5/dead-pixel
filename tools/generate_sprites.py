@@ -891,6 +891,7 @@ def generate_atlas():
     add_structure_sprites(img, sprites)
     add_legacy_props(img, sprites)
     add_item_icons(img, sprites)
+    add_furniture_sprites(img, sprites)
 
     return img, sprites
 
@@ -1991,6 +1992,307 @@ def add_item_icons(img, sprites):
         x = 512 + i * ITEM_SIZE
         draw_item_icon(name).paste(img, x, 160)
         sprites[name] = {"x": x, "y": 160, "w": ITEM_SIZE, "h": ITEM_SIZE}
+
+
+# ---------------------------------------------------------------------------
+# Furniture: isometric pieces one tile across, built from shaded boxes.
+# Canvas 64x80: the tile's ground diamond fills the bottom 32 rows, leaving
+# FURN_UP pixels above it. Oriented pieces come in two views:
+#   _r  back against a west wall, front on the right-hand face
+#   _l  back against a north wall, front on the left-hand face
+# Must match FurnitureView::kSpriteUp in src/rendering/FurnitureView.h.
+# ---------------------------------------------------------------------------
+
+FURN_W = 64
+FURN_UP = 48
+FURN_H = 32 + FURN_UP
+FURN_OUTLINE = (34, 28, 24)
+
+
+class Furn:
+    def __init__(self, seed, orient=None):
+        self.img = Image.new("RGBA", (FURN_W, FURN_H), (0, 0, 0, 0))
+        self.draw = ImageDraw.Draw(self.img)
+        self.rng = random.Random(seed)
+        self.orient = orient  # None, "r" or "l"
+
+    @staticmethod
+    def P(u, v, z):
+        return (round(32 + (u - v) * 32), round(FURN_UP + (u + v) * 16 - z))
+
+    def M(self, a, b, z):
+        """Canonical (a: back->front, b: lateral) to screen."""
+        if self.orient == "l":
+            return self.P(b, a, z)
+        return self.P(a, b, z)
+
+    def poly(self, pts, col):
+        self.draw.polygon(pts, fill=(col[0], col[1], col[2], 255))
+
+    def box(self, u0, v0, u1, v1, z0, z1, col, top=None, south=None, east=None):
+        P = self.P
+        self.poly([P(u0, v1, z0), P(u1, v1, z0), P(u1, v1, z1), P(u0, v1, z1)], south or col)
+        self.poly([P(u1, v0, z0), P(u1, v1, z0), P(u1, v1, z1), P(u1, v0, z1)], east or shade(col, -28))
+        self.poly([P(u0, v0, z1), P(u1, v0, z1), P(u1, v1, z1), P(u0, v1, z1)], top or shade(col, 20))
+
+    def cbox(self, a0, b0, a1, b1, z0, z1, col, top=None):
+        """A box in canonical coordinates."""
+        if self.orient == "l":
+            self.box(b0, a0, b1, a1, z0, z1, col, top)
+        else:
+            self.box(a0, b0, a1, b1, z0, z1, col, top)
+
+    def fline(self, a, b0, b1, z0, z1, col):
+        """A line on a front plane a = const, from (b0, z0) to (b1, z1)."""
+        self.draw.line([self.M(a, b0, z0), self.M(a, b1, z1)], fill=(col[0], col[1], col[2], 255))
+
+    def ellipse_at(self, pt, rx, ry, col):
+        x, y = pt
+        self.draw.ellipse([x - rx, y - ry, x + rx, y + ry], fill=(col[0], col[1], col[2], 255))
+
+    def finish(self):
+        outline_opaque(self.img, FURN_OUTLINE)
+        return self.img
+
+
+def furn_bed(f):
+    wood = (118, 84, 56)
+    f.cbox(0.00, 0.10, 0.09, 0.90, 0, 24, shade(wood, -12))      # headboard
+    f.cbox(0.06, 0.12, 0.94, 0.88, 0, 7, wood)
+    f.cbox(0.08, 0.14, 0.92, 0.86, 7, 12, (226, 224, 214))
+    f.cbox(0.12, 0.22, 0.32, 0.78, 12, 15, (242, 240, 234))     # pillow
+    f.cbox(0.38, 0.13, 0.93, 0.87, 9, 14, (84, 106, 150))       # blanket
+    f.fline(0.93, 0.13, 0.87, 11, 11, (70, 90, 132))
+
+
+def furn_couch(f):
+    cloth = (128, 70, 58)
+    cushion = (176, 104, 84)
+    f.cbox(0.04, 0.08, 0.18, 0.92, 0, 28, shade(cloth, -16))    # backrest
+    f.cbox(0.06, 0.08, 0.84, 0.20, 0, 17, cloth)                 # far arm
+    f.cbox(0.16, 0.20, 0.84, 0.80, 0, 9, shade(cloth, -6))       # base
+    f.cbox(0.18, 0.21, 0.82, 0.50, 9, 14, cushion)                # cushions
+    f.cbox(0.18, 0.50, 0.82, 0.79, 9, 14, cushion)
+    f.fline(0.82, 0.50, 0.50, 9, 14, shade(cushion, -40))
+    f.cbox(0.06, 0.80, 0.84, 0.92, 0, 17, cloth)                 # near arm
+
+
+def furn_table(f):
+    wood = (150, 108, 70)
+    for u, v in ((0.16, 0.16), (0.78, 0.16), (0.16, 0.78), (0.78, 0.78)):
+        f.box(u, v, u + 0.06, v + 0.06, 0, 14, shade(wood, -24))
+    f.box(0.10, 0.10, 0.90, 0.90, 14, 17, wood)
+    f.ellipse_at(f.P(0.45, 0.50, 18), 3, 1.5, (226, 222, 210))  # a plate
+
+
+def furn_bookshelf(f):
+    wood = (110, 78, 52)
+    f.cbox(0.00, 0.08, 0.36, 0.92, 0, 44, wood)
+    books = [(150, 48, 44), (58, 92, 140), (186, 160, 92), (70, 120, 80), (128, 96, 150), (200, 196, 180)]
+    for z in (2, 13, 24, 35):
+        f.fline(0.36, 0.10, 0.90, z, z, shade(wood, -34))
+        b = 0.14
+        while b < 0.86:
+            h = f.rng.randint(5, 8)
+            col = books[f.rng.randrange(len(books))]
+            f.fline(0.36, b, b, z + 1, z + h, col)
+            f.fline(0.36, b + 0.03, b + 0.03, z + 1, z + h, shade(col, -16))
+            b += f.rng.choice((0.06, 0.08, 0.10))
+
+
+def furn_wardrobe(f):
+    wood = (128, 92, 62)
+    f.cbox(0.00, 0.10, 0.42, 0.90, 0, 46, wood)
+    f.fline(0.42, 0.50, 0.50, 2, 44, shade(wood, -34))
+    for b in (0.44, 0.56):
+        f.fline(0.42, b, b, 22, 25, (210, 186, 120))
+
+
+def furn_dresser(f):
+    wood = (140, 100, 66)
+    f.cbox(0.00, 0.10, 0.45, 0.90, 0, 20, wood)
+    for z in (7, 13):
+        f.fline(0.45, 0.12, 0.88, z, z, shade(wood, -34))
+    for z in (4, 10, 16):
+        f.fline(0.45, 0.48, 0.52, z, z, (210, 186, 120))
+    f.cbox(0.10, 0.30, 0.22, 0.42, 20, 30, (220, 210, 180))      # a lamp
+    f.cbox(0.08, 0.26, 0.24, 0.46, 30, 34, (238, 218, 150))
+
+
+def furn_fridge(f):
+    white = (222, 224, 226)
+    f.cbox(0.00, 0.14, 0.60, 0.86, 0, 42, white)
+    f.fline(0.60, 0.16, 0.84, 28, 28, (150, 152, 156))
+    f.fline(0.60, 0.78, 0.78, 31, 38, (110, 112, 118))
+    f.fline(0.60, 0.78, 0.78, 12, 24, (110, 112, 118))
+
+
+def furn_stove(f):
+    steel = (204, 206, 210)
+    f.cbox(0.00, 0.12, 0.08, 0.88, 18, 25, (170, 172, 178))
+    f.cbox(0.00, 0.12, 0.60, 0.88, 0, 18, steel)
+    for a, b in ((0.22, 0.32), (0.22, 0.68), (0.46, 0.32), (0.46, 0.68)):
+        f.ellipse_at(f.M(a, b, 18), 3, 1.5, (52, 52, 56))
+    for z in (5, 8, 11):
+        f.fline(0.60, 0.28, 0.72, z, z, (60, 62, 68))
+    f.fline(0.60, 0.24, 0.76, 14, 14, (120, 122, 128))
+
+
+def furn_counter(f):
+    wood = (196, 176, 146)
+    f.cbox(0.00, 0.00, 0.58, 1.00, 0, 17, wood)
+    f.cbox(0.00, 0.00, 0.62, 1.00, 17, 20, (96, 96, 102))
+    f.fline(0.58, 0.50, 0.50, 1, 16, shade(wood, -38))
+    for b in (0.44, 0.56):
+        f.fline(0.58, b, b, 11, 13, (90, 86, 80))
+    f.cbox(0.10, 0.62, 0.30, 0.82, 20, 26, (210, 120, 60))     # a pan or a kettle
+
+
+def furn_sink(f):
+    white = (232, 232, 228)
+    f.cbox(0.05, 0.42, 0.20, 0.58, 0, 12, white)               # pedestal
+    f.cbox(0.00, 0.20, 0.50, 0.80, 12, 18, white)
+    f.ellipse_at(f.M(0.26, 0.50, 18), 5, 2, (170, 186, 196))
+    f.cbox(0.00, 0.28, 0.10, 0.72, 24, 40, (226, 228, 230))    # mirror cabinet
+    f.fline(0.10, 0.50, 0.50, 28, 36, (200, 50, 44))
+    f.fline(0.10, 0.44, 0.56, 32, 32, (200, 50, 44))
+
+
+def furn_toilet(f):
+    white = (234, 234, 230)
+    f.cbox(0.00, 0.30, 0.18, 0.70, 8, 22, white)
+    f.cbox(0.12, 0.32, 0.62, 0.68, 0, 11, white)
+    f.ellipse_at(f.M(0.40, 0.50, 11), 4, 2, (190, 196, 200))
+
+
+def furn_tvstand(f):
+    wood = (88, 64, 46)
+    f.cbox(0.00, 0.08, 0.40, 0.92, 0, 12, wood)
+    f.cbox(0.06, 0.16, 0.14, 0.84, 12, 30, (34, 34, 38))
+    for z in range(15, 28, 2):
+        f.fline(0.14, 0.20, 0.80, z, z, (46, 58, 78))
+
+
+def furn_plant(f):
+    f.box(0.32, 0.32, 0.68, 0.68, 0, 9, (170, 96, 60))
+    cx, cy = f.P(0.5, 0.5, 18)
+    for dx, dy, r, col in ((0, 0, 8, (64, 124, 58)), (-4, -3, 5, (80, 146, 66)), (4, -5, 4, (92, 160, 74)), (2, 3, 4, (56, 110, 52))):
+        f.ellipse_at((cx + dx, cy + dy), r, r * 0.85, col)
+
+
+def furn_storeshelf(f):
+    metal = (150, 156, 164)
+    f.cbox(0.00, 0.00, 0.48, 1.00, 0, 40, metal)
+    goods = [(200, 60, 50), (230, 190, 70), (70, 120, 190), (90, 160, 80), (230, 230, 220), (180, 110, 60)]
+    for z in (2, 13, 24, 35):
+        f.fline(0.48, 0.02, 0.98, z, z, shade(metal, -40))
+        b = 0.06
+        while b < 0.92:
+            col = goods[f.rng.randrange(len(goods))]
+            h = f.rng.randint(4, 7)
+            for k in range(3):
+                f.fline(0.48, b + k * 0.02, b + k * 0.02, z + 1, z + h, shade(col, -k * 10))
+            b += 0.10
+
+
+def furn_checkout(f):
+    f.cbox(0.00, 0.00, 0.55, 1.00, 0, 20, (118, 122, 132))
+    f.cbox(0.00, 0.00, 0.58, 1.00, 20, 22, (70, 72, 78))
+    f.cbox(0.10, 0.30, 0.40, 0.70, 22, 30, (48, 50, 56))
+    f.fline(0.40, 0.36, 0.64, 27, 27, (120, 200, 140))
+
+
+def furn_crates(f):
+    wood = (160, 120, 70)
+    f.box(0.08, 0.10, 0.56, 0.58, 0, 18, wood)
+    f.box(0.46, 0.44, 0.92, 0.90, 0, 14, shade(wood, -10))
+    f.box(0.14, 0.16, 0.48, 0.50, 18, 30, shade(wood, 8))
+    for (u0, v0, u1, v1, z) in ((0.46, 0.44, 0.92, 0.90, 7), (0.08, 0.10, 0.56, 0.58, 9)):
+        f.draw.line([f.P(u0, v1, z), f.P(u1, v1, z)], fill=shade(wood, -40) + (255,))
+        f.draw.line([f.P(u1, v0, z), f.P(u1, v1, z)], fill=shade(wood, -56) + (255,))
+
+
+def furn_metalrack(f):
+    metal = (132, 138, 146)
+    card = (176, 140, 92)
+    for b in (0.00, 0.95):
+        f.cbox(0.00, b, 0.05, b + 0.05, 0, 46, shade(metal, -20))
+    for z in (0, 15, 30, 44):
+        f.cbox(0.00, 0.00, 0.50, 1.00, z, z + 2, metal)
+        if z < 44:
+            f.cbox(0.05, 0.08, 0.42, 0.46, z + 2, z + 2 + f.rng.randint(8, 11), card)
+            if f.rng.random() < 0.8:
+                f.cbox(0.05, 0.54, 0.40, 0.90, z + 2, z + 2 + f.rng.randint(6, 10), shade(card, -14))
+    for b in (0.00, 0.95):
+        f.cbox(0.45, b, 0.50, b + 0.05, 0, 46, metal)
+
+
+def furn_workbench(f):
+    wood = (150, 110, 70)
+    f.cbox(0.00, 0.00, 0.06, 1.00, 19, 42, (150, 132, 104))    # pegboard
+    for b, z0, z1 in ((0.2, 26, 36), (0.35, 28, 38), (0.6, 24, 34), (0.78, 27, 37)):
+        f.fline(0.06, b, b, z0, z1, (70, 72, 78))
+    for b in (0.04, 0.88):
+        f.cbox(0.06, b, 0.14, b + 0.08, 0, 15, shade(wood, -24))
+        f.cbox(0.50, b, 0.58, b + 0.08, 0, 15, shade(wood, -24))
+    f.cbox(0.00, 0.00, 0.62, 1.00, 15, 19, wood)
+    f.cbox(0.32, 0.68, 0.52, 0.90, 19, 24, (120, 124, 132))    # vise
+
+
+def furn_barrels(f):
+    for u, v, col in ((0.32, 0.34, (60, 96, 140)), (0.66, 0.66, (150, 60, 46))):
+        gx, gy = f.P(u, v, 0)
+        tx, ty = f.P(u, v, 26)
+        rx, ry = 10, 5
+        f.draw.rectangle([gx - rx, ty, gx + rx, gy], fill=col + (255,))
+        f.ellipse_at((gx, gy), rx, ry, col)
+        for z in (8, 18):
+            y = gy - z
+            f.draw.line([(gx - rx, y), (gx + rx, y)], fill=shade(col, -30) + (255,))
+        f.draw.rectangle([gx + 4, ty, gx + rx, gy], fill=shade(col, -24) + (255,))
+        f.ellipse_at((tx, ty), rx, ry, shade(col, 22))
+        f.ellipse_at((tx + 3, ty), 2, 1, shade(col, -30))
+
+
+FURNITURE = [
+    # (name, painter, oriented)
+    ("bed", furn_bed, True),
+    ("couch", furn_couch, True),
+    ("table", furn_table, False),
+    ("bookshelf", furn_bookshelf, True),
+    ("wardrobe", furn_wardrobe, True),
+    ("dresser", furn_dresser, True),
+    ("fridge", furn_fridge, True),
+    ("stove", furn_stove, True),
+    ("counter", furn_counter, True),
+    ("sink", furn_sink, True),
+    ("toilet", furn_toilet, True),
+    ("tvstand", furn_tvstand, True),
+    ("plant", furn_plant, False),
+    ("storeshelf", furn_storeshelf, True),
+    ("checkout", furn_checkout, True),
+    ("crates", furn_crates, False),
+    ("metalrack", furn_metalrack, True),
+    ("workbench", furn_workbench, True),
+    ("barrels", furn_barrels, False),
+]
+
+
+def add_furniture_sprites(img, sprites):
+    """Furniture pieces from y=608 down, 16 to a row."""
+    x, y = 0, 608
+    for seed, (name, painter, oriented) in enumerate(FURNITURE):
+        for orient in (("r", "l") if oriented else (None,)):
+            f = Furn(1000 + seed, orient)
+            painter(f)
+            piece = f.finish()
+            img.paste(piece, (x, y), piece)
+            key = "furn_" + name + ("_" + orient if orient else "")
+            sprites[key] = {"x": x, "y": y, "w": FURN_W, "h": FURN_H}
+            x += FURN_W
+            if x + FURN_W > ATLAS_W:
+                x = 0
+                y += FURN_H
 
 
 def main():

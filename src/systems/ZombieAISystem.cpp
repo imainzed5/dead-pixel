@@ -520,7 +520,7 @@ bool ZombieAISystem::hasLineOfSight(const TileMap& tileMap, const glm::vec2& wor
         const int tileX = static_cast<int>(std::floor(p.x / static_cast<float>(tileMap.tileWidth())));
         const int tileY = static_cast<int>(std::floor(p.y / static_cast<float>(tileMap.tileHeight())));
 
-        if (tileMap.isSolid(tileX, tileY))
+        if (tileMap.blocksSight(tileX, tileY))
         {
             return false;
         }

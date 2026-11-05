@@ -28,6 +28,7 @@ void Game::render()
     mSpriteBatch.begin();
     mStaticSprites.clear();
     mStructureView.collect(mCamera, playerTile(), mStructureSprites, mStaticSprites, &mTileMap);
+    mFurnitureView.collect(mCamera, mStructureView, playerTile(), mSpriteSheet, mStaticSprites);
     RenderExtras extras;
     extras.statics = &mStaticSprites;
     extras.isHiddenAt = [this](int tileX, int tileY) { return mStructureView.isHiddenAt(tileX, tileY); };
@@ -349,7 +350,7 @@ void Game::renderMinimapOverlay()
                     }
                 }
 
-                if (mTileMap.isSolid(tx, ty))
+                if (mTileMap.blocksSight(tx, ty))
                 {
                     color = blendColor(color, glm::vec4(0.07f, 0.08f, 0.11f, 0.88f), 0.52f);
                 }
@@ -476,7 +477,7 @@ void Game::renderWorldMapOverlay()
         {
             const int gid = mTileMap.groundGid(tx, ty);
             const int base = gid > 0 ? ((gid - 1) % TileGid::kPerRow) + 1 : 0;
-            const bool solid = mTileMap.isSolid(tx, ty);
+            const bool solid = mTileMap.blocksSight(tx, ty);
             const bool inBuilding = mTileMap.getBuildingId(tx, ty) > 0;
 
             glm::vec3 color(0.18f, 0.24f, 0.17f);

@@ -447,9 +447,14 @@ void Game::updateInventoryInput(bool drivingVehicle)
 
         if (filledSlots == 0)
         {
+            std::string thing;
+            if (mWorld.hasComponent<Interactable>(mOpenContainerEntity))
+            {
+                thing = searchedThing(mWorld.getComponent<Interactable>(mOpenContainerEntity).prompt);
+            }
             mContainerOpen = false;
             mOpenContainerEntity = kInvalidEntity;
-            mInteractionMessage = "Container empty.";
+            mInteractionMessage = thing.empty() ? "Container empty." : "The " + thing + " is empty.";
             mInteractionMessageTimer = 2.0f;
         }
         else

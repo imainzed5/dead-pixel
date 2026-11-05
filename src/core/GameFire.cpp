@@ -25,7 +25,7 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle)
             const glm::ivec2 targetTile = worldToTile(mTileMap, mMouseWorld);
             if (targetTile.x >= 0 && targetTile.x < mTileMap.width() &&
                 targetTile.y >= 0 && targetTile.y < mTileMap.height() &&
-                !mTileMap.isSolid(targetTile.x, targetTile.y))
+                !mTileMap.blocksSight(targetTile.x, targetTile.y))
             {
                 bool foundExisting = false;
                 mWorld.forEach<Fire, Transform>(
@@ -154,13 +154,17 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle)
             {
                 return 0.0f;
             }
-            if (mTileMap.isSolid(tileX, tileY))
+            if (mTileMap.blocksSight(tileX, tileY))
             {
                 return 0.0f;
             }
 
             float value = fireBaseFlammability(mTileMap.getSurfaceType(tileX, tileY));
             value += structureFlammabilityBonus(tileX, tileY);
+            if (mTileMap.hasFurniture(tileX, tileY))
+            {
+                value += 0.25f; // wood, cloth and paper
+            }
             if (hasTilePair(mBurnedTiles, tileX, tileY))
             {
                 value *= 0.35f;

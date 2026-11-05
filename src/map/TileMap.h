@@ -54,7 +54,10 @@ public:
 
     [[nodiscard]] bool gidToUvRect(int gid, glm::vec4& outUvRect) const;
     [[nodiscard]] int groundGid(int tileX, int tileY) const;
+    // Blocks movement: walls, closed doors and furniture.
     [[nodiscard]] bool isSolid(int tileX, int tileY) const;
+    // Blocks sight and thrown things: walls and closed doors, not furniture.
+    [[nodiscard]] bool blocksSight(int tileX, int tileY) const;
     [[nodiscard]] bool isSolidAtWorldRect(float left, float top, float right, float bottom) const;
     [[nodiscard]] bool isSolidAtWorldDiamond(float centerX, float centerY, float radiusX, float radiusY) const;
     [[nodiscard]] SurfaceType getSurfaceType(int tileX, int tileY) const;
@@ -66,6 +69,11 @@ public:
     void setDoorState(int tileX, int tileY, DoorState state);
     [[nodiscard]] DoorState doorState(int tileX, int tileY) const;
     [[nodiscard]] bool isClosedDoor(int tileX, int tileY) const { return doorState(tileX, tileY) == DoorState::Closed; }
+
+    // Furniture stands on a whole tile and blocks movement through it.
+    void setFurniture(int tileX, int tileY, bool present);
+    [[nodiscard]] bool hasFurniture(int tileX, int tileY) const;
+    void clearFurniture();
 
     [[nodiscard]] int width() const { return mWidth; }
     [[nodiscard]] int height() const { return mHeight; }
@@ -90,4 +98,5 @@ private:
     std::vector<int> mDistrictLayer;
     std::vector<int> mBuildingLayer;
     std::vector<DoorState> mDoorLayer;
+    std::vector<std::uint8_t> mFurnitureLayer;
 };

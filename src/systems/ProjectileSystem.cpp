@@ -38,7 +38,8 @@ void ProjectileSystem::update(World& world, const TileMap& tileMap, NoiseModel& 
             // Wall collision
             const int tileX = static_cast<int>(pt.x / static_cast<float>(std::max(1, tileMap.tileWidth())));
             const int tileY = static_cast<int>(pt.y / static_cast<float>(std::max(1, tileMap.tileHeight())));
-            if (tileMap.isSolid(tileX, tileY))
+            // Shots pass over furniture.
+            if (tileMap.blocksSight(tileX, tileY))
             {
                 toDestroy.push_back(projEntity);
                 return;
