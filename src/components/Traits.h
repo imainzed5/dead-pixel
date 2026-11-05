@@ -21,7 +21,10 @@ enum class NegativeTrait
 enum class BloodlineTrait
 {
     None,
-    Hardened        // slower early depression accumulation (earned by retirement)
+    Hardened,       // slower early depression accumulation (earned by retirement)
+    Scavenger,      // starts with slightly better salvage baseline
+    Firewise,       // history of fire-related deaths/survival
+    Vigilant        // heightened awareness from repeated close calls
 };
 
 struct Traits
@@ -49,6 +52,18 @@ struct Traits
         case NegativeTrait::Hungry:  return "Hungry";
         case NegativeTrait::Nervous: return "Nervous";
         default:                     return "";
+        }
+    }
+
+    [[nodiscard]] const char* bloodlineName() const
+    {
+        switch (bloodline)
+        {
+        case BloodlineTrait::Hardened:  return "Hardened";
+        case BloodlineTrait::Scavenger: return "Scavenger";
+        case BloodlineTrait::Firewise:  return "Firewise";
+        case BloodlineTrait::Vigilant:  return "Vigilant";
+        default:                        return "";
         }
     }
 };

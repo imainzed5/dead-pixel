@@ -42,6 +42,7 @@ public:
     [[nodiscard]] int groundGid(int tileX, int tileY) const;
     [[nodiscard]] bool isSolid(int tileX, int tileY) const;
     [[nodiscard]] bool isSolidAtWorldRect(float left, float top, float right, float bottom) const;
+    [[nodiscard]] bool isSolidAtWorldDiamond(float centerX, float centerY, float radiusX, float radiusY) const;
     [[nodiscard]] SurfaceType getSurfaceType(int tileX, int tileY) const;
     [[nodiscard]] int getDistrictId(int tileX, int tileY) const;
 

@@ -5,6 +5,7 @@
 #include "components/Animation.h"
 #include "components/Bleeding.h"
 #include "components/Combat.h"
+#include "components/Fire.h"
 #include "components/Facing.h"
 #include "components/Health.h"
 #include "components/Interactable.h"
@@ -20,6 +21,7 @@
 #include "components/Stamina.h"
 #include "components/Structure.h"
 #include "components/Transform.h"
+#include "components/Vehicle.h"
 #include "components/Velocity.h"
 #include "components/ZombieAI.h"
 #include "components/SurvivorAI.h"
@@ -47,6 +49,14 @@ constexpr float kMaxFrameStepSeconds = 0.25f;
 constexpr double kFixedTimeStepSeconds = 1.0 / 60.0;
 constexpr double kGameHoursPerRealSecond = 1.0 / 60.0;
 constexpr double kDeathRestartDelaySeconds = 3.0;
+constexpr float kVehicleInteractRangePixels = 64.0f;
+constexpr float kVehicleCollisionRangePixels = 26.0f;
+constexpr float kVehicleFuelPerSecond = 0.28f;
+constexpr float kVehicleRefuelAmount = 12.0f;
+constexpr float kVehicleBaseSpeed = 248.0f;
+constexpr float kMinimapZoomMin = 0.70f;
+constexpr float kMinimapZoomMax = 4.20f;
+constexpr float kMinimapZoomStep = 0.20f;
 
 constexpr std::array<const char*, 3> kTitleSaveSlots = {
     "default_slot",
@@ -60,16 +70,44 @@ constexpr std::array<const char*, 3> kTitleSaveLabels = {
     "Ironman"
 };
 
-constexpr std::array<const char*, 3> kTitleModeNames = {
-    "SURVIVAL",
-    "SCAVENGER",
-    "OVERRUN"
+constexpr std::array<const char*, 2> kTitleGameModeNames = {
+    "CAMPAIGN",
+    "ENDLESS"
 };
 
-constexpr std::array<const char*, 3> kTitleModeDescriptions = {
-    "Balanced pressure with standard supplies",
-    "Lower pressure and extra resources",
-    "High pressure and reduced resources"
+constexpr std::array<const char*, 2> kTitleGameModeDescriptions = {
+    "Objective-driven run with an infection deadline",
+    "No win condition; survive and shape world history"
+};
+
+constexpr std::array<const char*, 6> kTitleModeNames = {
+    "OVERWHELMING SWARM",
+    "STALKER",
+    "MUTATING THREAT",
+    "INFECTED SOCIETY",
+    "UNKNOWN",
+    "HYBRID"
+};
+
+constexpr std::array<const char*, 6> kTitleModeDescriptions = {
+    "Huge populations; pressure through volume",
+    "Fewer but persistent hunters",
+    "Threat escalates as days pass",
+    "Human hostility dominates district danger",
+    "Unstable behavior patterns and uncertainty",
+    "Swarm pressure plus late-game mutation"
+};
+
+constexpr std::array<const char*, 3> kTitleToneNames = {
+    "HOPELESS",
+    "GRIM HUMAN",
+    "BRUTAL ARCADE"
+};
+
+constexpr std::array<const char*, 3> kTitleToneDescriptions = {
+    "Bleak framing and sparse presentation",
+    "Dark world with readable human traces",
+    "Faster, harsher action-horror framing"
 };
 
 constexpr std::array<const char*, 16> kBriefingLines = {
@@ -91,11 +129,14 @@ constexpr std::array<const char*, 16> kBriefingLines = {
     "Leave one exit clear before you open a door."
 };
 
-constexpr std::array<const char*, 7> kTitleMenuItems = {
+constexpr std::array<const char*, 10> kTitleMenuItems = {
     "Continue Run",
     "Start New Run",
+    "Start New World",
     "Save Slot",
-    "Mode",
+    "Game Mode",
+    "Threat",
+    "Tone",
     "Options",
     "Credits",
     "Quit"
@@ -126,6 +167,207 @@ std::string truncateHudText(const std::string& text, std::size_t maxChars)
         return text.substr(0, maxChars);
     }
     return text.substr(0, maxChars - 3) + "...";
+}
+
+void addUniqueTilePair(std::vector<std::pair<int, int>>& tiles, int x, int y)
+{
+    for (const auto& [tx, ty] : tiles)
+    {
+        if (tx == x && ty == y)
+        {
+            return;
+        }
+    }
+    tiles.emplace_back(x, y);
+}
+
+bool hasTilePair(const std::vector<std::pair<int, int>>& tiles, int x, int y)
+{
+    for (const auto& [tx, ty] : tiles)
+    {
+        if (tx == x && ty == y)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+glm::ivec2 worldToTile(const TileMap& tileMap, const glm::vec2& world)
+{
+    const int tw = std::max(1, tileMap.tileWidth());
+    const int th = std::max(1, tileMap.tileHeight());
+    return glm::ivec2(
+        static_cast<int>(std::floor(world.x / static_cast<float>(tw))),
+        static_cast<int>(std::floor(world.y / static_cast<float>(th))));
+}
+
+const char* vehicleConditionLabel(float condition)
+{
+    if (condition >= 70.0f) return "GOOD";
+    if (condition >= 40.0f) return "WORN";
+    if (condition >= 10.0f) return "DAMAGED";
+    return "BROKEN";
+}
+
+float vehicleSpeedFromCondition(float condition)
+{
+    if (condition >= 70.0f) return kVehicleBaseSpeed;
+    if (condition >= 40.0f) return kVehicleBaseSpeed * 0.86f;
+    if (condition >= 10.0f) return kVehicleBaseSpeed * 0.72f;
+    return 0.0f;
+}
+
+float fireBaseFlammability(SurfaceType surface)
+{
+    switch (surface)
+    {
+    case SurfaceType::Carpet:
+        return 0.62f;
+    case SurfaceType::Grass:
+        return 0.74f;
+    case SurfaceType::Default:
+        return 0.36f;
+    case SurfaceType::Gravel:
+        return 0.08f;
+    case SurfaceType::Metal:
+        return 0.03f;
+    }
+    return 0.30f;
+}
+
+float deterministic01(int x, int y, int salt)
+{
+    std::uint32_t n = static_cast<std::uint32_t>(x * 73856093) ^
+                      static_cast<std::uint32_t>(y * 19349663) ^
+                      static_cast<std::uint32_t>(salt * 83492791);
+    n ^= (n >> 13);
+    n *= 1274126177u;
+    n ^= (n >> 16);
+    return static_cast<float>(n & 0x00FFFFFFu) / static_cast<float>(0x00FFFFFFu);
+}
+
+SaveGameMode saveGameModeFromIndex(int index)
+{
+    return index == 0 ? SaveGameMode::Campaign : SaveGameMode::Endless;
+}
+
+int indexFromSaveGameMode(SaveGameMode mode)
+{
+    return mode == SaveGameMode::Campaign ? 0 : 1;
+}
+
+SaveThreatMode saveThreatModeFromIndex(int index)
+{
+    switch (index)
+    {
+    case 0: return SaveThreatMode::OverwhelmingSwarm;
+    case 1: return SaveThreatMode::Stalker;
+    case 2: return SaveThreatMode::MutatingThreat;
+    case 3: return SaveThreatMode::InfectedSociety;
+    case 4: return SaveThreatMode::Unknown;
+    case 5: return SaveThreatMode::Hybrid;
+    default: return SaveThreatMode::OverwhelmingSwarm;
+    }
+}
+
+int indexFromSaveThreatMode(SaveThreatMode mode)
+{
+    switch (mode)
+    {
+    case SaveThreatMode::OverwhelmingSwarm: return 0;
+    case SaveThreatMode::Stalker: return 1;
+    case SaveThreatMode::MutatingThreat: return 2;
+    case SaveThreatMode::InfectedSociety: return 3;
+    case SaveThreatMode::Unknown: return 4;
+    case SaveThreatMode::Hybrid: return 5;
+    default: return 0;
+    }
+}
+
+SaveTonePreset saveTonePresetFromIndex(int index)
+{
+    switch (index)
+    {
+    case 0: return SaveTonePreset::Hopeless;
+    case 2: return SaveTonePreset::BrutalArcade;
+    case 1:
+    default:
+        return SaveTonePreset::GrimHuman;
+    }
+}
+
+int indexFromSaveTonePreset(SaveTonePreset preset)
+{
+    switch (preset)
+    {
+    case SaveTonePreset::Hopeless: return 0;
+    case SaveTonePreset::GrimHuman: return 1;
+    case SaveTonePreset::BrutalArcade: return 2;
+    default: return 1;
+    }
+}
+
+struct ThreatBehaviorTuning
+{
+    float speedScale = 1.0f;
+    float visionScale = 1.0f;
+};
+
+ThreatBehaviorTuning computeThreatBehaviorTuning(
+    SaveThreatMode mode,
+    int currentDay,
+    Entity zombieEntity,
+    std::uint64_t runSeed)
+{
+    ThreatBehaviorTuning tuning{};
+
+    switch (mode)
+    {
+    case SaveThreatMode::OverwhelmingSwarm:
+        tuning.speedScale = 0.94f;
+        tuning.visionScale = 0.96f;
+        break;
+
+    case SaveThreatMode::Stalker:
+        tuning.speedScale = 1.18f;
+        tuning.visionScale = 1.30f;
+        break;
+
+    case SaveThreatMode::MutatingThreat:
+    {
+        const float dayFactor = std::clamp((static_cast<float>(currentDay) - 1.0f) / 30.0f, 0.0f, 1.0f);
+        tuning.speedScale = 1.0f + dayFactor * 0.42f;
+        tuning.visionScale = 1.0f + dayFactor * 0.24f;
+        break;
+    }
+
+    case SaveThreatMode::InfectedSociety:
+        tuning.speedScale = 0.82f;
+        tuning.visionScale = 0.84f;
+        break;
+
+    case SaveThreatMode::Unknown:
+    {
+        const int seedA = static_cast<int>(runSeed & 0x7FFFFFFFu);
+        const int seedB = static_cast<int>((runSeed >> 17) & 0x7FFFFFFFu);
+        const float jitterA = deterministic01(static_cast<int>(zombieEntity), currentDay, seedA);
+        const float jitterB = deterministic01(currentDay, static_cast<int>(zombieEntity), seedB);
+        tuning.speedScale = 0.74f + jitterA * 0.78f;
+        tuning.visionScale = 0.78f + jitterB * 0.56f;
+        break;
+    }
+
+    case SaveThreatMode::Hybrid:
+    {
+        const float dayFactor = std::clamp((static_cast<float>(currentDay) - 1.0f) / 40.0f, 0.0f, 1.0f);
+        tuning.speedScale = 1.05f + dayFactor * 0.28f;
+        tuning.visionScale = 1.04f + dayFactor * 0.20f;
+        break;
+    }
+    }
+
+    return tuning;
 }
 
 struct TitlePanelLayout
@@ -840,7 +1082,7 @@ bool Game::initialize()
     // Boot to title screen — do not start a run yet
     mRunState = RunState::TitleScreen;
     mTitleMenuSelection = 0;
-    mTitleModeIndex = static_cast<int>(TitleRunMode::Survival);
+    syncPresentationSettingsFromSave();
     mTitleHasCheckpoint = false;
     mTitleCheckpointDay = 1;
     mTitleCheckpointName.clear();
@@ -850,6 +1092,8 @@ bool Game::initialize()
     mTitleStatusMessage.clear();
     mTitleStatusTimer = 0.0f;
     mTitlePulseTimer = 0.0f;
+    mTitleConfirmNewWorld = false;
+    mTitleConfirmNewWorldTimer = 0.0f;
     mIgnoreCheckpointRestoreOnce = false;
 
     mIsRunning = true;
@@ -887,6 +1131,7 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
     mMapGenerator.applyToTileMap(mTileMap);
     mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     mActiveSaveSlot = slotName;
+    syncPresentationSettingsFromSave();
     mCamera.clampToBounds(mTileMap.pixelSize());
 
     std::cout << "[World] slot=" << slotName
@@ -896,6 +1141,185 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
               << '\n';
 
     return true;
+}
+
+void Game::syncPresentationSettingsFromSave()
+{
+    const RunPresentationSettings& settings = mSaveManager.presentationSettings();
+    mTitleGameModeIndex = wrapIndex(indexFromSaveGameMode(settings.gameMode), static_cast<int>(kTitleGameModeNames.size()));
+    mTitleModeIndex = wrapIndex(indexFromSaveThreatMode(settings.threatMode), static_cast<int>(kTitleModeNames.size()));
+    mTitleToneIndex = wrapIndex(indexFromSaveTonePreset(settings.tonePreset), static_cast<int>(kTitleToneNames.size()));
+    mCampaignObjective = settings.campaignObjective;
+}
+
+void Game::syncPresentationSettingsToSave()
+{
+    RunPresentationSettings settings = mSaveManager.presentationSettings();
+    settings.gameMode = saveGameModeFromIndex(mTitleGameModeIndex);
+    settings.threatMode = saveThreatModeFromIndex(mTitleModeIndex);
+    settings.tonePreset = saveTonePresetFromIndex(mTitleToneIndex);
+    settings.campaignObjective = mCampaignObjective;
+    mSaveManager.setPresentationSettings(settings);
+    mSaveManager.savePresentationSettings();
+}
+
+bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
+{
+    if (mPlayerEntity == kInvalidEntity)
+    {
+        return false;
+    }
+
+    RunCheckpoint cp;
+    cp.runSeed = mSaveManager.currentRunSeed();
+    cp.characterName = mCurrentCharacterName;
+    cp.currentDay = mCurrentDay;
+    cp.gameHours = mGameHours;
+
+    if (mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        const auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
+        cp.playerX = t.x;
+        cp.playerY = t.y;
+    }
+
+    if (mWorld.hasComponent<Health>(mPlayerEntity))
+    {
+        const auto& h = mWorld.getComponent<Health>(mPlayerEntity);
+        cp.healthCurrent = h.current;
+        cp.healthMaximum = h.maximum;
+    }
+
+    if (mWorld.hasComponent<Needs>(mPlayerEntity))
+    {
+        cp.needs = mWorld.getComponent<Needs>(mPlayerEntity);
+    }
+
+    if (mWorld.hasComponent<MentalState>(mPlayerEntity))
+    {
+        cp.mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+    }
+
+    if (mWorld.hasComponent<Wounds>(mPlayerEntity))
+    {
+        cp.wounds = mWorld.getComponent<Wounds>(mPlayerEntity).active;
+    }
+
+    cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
+
+    if (mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
+    }
+
+    cp.kills = mRunStats.kills;
+    cp.itemsLooted = mRunStats.itemsLooted;
+    cp.structuresBuilt = mRunStats.structuresBuilt;
+    cp.distanceWalked = mRunStats.distanceWalked;
+
+    const bool ok = mSaveManager.saveCheckpoint(cp);
+    if (ok)
+    {
+        mSaveManager.saveLootedPositions();
+        mInteractionMessage = statusMessage;
+        mInteractionMessageTimer = 2.0f;
+    }
+    else
+    {
+        mInteractionMessage = "Checkpoint save failed.";
+        mInteractionMessageTimer = 2.5f;
+    }
+
+    return ok;
+}
+
+void Game::ensureCampaignObjective()
+{
+    if (mTitleGameModeIndex != 0)
+    {
+        mCampaignObjective = CampaignObjectiveState{};
+        syncPresentationSettingsToSave();
+        return;
+    }
+
+    if (mCampaignObjective.active)
+    {
+        return;
+    }
+
+    if (mCampaignObjective.completed)
+    {
+        mCampaignObjective = CampaignObjectiveState{};
+    }
+
+    const LayoutData& layout = mMapGenerator.layoutData();
+    if (layout.width <= 0 || layout.height <= 0 || layout.districts.empty())
+    {
+        return;
+    }
+
+    const int startX = layout.playerStart.x;
+    const int startY = layout.playerStart.y;
+
+    int bestDistrictId = 0;
+    int bestTileX = startX;
+    int bestTileY = startY;
+    float bestDistance2 = -1.0f;
+
+    for (const auto& district : layout.districts)
+    {
+        if (district.id == 0)
+        {
+            continue;
+        }
+
+        const int cx = (district.minX + district.maxX) / 2;
+        const int cy = (district.minY + district.maxY) / 2;
+        const float dx = static_cast<float>(cx - startX);
+        const float dy = static_cast<float>(cy - startY);
+        const float distance2 = dx * dx + dy * dy;
+        if (distance2 > bestDistance2)
+        {
+            bestDistance2 = distance2;
+            bestDistrictId = district.id;
+            bestTileX = cx;
+            bestTileY = cy;
+        }
+    }
+
+    bestTileX = std::clamp(bestTileX, 0, mTileMap.width() - 1);
+    bestTileY = std::clamp(bestTileY, 0, mTileMap.height() - 1);
+    if (mTileMap.isSolid(bestTileX, bestTileY))
+    {
+        bool found = false;
+        for (int radius = 1; radius <= 8 && !found; ++radius)
+        {
+            for (int oy = -radius; oy <= radius && !found; ++oy)
+            {
+                for (int ox = -radius; ox <= radius; ++ox)
+                {
+                    const int nx = std::clamp(bestTileX + ox, 0, mTileMap.width() - 1);
+                    const int ny = std::clamp(bestTileY + oy, 0, mTileMap.height() - 1);
+                    if (!mTileMap.isSolid(nx, ny))
+                    {
+                        bestTileX = nx;
+                        bestTileY = ny;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    mCampaignObjective.active = true;
+    mCampaignObjective.completed = false;
+    mCampaignObjective.tileX = bestTileX;
+    mCampaignObjective.tileY = bestTileY;
+    mCampaignObjective.districtId = bestDistrictId;
+    mCampaignObjective.infectionDeadlineDay = 60;
+
+    syncPresentationSettingsToSave();
 }
 
 void Game::registerComponents()
@@ -917,6 +1341,8 @@ void Game::registerComponents()
     mWorld.registerComponent<Inventory>();
     mWorld.registerComponent<MentalState>();
     mWorld.registerComponent<Structure>();
+    mWorld.registerComponent<Vehicle>();
+    mWorld.registerComponent<Fire>();
     mWorld.registerComponent<Projectile>();
     mWorld.registerComponent<Wounds>();
     mWorld.registerComponent<Traits>();
@@ -959,13 +1385,17 @@ void Game::startNewRun()
     mContainerOpen = false;
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
+    mActiveVehicleEntity = kInvalidEntity;
+    mBurnedTiles.clear();
+    mShowWorldMap = false;
+    mShowNotebook = false;
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
 
-    // Mode-specific spawn pressure tuning.
-    if (mTitleModeIndex == static_cast<int>(TitleRunMode::Scavenger))
+    // Threat-mode spawn pressure tuning.
     {
+        std::mt19937 runRng(mSaveManager.currentRunSeed() ^ 0xA11CEu);
         auto reduceTo = [](std::vector<glm::ivec2>& list, float ratio)
         {
             if (list.empty()) return;
@@ -986,38 +1416,45 @@ void Game::startNewRun()
             }
         };
 
-        reduceTo(mSpawnData.zombieSpawns, 0.78f);
-        duplicateTo(mSpawnData.foodSpawns, 1.20f);
-        duplicateTo(mSpawnData.waterSpawns, 1.25f);
-        duplicateTo(mSpawnData.bandageSpawns, 1.15f);
+        switch (saveThreatModeFromIndex(mTitleModeIndex))
+        {
+        case SaveThreatMode::OverwhelmingSwarm:
+            duplicateTo(mSpawnData.zombieSpawns, 1.45f);
+            reduceTo(mSpawnData.foodSpawns, 0.88f);
+            reduceTo(mSpawnData.waterSpawns, 0.90f);
+            break;
+        case SaveThreatMode::Stalker:
+            reduceTo(mSpawnData.zombieSpawns, 0.68f);
+            duplicateTo(mSpawnData.weaponSpawns, 1.10f);
+            break;
+        case SaveThreatMode::MutatingThreat:
+            duplicateTo(mSpawnData.zombieSpawns, 1.18f);
+            reduceTo(mSpawnData.bandageSpawns, 0.85f);
+            break;
+        case SaveThreatMode::InfectedSociety:
+            reduceTo(mSpawnData.zombieSpawns, 0.82f);
+            reduceTo(mSpawnData.foodSpawns, 0.92f);
+            break;
+        case SaveThreatMode::Unknown:
+        {
+            std::uniform_real_distribution<float> ratioDist(0.75f, 1.35f);
+            const float zRatio = ratioDist(runRng);
+            const float foodRatio = ratioDist(runRng);
+            const float waterRatio = ratioDist(runRng);
+            if (zRatio >= 1.0f) duplicateTo(mSpawnData.zombieSpawns, zRatio); else reduceTo(mSpawnData.zombieSpawns, zRatio);
+            if (foodRatio >= 1.0f) duplicateTo(mSpawnData.foodSpawns, foodRatio); else reduceTo(mSpawnData.foodSpawns, foodRatio);
+            if (waterRatio >= 1.0f) duplicateTo(mSpawnData.waterSpawns, waterRatio); else reduceTo(mSpawnData.waterSpawns, waterRatio);
+            break;
+        }
+        case SaveThreatMode::Hybrid:
+            duplicateTo(mSpawnData.zombieSpawns, 1.32f);
+            reduceTo(mSpawnData.foodSpawns, 0.82f);
+            reduceTo(mSpawnData.bandageSpawns, 0.82f);
+            break;
+        }
     }
-    else if (mTitleModeIndex == static_cast<int>(TitleRunMode::Overrun))
-    {
-        auto reduceTo = [](std::vector<glm::ivec2>& list, float ratio)
-        {
-            if (list.empty()) return;
-            const std::size_t target = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(static_cast<float>(list.size()) * ratio)));
-            if (target < list.size())
-            {
-                list.resize(target);
-            }
-        };
-        auto duplicateTo = [](std::vector<glm::ivec2>& list, float ratio)
-        {
-            if (list.empty() || ratio <= 1.0f) return;
-            const std::size_t base = list.size();
-            const std::size_t target = static_cast<std::size_t>(std::round(static_cast<float>(base) * ratio));
-            for (std::size_t i = 0; list.size() < target; ++i)
-            {
-                list.push_back(list[i % base]);
-            }
-        };
 
-        duplicateTo(mSpawnData.zombieSpawns, 1.35f);
-        reduceTo(mSpawnData.foodSpawns, 0.75f);
-        reduceTo(mSpawnData.waterSpawns, 0.80f);
-        reduceTo(mSpawnData.bandageSpawns, 0.70f);
-    }
+    ensureCampaignObjective();
 
     const std::uint64_t runLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     if (mLayoutFingerprint != 0 && runLayoutFingerprint != mLayoutFingerprint)
@@ -1092,7 +1529,10 @@ void Game::startNewRun()
     {
         if (mTitleModeIndex >= 0 && mTitleModeIndex < static_cast<int>(kTitleModeNames.size()))
         {
-            mInteractionMessage = std::string("Mode: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
+            mInteractionMessage = std::string("Mode: ")
+                + kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)]
+                + " | Threat: "
+                + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
             mInteractionMessageTimer = 2.5f;
         }
     }
@@ -1136,6 +1576,10 @@ void Game::returnToTitleScreen()
     mContainerOpen = false;
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
+    mActiveVehicleEntity = kInvalidEntity;
+    mBurnedTiles.clear();
+    mShowWorldMap = false;
+    mShowNotebook = false;
     mRunStats = RunStats{};
 
     mInteractionMessage.clear();
@@ -1146,6 +1590,8 @@ void Game::returnToTitleScreen()
     mShowControls = false;
     mShowTitleCredits = false;
     mTitleMenuSelection = 0;
+    mTitleConfirmNewWorld = false;
+    mTitleConfirmNewWorldTimer = 0.0f;
     mTitleStatusMessage = "Returned to title menu.";
     mTitleStatusTimer = 2.0f;
 
@@ -1238,17 +1684,21 @@ void Game::setupScene()
         int startBandages = 2;
         int startFood = 3;
         int startWater = 2;
-        if (mTitleModeIndex == static_cast<int>(TitleRunMode::Scavenger))
+        switch (saveThreatModeFromIndex(mTitleModeIndex))
         {
+        case SaveThreatMode::Stalker:
             startBandages = 3;
             startFood = 4;
             startWater = 3;
-        }
-        else if (mTitleModeIndex == static_cast<int>(TitleRunMode::Overrun))
-        {
+            break;
+        case SaveThreatMode::OverwhelmingSwarm:
+        case SaveThreatMode::Hybrid:
             startBandages = 1;
             startFood = 2;
             startWater = 1;
+            break;
+        default:
+            break;
         }
 
         InventorySystem::addItem(inv, mItemDatabase, 5, 1);  // knife
@@ -1407,11 +1857,24 @@ void Game::setupScene()
         }
     }
 
-    // Apply Hardened bloodline trait if player has retirement history
-    if (mSaveManager.hasRetirementHistory() && mWorld.hasComponent<Traits>(mPlayerEntity))
+    // Apply bloodline trait selected from persistent legacy history.
+    if (mWorld.hasComponent<Traits>(mPlayerEntity))
     {
         Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        traits.bloodline = BloodlineTrait::Hardened;
+        traits.bloodline = mSaveManager.selectBloodlineForNewRun();
+
+        if (traits.bloodline == BloodlineTrait::Scavenger && mWorld.hasComponent<Inventory>(mPlayerEntity))
+        {
+            Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+            InventorySystem::addItem(inv, mItemDatabase, 0, 1);
+            InventorySystem::addItem(inv, mItemDatabase, 3, 1);
+        }
+
+        if (traits.bloodline == BloodlineTrait::Vigilant && mWorld.hasComponent<MentalState>(mPlayerEntity))
+        {
+            MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+            mental.panicDecayPerSecond += 0.5f;
+        }
     }
 
     // Initialize district infection system
@@ -1823,6 +2286,165 @@ void Game::setupScene()
             mWorld.addComponent<Transform>(blood, t);
             mWorld.addComponent<Sprite>(blood, s);
             ++bloodIdx;
+        }
+    }
+
+    // --- Burned tile marks restored from world memory ---
+    {
+        mBurnedTiles.clear();
+        for (const auto& [tx, ty] : mSaveManager.burnedTiles())
+        {
+            if (tx < 0 || tx >= mTileMap.width() || ty < 0 || ty >= mTileMap.height())
+            {
+                continue;
+            }
+
+            addUniqueTilePair(mBurnedTiles, tx, ty);
+
+            Entity scorch = mWorld.createEntity();
+            Transform t{};
+            t.x = static_cast<float>(tx * mTileMap.tileWidth());
+            t.y = static_cast<float>(ty * mTileMap.tileHeight());
+
+            Sprite s{};
+            s.textureId = sheetTex;
+            s.uvRect = mSpriteSheet.uvRect("env_blood_large");
+            s.color = glm::vec4(0.10f, 0.08f, 0.08f, 0.42f);
+            s.layer = 2;
+
+            mWorld.addComponent<Transform>(scorch, t);
+            mWorld.addComponent<Sprite>(scorch, s);
+        }
+    }
+
+    // --- Active fire tiles restored from world memory ---
+    {
+        for (const FireTileRecord& fireRecord : mSaveManager.fireTiles())
+        {
+            if (fireRecord.tileX < 0 || fireRecord.tileX >= mTileMap.width() ||
+                fireRecord.tileY < 0 || fireRecord.tileY >= mTileMap.height())
+            {
+                continue;
+            }
+
+            if (mTileMap.isSolid(fireRecord.tileX, fireRecord.tileY))
+            {
+                continue;
+            }
+
+            Entity fireEntity = mWorld.createEntity();
+
+            Transform t{};
+            t.x = static_cast<float>(fireRecord.tileX * mTileMap.tileWidth());
+            t.y = static_cast<float>(fireRecord.tileY * mTileMap.tileHeight());
+
+            Sprite s{};
+            s.textureId = sheetTex;
+            s.uvRect = mSpriteSheet.uvRect("env_campfire_lit");
+            const float intensity = std::clamp(fireRecord.intensity, 0.0f, 2.0f);
+            s.color = glm::vec4(1.0f, 0.45f + intensity * 0.20f, 0.18f, 0.55f + intensity * 0.18f);
+            s.layer = 6;
+
+            Fire fire{};
+            fire.intensity = intensity;
+            fire.lifeRemaining = std::max(2.0f, fireRecord.lifeRemaining);
+            fire.spreadTimer = std::fmod(static_cast<float>(runRng() % 1000) * 0.001f, 1.0f);
+            fire.noiseTimer = 0.0f;
+
+            mWorld.addComponent<Transform>(fireEntity, t);
+            mWorld.addComponent<Sprite>(fireEntity, s);
+            mWorld.addComponent<Fire>(fireEntity, fire);
+        }
+    }
+
+    // --- Sedan vehicles (M8 narrow slice) ---
+    {
+        auto spawnSedan = [&](int tileX, int tileY, float condition, float fuel, float maxFuel,
+                              const std::vector<std::pair<int, int>>& items)
+        {
+            if (tileX < 0 || tileX >= mTileMap.width() || tileY < 0 || tileY >= mTileMap.height())
+            {
+                return;
+            }
+            if (mTileMap.isSolid(tileX, tileY))
+            {
+                return;
+            }
+
+            Entity vehicleEntity = mWorld.createEntity();
+
+            Transform t{};
+            t.x = static_cast<float>(tileX * mTileMap.tileWidth());
+            t.y = static_cast<float>(tileY * mTileMap.tileHeight());
+
+            Sprite s{};
+            s.textureId = sheetTex;
+            s.uvRect = mSpriteSheet.uvRect("env_cabinet");
+            const float wearTint = std::clamp(condition / 100.0f, 0.0f, 1.0f);
+            s.color = glm::vec4(0.33f + wearTint * 0.20f, 0.36f + wearTint * 0.17f, 0.40f + wearTint * 0.18f, 1.0f);
+            s.layer = 5;
+
+            Interactable inter{};
+            inter.type = InteractableType::Container;
+            inter.prompt = "Open trunk";
+
+            Inventory trunk{};
+            for (const auto& [itemId, count] : items)
+            {
+                if (itemId >= 0 && count > 0)
+                {
+                    InventorySystem::addItem(trunk, mItemDatabase, itemId, count);
+                }
+            }
+
+            Vehicle vehicle{};
+            vehicle.condition = std::clamp(condition, 0.0f, 100.0f);
+            vehicle.maxFuel = std::max(1.0f, maxFuel);
+            vehicle.fuel = std::clamp(fuel, 0.0f, vehicle.maxFuel);
+            vehicle.engineOn = false;
+            vehicle.playerInside = false;
+
+            mWorld.addComponent<Transform>(vehicleEntity, t);
+            mWorld.addComponent<Sprite>(vehicleEntity, s);
+            mWorld.addComponent<Interactable>(vehicleEntity, inter);
+            mWorld.addComponent<Inventory>(vehicleEntity, trunk);
+            mWorld.addComponent<Vehicle>(vehicleEntity, vehicle);
+        };
+
+        const auto& persistedVehicles = mSaveManager.vehicles();
+        if (!persistedVehicles.empty())
+        {
+            for (const auto& record : persistedVehicles)
+            {
+                const int tileX = static_cast<int>(std::floor(record.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
+                const int tileY = static_cast<int>(std::floor(record.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
+
+                // Mild between-run wear to communicate world persistence pressure.
+                const float carryCondition = std::max(0.0f, record.condition - 4.0f);
+                spawnSedan(tileX, tileY, carryCondition, record.fuel, record.maxFuel, record.items);
+            }
+        }
+        else
+        {
+            std::uniform_real_distribution<float> fuelDist(8.0f, 24.0f);
+            std::uniform_real_distribution<float> conditionDist(45.0f, 95.0f);
+            std::uniform_int_distribution<int> trunkRoll(0, 100);
+
+            for (const auto& tile : mSpawnData.vehicleSpawns)
+            {
+                std::vector<std::pair<int, int>> trunkItems;
+                if (trunkRoll(runRng) < 45) trunkItems.emplace_back(12, 1); // fuel can
+                if (trunkRoll(runRng) < 40) trunkItems.emplace_back(3, 1);  // water bottle
+                if (trunkRoll(runRng) < 30) trunkItems.emplace_back(4, 1);  // bandage
+
+                spawnSedan(
+                    tile.x,
+                    tile.y,
+                    conditionDist(runRng),
+                    fuelDist(runRng),
+                    30.0f,
+                    trunkItems);
+            }
         }
     }
 
@@ -2272,7 +2894,7 @@ void Game::setupScene()
         retSprite.layer = 7;
 
         Interactable retInteract{};
-        retInteract.type = InteractableType::GraveMarker;
+        retInteract.type = InteractableType::RetirementMarker;
         retInteract.prompt = "Read";
 
         std::ostringstream message;
@@ -2340,6 +2962,36 @@ void Game::beginDeathState(const std::string& cause)
         mInteractionMessage = "Death recorded, but legacy write failed.";
     }
 
+    {
+        CharacterHistoryRecord history;
+        history.name = mCurrentCharacterName;
+        history.runIndex = record.runIndex;
+        history.dayStarted = 1;
+        history.dayEnded = mCurrentDay;
+        history.retired = false;
+        history.cause = cause;
+        history.locationTag = formatTileLocation(record.x, record.y, mTileMap);
+
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            history.positiveTrait = traits.positiveName();
+            history.negativeTrait = traits.negativeName();
+            history.bloodlineTrait = traits.bloodlineName();
+        }
+        history.finalNote = "Died on Day " + std::to_string(mCurrentDay) + ": " + cause;
+        mSaveManager.addCharacterHistoryRecord(history);
+
+        WorldMemoryEventRecord event;
+        event.type = WorldMemoryEventType::GravePlaced;
+        event.tileX = static_cast<int>(std::floor(record.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
+        event.tileY = static_cast<int>(std::floor(record.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
+        event.day = mCurrentDay;
+        event.runIndex = record.runIndex;
+        event.detail = mCurrentCharacterName;
+        mSaveManager.addWorldMemoryEvent(event);
+    }
+
     // Save structures for next run
     {
         std::vector<StructureRecord> structRecords;
@@ -2371,6 +3023,63 @@ void Game::beginDeathState(const std::string& cause)
 
     // Save cumulative stats
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
+
+    // Persist M8 world state (vehicles + active fires + burned tiles).
+    {
+        std::vector<VehicleRecord> vehicleRecords;
+        mWorld.forEach<Vehicle, Transform>(
+            [&](Entity e, Vehicle& vehicle, Transform& transform)
+            {
+                VehicleRecord record;
+                record.x = transform.x;
+                record.y = transform.y;
+                record.condition = vehicle.condition;
+                record.fuel = vehicle.fuel;
+                record.maxFuel = vehicle.maxFuel;
+                record.engineOn = false;
+
+                if (mWorld.hasComponent<Inventory>(e))
+                {
+                    const Inventory& trunk = mWorld.getComponent<Inventory>(e);
+                    for (const auto& slot : trunk.slots)
+                    {
+                        if (slot.itemId >= 0 && slot.count > 0)
+                        {
+                            record.items.emplace_back(slot.itemId, slot.count);
+                        }
+                    }
+                }
+
+                vehicleRecords.push_back(record);
+            });
+        mSaveManager.setVehicleRecords(std::move(vehicleRecords));
+
+        std::vector<FireTileRecord> fireRecords;
+        mWorld.forEach<Fire, Transform>(
+            [&](Entity, Fire& fire, Transform& transform)
+            {
+                const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(transform.x, transform.y));
+                FireTileRecord record;
+                record.tileX = tile.x;
+                record.tileY = tile.y;
+                record.intensity = fire.intensity;
+                record.lifeRemaining = fire.lifeRemaining;
+                fireRecords.push_back(record);
+            });
+        mSaveManager.setFireTileRecords(std::move(fireRecords));
+        mSaveManager.setBurnedTiles(mBurnedTiles);
+        for (const auto& [tileX, tileY] : mBurnedTiles)
+        {
+            WorldMemoryEventRecord event;
+            event.type = WorldMemoryEventType::BurnedTile;
+            event.tileX = tileX;
+            event.tileY = tileY;
+            event.day = mCurrentDay;
+            event.runIndex = mSaveManager.runNumber();
+            event.detail = "burn scar";
+            mSaveManager.addWorldMemoryEvent(event);
+        }
+    }
 
     // Delete mid-run checkpoint (permadeath)
     mSaveManager.deleteCheckpoint();
@@ -2412,7 +3121,7 @@ void Game::beginDeathState(const std::string& cause)
     mInteractionMessageTimer = 5.0f;
 }
 
-void Game::beginRetirementState()
+void Game::beginRetirementState(const std::string& customCause)
 {
     if (mRunState == RunState::Retired || mRunState == RunState::Dead)
     {
@@ -2421,7 +3130,9 @@ void Game::beginRetirementState()
 
     mRunState = RunState::Retired;
     mDeathStateTimer = 0.0;
-    mDeathCause = "Gave up on Day " + std::to_string(mCurrentDay);
+    mDeathCause = customCause.empty()
+        ? ("Gave up on Day " + std::to_string(mCurrentDay))
+        : customCause;
 
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
     {
@@ -2443,6 +3154,38 @@ void Game::beginRetirementState()
     retRecord.day = mCurrentDay;
     retRecord.runIndex = mSaveManager.runNumber();
     mSaveManager.recordRetirement(retRecord);
+
+    {
+        CharacterHistoryRecord history;
+        history.name = mCurrentCharacterName;
+        history.runIndex = retRecord.runIndex;
+        history.dayStarted = 1;
+        history.dayEnded = mCurrentDay;
+        history.retired = true;
+        history.cause = customCause.empty() ? "Psychological retirement" : customCause;
+        history.locationTag = formatTileLocation(retRecord.x, retRecord.y, mTileMap);
+
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            history.positiveTrait = traits.positiveName();
+            history.negativeTrait = traits.negativeName();
+            history.bloodlineTrait = traits.bloodlineName();
+        }
+        history.finalNote = customCause.empty()
+            ? ("They stopped on Day " + std::to_string(mCurrentDay) + ".")
+            : (customCause + ".");
+        mSaveManager.addCharacterHistoryRecord(history);
+
+        WorldMemoryEventRecord event;
+        event.type = WorldMemoryEventType::RetirementPlaced;
+        event.tileX = static_cast<int>(std::floor(retRecord.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
+        event.tileY = static_cast<int>(std::floor(retRecord.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
+        event.day = mCurrentDay;
+        event.runIndex = retRecord.runIndex;
+        event.detail = mCurrentCharacterName;
+        mSaveManager.addWorldMemoryEvent(event);
+    }
 
     // Save structures for next run
     {
@@ -2474,6 +3217,63 @@ void Game::beginRetirementState()
 
     // Save cumulative stats
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
+
+    // Persist M8 world state (vehicles + active fires + burned tiles).
+    {
+        std::vector<VehicleRecord> vehicleRecords;
+        mWorld.forEach<Vehicle, Transform>(
+            [&](Entity e, Vehicle& vehicle, Transform& transform)
+            {
+                VehicleRecord record;
+                record.x = transform.x;
+                record.y = transform.y;
+                record.condition = vehicle.condition;
+                record.fuel = vehicle.fuel;
+                record.maxFuel = vehicle.maxFuel;
+                record.engineOn = false;
+
+                if (mWorld.hasComponent<Inventory>(e))
+                {
+                    const Inventory& trunk = mWorld.getComponent<Inventory>(e);
+                    for (const auto& slot : trunk.slots)
+                    {
+                        if (slot.itemId >= 0 && slot.count > 0)
+                        {
+                            record.items.emplace_back(slot.itemId, slot.count);
+                        }
+                    }
+                }
+
+                vehicleRecords.push_back(record);
+            });
+        mSaveManager.setVehicleRecords(std::move(vehicleRecords));
+
+        std::vector<FireTileRecord> fireRecords;
+        mWorld.forEach<Fire, Transform>(
+            [&](Entity, Fire& fire, Transform& transform)
+            {
+                const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(transform.x, transform.y));
+                FireTileRecord record;
+                record.tileX = tile.x;
+                record.tileY = tile.y;
+                record.intensity = fire.intensity;
+                record.lifeRemaining = fire.lifeRemaining;
+                fireRecords.push_back(record);
+            });
+        mSaveManager.setFireTileRecords(std::move(fireRecords));
+        mSaveManager.setBurnedTiles(mBurnedTiles);
+        for (const auto& [tileX, tileY] : mBurnedTiles)
+        {
+            WorldMemoryEventRecord event;
+            event.type = WorldMemoryEventType::BurnedTile;
+            event.tileX = tileX;
+            event.tileY = tileY;
+            event.day = mCurrentDay;
+            event.runIndex = mSaveManager.runNumber();
+            event.detail = "burn scar";
+            mSaveManager.addWorldMemoryEvent(event);
+        }
+    }
 
     // Delete mid-run checkpoint (retirement ends the run)
     mSaveManager.deleteCheckpoint();
@@ -2545,12 +3345,25 @@ void Game::processInputEvents()
     // Mouse wheel zoom
     if (mInput.scrollY() != 0)
     {
-        constexpr float kZoomStep = 0.15f;
-        const float currentZoom = mCamera.zoom();
-        const float newZoom = currentZoom * (1.0f + static_cast<float>(mInput.scrollY()) * kZoomStep);
-        const glm::vec2 mouseScreen(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
-        mCamera.zoomToward(newZoom, mouseScreen);
-        mCamera.clampToBounds(mTileMap.pixelSize());
+        const bool minimapZoomInput =
+            mRunState == RunState::Playing &&
+            !mShowWorldMap &&
+            (mInput.isKeyDown(SDL_SCANCODE_LCTRL) || mInput.isKeyDown(SDL_SCANCODE_RCTRL));
+
+        if (minimapZoomInput)
+        {
+            const float zoomFactor = 1.0f + static_cast<float>(mInput.scrollY()) * kMinimapZoomStep;
+            mMinimapZoom = std::clamp(mMinimapZoom * zoomFactor, kMinimapZoomMin, kMinimapZoomMax);
+        }
+        else
+        {
+            constexpr float kZoomStep = 0.15f;
+            const float currentZoom = mCamera.zoom();
+            const float newZoom = currentZoom * (1.0f + static_cast<float>(mInput.scrollY()) * kZoomStep);
+            const glm::vec2 mouseScreen(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+            mCamera.zoomToward(newZoom, mouseScreen);
+            mCamera.clampToBounds(mTileMap.pixelSize());
+        }
     }
 
     if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
@@ -2607,6 +3420,44 @@ void Game::update(float dtSeconds)
         mShowControls = !mShowControls;
     }
 
+    if (mRunState == RunState::Playing)
+    {
+        if (mInput.wasKeyPressed(SDL_SCANCODE_M))
+        {
+            mShowWorldMap = !mShowWorldMap;
+            if (mShowWorldMap)
+            {
+                mShowInventory = false;
+                mShowCrafting = false;
+                mContainerOpen = false;
+            }
+        }
+
+        if (mInput.wasKeyPressed(SDL_SCANCODE_J))
+        {
+            mShowNotebook = !mShowNotebook;
+            if (mShowNotebook)
+            {
+                mShowInventory = false;
+                mShowCrafting = false;
+                mContainerOpen = false;
+            }
+        }
+
+        const bool minimapZoomOut =
+            mInput.wasKeyPressed(SDL_SCANCODE_MINUS) ||
+            mInput.wasKeyPressed(SDL_SCANCODE_KP_MINUS);
+        const bool minimapZoomIn =
+            mInput.wasKeyPressed(SDL_SCANCODE_EQUALS) ||
+            mInput.wasKeyPressed(SDL_SCANCODE_KP_PLUS);
+
+        if (!mShowCrafting && !mShowWorldMap && !mShowNotebook && (minimapZoomOut || minimapZoomIn))
+        {
+            const float zoomFactor = minimapZoomIn ? (1.0f + kMinimapZoomStep) : (1.0f - kMinimapZoomStep * 0.75f);
+            mMinimapZoom = std::clamp(mMinimapZoom * zoomFactor, kMinimapZoomMin, kMinimapZoomMax);
+        }
+    }
+
     if (mInput.wasKeyPressed(SDL_SCANCODE_F3))
     {
         mShowDistrictDebug = !mShowDistrictDebug;
@@ -2616,6 +3467,12 @@ void Game::update(float dtSeconds)
     if (mRunState == RunState::TitleScreen)
     {
         mTitlePulseTimer += dtSeconds;
+        mTitleConfirmNewWorldTimer = std::max(0.0f, mTitleConfirmNewWorldTimer - dtSeconds);
+        if (mTitleConfirmNewWorldTimer <= 0.0f)
+        {
+            mTitleConfirmNewWorld = false;
+        }
+
         mTitleStatusTimer = std::max(0.0f, mTitleStatusTimer - dtSeconds);
         if (mTitleStatusTimer <= 0.0f)
         {
@@ -2632,16 +3489,31 @@ void Game::update(float dtSeconds)
         const int menuCount = static_cast<int>(kTitleMenuItems.size());
         if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
         {
+            const int previousSelection = mTitleMenuSelection;
             mTitleMenuSelection = wrapIndex(mTitleMenuSelection - 1, menuCount);
+            if (mTitleMenuSelection != previousSelection)
+            {
+                mTitleConfirmNewWorld = false;
+            }
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
         {
+            const int previousSelection = mTitleMenuSelection;
             mTitleMenuSelection = wrapIndex(mTitleMenuSelection + 1, menuCount);
+            if (mTitleMenuSelection != previousSelection)
+            {
+                mTitleConfirmNewWorld = false;
+            }
+        }
+
+        if (mTitleMenuSelection != 2)
+        {
+            mTitleConfirmNewWorld = false;
         }
 
         auto adjustMenuValue = [&](int delta)
         {
-            if (mTitleMenuSelection == 2) // Save Slot
+            if (mTitleMenuSelection == 3) // Save Slot
             {
                 const int oldIndex = mTitleSaveSlotIndex;
                 const int newIndex = wrapIndex(mTitleSaveSlotIndex + delta, static_cast<int>(kTitleSaveSlots.size()));
@@ -2664,11 +3536,30 @@ void Game::update(float dtSeconds)
                 return;
             }
 
-            if (mTitleMenuSelection == 3) // Mode
+            if (mTitleMenuSelection == 4) // Game Mode
+            {
+                mTitleGameModeIndex = wrapIndex(mTitleGameModeIndex + delta, static_cast<int>(kTitleGameModeNames.size()));
+                mTitleStatusMessage = std::string("Game Mode: ") + kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)];
+                mTitleStatusTimer = 2.0f;
+                syncPresentationSettingsToSave();
+                return;
+            }
+
+            if (mTitleMenuSelection == 5) // Threat
             {
                 mTitleModeIndex = wrapIndex(mTitleModeIndex + delta, static_cast<int>(kTitleModeNames.size()));
-                mTitleStatusMessage = std::string("Mode: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
+                mTitleStatusMessage = std::string("Threat: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
                 mTitleStatusTimer = 2.0f;
+                syncPresentationSettingsToSave();
+                return;
+            }
+
+            if (mTitleMenuSelection == 6) // Tone
+            {
+                mTitleToneIndex = wrapIndex(mTitleToneIndex + delta, static_cast<int>(kTitleToneNames.size()));
+                mTitleStatusMessage = std::string("Tone: ") + kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)];
+                mTitleStatusTimer = 2.0f;
+                syncPresentationSettingsToSave();
             }
         };
 
@@ -2705,18 +3596,62 @@ void Game::update(float dtSeconds)
             case 1: // Start New Run
                 mSaveManager.deleteCheckpoint();
                 mIgnoreCheckpointRestoreOnce = true;
+                syncPresentationSettingsToSave();
                 startNewRun();
                 break;
 
-            case 2: // Save Slot
+            case 2: // Start New World
+            {
+                if (!mTitleConfirmNewWorld)
+                {
+                    mTitleConfirmNewWorld = true;
+                    mTitleConfirmNewWorldTimer = 4.0f;
+                    mTitleStatusMessage = "Press Enter again to confirm: this resets world and history for this slot.";
+                    mTitleStatusTimer = 3.5f;
+                }
+                else
+                {
+                    mTitleConfirmNewWorld = false;
+                    mTitleConfirmNewWorldTimer = 0.0f;
+
+                    if (!mSaveManager.resetCurrentSlotWorld(true))
+                    {
+                        mTitleStatusMessage = "Failed to reset world for this slot.";
+                        mTitleStatusTimer = 3.0f;
+                        break;
+                    }
+
+                    if (!loadSlotAndWorld(kTitleSaveSlots[static_cast<std::size_t>(mTitleSaveSlotIndex)]))
+                    {
+                        mTitleStatusMessage = "World reset complete, but reload failed.";
+                        mTitleStatusTimer = 3.0f;
+                        break;
+                    }
+
+                    mIgnoreCheckpointRestoreOnce = true;
+                    syncPresentationSettingsToSave();
+                    startNewRun();
+                }
+                break;
+            }
+
+            case 3: // Save Slot
                 adjustMenuValue(1);
                 break;
 
-            case 3: // Mode
+            case 4: // Game Mode
                 adjustMenuValue(1);
                 break;
 
-            case 4: // Options
+            case 5: // Threat
+                adjustMenuValue(1);
+                break;
+
+            case 6: // Tone
+                adjustMenuValue(1);
+                break;
+
+            case 7: // Options
                 mShowControls = !mShowControls;
                 if (mShowControls)
                 {
@@ -2724,7 +3659,7 @@ void Game::update(float dtSeconds)
                 }
                 break;
 
-            case 5: // Credits
+            case 8: // Credits
                 mShowTitleCredits = !mShowTitleCredits;
                 if (mShowTitleCredits)
                 {
@@ -2732,7 +3667,7 @@ void Game::update(float dtSeconds)
                 }
                 break;
 
-            case 6: // Quit
+            case 9: // Quit
                 mIsRunning = false;
                 break;
 
@@ -2748,11 +3683,11 @@ void Game::update(float dtSeconds)
     {
         if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
         {
-            mPauseSelection = (mPauseSelection + 3) % 4;
+            mPauseSelection = (mPauseSelection + 4) % 5;
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
         {
-            mPauseSelection = (mPauseSelection + 1) % 4;
+            mPauseSelection = (mPauseSelection + 1) % 5;
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) || mInput.wasKeyPressed(SDL_SCANCODE_SPACE))
         {
@@ -2760,11 +3695,15 @@ void Game::update(float dtSeconds)
             {
                 mRunState = RunState::Playing;
             }
-            else if (mPauseSelection == 1) // Back to Menu
+            else if (mPauseSelection == 1) // Save
+            {
+                saveCurrentRunCheckpoint("Run checkpoint saved.");
+            }
+            else if (mPauseSelection == 2) // Back to Menu
             {
                 returnToTitleScreen();
             }
-            else if (mPauseSelection == 2) // Restart
+            else if (mPauseSelection == 3) // Restart
             {
                 startNewRun();
             }
@@ -2800,6 +3739,17 @@ void Game::update(float dtSeconds)
         playerAlive = health.current > 0.0f;
     }
 
+    bool drivingVehicle =
+        mActiveVehicleEntity != kInvalidEntity &&
+        mWorld.hasComponent<Vehicle>(mActiveVehicleEntity) &&
+        mWorld.hasComponent<Transform>(mActiveVehicleEntity);
+    if (!drivingVehicle)
+    {
+        mActiveVehicleEntity = kInvalidEntity;
+    }
+
+    bool useInventoryCursorItemRequested = false;
+
     if (playerAlive && !mShowCrafting)
     {
         mInputSystem.update(mWorld, mInput, mMouseWorld);
@@ -2809,6 +3759,97 @@ void Game::update(float dtSeconds)
         Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
         velocity.dx = 0.0f;
         velocity.dy = 0.0f;
+    }
+
+    if (playerAlive &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Transform>(mPlayerEntity) &&
+        mWorld.hasComponent<Inventory>(mPlayerEntity) &&
+        mInput.wasKeyPressed(SDL_SCANCODE_V) &&
+        !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    {
+        Inventory& playerInv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        const Transform& playerTransform = mWorld.getComponent<Transform>(mPlayerEntity);
+        const glm::vec2 playerCenter(playerTransform.x + kSpriteSize * 0.5f, playerTransform.y + kSpriteSize * 0.5f);
+
+        if (drivingVehicle)
+        {
+            Vehicle& vehicle = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
+            vehicle.playerInside = false;
+            vehicle.engineOn = false;
+            mActiveVehicleEntity = kInvalidEntity;
+            drivingVehicle = false;
+            mInteractionMessage = "Exited sedan.";
+            mInteractionMessageTimer = 1.7f;
+        }
+        else
+        {
+            Entity nearestVehicle = kInvalidEntity;
+            float bestDistSq = kVehicleInteractRangePixels * kVehicleInteractRangePixels;
+            mWorld.forEach<Vehicle, Transform>(
+                [&](Entity entity, Vehicle&, Transform& vt)
+                {
+                    const glm::vec2 vehicleCenter(vt.x + kSpriteSize * 0.5f, vt.y + kSpriteSize * 0.5f);
+                    const glm::vec2 d = vehicleCenter - playerCenter;
+                    const float distSq = glm::dot(d, d);
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        nearestVehicle = entity;
+                    }
+                });
+
+            if (nearestVehicle != kInvalidEntity)
+            {
+                Vehicle& vehicle = mWorld.getComponent<Vehicle>(nearestVehicle);
+
+                const bool refuelRequested =
+                    mInput.isKeyDown(SDL_SCANCODE_LSHIFT) ||
+                    mInput.isKeyDown(SDL_SCANCODE_RSHIFT);
+
+                if (refuelRequested)
+                {
+                    if (vehicle.fuel >= vehicle.maxFuel - 0.01f)
+                    {
+                        mInteractionMessage = "Sedan tank is already full.";
+                        mInteractionMessageTimer = 2.0f;
+                    }
+                    else if (InventorySystem::removeItem(playerInv, 12, 1))
+                    {
+                        vehicle.fuel = std::min(vehicle.maxFuel, vehicle.fuel + kVehicleRefuelAmount);
+                        mInteractionMessage = "Refueled sedan.";
+                        mInteractionMessageTimer = 2.0f;
+                    }
+                    else
+                    {
+                        mInteractionMessage = "Need a fuel can to refuel.";
+                        mInteractionMessageTimer = 2.0f;
+                    }
+                }
+                else if (vehicle.condition < 10.0f)
+                {
+                    mInteractionMessage = "Sedan is broken.";
+                    mInteractionMessageTimer = 2.0f;
+                }
+                else if (vehicle.fuel <= 0.01f)
+                {
+                    mInteractionMessage = "Sedan is out of fuel. Shift+V to refuel.";
+                    mInteractionMessageTimer = 2.4f;
+                }
+                else
+                {
+                    vehicle.playerInside = true;
+                    vehicle.engineOn = true;
+                    mActiveVehicleEntity = nearestVehicle;
+                    drivingVehicle = true;
+                    mShowCrafting = false;
+                    mContainerOpen = false;
+                    mOpenContainerEntity = kInvalidEntity;
+                    mInteractionMessage = "Driving sedan.";
+                    mInteractionMessageTimer = 1.8f;
+                }
+            }
+        }
     }
 
     if (mInput.wasKeyPressed(SDL_SCANCODE_K) && !mDebugEntities.empty())
@@ -2882,6 +3923,336 @@ void Game::update(float dtSeconds)
         needs.bodyTemperature = std::clamp(needs.bodyTemperature, 30.0f, 42.0f);
     }
 
+    // Fire interaction key (L): active-slot Molotov ignites, active-slot water suppresses.
+    if (playerAlive &&
+        !mShowCrafting &&
+        !drivingVehicle &&
+        !mContainerOpen &&
+        mInput.wasKeyPressed(SDL_SCANCODE_L) &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Inventory>(mPlayerEntity) &&
+        mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        const int activeSlot = std::clamp(inv.activeSlot, 0, Inventory::kMaxSlots - 1);
+        const InventorySlot& slot = inv.slots[static_cast<std::size_t>(activeSlot)];
+
+        if (slot.itemId == 26 && slot.count > 0)
+        {
+            const glm::ivec2 targetTile = worldToTile(mTileMap, mMouseWorld);
+            if (targetTile.x >= 0 && targetTile.x < mTileMap.width() &&
+                targetTile.y >= 0 && targetTile.y < mTileMap.height() &&
+                !mTileMap.isSolid(targetTile.x, targetTile.y))
+            {
+                bool foundExisting = false;
+                mWorld.forEach<Fire, Transform>(
+                    [&](Entity, Fire& fire, Transform& ft)
+                    {
+                        const glm::ivec2 fireTile = worldToTile(mTileMap, glm::vec2(ft.x, ft.y));
+                        if (fireTile.x == targetTile.x && fireTile.y == targetTile.y)
+                        {
+                            fire.intensity = std::min(2.0f, fire.intensity + 0.55f);
+                            fire.lifeRemaining = std::max(fire.lifeRemaining, 24.0f);
+                            foundExisting = true;
+                        }
+                    });
+
+                if (!foundExisting)
+                {
+                    Entity fireEntity = mWorld.createEntity();
+                    Transform ft{};
+                    ft.x = static_cast<float>(targetTile.x * mTileMap.tileWidth());
+                    ft.y = static_cast<float>(targetTile.y * mTileMap.tileHeight());
+
+                    Sprite fs{};
+                    fs.textureId = mSpriteSheet.textureId();
+                    fs.uvRect = mSpriteSheet.uvRect("env_campfire_lit");
+                    fs.color = glm::vec4(1.0f, 0.62f, 0.20f, 0.84f);
+                    fs.layer = 6;
+
+                    Fire fire{};
+                    fire.intensity = 1.05f;
+                    fire.lifeRemaining = 24.0f;
+                    fire.spreadTimer = 0.0f;
+                    fire.noiseTimer = 0.0f;
+
+                    mWorld.addComponent<Transform>(fireEntity, ft);
+                    mWorld.addComponent<Sprite>(fireEntity, fs);
+                    mWorld.addComponent<Fire>(fireEntity, fire);
+                }
+
+                InventorySystem::removeItem(inv, 26, 1);
+                const glm::vec2 noisePos(
+                    (static_cast<float>(targetTile.x) + 0.5f) * static_cast<float>(mTileMap.tileWidth()),
+                    (static_cast<float>(targetTile.y) + 0.5f) * static_cast<float>(mTileMap.tileHeight()));
+                mNoiseModel.emitNoise(noisePos, NoiseTier::Explosive, 0.8f, mPlayerEntity);
+                mInteractionMessage = "Molotov ignited.";
+                mInteractionMessageTimer = 2.0f;
+            }
+            else
+            {
+                mInteractionMessage = "Cannot ignite that tile.";
+                mInteractionMessageTimer = 1.8f;
+            }
+        }
+        else if (slot.itemId == 3 && slot.count > 0)
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            const glm::vec2 playerCenter(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
+
+            Entity nearestFire = kInvalidEntity;
+            float bestDistSq = 96.0f * 96.0f;
+            mWorld.forEach<Fire, Transform>(
+                [&](Entity fireEntity, Fire&, Transform& ft)
+                {
+                    const glm::vec2 fireCenter(ft.x + kSpriteSize * 0.5f, ft.y + kSpriteSize * 0.5f);
+                    const glm::vec2 d = fireCenter - playerCenter;
+                    const float distSq = glm::dot(d, d);
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        nearestFire = fireEntity;
+                    }
+                });
+
+            if (nearestFire != kInvalidEntity)
+            {
+                Fire& fire = mWorld.getComponent<Fire>(nearestFire);
+                fire.intensity = std::max(0.0f, fire.intensity - 0.9f);
+                fire.lifeRemaining = std::max(0.0f, fire.lifeRemaining - 14.0f);
+                InventorySystem::removeItem(inv, 3, 1);
+                mInteractionMessage = "Doused nearby fire.";
+                mInteractionMessageTimer = 1.8f;
+            }
+            else
+            {
+                mInteractionMessage = "No nearby fire to suppress.";
+                mInteractionMessageTimer = 1.8f;
+            }
+        }
+    }
+
+    // Fire simulation update (M8 narrow slice).
+    {
+        auto structureFlammabilityBonus = [&](int tileX, int tileY)
+        {
+            float bonus = 0.0f;
+            mWorld.forEach<Structure, Transform>(
+                [&](Entity, Structure& structure, Transform& st)
+                {
+                    const glm::ivec2 structTile = worldToTile(mTileMap, glm::vec2(st.x, st.y));
+                    if (structTile.x != tileX || structTile.y != tileY)
+                    {
+                        return;
+                    }
+
+                    switch (structure.type)
+                    {
+                    case StructureType::Barricade:
+                    case StructureType::NoiseTrap:
+                    case StructureType::SleepingArea:
+                    case StructureType::SupplyCache:
+                        bonus = std::max(bonus, 0.35f);
+                        break;
+                    case StructureType::Campfire:
+                        bonus = std::max(bonus, 0.20f);
+                        break;
+                    case StructureType::RainCollector:
+                        bonus = std::max(bonus, 0.02f);
+                        break;
+                    }
+                });
+            return bonus;
+        };
+
+        auto tileFlammability = [&](int tileX, int tileY)
+        {
+            if (tileX < 0 || tileX >= mTileMap.width() || tileY < 0 || tileY >= mTileMap.height())
+            {
+                return 0.0f;
+            }
+            if (mTileMap.isSolid(tileX, tileY))
+            {
+                return 0.0f;
+            }
+
+            float value = fireBaseFlammability(mTileMap.getSurfaceType(tileX, tileY));
+            value += structureFlammabilityBonus(tileX, tileY);
+            if (hasTilePair(mBurnedTiles, tileX, tileY))
+            {
+                value *= 0.35f;
+            }
+            return std::clamp(value, 0.0f, 1.0f);
+        };
+
+        auto tileAlreadyBurning = [&](int tileX, int tileY)
+        {
+            bool burning = false;
+            mWorld.forEach<Fire, Transform>(
+                [&](Entity, Fire&, Transform& ft)
+                {
+                    if (burning) return;
+                    const glm::ivec2 ftile = worldToTile(mTileMap, glm::vec2(ft.x, ft.y));
+                    burning = (ftile.x == tileX && ftile.y == tileY);
+                });
+            return burning;
+        };
+
+        std::vector<Entity> extinguish;
+        std::vector<glm::ivec2> newIgnitions;
+
+        const float rainSuppression = std::clamp(1.0f - mWeatherState.rainIntensity * 0.82f, 0.10f, 1.0f);
+        const float windBoost = 1.0f + mWeatherState.windStrength * 0.32f;
+
+        mWorld.forEach<Fire, Transform, Sprite>(
+            [&](Entity fireEntity, Fire& fire, Transform& ft, Sprite& fs)
+            {
+                const glm::ivec2 fireTile = worldToTile(mTileMap, glm::vec2(ft.x, ft.y));
+                if (fireTile.x < 0 || fireTile.x >= mTileMap.width() || fireTile.y < 0 || fireTile.y >= mTileMap.height())
+                {
+                    extinguish.push_back(fireEntity);
+                    return;
+                }
+
+                fire.noiseTimer += dtSeconds;
+                if (fire.noiseTimer >= 1.35f)
+                {
+                    fire.noiseTimer = 0.0f;
+                    const glm::vec2 noisePos(
+                        (static_cast<float>(fireTile.x) + 0.5f) * static_cast<float>(mTileMap.tileWidth()),
+                        (static_cast<float>(fireTile.y) + 0.5f) * static_cast<float>(mTileMap.tileHeight()));
+                    const NoiseTier tier = fire.intensity >= 1.2f ? NoiseTier::Loud : NoiseTier::Medium;
+                    mNoiseModel.emitNoise(noisePos, tier, 0.85f, fireEntity);
+                }
+
+                fire.lifeRemaining -= dtSeconds * (1.0f + mWeatherState.rainIntensity * 1.5f);
+                fire.intensity = std::clamp(
+                    fire.intensity + dtSeconds * (0.05f - mWeatherState.rainIntensity * 0.28f),
+                    0.0f,
+                    2.0f);
+
+                // Direct fire damage on entities occupying the burning tile.
+                mWorld.forEach<Transform, Health>(
+                    [&](Entity target, Transform& tt, Health& health)
+                    {
+                        if (health.current <= 0.0f) return;
+                        const glm::ivec2 targetTile = worldToTile(mTileMap, glm::vec2(tt.x, tt.y));
+                        if (targetTile.x != fireTile.x || targetTile.y != fireTile.y)
+                        {
+                            return;
+                        }
+
+                        const float damage = (target == mPlayerEntity) ? 14.0f : 18.0f;
+                        health.current = std::max(0.0f, health.current - damage * fire.intensity * dtSeconds);
+                    });
+
+                // Structures on burning tiles take accelerated damage.
+                mWorld.forEach<Structure, Transform>(
+                    [&](Entity, Structure& structure, Transform& st)
+                    {
+                        const glm::ivec2 structureTile = worldToTile(mTileMap, glm::vec2(st.x, st.y));
+                        if (structureTile.x != fireTile.x || structureTile.y != fireTile.y)
+                        {
+                            return;
+                        }
+
+                        float multiplier = 1.0f;
+                        if (structure.type == StructureType::RainCollector)
+                        {
+                            multiplier = 0.25f;
+                        }
+                        else if (structure.type == StructureType::Campfire)
+                        {
+                            multiplier = 0.55f;
+                        }
+                        structure.hp = std::max(0.0f, structure.hp - dtSeconds * fire.intensity * 16.0f * multiplier);
+                    });
+
+                fire.spreadTimer += dtSeconds;
+                const float spreadInterval = std::max(0.55f, 1.5f - fire.intensity * 0.45f);
+                if (fire.spreadTimer >= spreadInterval)
+                {
+                    fire.spreadTimer = 0.0f;
+                    static constexpr int kDirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                    for (const auto& dir : kDirs)
+                    {
+                        const int nx = fireTile.x + dir[0];
+                        const int ny = fireTile.y + dir[1];
+                        if (nx < 0 || nx >= mTileMap.width() || ny < 0 || ny >= mTileMap.height())
+                        {
+                            continue;
+                        }
+                        if (tileAlreadyBurning(nx, ny))
+                        {
+                            continue;
+                        }
+
+                        const float flammability = tileFlammability(nx, ny);
+                        if (flammability <= 0.02f)
+                        {
+                            continue;
+                        }
+
+                        const float chance = std::clamp(
+                            flammability * (0.22f + fire.intensity * 0.32f) * rainSuppression * windBoost,
+                            0.0f,
+                            0.95f);
+                        const int salt = static_cast<int>(std::floor(mGameHours * 120.0)) + mCurrentDay * 17;
+                        if (deterministic01(nx, ny, salt) < chance)
+                        {
+                            newIgnitions.emplace_back(nx, ny);
+                        }
+                    }
+                }
+
+                fs.color = glm::vec4(
+                    1.0f,
+                    std::clamp(0.40f + fire.intensity * 0.30f, 0.0f, 1.0f),
+                    std::clamp(0.12f + fire.intensity * 0.14f, 0.0f, 1.0f),
+                    std::clamp(0.30f + fire.intensity * 0.34f, 0.0f, 1.0f));
+
+                if (fire.lifeRemaining <= 0.0f || fire.intensity <= 0.05f)
+                {
+                    addUniqueTilePair(mBurnedTiles, fireTile.x, fireTile.y);
+                    extinguish.push_back(fireEntity);
+                }
+            });
+
+        for (Entity fireEntity : extinguish)
+        {
+            mWorld.destroyEntity(fireEntity);
+        }
+
+        for (const glm::ivec2& tile : newIgnitions)
+        {
+            if (tileAlreadyBurning(tile.x, tile.y))
+            {
+                continue;
+            }
+
+            Entity fireEntity = mWorld.createEntity();
+            Transform ft{};
+            ft.x = static_cast<float>(tile.x * mTileMap.tileWidth());
+            ft.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+
+            Sprite fs{};
+            fs.textureId = mSpriteSheet.textureId();
+            fs.uvRect = mSpriteSheet.uvRect("env_campfire_lit");
+            fs.color = glm::vec4(1.0f, 0.52f, 0.18f, 0.72f);
+            fs.layer = 6;
+
+            Fire fire{};
+            fire.intensity = 0.55f;
+            fire.lifeRemaining = 16.0f;
+            fire.spreadTimer = 0.0f;
+            fire.noiseTimer = 0.0f;
+
+            mWorld.addComponent<Transform>(fireEntity, ft);
+            mWorld.addComponent<Sprite>(fireEntity, fs);
+            mWorld.addComponent<Fire>(fireEntity, fire);
+        }
+    }
+
     // Survivor AI system
     mSurvivorAISystem.update(mWorld, mTileMap, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
 
@@ -2892,6 +4263,7 @@ void Game::update(float dtSeconds)
     mDistrictInfectionSystem.dailyUpdate(mWorld, mMapGenerator.layoutData(), mCurrentDay);
 
     // Build system
+    if (!drivingVehicle)
     {
         int structCountBefore = 0;
         mWorld.forEach<Structure>([&](Entity, Structure&) { ++structCountBefore; });
@@ -2909,8 +4281,8 @@ void Game::update(float dtSeconds)
         }
     }
 
-    // Crafting panel toggle (C) and panel controls.
-    if (mInput.wasKeyPressed(SDL_SCANCODE_C) && mRunState == RunState::Playing)
+    // Crafting panel toggle (N) and panel controls.
+    if (mInput.wasKeyPressed(SDL_SCANCODE_N) && mRunState == RunState::Playing && !drivingVehicle)
     {
         mShowCrafting = !mShowCrafting;
         if (mShowCrafting)
@@ -2995,6 +4367,65 @@ void Game::update(float dtSeconds)
             mCraftingRecipeCursor = std::clamp(mCraftingRecipeCursor, 0, static_cast<int>(visible.size()) - 1);
         }
 
+        bool craftActivateRequested =
+            mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
+            mInput.wasKeyPressed(SDL_SCANCODE_SPACE);
+        bool craftQueueAppendRequested = false;
+
+        if (!mCraftingNotebookView)
+        {
+            const float w = static_cast<float>(mWindowWidth);
+            const float listW = std::max(260.0f, w * 0.17f);
+            const float tabY = 78.0f;
+            const float tabH = 46.0f;
+            const float tabW = listW / 3.0f;
+
+            const float mouseX = static_cast<float>(mInput.mouseX());
+            const float mouseY = static_cast<float>(mInput.mouseY());
+
+            const bool overTabStrip =
+                mouseX >= 0.0f && mouseX <= listW &&
+                mouseY >= tabY && mouseY <= tabY + tabH;
+
+            if (overTabStrip && mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            {
+                const int clickedCategory = std::clamp(
+                    static_cast<int>((mouseX / std::max(1.0f, tabW))),
+                    0,
+                    2);
+                if (clickedCategory != mCraftingCategory)
+                {
+                    mCraftingCategory = clickedCategory;
+                    mCraftingRecipeCursor = 0;
+                }
+            }
+
+            if (!visible.empty())
+            {
+                const float rowY0 = tabY + tabH + 8.0f;
+                const float rowH = 58.0f;
+                if (mouseX >= 0.0f && mouseX <= listW && mouseY >= rowY0)
+                {
+                    const int hovered = static_cast<int>((mouseY - rowY0) / rowH);
+                    if (hovered >= 0 && hovered < static_cast<int>(visible.size()))
+                    {
+                        mCraftingRecipeCursor = hovered;
+
+                        if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+                        {
+                            craftActivateRequested = true;
+                        }
+
+                        if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT))
+                        {
+                            craftActivateRequested = true;
+                            craftQueueAppendRequested = true;
+                        }
+                    }
+                }
+            }
+        }
+
         if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
         {
             if (!visible.empty())
@@ -3046,7 +4477,7 @@ void Game::update(float dtSeconds)
             }
         }
 
-        if (!visible.empty() && (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) || mInput.wasKeyPressed(SDL_SCANCODE_SPACE)))
+        if (!visible.empty() && craftActivateRequested)
         {
             const int selectedRecipeIndex = static_cast<int>(visible[static_cast<std::size_t>(mCraftingRecipeCursor)]);
             const CraftingRecipe& recipe = mCraftingSystem.recipes()[static_cast<std::size_t>(selectedRecipeIndex)];
@@ -3069,6 +4500,7 @@ void Game::update(float dtSeconds)
             else
             {
                 const bool queueAppend =
+                    craftQueueAppendRequested ||
                     mInput.isKeyDown(SDL_SCANCODE_LSHIFT) ||
                     mInput.isKeyDown(SDL_SCANCODE_RSHIFT);
 
@@ -3229,7 +4661,12 @@ void Game::update(float dtSeconds)
     // Inventory toggle (Tab)
     if (mInput.wasKeyPressed(SDL_SCANCODE_TAB))
     {
-        if (mShowCrafting)
+        if (drivingVehicle)
+        {
+            mInteractionMessage = "Stop the vehicle before opening inventory.";
+            mInteractionMessageTimer = 1.6f;
+        }
+        else if (mShowCrafting)
         {
             // Keep inventory disabled while crafting panel is open.
         }
@@ -3347,6 +4784,40 @@ void Game::update(float dtSeconds)
     {
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
+        const float panelX = static_cast<float>(mWindowWidth) * 0.5f - 140.0f;
+        const float rowStartY = 60.0f + 24.0f + 18.0f;
+        const float rowStep = 14.0f;
+        const float rowEndY = rowStartY + rowStep * static_cast<float>(Inventory::kMaxSlots);
+        const float mouseX = static_cast<float>(mInput.mouseX());
+        const float mouseY = static_cast<float>(mInput.mouseY());
+
+        if (mouseX >= panelX - 8.0f && mouseX <= panelX + 360.0f && mouseY >= rowStartY && mouseY <= rowEndY)
+        {
+            const int hoveredSlot = std::clamp(
+                static_cast<int>((mouseY - rowStartY) / rowStep),
+                0,
+                Inventory::kMaxSlots - 1);
+
+            mInventoryCursor = hoveredSlot;
+
+            if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            {
+                const auto& hovered = inv.slots[static_cast<std::size_t>(mInventoryCursor)];
+                if (hovered.itemId >= 0 && hovered.count > 0)
+                {
+                    useInventoryCursorItemRequested = true;
+                }
+            }
+
+            if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT) && mInventoryCursor != inv.activeSlot)
+            {
+                std::swap(inv.slots[static_cast<std::size_t>(mInventoryCursor)],
+                          inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
+                mInteractionMessage = "Swapped items.";
+                mInteractionMessageTimer = 2.0f;
+            }
+        }
+
         if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
         {
             mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - 1) % Inventory::kMaxSlots;
@@ -3378,8 +4849,8 @@ void Game::update(float dtSeconds)
             }
         }
 
-        // Use item (F key): use cursor slot when inventory is open, otherwise active hotbar slot
-        if (mInput.wasKeyPressed(SDL_SCANCODE_F))
+        // Use item (F key or inventory click): use cursor slot when inventory is open, otherwise active hotbar slot
+        if (mInput.wasKeyPressed(SDL_SCANCODE_F) || useInventoryCursorItemRequested)
         {
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
@@ -3573,6 +5044,51 @@ void Game::update(float dtSeconds)
         }
     }
 
+    // Vehicle driving overrides on-foot speed profile.
+    if (drivingVehicle &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity) &&
+        mWorld.hasComponent<Vehicle>(mActiveVehicleEntity))
+    {
+        Vehicle& vehicle = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
+        Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+
+        const float driveSpeed = vehicleSpeedFromCondition(vehicle.condition);
+        if (driveSpeed <= 0.0f || vehicle.fuel <= 0.01f)
+        {
+            vehicle.engineOn = false;
+            vehicle.playerInside = false;
+            mActiveVehicleEntity = kInvalidEntity;
+            drivingVehicle = false;
+            vel.dx = 0.0f;
+            vel.dy = 0.0f;
+            mInteractionMessage = "Sedan stalled.";
+            mInteractionMessageTimer = 1.8f;
+        }
+        else
+        {
+            const float speedSq = vel.dx * vel.dx + vel.dy * vel.dy;
+            if (speedSq > 0.001f)
+            {
+                const float invLen = 1.0f / std::sqrt(speedSq);
+                vel.dx = vel.dx * invLen * driveSpeed;
+                vel.dy = vel.dy * invLen * driveSpeed;
+            }
+            else
+            {
+                vel.dx = 0.0f;
+                vel.dy = 0.0f;
+            }
+
+            if (mWorld.hasComponent<Facing>(mPlayerEntity))
+            {
+                Facing& facing = mWorld.getComponent<Facing>(mPlayerEntity);
+                facing.running = false;
+                facing.crouching = false;
+            }
+        }
+    }
+
     // Retirement: depression crisis window expired
     if (mMentalStateSystem.shouldForceRetire())
     {
@@ -3735,6 +5251,26 @@ void Game::update(float dtSeconds)
     if (!playerAlive)
     {
         std::string cause = "Killed by zombies";
+
+        bool diedInFire = false;
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            const glm::ivec2 playerTile = worldToTile(mTileMap, glm::vec2(pt.x, pt.y));
+            mWorld.forEach<Fire, Transform>(
+                [&](Entity, Fire&, Transform& ft)
+                {
+                    if (diedInFire) return;
+                    const glm::ivec2 fireTile = worldToTile(mTileMap, glm::vec2(ft.x, ft.y));
+                    diedInFire = (fireTile.x == playerTile.x && fireTile.y == playerTile.y);
+                });
+        }
+
+        if (diedInFire)
+        {
+            cause = "Burned alive";
+        }
+
         if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
         {
             const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
@@ -3758,7 +5294,7 @@ void Game::update(float dtSeconds)
 
     mProximityPrompt.clear();
 
-    if (playerAlive && !mShowCrafting && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    if (playerAlive && !mShowCrafting && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         // Update proximity prompt for HUD display
         const ProximityPrompt prompt = mInteractionSystem.getProximityPrompt(mWorld, mPlayerEntity);
@@ -3819,7 +5355,7 @@ void Game::update(float dtSeconds)
     }
 
     // --- NPC Survivor Interaction Keybinds ---
-    if (playerAlive && !mShowCrafting && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    if (playerAlive && !mShowCrafting && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         // O key: observe nearest survivor
         if (mInput.wasKeyPressed(SDL_SCANCODE_O))
@@ -3876,7 +5412,7 @@ void Game::update(float dtSeconds)
         ? mWorld.getComponent<Combat>(mPlayerEntity).phase
         : AttackPhase::Idle;
 
-    if (!mShowCrafting)
+    if (!mShowCrafting && !drivingVehicle)
     {
         mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, dtSeconds);
     }
@@ -3927,6 +5463,19 @@ void Game::update(float dtSeconds)
         }
     }
 
+    // Threat-mode runtime tuning layer for zombie behavior.
+    {
+        const SaveThreatMode threatMode = saveThreatModeFromIndex(mTitleModeIndex);
+        const std::uint64_t runSeed = mSaveManager.currentRunSeed();
+        mWorld.forEach<ZombieAI>(
+            [&](Entity zombieEntity, ZombieAI& zombieAI)
+            {
+                const ThreatBehaviorTuning tuning = computeThreatBehaviorTuning(threatMode, mCurrentDay, zombieEntity, runSeed);
+                zombieAI.moveSpeed = 112.0f * tuning.speedScale;
+                zombieAI.visionRangeTiles = 8.0f * tuning.visionScale;
+            });
+    }
+
     mZombieAISystem.update(
         mWorld,
         mTileMap,
@@ -3971,6 +5520,130 @@ void Game::update(float dtSeconds)
     mMovementSystem.update(mWorld, dtSeconds);
     mProjectileSystem.update(mWorld, mTileMap, mNoiseModel, dtSeconds);
     mCollisionSystem.update(mWorld, mTileMap, dtSeconds);
+
+    // Post-physics vehicle state update.
+    if (drivingVehicle &&
+        mActiveVehicleEntity != kInvalidEntity &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Vehicle>(mActiveVehicleEntity) &&
+        mWorld.hasComponent<Transform>(mActiveVehicleEntity) &&
+        mWorld.hasComponent<Transform>(mPlayerEntity) &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        Vehicle& vehicle = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
+        Transform& vehicleTransform = mWorld.getComponent<Transform>(mActiveVehicleEntity);
+        const Transform& playerTransform = mWorld.getComponent<Transform>(mPlayerEntity);
+        const Velocity& playerVelocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+
+        // Keep the vehicle entity aligned with the player's world position while occupied.
+        vehicleTransform.x = playerTransform.x;
+        vehicleTransform.y = playerTransform.y;
+
+        const float speedSq = playerVelocity.dx * playerVelocity.dx + playerVelocity.dy * playerVelocity.dy;
+        if (speedSq > 1.0f)
+        {
+            const float weatherWear = 1.0f + mWeatherState.rainIntensity * 0.6f;
+            vehicle.fuel = std::max(0.0f, vehicle.fuel - dtSeconds * kVehicleFuelPerSecond * weatherWear);
+            vehicle.condition = std::max(0.0f, vehicle.condition - dtSeconds * 0.18f * weatherWear);
+        }
+
+        vehicle.collisionDamageCooldown = std::max(0.0f, vehicle.collisionDamageCooldown - dtSeconds);
+
+        const glm::vec2 vehicleCenter(vehicleTransform.x + kSpriteSize * 0.5f, vehicleTransform.y + kSpriteSize * 0.5f);
+        if (speedSq > 20.0f && vehicle.collisionDamageCooldown <= 0.0f)
+        {
+            bool hitZombie = false;
+            mWorld.forEach<ZombieAI, Transform, Health>(
+                [&](Entity, ZombieAI&, Transform& zt, Health& zh)
+                {
+                    if (hitZombie || zh.current <= 0.0f)
+                    {
+                        return;
+                    }
+
+                    const glm::vec2 zombieCenter(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
+                    if (glm::distance(vehicleCenter, zombieCenter) <= kVehicleCollisionRangePixels)
+                    {
+                        zh.current = std::max(0.0f, zh.current - 65.0f);
+                        vehicle.condition = std::max(0.0f, vehicle.condition - 6.0f);
+                        vehicle.collisionDamageCooldown = 0.22f;
+                        hitZombie = true;
+                        mAudioManager.playSound(SoundId::WeaponHit, 0.35f);
+                    }
+                });
+        }
+
+        if (vehicle.fuel <= 0.01f || vehicle.condition < 10.0f)
+        {
+            vehicle.engineOn = false;
+            vehicle.playerInside = false;
+            mActiveVehicleEntity = kInvalidEntity;
+            drivingVehicle = false;
+            if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
+            {
+                Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+                vel.dx = 0.0f;
+                vel.dy = 0.0f;
+            }
+            mInteractionMessage = (vehicle.condition < 10.0f) ? "Sedan broke down." : "Sedan ran out of fuel.";
+            mInteractionMessageTimer = 2.2f;
+        }
+    }
+
+    if (mRunState == RunState::Playing &&
+        mTitleGameModeIndex == 0 &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Transform>(mPlayerEntity) &&
+        !mCampaignObjective.completed)
+    {
+        if (mCampaignObjective.active &&
+            mCampaignObjective.infectionDeadlineDay > 0 &&
+            mCurrentDay > mCampaignObjective.infectionDeadlineDay)
+        {
+            mCampaignObjective.active = false;
+            mCampaignObjective.completed = false;
+            syncPresentationSettingsToSave();
+
+            WorldMemoryEventRecord event;
+            event.type = WorldMemoryEventType::Other;
+            event.tileX = mCampaignObjective.tileX;
+            event.tileY = mCampaignObjective.tileY;
+            event.day = mCurrentDay;
+            event.runIndex = mSaveManager.runNumber();
+            event.detail = "campaign objective expired";
+            mSaveManager.addWorldMemoryEvent(event);
+
+            beginDeathState("Campaign failed: infection deadline reached on Day " + std::to_string(mCurrentDay));
+            return;
+        }
+
+        if (mCampaignObjective.active)
+        {
+            const Transform& playerTransform = mWorld.getComponent<Transform>(mPlayerEntity);
+            const int playerTileX = static_cast<int>(std::floor(playerTransform.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
+            const int playerTileY = static_cast<int>(std::floor(playerTransform.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
+            const int manhattan = std::abs(mCampaignObjective.tileX - playerTileX) + std::abs(mCampaignObjective.tileY - playerTileY);
+
+            if (manhattan <= 1)
+            {
+                mCampaignObjective.active = false;
+                mCampaignObjective.completed = true;
+                syncPresentationSettingsToSave();
+
+                WorldMemoryEventRecord event;
+                event.type = WorldMemoryEventType::Other;
+                event.tileX = mCampaignObjective.tileX;
+                event.tileY = mCampaignObjective.tileY;
+                event.day = mCurrentDay;
+                event.runIndex = mSaveManager.runNumber();
+                event.detail = "campaign objective secured";
+                mSaveManager.addWorldMemoryEvent(event);
+
+                beginRetirementState("Secured campaign objective on Day " + std::to_string(mCurrentDay));
+                return;
+            }
+        }
+    }
 
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
     {
@@ -4202,8 +5875,11 @@ void Game::render()
     mSpriteBatch.begin();
     renderTitleScreen();
     renderNeedsHudOverlay();
+    renderMinimapOverlay();
     renderAttackArcOverlay();
     renderNoiseDebugOverlay();
+    renderWorldMapOverlay();
+    renderNotebookOverlay();
     renderDeathOverlay();
     renderRetirementOverlay();
     renderPauseOverlay();
@@ -4307,6 +5983,492 @@ void Game::renderNeedsHudOverlay()
     {
         const float yOff = panelPos.y + panelSize.y + 24.0f;
         mSpriteBatch.draw(glm::vec2(panelPos.x, yOff), glm::vec2(180.0f, 18.0f), uiUv, glm::vec4(0.4f, 0.05f, 0.05f, 0.7f));
+    }
+}
+
+void Game::renderMinimapOverlay()
+{
+    if (mRunState != RunState::Playing ||
+        mShowWorldMap ||
+        mPlayerEntity == kInvalidEntity ||
+        !mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        return;
+    }
+
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+
+    const float mapWidth = 220.0f;
+    const float mapHeight = 140.0f;
+    const float margin = 16.0f;
+    const float mapX = static_cast<float>(mWindowWidth) - mapWidth - margin;
+    const float mapY = static_cast<float>(mWindowHeight) - mapHeight - margin;
+
+    mSpriteBatch.draw(glm::vec2(mapX, mapY), glm::vec2(mapWidth, mapHeight), uiUv, glm::vec4(0.02f, 0.03f, 0.05f, 0.78f));
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY - 1.0f), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.65f));
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY + mapHeight), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.45f));
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY), glm::vec2(1.0f, mapHeight), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.45f));
+    mSpriteBatch.draw(glm::vec2(mapX + mapWidth, mapY), glm::vec2(1.0f, mapHeight), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.65f));
+
+    const int tileW = std::max(1, mTileMap.tileWidth());
+    const int tileH = std::max(1, mTileMap.tileHeight());
+    const int mapTilesW = std::max(1, mTileMap.width());
+    const int mapTilesH = std::max(1, mTileMap.height());
+    const float worldW = static_cast<float>(mapTilesW * tileW);
+    const float worldH = static_cast<float>(mapTilesH * tileH);
+
+    const float isoMinX = -worldH;
+    const float isoMaxX = worldW;
+    const float isoMinY = 0.0f;
+    const float isoMaxY = (worldW + worldH) * 0.5f;
+
+    const Transform& playerTransform = mWorld.getComponent<Transform>(mPlayerEntity);
+    const glm::vec2 playerCenter(playerTransform.x + kSpriteSize * 0.5f, playerTransform.y + kSpriteSize * 0.5f);
+    const glm::vec2 playerIso = Camera::worldToIso(playerCenter);
+
+    const float isoRangeX = std::max(1.0f, isoMaxX - isoMinX);
+    const float isoRangeY = std::max(1.0f, isoMaxY - isoMinY);
+    const float safeZoom = std::clamp(mMinimapZoom, kMinimapZoomMin, kMinimapZoomMax);
+
+    float viewMinX = playerIso.x - (isoRangeX * 0.5f) / safeZoom;
+    float viewMaxX = playerIso.x + (isoRangeX * 0.5f) / safeZoom;
+    float viewMinY = playerIso.y - (isoRangeY * 0.5f) / safeZoom;
+    float viewMaxY = playerIso.y + (isoRangeY * 0.5f) / safeZoom;
+
+    const float viewWidth = viewMaxX - viewMinX;
+    const float viewHeight = viewMaxY - viewMinY;
+
+    if (viewWidth >= isoRangeX)
+    {
+        viewMinX = isoMinX;
+        viewMaxX = isoMaxX;
+    }
+    else
+    {
+        if (viewMinX < isoMinX)
+        {
+            viewMaxX += (isoMinX - viewMinX);
+            viewMinX = isoMinX;
+        }
+        if (viewMaxX > isoMaxX)
+        {
+            viewMinX -= (viewMaxX - isoMaxX);
+            viewMaxX = isoMaxX;
+        }
+    }
+
+    if (viewHeight >= isoRangeY)
+    {
+        viewMinY = isoMinY;
+        viewMaxY = isoMaxY;
+    }
+    else
+    {
+        if (viewMinY < isoMinY)
+        {
+            viewMaxY += (isoMinY - viewMinY);
+            viewMinY = isoMinY;
+        }
+        if (viewMaxY > isoMaxY)
+        {
+            viewMinY -= (viewMaxY - isoMaxY);
+            viewMaxY = isoMaxY;
+        }
+    }
+
+    const float viewRangeX = std::max(1.0f, viewMaxX - viewMinX);
+    const float viewRangeY = std::max(1.0f, viewMaxY - viewMinY);
+
+    auto projectIsoToMinimap = [&](const glm::vec2& isoPosition)
+    {
+        const float u = std::clamp((isoPosition.x - viewMinX) / viewRangeX, 0.0f, 1.0f);
+        const float v = std::clamp((isoPosition.y - viewMinY) / viewRangeY, 0.0f, 1.0f);
+        return glm::vec2(mapX + u * mapWidth, mapY + v * mapHeight);
+    };
+
+    auto projectWorldToMinimap = [&](const glm::vec2& worldPosition)
+    {
+        const glm::vec2 iso = Camera::worldToIso(worldPosition);
+        return projectIsoToMinimap(iso);
+    };
+
+    auto drawIsoPoint = [&](const glm::vec2& worldPosition, const glm::vec4& color, float size)
+    {
+        const glm::vec2 minimapPos = projectWorldToMinimap(worldPosition);
+        const glm::vec2 drawSize(size, size);
+        mSpriteBatch.draw(minimapPos - drawSize * 0.5f, drawSize, uiUv, color);
+    };
+
+    const LayoutData& layout = mMapGenerator.layoutData();
+    int maxDistrictId = 0;
+    for (const auto& district : layout.districts)
+    {
+        maxDistrictId = std::max(maxDistrictId, district.id);
+    }
+    for (const auto& districtState : mDistrictInfectionSystem.districts())
+    {
+        maxDistrictId = std::max(maxDistrictId, districtState.districtId);
+    }
+
+    std::vector<int> districtTypeById(static_cast<std::size_t>(maxDistrictId + 1), static_cast<int>(DistrictType::Wilderness));
+    for (const auto& district : layout.districts)
+    {
+        if (district.id >= 0 && district.id < static_cast<int>(districtTypeById.size()))
+        {
+            districtTypeById[static_cast<std::size_t>(district.id)] = district.type;
+        }
+    }
+
+    std::vector<float> infectionByDistrict(static_cast<std::size_t>(maxDistrictId + 1), 0.0f);
+    std::vector<std::uint8_t> overwhelmedByDistrict(static_cast<std::size_t>(maxDistrictId + 1), 0u);
+    for (const auto& districtState : mDistrictInfectionSystem.districts())
+    {
+        if (districtState.districtId >= 0 && districtState.districtId < static_cast<int>(infectionByDistrict.size()))
+        {
+            infectionByDistrict[static_cast<std::size_t>(districtState.districtId)] = districtState.infection;
+            overwhelmedByDistrict[static_cast<std::size_t>(districtState.districtId)] = districtState.overwhelmed ? 1u : 0u;
+        }
+    }
+
+    auto blendColor = [](const glm::vec4& a, const glm::vec4& b, float t)
+    {
+        const float w = std::clamp(t, 0.0f, 1.0f);
+        return glm::vec4(
+            a.r + (b.r - a.r) * w,
+            a.g + (b.g - a.g) * w,
+            a.b + (b.b - a.b) * w,
+            a.a + (b.a - a.a) * w);
+    };
+
+    const int sampleStep = (safeZoom >= 2.2f) ? 1 : (safeZoom >= 1.15f ? 2 : 3);
+    for (int py = 0; py < static_cast<int>(mapHeight); py += sampleStep)
+    {
+        for (int px = 0; px < static_cast<int>(mapWidth); px += sampleStep)
+        {
+            const float u = (static_cast<float>(px) + static_cast<float>(sampleStep) * 0.5f) / mapWidth;
+            const float v = (static_cast<float>(py) + static_cast<float>(sampleStep) * 0.5f) / mapHeight;
+
+            const glm::vec2 sampleIso(
+                viewMinX + u * viewRangeX,
+                viewMinY + v * viewRangeY);
+            const glm::vec2 sampleWorld = Camera::isoToWorld(sampleIso);
+
+            const int tx = static_cast<int>(std::floor(sampleWorld.x / static_cast<float>(tileW)));
+            const int ty = static_cast<int>(std::floor(sampleWorld.y / static_cast<float>(tileH)));
+
+            glm::vec4 color(0.03f, 0.04f, 0.06f, 0.76f);
+            if (tx >= 0 && tx < mapTilesW && ty >= 0 && ty < mapTilesH)
+            {
+                switch (mTileMap.getSurfaceType(tx, ty))
+                {
+                case SurfaceType::Carpet: color = glm::vec4(0.17f, 0.14f, 0.16f, 0.74f); break;
+                case SurfaceType::Gravel: color = glm::vec4(0.25f, 0.24f, 0.20f, 0.74f); break;
+                case SurfaceType::Grass: color = glm::vec4(0.16f, 0.27f, 0.18f, 0.74f); break;
+                case SurfaceType::Metal: color = glm::vec4(0.16f, 0.20f, 0.25f, 0.74f); break;
+                case SurfaceType::Default:
+                default:
+                    color = glm::vec4(0.12f, 0.15f, 0.13f, 0.74f);
+                    break;
+                }
+
+                const int districtId = mTileMap.getDistrictId(tx, ty);
+                if (districtId > 0 && districtId < static_cast<int>(districtTypeById.size()))
+                {
+                    const int districtType = districtTypeById[static_cast<std::size_t>(districtId)];
+                    if (districtType == static_cast<int>(DistrictType::Residential))
+                    {
+                        color = blendColor(color, glm::vec4(0.27f, 0.39f, 0.30f, 0.84f), 0.34f);
+                    }
+                    else if (districtType == static_cast<int>(DistrictType::Commercial))
+                    {
+                        color = blendColor(color, glm::vec4(0.28f, 0.32f, 0.44f, 0.84f), 0.34f);
+                    }
+                    else if (districtType == static_cast<int>(DistrictType::Industrial))
+                    {
+                        color = blendColor(color, glm::vec4(0.38f, 0.27f, 0.24f, 0.84f), 0.34f);
+                    }
+
+                    if (districtId < static_cast<int>(infectionByDistrict.size()))
+                    {
+                        const float infection = std::clamp(infectionByDistrict[static_cast<std::size_t>(districtId)], 0.0f, 100.0f);
+                        const bool overwhelmed = overwhelmedByDistrict[static_cast<std::size_t>(districtId)] != 0u;
+                        const glm::vec4 riskColor = overwhelmed
+                            ? glm::vec4(0.94f, 0.32f, 0.26f, 0.90f)
+                            : glm::vec4(0.90f, 0.60f, 0.24f, 0.86f);
+                        const float riskMix = overwhelmed ? 0.68f : (infection / 100.0f) * 0.45f;
+                        color = blendColor(color, riskColor, riskMix);
+                    }
+                }
+
+                if (mTileMap.isSolid(tx, ty))
+                {
+                    color = blendColor(color, glm::vec4(0.07f, 0.08f, 0.11f, 0.88f), 0.52f);
+                }
+            }
+
+            const float drawW = std::min(static_cast<float>(sampleStep) + 0.5f, mapWidth - static_cast<float>(px));
+            const float drawH = std::min(static_cast<float>(sampleStep) + 0.5f, mapHeight - static_cast<float>(py));
+            mSpriteBatch.draw(glm::vec2(mapX + static_cast<float>(px), mapY + static_cast<float>(py)), glm::vec2(drawW, drawH), uiUv, color);
+        }
+    }
+
+    // Draw subtle world bounds in iso space so map edges remain legible when zoomed.
+    const glm::vec2 top = projectIsoToMinimap(glm::vec2((isoMinX + isoMaxX) * 0.5f, isoMinY));
+    const glm::vec2 right = projectIsoToMinimap(glm::vec2(isoMaxX, (isoMinY + isoMaxY) * 0.5f));
+    const glm::vec2 bottom = projectIsoToMinimap(glm::vec2((isoMinX + isoMaxX) * 0.5f, isoMaxY));
+    const glm::vec2 left = projectIsoToMinimap(glm::vec2(isoMinX, (isoMinY + isoMaxY) * 0.5f));
+    const glm::vec2 edgeColorSize(1.0f, 1.0f);
+    mSpriteBatch.draw(top - edgeColorSize, glm::vec2(2.0f, 2.0f), uiUv, glm::vec4(0.74f, 0.66f, 0.46f, 0.80f));
+    mSpriteBatch.draw(right - edgeColorSize, glm::vec2(2.0f, 2.0f), uiUv, glm::vec4(0.74f, 0.66f, 0.46f, 0.80f));
+    mSpriteBatch.draw(bottom - edgeColorSize, glm::vec2(2.0f, 2.0f), uiUv, glm::vec4(0.74f, 0.66f, 0.46f, 0.80f));
+    mSpriteBatch.draw(left - edgeColorSize, glm::vec2(2.0f, 2.0f), uiUv, glm::vec4(0.74f, 0.66f, 0.46f, 0.80f));
+
+    std::ostringstream minimapLabel;
+    minimapLabel << "MINIMAP x" << std::fixed << std::setprecision(1) << safeZoom;
+    mFont.drawText(mSpriteBatch, glm::vec2(mapX + 6.0f, mapY + 6.0f), minimapLabel.str(), glm::vec4(0.85f, 0.86f, 0.78f, 0.94f), 0.9f);
+    mFont.drawText(mSpriteBatch, glm::vec2(mapX + 6.0f, mapY + mapHeight - 12.0f), "Ctrl+Wheel or +/-", glm::vec4(0.70f, 0.74f, 0.70f, 0.88f), 0.85f);
+
+    for (const GraveRecord& grave : mSaveManager.graves())
+    {
+        drawIsoPoint(glm::vec2(grave.x, grave.y), glm::vec4(0.80f, 0.38f, 0.38f, 0.92f), 3.0f);
+    }
+
+    for (const RetirementRecord& retirement : mSaveManager.retirements())
+    {
+        drawIsoPoint(glm::vec2(retirement.x, retirement.y), glm::vec4(0.48f, 0.76f, 0.54f, 0.92f), 3.0f);
+    }
+
+    for (const auto& [tx, ty] : mBurnedTiles)
+    {
+        const glm::vec2 worldCenter(
+            (static_cast<float>(tx) + 0.5f) * static_cast<float>(tileW),
+            (static_cast<float>(ty) + 0.5f) * static_cast<float>(tileH));
+        drawIsoPoint(worldCenter, glm::vec4(0.38f, 0.22f, 0.16f, 0.72f), 2.0f);
+    }
+
+    if (mCampaignObjective.active)
+    {
+        const glm::vec2 objectiveCenter(
+            (static_cast<float>(mCampaignObjective.tileX) + 0.5f) * static_cast<float>(tileW),
+            (static_cast<float>(mCampaignObjective.tileY) + 0.5f) * static_cast<float>(tileH));
+        drawIsoPoint(objectiveCenter, glm::vec4(0.94f, 0.80f, 0.30f, 0.95f), 4.0f);
+    }
+
+    drawIsoPoint(playerCenter, glm::vec4(0.98f, 0.96f, 0.78f, 1.0f), 4.0f);
+}
+
+void Game::renderWorldMapOverlay()
+{
+    if (mRunState != RunState::Playing || !mShowWorldMap)
+    {
+        return;
+    }
+
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const float w = static_cast<float>(mWindowWidth);
+    const float h = static_cast<float>(mWindowHeight);
+
+    mSpriteBatch.draw(glm::vec2(0.0f, 0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.01f, 0.02f, 0.03f, 0.90f));
+
+    const float panelPad = 24.0f;
+    const float mapX = panelPad;
+    const float mapY = panelPad + 36.0f;
+    const float mapW = w - panelPad * 2.0f;
+    const float mapH = h - panelPad * 2.0f - 48.0f;
+
+    mSpriteBatch.draw(glm::vec2(mapX, mapY), glm::vec2(mapW, mapH), uiUv, glm::vec4(0.04f, 0.05f, 0.07f, 0.96f));
+
+    const float scaleX = mapW / static_cast<float>(std::max(1, mTileMap.width()));
+    const float scaleY = mapH / static_cast<float>(std::max(1, mTileMap.height()));
+
+    for (const auto& district : mMapGenerator.layoutData().districts)
+    {
+        const float x = mapX + static_cast<float>(district.minX) * scaleX;
+        const float y = mapY + static_cast<float>(district.minY) * scaleY;
+        const float dw = std::max(1.0f, static_cast<float>(district.maxX - district.minX + 1) * scaleX);
+        const float dh = std::max(1.0f, static_cast<float>(district.maxY - district.minY + 1) * scaleY);
+
+        glm::vec4 color(0.20f, 0.23f, 0.25f, 0.58f);
+        if (district.type == static_cast<int>(DistrictType::Residential)) color = glm::vec4(0.22f, 0.30f, 0.24f, 0.58f);
+        if (district.type == static_cast<int>(DistrictType::Commercial)) color = glm::vec4(0.24f, 0.26f, 0.34f, 0.58f);
+        if (district.type == static_cast<int>(DistrictType::Industrial)) color = glm::vec4(0.31f, 0.23f, 0.21f, 0.58f);
+
+        const float infection = std::clamp(mDistrictInfectionSystem.getInfection(district.id), 0.0f, 100.0f);
+        const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(district.id);
+        const float infectionT = infection / 100.0f;
+        const glm::vec4 riskColor = overwhelmed
+            ? glm::vec4(0.92f, 0.28f, 0.24f, 0.78f)
+            : glm::vec4(0.88f, 0.62f, 0.24f, 0.72f);
+        const float blend = overwhelmed ? 0.78f : (infectionT * 0.62f);
+        color.r = color.r * (1.0f - blend) + riskColor.r * blend;
+        color.g = color.g * (1.0f - blend) + riskColor.g * blend;
+        color.b = color.b * (1.0f - blend) + riskColor.b * blend;
+        color.a = std::max(color.a, 0.60f);
+
+        mSpriteBatch.draw(glm::vec2(x, y), glm::vec2(dw, dh), uiUv, color);
+
+        if (infection >= 35.0f)
+        {
+            const std::string pctLabel = std::to_string(static_cast<int>(std::round(infection))) + "%";
+            mFont.drawText(
+                mSpriteBatch,
+                glm::vec2(x + dw * 0.5f, y + dh * 0.5f - 4.0f),
+                pctLabel,
+                overwhelmed ? glm::vec4(1.0f, 0.88f, 0.84f, 0.95f) : glm::vec4(0.92f, 0.90f, 0.74f, 0.90f),
+                0.9f,
+                TextAlign::Center);
+        }
+    }
+
+    // Infection legend
+    const float legendX = mapX + 10.0f;
+    const float legendY = mapY + 10.0f;
+    mSpriteBatch.draw(glm::vec2(legendX - 6.0f, legendY - 6.0f), glm::vec2(264.0f, 40.0f), uiUv, glm::vec4(0.02f, 0.03f, 0.04f, 0.72f));
+
+    auto drawLegendSwatch = [&](float x, const glm::vec4& color, const std::string& label)
+    {
+        mSpriteBatch.draw(glm::vec2(x, legendY + 4.0f), glm::vec2(10.0f, 10.0f), uiUv, color);
+        mFont.drawText(mSpriteBatch, glm::vec2(x + 14.0f, legendY + 2.0f), label, glm::vec4(0.84f, 0.86f, 0.80f, 0.95f), 0.85f);
+    };
+
+    mFont.drawText(mSpriteBatch, glm::vec2(legendX, legendY - 8.0f), "Infection", glm::vec4(0.94f, 0.86f, 0.60f, 0.96f), 0.9f);
+    drawLegendSwatch(legendX, glm::vec4(0.26f, 0.70f, 0.30f, 0.90f), "Low");
+    drawLegendSwatch(legendX + 58.0f, glm::vec4(0.78f, 0.70f, 0.30f, 0.90f), "Medium");
+    drawLegendSwatch(legendX + 136.0f, glm::vec4(0.90f, 0.54f, 0.24f, 0.92f), "High");
+    drawLegendSwatch(legendX + 196.0f, glm::vec4(0.92f, 0.28f, 0.24f, 0.94f), "Over");
+
+    for (const auto& event : mSaveManager.worldMemoryEvents())
+    {
+        glm::vec4 color(0.62f, 0.62f, 0.62f, 0.85f);
+        switch (event.type)
+        {
+        case WorldMemoryEventType::BurnedTile: color = glm::vec4(0.55f, 0.28f, 0.22f, 0.90f); break;
+        case WorldMemoryEventType::GravePlaced: color = glm::vec4(0.82f, 0.42f, 0.42f, 0.90f); break;
+        case WorldMemoryEventType::RetirementPlaced: color = glm::vec4(0.46f, 0.82f, 0.48f, 0.90f); break;
+        case WorldMemoryEventType::VehicleAbandoned: color = glm::vec4(0.54f, 0.68f, 0.84f, 0.90f); break;
+        default: break;
+        }
+
+        mSpriteBatch.draw(
+            glm::vec2(mapX + event.tileX * scaleX, mapY + event.tileY * scaleY),
+            glm::vec2(std::max(2.0f, scaleX * 1.2f), std::max(2.0f, scaleY * 1.2f)),
+            uiUv,
+            color);
+    }
+
+    if (mCampaignObjective.active)
+    {
+        mSpriteBatch.draw(
+            glm::vec2(mapX + mCampaignObjective.tileX * scaleX - 2.0f, mapY + mCampaignObjective.tileY * scaleY - 2.0f),
+            glm::vec2(std::max(6.0f, scaleX * 2.4f), std::max(6.0f, scaleY * 2.4f)),
+            uiUv,
+            glm::vec4(0.95f, 0.78f, 0.25f, 0.95f));
+    }
+
+    mFont.drawText(mSpriteBatch, glm::vec2(mapX + 8.0f, mapY - 24.0f), "WORLD MAP", glm::vec4(0.95f, 0.86f, 0.60f, 1.0f), 2.0f);
+    mFont.drawText(mSpriteBatch, glm::vec2(mapX + 180.0f, mapY - 24.0f), "M to close", glm::vec4(0.74f, 0.76f, 0.72f, 0.96f), 1.2f);
+}
+
+void Game::renderNotebookOverlay()
+{
+    if (mRunState != RunState::Playing || !mShowNotebook)
+    {
+        return;
+    }
+
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const float w = static_cast<float>(mWindowWidth);
+    const float h = static_cast<float>(mWindowHeight);
+
+    const float panelW = std::min(760.0f, w - 60.0f);
+    const float panelH = std::min(520.0f, h - 80.0f);
+    const float panelX = (w - panelW) * 0.5f;
+    const float panelY = (h - panelH) * 0.5f;
+
+    mSpriteBatch.draw(glm::vec2(0.0f, 0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.58f));
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.15f, 0.13f, 0.09f, 0.95f));
+    mSpriteBatch.draw(glm::vec2(panelX + 8.0f, panelY + 8.0f), glm::vec2(panelW - 16.0f, panelH - 16.0f), uiUv, glm::vec4(0.22f, 0.20f, 0.15f, 0.95f));
+
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, panelY + 18.0f), "NOTEBOOK // LEGACY", glm::vec4(0.94f, 0.86f, 0.62f, 1.0f), 2.0f);
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + panelW - 130.0f, panelY + 18.0f), "J to close", glm::vec4(0.72f, 0.72f, 0.68f, 0.95f), 1.1f);
+
+    float y = panelY + 50.0f;
+
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "Recent Characters", glm::vec4(0.90f, 0.84f, 0.66f, 0.98f), 1.35f);
+    y += 18.0f;
+
+    const auto& history = mSaveManager.characterHistory();
+    if (history.empty())
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 24.0f, y), "No history entries yet.", glm::vec4(0.70f, 0.70f, 0.66f, 0.95f), 1.05f);
+        y += 18.0f;
+    }
+    else
+    {
+        const int maxEntries = 8;
+        const int start = std::max(0, static_cast<int>(history.size()) - maxEntries);
+        for (int i = static_cast<int>(history.size()) - 1; i >= start; --i)
+        {
+            const CharacterHistoryRecord& rec = history[static_cast<std::size_t>(i)];
+            std::string line = rec.name + " - Day " + std::to_string(rec.dayEnded) + (rec.retired ? " retired" : " died");
+            if (!rec.bloodlineTrait.empty())
+            {
+                line += " [" + rec.bloodlineTrait + "]";
+            }
+
+            mFont.drawText(mSpriteBatch, glm::vec2(panelX + 24.0f, y), truncateHudText(line, 80), glm::vec4(0.84f, 0.82f, 0.74f, 0.95f), 1.05f);
+            y += 16.0f;
+        }
+    }
+
+    y += 8.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "World Memory", glm::vec4(0.90f, 0.84f, 0.66f, 0.98f), 1.35f);
+    y += 18.0f;
+
+    const auto& events = mSaveManager.worldMemoryEvents();
+    if (events.empty())
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 24.0f, y), "No durable world events recorded.", glm::vec4(0.70f, 0.70f, 0.66f, 0.95f), 1.05f);
+    }
+    else
+    {
+        const int maxEvents = 10;
+        const int start = std::max(0, static_cast<int>(events.size()) - maxEvents);
+        for (int i = static_cast<int>(events.size()) - 1; i >= start; --i)
+        {
+            const WorldMemoryEventRecord& event = events[static_cast<std::size_t>(i)];
+            std::string eventLabel = "Event";
+            switch (event.type)
+            {
+            case WorldMemoryEventType::BurnedTile: eventLabel = "Burn scar"; break;
+            case WorldMemoryEventType::GravePlaced: eventLabel = "Grave"; break;
+            case WorldMemoryEventType::RetirementPlaced: eventLabel = "Retirement marker"; break;
+            case WorldMemoryEventType::VehicleAbandoned: eventLabel = "Abandoned vehicle"; break;
+            case WorldMemoryEventType::StructureAbandoned: eventLabel = "Abandoned structure"; break;
+            case WorldMemoryEventType::LootedContainer: eventLabel = "Looted container"; break;
+            default: break;
+            }
+
+            std::ostringstream line;
+            line << "Day " << event.day << " R" << event.runIndex << " - "
+                 << eventLabel << " @ T(" << event.tileX << "," << event.tileY << ")";
+            if (!event.detail.empty())
+            {
+                line << " - " << event.detail;
+            }
+
+            mFont.drawText(
+                mSpriteBatch,
+                glm::vec2(panelX + 24.0f, y),
+                truncateHudText(line.str(), 90),
+                glm::vec4(0.82f, 0.80f, 0.72f, 0.95f),
+                1.0f);
+            y += 15.0f;
+            if (y > panelY + panelH - 24.0f)
+            {
+                break;
+            }
+        }
     }
 }
 
@@ -4610,6 +6772,96 @@ void Game::renderTextOverlays()
         mFont.drawText(mSpriteBatch, glm::vec2(200.0f, 28.0f), staStr, glm::vec4(0.35f, 0.75f, 0.85f, 1.0f), kSmallScale);
     }
 
+    // M8: compact vehicle and fire status readout.
+    {
+        std::size_t fireCount = 0;
+        mWorld.forEach<Fire>([&](Entity, Fire&) { ++fireCount; });
+
+        Entity statusVehicle = mActiveVehicleEntity;
+        if (statusVehicle == kInvalidEntity &&
+            mPlayerEntity != kInvalidEntity &&
+            mWorld.hasComponent<Transform>(mPlayerEntity))
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            const glm::vec2 playerCenter(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
+            float bestDistSq = kVehicleInteractRangePixels * kVehicleInteractRangePixels;
+            mWorld.forEach<Vehicle, Transform>(
+                [&](Entity entity, Vehicle&, Transform& vt)
+                {
+                    const glm::vec2 vc(vt.x + kSpriteSize * 0.5f, vt.y + kSpriteSize * 0.5f);
+                    const glm::vec2 d = vc - playerCenter;
+                    const float distSq = glm::dot(d, d);
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        statusVehicle = entity;
+                    }
+                });
+        }
+
+        if (statusVehicle != kInvalidEntity && mWorld.hasComponent<Vehicle>(statusVehicle))
+        {
+            const Vehicle& vehicle = mWorld.getComponent<Vehicle>(statusVehicle);
+            std::ostringstream vehicleLine;
+            vehicleLine << (statusVehicle == mActiveVehicleEntity ? "SEDAN [DRIVING] " : "SEDAN ")
+                        << vehicleConditionLabel(vehicle.condition)
+                        << "  Fuel " << static_cast<int>(std::round(vehicle.fuel))
+                        << "/" << static_cast<int>(std::round(vehicle.maxFuel));
+
+            mFont.drawText(
+                mSpriteBatch,
+                glm::vec2(200.0f, 44.0f),
+                vehicleLine.str(),
+                statusVehicle == mActiveVehicleEntity
+                    ? glm::vec4(0.86f, 0.86f, 0.54f, 1.0f)
+                    : glm::vec4(0.62f, 0.76f, 0.82f, 0.95f),
+                1.1f);
+        }
+
+        if (fireCount > 0)
+        {
+            mFont.drawText(
+                mSpriteBatch,
+                glm::vec2(200.0f, 58.0f),
+                "Fires: " + std::to_string(fireCount),
+                glm::vec4(0.95f, 0.52f, 0.32f, 0.95f),
+                1.1f);
+        }
+    }
+
+    const float rightX = static_cast<float>(mWindowWidth) - 12.0f;
+    float rightY = 12.0f;
+    const bool minimapVisible =
+        mRunState == RunState::Playing &&
+        !mShowWorldMap &&
+        mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Transform>(mPlayerEntity);
+    const float rightColumnLimitY = minimapVisible
+        ? static_cast<float>(mWindowHeight) - 164.0f
+        : static_cast<float>(mWindowHeight) - 96.0f;
+
+    auto drawRightLine = [&](const std::string& text,
+                             const glm::vec4& color,
+                             float scale,
+                             float lineAdvance,
+                             std::size_t maxChars)
+    {
+        if (text.empty() || rightY + lineAdvance > rightColumnLimitY)
+        {
+            return false;
+        }
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, rightY),
+            truncateHudText(text, maxChars),
+            color,
+            scale,
+            TextAlign::Right);
+        rightY += lineAdvance;
+        return true;
+    };
+
     // Day / time display
     {
         const int hour = static_cast<int>(mGameHours) % 24;
@@ -4618,52 +6870,78 @@ void Game::renderTextOverlays()
         timeStr << "DAY " << mCurrentDay << "  "
                 << std::setfill('0') << std::setw(2) << hour << ":"
                 << std::setfill('0') << std::setw(2) << minute;
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(static_cast<float>(mWindowWidth) - 12.0f, 12.0f),
-            timeStr.str(),
-            glm::vec4(0.9f, 0.9f, 0.8f, 1.0f),
-            kSmallScale,
-            TextAlign::Right);
+        drawRightLine(timeStr.str(), glm::vec4(0.9f, 0.9f, 0.8f, 1.0f), kSmallScale, 18.0f, 42);
     }
 
-    // Character name
-    mFont.drawText(
-        mSpriteBatch,
-        glm::vec2(static_cast<float>(mWindowWidth) - 12.0f, 30.0f),
-        mCurrentCharacterName,
-        glm::vec4(0.7f, 0.7f, 0.65f, 0.85f),
-        kSmallScale,
-        TextAlign::Right);
+    drawRightLine(mCurrentCharacterName, glm::vec4(0.7f, 0.7f, 0.65f, 0.85f), kSmallScale, 18.0f, 36);
 
     // Trait display below character name
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
     {
         const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        const float traitX = static_cast<float>(mWindowWidth) - 12.0f;
-        float traitY = 48.0f;
         if (traits.positive != PositiveTrait::None)
         {
-            mFont.drawText(mSpriteBatch, glm::vec2(traitX, traitY), traits.positiveName(),
-                            glm::vec4(0.4f, 0.85f, 0.4f, 0.8f), 1.0f, TextAlign::Right);
-            traitY += 14.0f;
+            drawRightLine(traits.positiveName(), glm::vec4(0.4f, 0.85f, 0.4f, 0.8f), 1.0f, 14.0f, 40);
         }
         if (traits.negative != NegativeTrait::None)
         {
-            mFont.drawText(mSpriteBatch, glm::vec2(traitX, traitY), traits.negativeName(),
-                            glm::vec4(0.85f, 0.4f, 0.4f, 0.8f), 1.0f, TextAlign::Right);
+            drawRightLine(traits.negativeName(), glm::vec4(0.85f, 0.4f, 0.4f, 0.8f), 1.0f, 14.0f, 40);
+        }
+        if (traits.bloodline != BloodlineTrait::None)
+        {
+            drawRightLine(
+                std::string("Bloodline: ") + traits.bloodlineName(),
+                glm::vec4(0.72f, 0.82f, 0.56f, 0.85f),
+                1.0f,
+                14.0f,
+                46);
         }
     }
+
+    rightY += 4.0f;
 
     // Objective display
     if (mRunState == RunState::Playing)
     {
-        const float objX = static_cast<float>(mWindowWidth) - 12.0f;
-        float objY = 80.0f;
-
-        std::string primaryObj = "Search buildings for supply caches";
-        std::string secondaryObj = "Standing still burns food, water, and daylight";
+        const bool campaignMode = (mTitleGameModeIndex == 0);
+        std::string primaryObj = campaignMode
+            ? "Campaign: Reach the objective before infection deadline"
+            : "Endless: Survive and preserve world memory";
+        std::string secondaryObj = campaignMode
+            ? "Objective not yet triangulated"
+            : "Standing still burns food, water, and daylight";
         glm::vec4 primaryColor(0.9f, 0.8f, 0.3f, 0.9f);
+
+        if (campaignMode && mCampaignObjective.completed)
+        {
+            primaryObj = "Campaign objective secured";
+            secondaryObj = "Extraction route confirmed. Legacy recorded.";
+            primaryColor = glm::vec4(0.58f, 0.88f, 0.56f, 0.95f);
+        }
+        else if (campaignMode && mCampaignObjective.active && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
+        {
+            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+            const int tx = static_cast<int>(std::floor(pt.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
+            const int ty = static_cast<int>(std::floor(pt.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
+            const int manhattan = std::abs(mCampaignObjective.tileX - tx) + std::abs(mCampaignObjective.tileY - ty);
+            secondaryObj = "Objective distance: " + std::to_string(manhattan) + " tiles";
+
+            if (mCampaignObjective.infectionDeadlineDay > 0)
+            {
+                const int daysRemaining = mCampaignObjective.infectionDeadlineDay - mCurrentDay;
+                primaryObj += " (D-" + std::to_string(std::max(0, daysRemaining)) + ")";
+                if (daysRemaining <= 5)
+                {
+                    primaryColor = glm::vec4(0.95f, 0.42f, 0.38f, 0.95f);
+                }
+            }
+        }
+        else if (campaignMode && mCampaignObjective.infectionDeadlineDay > 0 && mCurrentDay > mCampaignObjective.infectionDeadlineDay)
+        {
+            primaryObj = "Campaign objective failed";
+            secondaryObj = "Infection deadline has passed.";
+            primaryColor = glm::vec4(0.95f, 0.42f, 0.38f, 0.95f);
+        }
 
         const bool bleeding = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Bleeding>(mPlayerEntity);
         const bool wounded = mPlayerEntity != kInvalidEntity &&
@@ -4705,17 +6983,21 @@ void Game::renderTextOverlays()
             }
         }
 
-        mFont.drawText(mSpriteBatch, glm::vec2(objX, objY), primaryObj,
-                        primaryColor, 1.0f, TextAlign::Right);
-        objY += 14.0f;
-
-        mFont.drawText(mSpriteBatch, glm::vec2(objX, objY), secondaryObj,
-                        glm::vec4(0.6f, 0.7f, 0.6f, 0.7f), 1.0f, TextAlign::Right);
-        objY += 14.0f;
+        drawRightLine(primaryObj, primaryColor, 1.0f, 14.0f, 74);
+        drawRightLine(secondaryObj, glm::vec4(0.6f, 0.7f, 0.6f, 0.7f), 1.0f, 14.0f, 74);
 
         std::string scavengeObj = "Looted: " + std::to_string(mRunStats.itemsLooted) + " | Kills: " + std::to_string(mRunStats.kills);
-        mFont.drawText(mSpriteBatch, glm::vec2(objX, objY), scavengeObj,
-                        glm::vec4(0.7f, 0.5f, 0.5f, 0.7f), 1.0f, TextAlign::Right);
+        drawRightLine(scavengeObj, glm::vec4(0.7f, 0.5f, 0.5f, 0.7f), 1.0f, 14.0f, 62);
+
+        std::string modeLine = std::string("Run: ")
+            + kTitleGameModeNames[static_cast<std::size_t>(wrapIndex(mTitleGameModeIndex, static_cast<int>(kTitleGameModeNames.size())))];
+        std::string threatToneLine = std::string("Threat: ")
+            + kTitleModeNames[static_cast<std::size_t>(wrapIndex(mTitleModeIndex, static_cast<int>(kTitleModeNames.size())))]
+            + " | Tone: "
+            + kTitleToneNames[static_cast<std::size_t>(wrapIndex(mTitleToneIndex, static_cast<int>(kTitleToneNames.size())))];
+
+        drawRightLine(modeLine, glm::vec4(0.72f, 0.78f, 0.84f, 0.85f), 0.95f, 13.0f, 52);
+        drawRightLine(threatToneLine, glm::vec4(0.72f, 0.78f, 0.84f, 0.82f), 0.92f, 13.0f, 74);
     }
 
     // Current district infection indicator (always visible while playing).
@@ -4750,13 +7032,12 @@ void Game::renderTextOverlays()
                 districtLine << " OVERWHELMED";
             }
 
-            mFont.drawText(
-                mSpriteBatch,
-                glm::vec2(static_cast<float>(mWindowWidth) - 12.0f, 140.0f),
+            drawRightLine(
                 districtLine.str(),
                 overwhelmed ? glm::vec4(0.95f, 0.45f, 0.35f, 0.95f) : glm::vec4(0.85f, 0.7f, 0.35f, 0.85f),
                 1.0f,
-                TextAlign::Right);
+                14.0f,
+                74);
         }
     }
 
@@ -4901,9 +7182,16 @@ void Game::renderTextOverlays()
                 mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 12.0f), traitLine,
                                 glm::vec4(0.65f, 0.65f, 0.55f, 0.8f), 1.0f, TextAlign::Center);
             }
+
+            if (traits.bloodline != BloodlineTrait::None)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 22.0f),
+                                std::string("Bloodline: ") + traits.bloodlineName(),
+                                glm::vec4(0.70f, 0.78f, 0.62f, 0.86f), 0.95f, TextAlign::Center);
+            }
         }
 
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 26.0f), mDeathCause,
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 32.0f), mDeathCause,
                         glm::vec4(0.75f, 0.55f, 0.55f, 1.0f), kSmallScale, TextAlign::Center);
 
         // Run stats
@@ -4912,19 +7200,19 @@ void Game::renderTextOverlays()
             std::string statsLine = "Day " + std::to_string(mCurrentDay)
                 + " | " + std::to_string(mRunStats.kills) + " kills"
                 + " | " + std::to_string(distMeters) + "m walked";
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 42.0f), statsLine,
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 48.0f), statsLine,
                             glm::vec4(0.65f, 0.65f, 0.7f, 0.9f), 1.0f, TextAlign::Center);
         }
 
         if (mDeathStateTimer >= kDeathRestartDelaySeconds)
         {
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f), "Press Enter to begin again",
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f), "Press Enter to begin again",
                             glm::vec4(0.5f, 0.85f, 0.5f, 1.0f), kSmallScale, TextAlign::Center);
         }
         else
         {
             const int remaining = static_cast<int>(std::ceil(kDeathRestartDelaySeconds - mDeathStateTimer));
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f),
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f),
                             "Wait " + std::to_string(remaining) + "...",
                             glm::vec4(0.6f, 0.4f, 0.4f, 0.8f), kSmallScale, TextAlign::Center);
         }
@@ -4958,9 +7246,16 @@ void Game::renderTextOverlays()
                 mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 12.0f), traitLine,
                                 glm::vec4(0.55f, 0.55f, 0.5f, 0.8f), 1.0f, TextAlign::Center);
             }
+
+            if (traits.bloodline != BloodlineTrait::None)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 22.0f),
+                                std::string("Bloodline: ") + traits.bloodlineName(),
+                                glm::vec4(0.66f, 0.78f, 0.66f, 0.86f), 0.95f, TextAlign::Center);
+            }
         }
 
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 26.0f), mDeathCause,
+        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 32.0f), mDeathCause,
                         glm::vec4(0.5f, 0.5f, 0.65f, 1.0f), kSmallScale, TextAlign::Center);
 
         // Run stats
@@ -4969,19 +7264,19 @@ void Game::renderTextOverlays()
             std::string statsLine = "Day " + std::to_string(mCurrentDay)
                 + " | " + std::to_string(mRunStats.kills) + " kills"
                 + " | " + std::to_string(distMeters) + "m walked";
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 42.0f), statsLine,
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 48.0f), statsLine,
                             glm::vec4(0.55f, 0.55f, 0.65f, 0.9f), 1.0f, TextAlign::Center);
         }
 
         if (mDeathStateTimer >= kDeathRestartDelaySeconds)
         {
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f), "Press Enter to try again",
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f), "Press Enter to try again",
                             glm::vec4(0.45f, 0.65f, 0.75f, 1.0f), kSmallScale, TextAlign::Center);
         }
         else
         {
             const int remaining = static_cast<int>(std::ceil(kDeathRestartDelaySeconds - mDeathStateTimer));
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 60.0f),
+            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f),
                             "Wait " + std::to_string(remaining) + "...",
                             glm::vec4(0.4f, 0.4f, 0.5f, 0.8f), kSmallScale, TextAlign::Center);
         }
@@ -4996,8 +7291,8 @@ void Game::renderTextOverlays()
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 50.0f), "PAUSED",
                         glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 3.0f, TextAlign::Center);
 
-        static const char* options[] = {"Resume", "Back to Menu", "Restart", "Quit"};
-        for (int i = 0; i < 4; ++i)
+        static const char* options[] = {"Resume", "Save", "Back to Menu", "Restart", "Quit"};
+        for (int i = 0; i < 5; ++i)
         {
             const bool selected = (i == mPauseSelection);
             const glm::vec4 color = selected
@@ -5050,13 +7345,21 @@ void Game::renderTextOverlays()
         for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
         {
             std::string itemText = kTitleMenuItems[static_cast<std::size_t>(i)];
-            if (i == 2)
+            if (i == 3)
             {
                 itemText += "  < " + std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) + " >";
             }
-            else if (i == 3)
+            else if (i == 4)
+            {
+                itemText += "  < " + std::string(kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)]) + " >";
+            }
+            else if (i == 5)
             {
                 itemText += "  < " + std::string(kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)]) + " >";
+            }
+            else if (i == 6)
+            {
+                itemText += "  < " + std::string(kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)]) + " >";
             }
 
             glm::vec4 color(0.83f, 0.83f, 0.80f, 0.96f);
@@ -5169,15 +7472,29 @@ void Game::renderTextOverlays()
         mFont.drawText(
             mSpriteBatch,
             glm::vec2(rightX, midY + 19.0f),
-            kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)],
+            kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)],
             glm::vec4(0.95f, 0.91f, 0.78f, 0.98f),
             1.25f);
         mFont.drawText(
             mSpriteBatch,
             glm::vec2(rightX, midY + 37.0f),
-            truncateHudText(kTitleModeDescriptions[static_cast<std::size_t>(mTitleModeIndex)], rightCharBudget),
+            truncateHudText(kTitleGameModeDescriptions[static_cast<std::size_t>(mTitleGameModeIndex)], rightCharBudget),
             glm::vec4(0.74f, 0.77f, 0.71f, 0.95f),
             1.08f);
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, midY + 53.0f),
+            truncateHudText(std::string("Threat: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)], rightCharBudget),
+            glm::vec4(0.70f, 0.74f, 0.77f, 0.95f),
+            1.02f);
+
+        mFont.drawText(
+            mSpriteBatch,
+            glm::vec2(rightX, midY + 67.0f),
+            truncateHudText(std::string("Tone: ") + kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)], rightCharBudget),
+            glm::vec4(0.70f, 0.74f, 0.77f, 0.95f),
+            1.02f);
 
         const std::size_t briefingIndex =
             (static_cast<std::size_t>(mSaveManager.worldSeed()) +
@@ -5452,6 +7769,32 @@ void Game::updateNoiseModel(float dtSeconds)
     const Transform& transform = mWorld.getComponent<Transform>(mPlayerEntity);
     const Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
     const Facing& facing = mWorld.getComponent<Facing>(mPlayerEntity);
+
+    if (mActiveVehicleEntity != kInvalidEntity &&
+        mWorld.hasComponent<Vehicle>(mActiveVehicleEntity) &&
+        mWorld.hasComponent<Transform>(mActiveVehicleEntity))
+    {
+        Vehicle& vehicle = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
+        if (vehicle.engineOn && vehicle.playerInside && vehicle.fuel > 0.01f && vehicle.condition >= 10.0f)
+        {
+            const Transform& vehicleTransform = mWorld.getComponent<Transform>(mActiveVehicleEntity);
+            const glm::vec2 noisePos(vehicleTransform.x + kSpriteSize * 0.5f, vehicleTransform.y + kSpriteSize * 0.5f);
+
+            vehicle.engineNoiseTimer += dtSeconds;
+            const float interval = std::max(0.22f, 0.36f - std::clamp(vehicle.condition / 100.0f, 0.0f, 1.0f) * 0.10f);
+            if (vehicle.engineNoiseTimer >= interval)
+            {
+                vehicle.engineNoiseTimer = 0.0f;
+                const NoiseTier tier = (vehicle.condition < 40.0f) ? NoiseTier::Explosive : NoiseTier::Loud;
+                mNoiseModel.emitNoise(noisePos, tier, 0.95f, mActiveVehicleEntity);
+                mAudioManager.playSound(SoundId::FootstepLoud, 0.16f);
+            }
+
+            mMovementNoiseTier = NoiseTier::Loud;
+            mNoiseEmitTimer = 0.0f;
+            return;
+        }
+    }
 
     const float speedSquared = velocity.dx * velocity.dx + velocity.dy * velocity.dy;
     if (speedSquared < 4.0f)
@@ -5731,7 +8074,7 @@ void Game::renderInventoryOverlay()
         y += 14.0f;
     }
 
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y + 4.0f), "W/S: Navigate | F: Use | C: Craft with cursor | Enter: Swap | Tab: Close",
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y + 4.0f), "Hover/Click: Use | Right Click: Swap | F: Use | N: Craft | Enter: Swap | Tab: Close",
                     glm::vec4(0.5f, 0.5f, 0.45f, 0.8f), 1.0f);
 }
 
@@ -6146,7 +8489,7 @@ void Game::renderCraftingOverlay()
     drawRect(glm::vec2(0.0f, h - 24.0f), glm::vec2(w, 24.0f), glm::vec4(0.015f, 0.018f, 0.022f, 0.98f));
     drawText(
         glm::vec2(12.0f, h - 18.0f),
-        "C: Open/Close  W/S: Select  A/D: Category  +/-: Quantity  Enter: Queue  Shift+Enter: Append  X: Cancel  J: Notebook",
+        "N: Open/Close  Mouse: Hover/LMB Queue/RMB Append  W/S: Select  A/D: Category  +/-: Quantity  Enter: Queue  Shift+Enter: Append  X: Cancel  J: Notebook",
         glm::vec4(0.78f, 0.82f, 0.84f, 0.98f),
         1.06f);
 }
@@ -6474,6 +8817,14 @@ void Game::renderControlsOverlay()
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "E       Interact", textColor, kSmallScale); y += 16.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "F       Use Item", textColor, kSmallScale); y += 16.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "B       Build", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "N       Crafting Panel", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "V       Enter/Exit Sedan", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Shift+V Refuel Sedan", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "L       Fire Action", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "M       World Map", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "J       Notebook", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Ctrl+Wheel Minimap Zoom", textColor, kSmallScale); y += 16.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "+/-     Minimap Zoom", textColor, kSmallScale); y += 16.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "Tab     Inventory", textColor, kSmallScale); y += 16.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "1-8     Hotbar", textColor, kSmallScale); y += 16.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "W/S     Navigate (Inv)", textColor, kSmallScale); y += 16.0f;

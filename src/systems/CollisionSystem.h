@@ -13,5 +13,8 @@ private:
     static constexpr float kCollisionWidth = 20.0f;
     static constexpr float kCollisionHeight = 20.0f;
     static constexpr float kCollisionCenterYOffset = 16.0f;
+    static constexpr float kPlayerCollisionWidth = 10.0f;
+    static constexpr float kPlayerCollisionHeight = 8.0f;
+    static constexpr float kPlayerCollisionCenterYOffset = 22.0f;
     static constexpr float kStructureCollisionSize = 28.0f;
 };

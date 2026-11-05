@@ -1,6 +1,7 @@
 #include "map/TileMap.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
@@ -103,6 +104,43 @@ bool TileMap::isSolidAtWorldRect(float left, float top, float right, float botto
             {
                 return true;
             }
+        }
+    }
+
+    return false;
+}
+
+bool TileMap::isSolidAtWorldDiamond(float centerX, float centerY, float radiusX, float radiusY) const
+{
+    const float rx = std::max(1.0f, radiusX);
+    const float ry = std::max(1.0f, radiusY);
+
+    // Sample along a diamond footprint to better match isometric movement feel.
+    const std::array<glm::vec2, 13> samples = {
+        glm::vec2(0.0f, 0.0f),
+        glm::vec2(-1.0f, 0.0f),
+        glm::vec2(1.0f, 0.0f),
+        glm::vec2(0.0f, -1.0f),
+        glm::vec2(0.0f, 1.0f),
+        glm::vec2(-0.60f, -0.35f),
+        glm::vec2(0.60f, -0.35f),
+        glm::vec2(-0.60f, 0.35f),
+        glm::vec2(0.60f, 0.35f),
+        glm::vec2(-0.30f, -0.70f),
+        glm::vec2(0.30f, -0.70f),
+        glm::vec2(-0.30f, 0.70f),
+        glm::vec2(0.30f, 0.70f)
+    };
+
+    for (const glm::vec2& sample : samples)
+    {
+        const float worldX = centerX + sample.x * rx;
+        const float worldY = centerY + sample.y * ry;
+        const int tileX = static_cast<int>(std::floor(worldX / static_cast<float>(mTileWidth)));
+        const int tileY = static_cast<int>(std::floor(worldY / static_cast<float>(mTileHeight)));
+        if (isSolid(tileX, tileY))
+        {
+            return true;
         }
     }
 

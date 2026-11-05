@@ -25,6 +25,7 @@ struct SpawnData
     std::vector<glm::ivec2> decorIndoorSpawns;   // shelves, beds, blood inside buildings
     std::vector<glm::ivec2> decorOutdoorSpawns;  // graves, debris outside
     std::vector<glm::ivec2> bloodSpawns;         // blood splatters (outdoor)
+    std::vector<glm::ivec2> vehicleSpawns;       // narrow M8 sedan slice anchors
 };
 
 class MapGenerator

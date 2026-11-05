@@ -1169,6 +1169,29 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
         }
     }
 
+    // Vehicle anchors: sparse outdoor sedan spots (M8 narrow slice).
+    {
+        const int vehicleCount = std::max(2, static_cast<int>(std::uniform_int_distribution<int>(2, 4)(mRng) * areaScale));
+        int placed = 0;
+        for (const auto& t : outdoorTiles)
+        {
+            if (placed >= vehicleCount) break;
+            if (distFromPlayer(t) < 20.0f) continue;
+            if (isReservedTile(t)) continue;
+
+            // Prefer harder surfaces for sedan parking spots.
+            const int surf = mSurface[static_cast<std::size_t>(index(t.x, t.y))];
+            if (surf != kSurfGravel && surf != kSurfMetal && surf != kSurfDefault)
+            {
+                continue;
+            }
+
+            outSpawns.vehicleSpawns.push_back(t);
+            reserveTile(t);
+            ++placed;
+        }
+    }
+
     // Blood splatters: scattered outdoors
     {
         const int bloodCount = static_cast<int>(std::uniform_int_distribution<int>(10, 25)(mRng) * areaScale);

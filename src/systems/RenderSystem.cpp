@@ -8,8 +8,11 @@
 #include <glm/vec4.hpp>
 
 #include "components/Facing.h"
+#include "components/PlayerInput.h"
 #include "components/Sprite.h"
+#include "components/SurvivorAI.h"
 #include "components/Transform.h"
+#include "components/ZombieAI.h"
 
 namespace
 {
@@ -89,18 +92,28 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
         const glm::vec2 screenCenter = camera.worldToScreen(worldCenter);
         const glm::vec2 viewportSize = camera.viewportSize();
 
-        // Frustum cull using centered position
-        if (screenCenter.x + scaledSize < 0.0f ||
-            screenCenter.y + scaledSize < 0.0f ||
-            screenCenter.x - scaledSize > viewportSize.x ||
-            screenCenter.y - scaledSize > viewportSize.y)
+        const bool isHumanoid =
+            world.hasComponent<PlayerInput>(command.entity) ||
+            world.hasComponent<ZombieAI>(command.entity) ||
+            world.hasComponent<SurvivorAI>(command.entity);
+
+        const float visualYOffset = isHumanoid ? (kHumanoidVisualYOffset * zoom) : 0.0f;
+
+        // Draw sprite centered on its iso screen position with optional humanoid
+        // foot-pivot correction so visual feet sit on the physical world anchor.
+        const glm::vec2 drawPos(
+            screenCenter.x - scaledSize * 0.5f,
+            screenCenter.y - scaledSize + visualYOffset);
+
+        // Frustum cull in draw-rect space so offsets are correctly respected.
+        if (drawPos.x + scaledSize < 0.0f ||
+            drawPos.y + scaledSize < 0.0f ||
+            drawPos.x > viewportSize.x ||
+            drawPos.y > viewportSize.y)
         {
             continue;
         }
 
-        // Draw sprite centered on its iso screen position
-        const glm::vec2 drawPos(screenCenter.x - scaledSize * 0.5f,
-                                 screenCenter.y - scaledSize);
         spriteBatch.draw(drawPos, glm::vec2(scaledSize, scaledSize), uvRect, color);
     }
 }

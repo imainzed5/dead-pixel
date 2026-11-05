@@ -10,6 +10,7 @@
 #include "components/Needs.h"
 #include "components/Health.h"
 #include "components/MentalState.h"
+#include "components/Traits.h"
 #include "components/Wounds.h"
 
 struct GraveRecord
@@ -39,6 +40,102 @@ struct StructureRecord
     int condition = 0;     // StructureCondition as int
     float hpRatio = 1.0f;  // fraction of max HP remaining
     std::vector<std::pair<int,int>> items; // {itemId, count} for supply caches
+};
+
+struct VehicleRecord
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float condition = 100.0f;
+    float fuel = 0.0f;
+    float maxFuel = 30.0f;
+    bool engineOn = false;
+    std::vector<std::pair<int,int>> items; // persisted trunk storage
+};
+
+struct FireTileRecord
+{
+    int tileX = 0;
+    int tileY = 0;
+    float intensity = 0.0f;
+    float lifeRemaining = 0.0f;
+};
+
+enum class WorldMemoryEventType
+{
+    LootedContainer,
+    BurnedTile,
+    VehicleAbandoned,
+    StructureAbandoned,
+    GravePlaced,
+    RetirementPlaced,
+    Other
+};
+
+struct WorldMemoryEventRecord
+{
+    WorldMemoryEventType type = WorldMemoryEventType::Other;
+    int tileX = 0;
+    int tileY = 0;
+    int day = 1;
+    int runIndex = 0;
+    std::string detail;
+};
+
+struct CharacterHistoryRecord
+{
+    std::string name;
+    int runIndex = 0;
+    int dayStarted = 1;
+    int dayEnded = 1;
+    bool retired = false;
+    std::string cause;
+    std::string locationTag;
+    std::string positiveTrait;
+    std::string negativeTrait;
+    std::string bloodlineTrait;
+    std::string finalNote;
+};
+
+enum class SaveGameMode
+{
+    Campaign,
+    Endless
+};
+
+enum class SaveThreatMode
+{
+    OverwhelmingSwarm,
+    Stalker,
+    MutatingThreat,
+    InfectedSociety,
+    Unknown,
+    Hybrid
+};
+
+enum class SaveTonePreset
+{
+    Hopeless,
+    GrimHuman,
+    BrutalArcade
+};
+
+struct CampaignObjectiveState
+{
+    bool active = false;
+    int tileX = 0;
+    int tileY = 0;
+    int districtId = 0;
+    int infectionDeadlineDay = 0;
+    bool completed = false;
+};
+
+struct RunPresentationSettings
+{
+    SaveGameMode gameMode = SaveGameMode::Endless;
+    SaveThreatMode threatMode = SaveThreatMode::OverwhelmingSwarm;
+    SaveTonePreset tonePreset = SaveTonePreset::GrimHuman;
+    CampaignObjectiveState campaignObjective{};
 };
 
 struct SurvivorRecord
@@ -85,6 +182,7 @@ public:
     static constexpr int kCurrentSaveVersion = 1;
 
     bool loadOrCreateSlot(const std::string& slotName);
+    bool resetCurrentSlotWorld(bool keepPresentationSettings = true);
 
     [[nodiscard]] std::uint32_t worldSeed() const { return mWorldSeed; }
     [[nodiscard]] int runNumber() const { return mRunNumber; }
@@ -92,6 +190,12 @@ public:
     [[nodiscard]] const std::vector<GraveRecord>& graves() const { return mGraves; }
     [[nodiscard]] const std::vector<RetirementRecord>& retirements() const { return mRetirements; }
     [[nodiscard]] const std::vector<StructureRecord>& structures() const { return mStructures; }
+    [[nodiscard]] const std::vector<VehicleRecord>& vehicles() const { return mVehicles; }
+    [[nodiscard]] const std::vector<FireTileRecord>& fireTiles() const { return mFireTiles; }
+    [[nodiscard]] const std::vector<std::pair<int,int>>& burnedTiles() const { return mBurnedTiles; }
+    [[nodiscard]] const std::vector<CharacterHistoryRecord>& characterHistory() const { return mCharacterHistory; }
+    [[nodiscard]] const std::vector<WorldMemoryEventRecord>& worldMemoryEvents() const { return mWorldEvents; }
+    [[nodiscard]] const RunPresentationSettings& presentationSettings() const { return mPresentationSettings; }
 
     // World layout persistence
     [[nodiscard]] bool hasWorldLayout() const;
@@ -112,6 +216,10 @@ public:
     bool saveLootedPositions();
     bool saveDiscoveredRecipes();
     bool loadLootedPositions();
+    void setVehicleRecords(std::vector<VehicleRecord> vehicles);
+    void setFireTileRecords(std::vector<FireTileRecord> fireTiles);
+    void setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles);
+    bool addWorldMemoryEvent(const WorldMemoryEventRecord& record);
 
     // Cumulative stats
     [[nodiscard]] int totalKills() const { return mTotalKills; }
@@ -121,6 +229,7 @@ public:
 
     bool recordDeath(const GraveRecord& record);
     bool recordRetirement(const RetirementRecord& record);
+    bool addCharacterHistoryRecord(const CharacterHistoryRecord& record);
     bool saveStructures(const std::vector<StructureRecord>& structures);
 
     // NPC survivor persistence
@@ -129,6 +238,11 @@ public:
 
     // Bloodline query
     [[nodiscard]] bool hasRetirementHistory() const { return !mRetirements.empty(); }
+    [[nodiscard]] BloodlineTrait selectBloodlineForNewRun() const;
+
+    // Mode and campaign state
+    void setPresentationSettings(const RunPresentationSettings& settings) { mPresentationSettings = settings; }
+    bool savePresentationSettings();
 
 private:
     bool loadMeta();
@@ -164,4 +278,10 @@ private:
     std::vector<StructureRecord> mStructures;
     std::vector<std::pair<int,int>> mLootedPositions;
     std::vector<std::pair<int,int>> mDiscoveredRecipes;
+    std::vector<VehicleRecord> mVehicles;
+    std::vector<FireTileRecord> mFireTiles;
+    std::vector<std::pair<int,int>> mBurnedTiles;
+    std::vector<CharacterHistoryRecord> mCharacterHistory;
+    std::vector<WorldMemoryEventRecord> mWorldEvents;
+    RunPresentationSettings mPresentationSettings{};
 };

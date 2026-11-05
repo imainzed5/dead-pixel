@@ -72,13 +72,6 @@ private:
         Retired
     };
 
-    enum class TitleRunMode
-    {
-        Survival = 0,
-        Scavenger = 1,
-        Overrun = 2
-    };
-
     bool initialize();
     bool loadSlotAndWorld(const std::string& slotName);
     void registerComponents();
@@ -87,7 +80,7 @@ private:
     void shutdown();
     void setupScene();
     void beginDeathState(const std::string& cause);
-    void beginRetirementState();
+    void beginRetirementState(const std::string& customCause = "");
     void processInputEvents();
     void update(float dtSeconds);
     void render();
@@ -101,6 +94,9 @@ private:
     void renderTitleScreen();
     void renderControlsOverlay();
     void renderDayNightOverlay();
+    void renderMinimapOverlay();
+    void renderWorldMapOverlay();
+    void renderNotebookOverlay();
     void setupLightingUniforms();
     void snapshotPositions();
     void updateNoiseModel(float dtSeconds);
@@ -110,6 +106,10 @@ private:
     void renderCraftingOverlay();
     void renderBuildModeOverlay();
     void renderContainerOverlay();
+    void syncPresentationSettingsFromSave();
+    void syncPresentationSettingsToSave();
+    void ensureCampaignObjective();
+    bool saveCurrentRunCheckpoint(const std::string& statusMessage = "Run checkpoint saved.");
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
 
     SDL_Window* mWindow = nullptr;
@@ -163,12 +163,14 @@ private:
     RunState mRunState = RunState::TitleScreen;
 
     // Pause menu
-    int mPauseSelection = 0; // 0=Resume, 1=Back to Menu, 2=Restart, 3=Quit
+    int mPauseSelection = 0; // 0=Resume, 1=Save, 2=Back to Menu, 3=Restart, 4=Quit
 
     // Title screen hub
     int mTitleMenuSelection = 0;
     int mTitleSaveSlotIndex = 0;
-    int mTitleModeIndex = 0;
+    int mTitleModeIndex = 0;     // threat mode index
+    int mTitleGameModeIndex = 1; // 0=Campaign, 1=Endless
+    int mTitleToneIndex = 1;     // 0=Hopeless, 1=Grim Human, 2=Brutal Arcade
     bool mTitleHasCheckpoint = false;
     int mTitleCheckpointDay = 1;
     std::string mTitleCheckpointName;
@@ -178,6 +180,8 @@ private:
     std::string mTitleStatusMessage;
     float mTitleStatusTimer = 0.0f;
     float mTitlePulseTimer = 0.0f;
+    bool mTitleConfirmNewWorld = false;
+    float mTitleConfirmNewWorldTimer = 0.0f;
     bool mIgnoreCheckpointRestoreOnce = false;
     std::string mActiveSaveSlot = "default_slot";
 
@@ -212,6 +216,11 @@ private:
     float mInteractionMessageTimer = 0.0f;
     std::string mProximityPrompt;
 
+    bool mShowWorldMap = false;
+    bool mShowNotebook = false;
+    CampaignObjectiveState mCampaignObjective{};
+    float mMinimapZoom = 1.0f;
+
     double mGameHours = 8.0;
     int mCurrentDay = 1;
     bool mShowInventory = false;
@@ -238,6 +247,11 @@ private:
     bool mContainerOpen = false;
     Entity mOpenContainerEntity = kInvalidEntity;
     int mContainerCursor = 0;
+
+    // M8 narrow slice state
+    Entity mActiveVehicleEntity = kInvalidEntity;
+    std::vector<std::pair<int, int>> mBurnedTiles;
+
     float mZombieGrowlTimer = 0.0f;
 
     double mFpsTimer = 0.0;
