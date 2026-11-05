@@ -383,6 +383,14 @@ bool SaveManager::recordDeath(const GraveRecord& record)
     return true;
 }
 
+void SaveManager::updateGrave(std::size_t index, const GraveRecord& record)
+{
+    if (index < mGraves.size())
+    {
+        mGraves[index] = record;
+    }
+}
+
 bool SaveManager::recordRetirement(const RetirementRecord& record)
 {
     mRetirements.push_back(record);
@@ -568,6 +576,20 @@ bool SaveManager::loadLegacy()
                 record.day = std::max(1, graveJson.value("day", 1));
                 record.runIndex = std::max(0, graveJson.value("runIndex", 0));
                 record.cause = graveJson.value("cause", std::string("Unknown"));
+                record.risen = graveJson.value("risen", false);
+                record.laidToRest = graveJson.value("laidToRest", false);
+                if (graveJson.contains("items") && graveJson["items"].is_array())
+                {
+                    for (const auto& itemJson : graveJson["items"])
+                    {
+                        const int id = itemJson.value("id", -1);
+                        const int count = itemJson.value("count", 0);
+                        if (id >= 0 && count > 0)
+                        {
+                            record.items.emplace_back(id, count);
+                        }
+                    }
+                }
                 mGraves.push_back(record);
             }
         }
@@ -679,6 +701,22 @@ bool SaveManager::writeLegacy() const
         graveJson["day"] = grave.day;
         graveJson["runIndex"] = grave.runIndex;
         graveJson["cause"] = grave.cause;
+        if (grave.risen)
+        {
+            graveJson["risen"] = true;
+        }
+        if (grave.laidToRest)
+        {
+            graveJson["laidToRest"] = true;
+        }
+        if (!grave.items.empty())
+        {
+            graveJson["items"] = nlohmann::json::array();
+            for (const auto& [itemId, count] : grave.items)
+            {
+                graveJson["items"].push_back({{"id", itemId}, {"count", count}});
+            }
+        }
         json["graves"].push_back(graveJson);
     }
 

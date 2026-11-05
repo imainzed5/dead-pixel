@@ -350,6 +350,12 @@ void Game::update(float dtSeconds)
         {
             cause = "Bled out";
         }
+        else if (cause == "Killed by zombies" && mPlayerEntity != kInvalidEntity &&
+                 mWorld.hasComponent<Wounds>(mPlayerEntity) &&
+                 hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity)))
+        {
+            cause = "Succumbed to infection";
+        }
 
         beginDeathState(cause + " on Day " + std::to_string(mCurrentDay));
         return;
@@ -690,6 +696,7 @@ void Game::update(float dtSeconds)
         mCamera.clampToBounds(mTileMap.pixelSize());
     }
 
+    updateLegacy(dtSeconds);
     updateAnimations(dtSeconds);
 
     updateParticles(dtSeconds, prevPlayerHp);

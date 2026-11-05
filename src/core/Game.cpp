@@ -337,6 +337,8 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
         return false;
     }
 
+    syncLegacyToSave();
+
     RunCheckpoint cp;
     cp.runSeed = mSaveManager.currentRunSeed();
     cp.characterName = mCurrentCharacterName;
@@ -514,6 +516,7 @@ void Game::registerComponents()
     mWorld.registerComponent<Wounds>();
     mWorld.registerComponent<Traits>();
     mWorld.registerComponent<SurvivorAI>();
+    mWorld.registerComponent<LegacyLink>();
 }
 
 void Game::startNewRun()

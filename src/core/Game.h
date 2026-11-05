@@ -19,6 +19,7 @@
 #include "ecs/Types.h"
 #include "ecs/World.h"
 #include "items/ItemDatabase.h"
+#include "legacy/LegacyRules.h"
 #include "map/MapGenerator.h"
 #include "map/TileMap.h"
 #include "map/TiledLoader.h"
@@ -93,7 +94,34 @@ private:
     void stopPlayerAtRunEnd();
     [[nodiscard]] CharacterHistoryRecord runEndHistory(bool retired, int runIndex) const;
     void addRunEndMemoryEvent(WorldMemoryEventType type, int runIndex);
-    void persistWorldForNextRun(int runIndex);
+    void persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree = nullptr);
+
+    // Legacy layer (GameLegacy.cpp)
+    struct RisenTrack
+    {
+        Entity entity = kInvalidEntity;
+        int graveIndex = -1;
+        glm::vec2 lastTopLeft{0.0f};
+    };
+    struct LegacyCardLayout
+    {
+        glm::vec2 pos{0.0f};
+        glm::vec2 size{0.0f};
+        float titleScale = 2.0f;
+        float lineScale = 2.0f;
+    };
+    void spawnLegacy();
+    void spawnGrave(int graveIndex);
+    void spawnLegacyPack(int graveIndex, const glm::vec2& topLeftWorld);
+    void spawnRisen(int graveIndex);
+    void updateLegacy(float dtSeconds);
+    void syncLegacyToSave();
+    void renderLegacyCardShapes();
+    void renderLegacyText();
+    [[nodiscard]] LegacyCardLayout legacyCardLayout() const;
+    [[nodiscard]] std::vector<legacy::Lead> currentLegacyLeads();
+    [[nodiscard]] glm::vec2 playerWorldCenter() const;
+    [[nodiscard]] DistrictType districtTypeAt(int tileX, int tileY) const;
     void processInputEvents();
     void handleEscapeKey();
     void update(float dtSeconds);
@@ -302,6 +330,14 @@ private:
     // M8 narrow slice state
     Entity mActiveVehicleEntity = kInvalidEntity;
     std::vector<std::pair<int, int>> mBurnedTiles;
+
+    // This run's view of the grave records; written back by syncLegacyToSave.
+    std::vector<GraveRecord> mLegacyGraves;
+    std::vector<bool> mLegacyPackSpawned;
+    std::vector<RisenTrack> mRisenTracks;
+    float mLegacyCardTimer = 0.0f;
+    std::string mLegacyCardTitle;
+    std::vector<std::string> mLegacyCardLines;
     std::size_t mBurnedTilesAtRunStart = 0; // tiles before this index burned in earlier runs
 
     float mZombieGrowlTimer = 0.0f;

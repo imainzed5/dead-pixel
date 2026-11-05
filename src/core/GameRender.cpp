@@ -62,60 +62,80 @@ void Game::render()
     mSpriteSheet.bindTexture(GL_TEXTURE0);
     mSpriteBatch.flush();
 
-    // Pass 2.5: HUD overlays (spritesheet texture, no lighting — zoom-independent)
+    // UI: unlit and zoom-independent, drawn in two layers (HUD, then panels
+    // and menus). Each layer draws its shapes with the sprite sheet, then its
+    // text with the font atlas, so a panel covers the HUD text beneath it.
+    // Text a shape pass draws is deferred to that layer's text pass.
     mShader.setFloat("uAmbientLight", 1.0f);
     mShader.setVec3("uAmbientColor", glm::vec3(1.0f));
     mShader.setInt("uLightCount", 0);
     mShader.setInt("uSpotEnabled", 0);
 
-    mSpriteBatch.begin();
-    renderTitleScreen();
-    mHud.drawShapes(mSpriteBatch, mSpriteSheet, mFont, mHudState, viewport);
-    renderMinimapOverlay();
-    renderAttackArcOverlay();
-    renderNoiseDebugOverlay();
-    renderWorldMapOverlay();
-    renderNotebookOverlay();
-    renderDeathOverlay();
-    renderRetirementOverlay();
-    renderPauseOverlay();
-    mCraftingRenderTextPass = false;
-    renderCraftingOverlay();
-    renderInventoryPanel();
-    if (!mShowCrafting)
+    const auto uiLayer = [&](const auto& drawShapes, const auto& drawText)
     {
-        renderControlsPanel();
-    }
-    mSpriteBatch.end();
+        mFont.beginDeferred();
+        mSpriteBatch.begin();
+        drawShapes();
+        mSpriteBatch.end();
+        mSpriteSheet.bindTexture(GL_TEXTURE0);
+        mSpriteBatch.flush();
 
-    mSpriteSheet.bindTexture(GL_TEXTURE0);
-    mSpriteBatch.flush();
+        mSpriteBatch.begin();
+        mFont.drawDeferred(mSpriteBatch);
+        drawText();
+        mSpriteBatch.end();
+        mFont.bindTexture(GL_TEXTURE0);
+        mSpriteBatch.flush();
+    };
 
-    // Pass 3: text overlays (font atlas texture, no lighting)
-    mShader.setFloat("uAmbientLight", 1.0f);
-    mShader.setVec3("uAmbientColor", glm::vec3(1.0f));
-    mShader.setInt("uLightCount", 0);
-    mShader.setInt("uSpotEnabled", 0);
+    uiLayer(
+        [&]
+        {
+            renderTitleScreen();
+            mHud.drawShapes(mSpriteBatch, mSpriteSheet, mFont, mHudState, viewport);
+            renderMinimapOverlay();
+            renderAttackArcOverlay();
+            renderNoiseDebugOverlay();
+            renderLegacyCardShapes();
+        },
+        [&]
+        {
+            renderLegacyText();
+            mHud.drawText(mSpriteBatch, mFont, mHudState, viewport);
+        });
 
-    mSpriteBatch.begin();
-    mHud.drawText(mSpriteBatch, mFont, mHudState, viewport);
-    if (!mShowCrafting)
-    {
-        renderTextOverlays();
-    }
-    renderInventoryOverlay();
-    renderContainerOverlay();
-    renderBuildModeOverlay();
-    mCraftingRenderTextPass = true;
-    renderCraftingOverlay();
-    if (!mShowCrafting)
-    {
-        renderControlsOverlay();
-    }
-    mSpriteBatch.end();
-
-    mFont.bindTexture(GL_TEXTURE0);
-    mSpriteBatch.flush();
+    uiLayer(
+        [&]
+        {
+            renderWorldMapOverlay();
+            renderNotebookOverlay();
+            renderDeathOverlay();
+            renderRetirementOverlay();
+            renderPauseOverlay();
+            mCraftingRenderTextPass = false;
+            renderCraftingOverlay();
+            renderInventoryPanel();
+            renderContainerOverlay();
+            if (!mShowCrafting)
+            {
+                renderControlsPanel();
+            }
+        },
+        [&]
+        {
+            if (!mShowCrafting)
+            {
+                renderTextOverlays();
+            }
+            renderInventoryOverlay();
+            renderBuildModeOverlay();
+            mCraftingRenderTextPass = true;
+            renderCraftingOverlay();
+            if (!mShowCrafting)
+            {
+                renderControlsOverlay();
+            }
+        });
 }
 
 void Game::renderMinimapOverlay()
@@ -360,14 +380,10 @@ void Game::renderMinimapOverlay()
     mFont.drawText(mSpriteBatch, glm::vec2(mapX + 6.0f, mapY + 6.0f), minimapLabel.str(), glm::vec4(0.85f, 0.86f, 0.78f, 0.94f), 0.9f);
     mFont.drawText(mSpriteBatch, glm::vec2(mapX + 6.0f, mapY + mapHeight - 12.0f), "Ctrl+Wheel or +/-", glm::vec4(0.70f, 0.74f, 0.70f, 0.88f), 0.85f);
 
-    for (const GraveRecord& grave : mSaveManager.graves())
+    // Same colours as the town map (M).
+    for (const legacy::Lead& lead : currentLegacyLeads())
     {
-        drawIsoPoint(glm::vec2(grave.x, grave.y), glm::vec4(0.80f, 0.38f, 0.38f, 0.92f), 3.0f);
-    }
-
-    for (const RetirementRecord& retirement : mSaveManager.retirements())
-    {
-        drawIsoPoint(glm::vec2(retirement.x, retirement.y), glm::vec4(0.48f, 0.76f, 0.54f, 0.92f), 3.0f);
+        drawIsoPoint(lead.world, legacyLeadColor(lead.kind), 3.0f);
     }
 
     for (const auto& [tx, ty] : mBurnedTiles)
@@ -396,109 +412,234 @@ void Game::renderWorldMapOverlay()
         return;
     }
 
+    // The town drawn the way the game sees it (isometric, N up), as a floor
+    // plan: roads, yards, building outlines. On top: what earlier runs left.
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
     const float w = static_cast<float>(mWindowWidth);
     const float h = static_cast<float>(mWindowHeight);
+    const int tilesW = std::max(1, mTileMap.width());
+    const int tilesH = std::max(1, mTileMap.height());
+    const float tileW = static_cast<float>(std::max(1, mTileMap.tileWidth()));
+    const float tileH = static_cast<float>(std::max(1, mTileMap.tileHeight()));
 
-    mSpriteBatch.draw(glm::vec2(0.0f, 0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.01f, 0.02f, 0.03f, 0.90f));
+    mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.02f, 0.025f, 0.03f, 1.0f));
 
-    const float panelPad = 24.0f;
-    const float mapX = panelPad;
-    const float mapY = panelPad + 36.0f;
-    const float mapW = w - panelPad * 2.0f;
-    const float mapH = h - panelPad * 2.0f - 48.0f;
+    const float headerH = 54.0f;
+    const float footerH = 58.0f;
+    const float pad = 18.0f;
+    const glm::vec2 areaPos(pad, headerH);
+    const glm::vec2 areaSize(w - pad * 2.0f, std::max(64.0f, h - headerH - footerH));
 
-    mSpriteBatch.draw(glm::vec2(mapX, mapY), glm::vec2(mapW, mapH), uiUv, glm::vec4(0.04f, 0.05f, 0.07f, 0.96f));
-
-    const float scaleX = mapW / static_cast<float>(std::max(1, mTileMap.width()));
-    const float scaleY = mapH / static_cast<float>(std::max(1, mTileMap.height()));
-
-    for (const auto& district : mMapGenerator.layoutData().districts)
+    // Iso extent of the map in world pixels: x in [-H, W], y in [0, (W + H) / 2].
+    const float worldW = static_cast<float>(tilesW) * tileW;
+    const float worldH = static_cast<float>(tilesH) * tileH;
+    const float isoMinX = -worldH;
+    const float isoRangeX = worldW + worldH;
+    const float isoRangeY = (worldW + worldH) * 0.5f;
+    const float scale = std::min(areaSize.x / isoRangeX, areaSize.y / isoRangeY);
+    const glm::vec2 origin(
+        areaPos.x + (areaSize.x - isoRangeX * scale) * 0.5f,
+        areaPos.y + (areaSize.y - isoRangeY * scale) * 0.5f);
+    const auto toMap = [&](const glm::vec2& world)
     {
-        const float x = mapX + static_cast<float>(district.minX) * scaleX;
-        const float y = mapY + static_cast<float>(district.minY) * scaleY;
-        const float dw = std::max(1.0f, static_cast<float>(district.maxX - district.minX + 1) * scaleX);
-        const float dh = std::max(1.0f, static_cast<float>(district.maxY - district.minY + 1) * scaleY);
-
-        glm::vec4 color(0.20f, 0.23f, 0.25f, 0.58f);
-        if (district.type == static_cast<int>(DistrictType::Residential)) color = glm::vec4(0.22f, 0.30f, 0.24f, 0.58f);
-        if (district.type == static_cast<int>(DistrictType::Commercial)) color = glm::vec4(0.24f, 0.26f, 0.34f, 0.58f);
-        if (district.type == static_cast<int>(DistrictType::Industrial)) color = glm::vec4(0.31f, 0.23f, 0.21f, 0.58f);
-
-        const float infection = std::clamp(mDistrictInfectionSystem.getInfection(district.id), 0.0f, 100.0f);
-        const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(district.id);
-        const float infectionT = infection / 100.0f;
-        const glm::vec4 riskColor = overwhelmed
-            ? glm::vec4(0.92f, 0.28f, 0.24f, 0.78f)
-            : glm::vec4(0.88f, 0.62f, 0.24f, 0.72f);
-        const float blend = overwhelmed ? 0.78f : (infectionT * 0.62f);
-        color.r = color.r * (1.0f - blend) + riskColor.r * blend;
-        color.g = color.g * (1.0f - blend) + riskColor.g * blend;
-        color.b = color.b * (1.0f - blend) + riskColor.b * blend;
-        color.a = std::max(color.a, 0.60f);
-
-        mSpriteBatch.draw(glm::vec2(x, y), glm::vec2(dw, dh), uiUv, color);
-
-        if (infection >= 35.0f)
-        {
-            const std::string pctLabel = std::to_string(static_cast<int>(std::round(infection))) + "%";
-            mFont.drawText(
-                mSpriteBatch,
-                glm::vec2(x + dw * 0.5f, y + dh * 0.5f - 4.0f),
-                pctLabel,
-                overwhelmed ? glm::vec4(1.0f, 0.88f, 0.84f, 0.95f) : glm::vec4(0.92f, 0.90f, 0.74f, 0.90f),
-                0.9f,
-                TextAlign::Center);
-        }
-    }
-
-    // Infection legend
-    const float legendX = mapX + 10.0f;
-    const float legendY = mapY + 10.0f;
-    mSpriteBatch.draw(glm::vec2(legendX - 6.0f, legendY - 6.0f), glm::vec2(264.0f, 40.0f), uiUv, glm::vec4(0.02f, 0.03f, 0.04f, 0.72f));
-
-    auto drawLegendSwatch = [&](float x, const glm::vec4& color, const std::string& label)
-    {
-        mSpriteBatch.draw(glm::vec2(x, legendY + 4.0f), glm::vec2(10.0f, 10.0f), uiUv, color);
-        mFont.drawText(mSpriteBatch, glm::vec2(x + 14.0f, legendY + 2.0f), label, glm::vec4(0.84f, 0.86f, 0.80f, 0.95f), 0.85f);
+        const glm::vec2 iso = Camera::worldToIso(world);
+        return origin + glm::vec2((iso.x - isoMinX) * scale, iso.y * scale);
     };
 
-    mFont.drawText(mSpriteBatch, glm::vec2(legendX, legendY - 8.0f), "Infection", glm::vec4(0.94f, 0.86f, 0.60f, 0.96f), 0.9f);
-    drawLegendSwatch(legendX, glm::vec4(0.26f, 0.70f, 0.30f, 0.90f), "Low");
-    drawLegendSwatch(legendX + 58.0f, glm::vec4(0.78f, 0.70f, 0.30f, 0.90f), "Medium");
-    drawLegendSwatch(legendX + 136.0f, glm::vec4(0.90f, 0.54f, 0.24f, 0.92f), "High");
-    drawLegendSwatch(legendX + 196.0f, glm::vec4(0.92f, 0.28f, 0.24f, 0.94f), "Over");
-
-    for (const auto& event : mSaveManager.worldMemoryEvents())
+    // District infection and burn scars, looked up per tile below.
+    int maxDistrictId = 0;
+    for (const auto& district : mDistrictInfectionSystem.districts())
     {
-        glm::vec4 color(0.62f, 0.62f, 0.62f, 0.85f);
-        switch (event.type)
+        maxDistrictId = std::max(maxDistrictId, district.districtId);
+    }
+    std::vector<float> riskByDistrict(static_cast<std::size_t>(maxDistrictId + 1), 0.0f);
+    for (const auto& district : mDistrictInfectionSystem.districts())
+    {
+        if (district.districtId >= 0)
         {
-        case WorldMemoryEventType::BurnedTile: color = glm::vec4(0.55f, 0.28f, 0.22f, 0.90f); break;
-        case WorldMemoryEventType::GravePlaced: color = glm::vec4(0.82f, 0.42f, 0.42f, 0.90f); break;
-        case WorldMemoryEventType::RetirementPlaced: color = glm::vec4(0.46f, 0.82f, 0.48f, 0.90f); break;
-        case WorldMemoryEventType::VehicleAbandoned: color = glm::vec4(0.54f, 0.68f, 0.84f, 0.90f); break;
-        default: break;
+            riskByDistrict[static_cast<std::size_t>(district.districtId)] =
+                district.overwhelmed ? 1.0f : std::clamp(district.infection / 100.0f, 0.0f, 1.0f);
         }
-
-        mSpriteBatch.draw(
-            glm::vec2(mapX + event.tileX * scaleX, mapY + event.tileY * scaleY),
-            glm::vec2(std::max(2.0f, scaleX * 1.2f), std::max(2.0f, scaleY * 1.2f)),
-            uiUv,
-            color);
     }
-
-    if (mCampaignObjective.active)
+    std::vector<std::uint8_t> burned(static_cast<std::size_t>(tilesW * tilesH), 0u);
+    for (const auto& [tx, ty] : mBurnedTiles)
     {
-        mSpriteBatch.draw(
-            glm::vec2(mapX + mCampaignObjective.tileX * scaleX - 2.0f, mapY + mCampaignObjective.tileY * scaleY - 2.0f),
-            glm::vec2(std::max(6.0f, scaleX * 2.4f), std::max(6.0f, scaleY * 2.4f)),
-            uiUv,
-            glm::vec4(0.95f, 0.78f, 0.25f, 0.95f));
+        if (tx >= 0 && tx < tilesW && ty >= 0 && ty < tilesH)
+        {
+            burned[static_cast<std::size_t>(ty * tilesW + tx)] = 1u;
+        }
     }
 
-    mFont.drawText(mSpriteBatch, glm::vec2(mapX + 8.0f, mapY - 24.0f), "WORLD MAP", glm::vec4(0.95f, 0.86f, 0.60f, 1.0f), 2.0f);
-    mFont.drawText(mSpriteBatch, glm::vec2(mapX + 180.0f, mapY - 24.0f), "M to close", glm::vec4(0.74f, 0.76f, 0.72f, 0.96f), 1.2f);
+    // Each tile is a 2:1 brick centred on its iso centre; bricks tile the
+    // diamond exactly (rows are half a tile apart, offset by half a brick).
+    const glm::vec2 brick(2.0f * tileW * scale + 0.6f, 0.5f * tileH * scale + 0.6f);
+    for (int ty = 0; ty < tilesH; ++ty)
+    {
+        for (int tx = 0; tx < tilesW; ++tx)
+        {
+            const int gid = mTileMap.groundGid(tx, ty);
+            const int base = gid > 0 ? ((gid - 1) % TileGid::kPerRow) + 1 : 0;
+            const bool solid = mTileMap.isSolid(tx, ty);
+            const bool inBuilding = mTileMap.getBuildingId(tx, ty) > 0;
+
+            glm::vec3 color(0.18f, 0.24f, 0.17f);
+            if (solid && TileGid::isWallGid(base))
+            {
+                color = inBuilding ? glm::vec3(0.10f, 0.09f, 0.09f) : glm::vec3(0.07f, 0.07f, 0.08f);
+            }
+            else if (solid)
+            {
+                color = glm::vec3(0.11f, 0.17f, 0.11f); // hedges, trees, fences
+            }
+            else if (inBuilding)
+            {
+                color = base == TileGid::kCarpet ? glm::vec3(0.50f, 0.42f, 0.40f)
+                      : base == TileGid::kWood   ? glm::vec3(0.52f, 0.44f, 0.34f)
+                      : base == TileGid::kMetal  ? glm::vec3(0.40f, 0.42f, 0.44f)
+                                                 : glm::vec3(0.50f, 0.48f, 0.43f);
+            }
+            else
+            {
+                switch (base)
+                {
+                case TileGid::kAsphalt: color = glm::vec3(0.22f, 0.22f, 0.24f); break;
+                case TileGid::kSidewalk: color = glm::vec3(0.34f, 0.33f, 0.31f); break;
+                case TileGid::kGravel: color = glm::vec3(0.30f, 0.29f, 0.25f); break;
+                case TileGid::kDirt: color = glm::vec3(0.27f, 0.22f, 0.16f); break;
+                case TileGid::kWater: color = glm::vec3(0.14f, 0.24f, 0.36f); break;
+                case TileGid::kGrass2: color = glm::vec3(0.17f, 0.23f, 0.16f); break;
+                default: break;
+                }
+            }
+
+            const int districtId = mTileMap.getDistrictId(tx, ty);
+            if (districtId > 0 && districtId < static_cast<int>(riskByDistrict.size()))
+            {
+                const float risk = riskByDistrict[static_cast<std::size_t>(districtId)];
+                color = glm::mix(color, glm::vec3(0.62f, 0.16f, 0.14f), risk * 0.42f);
+            }
+            if (burned[static_cast<std::size_t>(ty * tilesW + tx)] != 0u)
+            {
+                color = glm::mix(color, glm::vec3(0.10f, 0.07f, 0.06f), 0.75f);
+            }
+
+            const glm::vec2 centre = toMap(glm::vec2((static_cast<float>(tx) + 0.5f) * tileW,
+                                                     (static_cast<float>(ty) + 0.5f) * tileH));
+            mSpriteBatch.draw(centre - brick * 0.5f, brick, uiUv, glm::vec4(color, 1.0f));
+        }
+    }
+
+    // Labels: placed right of their marker, nudged down when they would
+    // overlap one already placed.
+    std::vector<glm::vec4> placed;
+    const auto label = [&](const glm::vec2& at, const std::string& text, const glm::vec4& color, float textScale)
+    {
+        const glm::vec2 size = mFont.measureText(text, textScale);
+        glm::vec2 pos = at;
+        for (int attempt = 0; attempt < 4; ++attempt)
+        {
+            bool clash = false;
+            for (const glm::vec4& r : placed)
+            {
+                if (pos.x < r.x + r.z && pos.x + size.x > r.x && pos.y < r.y + r.w && pos.y + size.y > r.y)
+                {
+                    clash = true;
+                    pos.y = r.y + r.w + 1.0f;
+                }
+            }
+            if (!clash) break;
+        }
+        placed.emplace_back(pos.x, pos.y, size.x, size.y);
+        mFont.drawText(mSpriteBatch, pos + glm::vec2(1.0f), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.85f), textScale);
+        mFont.drawText(mSpriteBatch, pos, text, color, textScale);
+    };
+    const auto marker = [&](const glm::vec2& at, const glm::vec4& color, float size)
+    {
+        mSpriteBatch.draw(at - glm::vec2(size * 0.5f + 1.5f), glm::vec2(size + 3.0f), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.9f));
+        mSpriteBatch.draw(at - glm::vec2(size * 0.5f), glm::vec2(size), uiUv, color);
+    };
+
+    // Only districts worth worrying about get a label.
+    for (const auto& district : mMapGenerator.layoutData().districts)
+    {
+        const float infection = mDistrictInfectionSystem.getInfection(district.id);
+        const bool overrun = mDistrictInfectionSystem.isOverwhelmed(district.id);
+        if (!overrun && infection < 35.0f) continue;
+        const glm::vec2 centre = toMap(glm::vec2(
+            (static_cast<float>(district.minX + district.maxX + 1) * 0.5f) * tileW,
+            (static_cast<float>(district.minY + district.maxY + 1) * 0.5f) * tileH));
+        const std::string text = overrun ? "OVERRUN" : std::to_string(static_cast<int>(std::round(infection))) + "% infected";
+        const glm::vec2 size = mFont.measureText(text, 1.0f);
+        mFont.drawText(mSpriteBatch, centre - size * 0.5f + glm::vec2(1.0f), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.8f), 1.0f);
+        mFont.drawText(mSpriteBatch, centre - size * 0.5f, text, glm::vec4(1.0f, 0.70f, 0.62f, 0.95f), 1.0f);
+    }
+
+    const glm::vec4 risenColor = legacyLeadColor(legacy::LeadKind::Risen);
+    const glm::vec4 packColor = legacyLeadColor(legacy::LeadKind::Pack);
+    const glm::vec4 graveColor = legacyLeadColor(legacy::LeadKind::Grave);
+    const glm::vec4 survivorColor = legacyLeadColor(legacy::LeadKind::Survivor);
+    const glm::vec4 objectiveColor(0.96f, 0.84f, 0.32f, 1.0f);
+    const glm::vec4 youColor(0.98f, 0.97f, 0.86f, 1.0f);
+
+    // You first, so your label keeps its place.
+    const glm::vec2 you = toMap(playerWorldCenter());
+    marker(you, youColor, 8.0f);
+    label(you + glm::vec2(8.0f, -5.0f), "You", youColor, 1.0f);
+
+    if (mCampaignObjective.active && !mCampaignObjective.completed)
+    {
+        const glm::vec2 at = toMap(glm::vec2((static_cast<float>(mCampaignObjective.tileX) + 0.5f) * tileW,
+                                             (static_cast<float>(mCampaignObjective.tileY) + 0.5f) * tileH));
+        marker(at, objectiveColor, 8.0f);
+        label(at + glm::vec2(8.0f, -5.0f), "Objective", objectiveColor, 1.0f);
+    }
+
+    for (const legacy::Lead& lead : currentLegacyLeads())
+    {
+        const glm::vec4 color = legacyLeadColor(lead.kind);
+        const glm::vec2 at = toMap(lead.world);
+        marker(at, color, lead.kind == legacy::LeadKind::Grave ? 5.0f : 6.0f);
+        label(at + glm::vec2(7.0f, -5.0f), lead.name, color, 1.0f);
+    }
+
+    // Header.
+    mFont.drawText(mSpriteBatch, glm::vec2(pad, 14.0f), "TOWN MAP", glm::vec4(0.95f, 0.86f, 0.60f, 1.0f), 2.0f);
+    const std::string sub = "Day " + std::to_string(mCurrentDay) + "  -  Run " + std::to_string(mSaveManager.runNumber());
+    mFont.drawText(mSpriteBatch, glm::vec2(pad + 150.0f, 21.0f), sub, glm::vec4(0.74f, 0.74f, 0.70f, 0.96f), 1.0f);
+    const std::string closeHint = "M to close";
+    mFont.drawText(mSpriteBatch, glm::vec2(w - pad - mFont.measureText(closeHint, 1.0f).x, 21.0f), closeHint,
+                   glm::vec4(0.66f, 0.68f, 0.64f, 0.96f), 1.0f);
+
+    // Compass: north is up, as on screen.
+    const glm::vec2 compass(w - pad - 14.0f, headerH + 18.0f);
+    mSpriteBatch.draw(compass + glm::vec2(-1.0f, -2.0f), glm::vec2(2.0f, 16.0f), uiUv, glm::vec4(0.86f, 0.82f, 0.66f, 0.9f));
+    mFont.drawText(mSpriteBatch, compass + glm::vec2(0.0f, -16.0f), "N", glm::vec4(0.94f, 0.88f, 0.66f, 1.0f), 1.0f, TextAlign::Center);
+
+    // Legend.
+    struct LegendEntry
+    {
+        glm::vec4 color;
+        const char* text;
+    };
+    const LegendEntry legend[] = {
+        {youColor, "You"},
+        {objectiveColor, "Objective"},
+        {risenColor, "Risen - put them down"},
+        {packColor, "Grave with a pack"},
+        {graveColor, "Grave"},
+        {survivorColor, "Retired survivor"},
+        {glm::vec4(0.62f, 0.16f, 0.14f, 1.0f), "Infected district"},
+        {glm::vec4(0.10f, 0.07f, 0.06f, 1.0f), "Burned"},
+    };
+    float lx = pad;
+    const float ly = h - footerH + 22.0f;
+    for (const LegendEntry& entry : legend)
+    {
+        if (entry.text == std::string("Objective") && !mCampaignObjective.active) continue;
+        marker(glm::vec2(lx + 4.0f, ly + 4.0f), entry.color, 7.0f);
+        mFont.drawText(mSpriteBatch, glm::vec2(lx + 13.0f, ly), entry.text, glm::vec4(0.80f, 0.80f, 0.74f, 0.95f), 1.0f);
+        lx += 13.0f + mFont.measureText(entry.text, 1.0f).x + 22.0f;
+    }
 }
 
 void Game::renderDayNightOverlay()

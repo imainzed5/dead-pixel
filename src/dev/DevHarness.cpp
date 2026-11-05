@@ -12,6 +12,7 @@
 
 #include "components/Health.h"
 #include "components/Inventory.h"
+#include "components/LegacyLink.h"
 #include "components/MentalState.h"
 #include "components/Needs.h"
 #include "components/Stamina.h"
@@ -288,6 +289,62 @@ void DevHarness::execute(Game& game, const Command& command)
         game.syncPresentationSettingsToSave();
         game.startNewRun();
         mWasAlive = true;
+    }
+    else if (op == "slay")
+    {
+        // slay R: zombies within R tiles drop dead, credited to the player.
+        if (!need(1)) return;
+        if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+        {
+            fail(command, "no player");
+            return;
+        }
+        const float range = std::stof(a[1]) * static_cast<float>(game.mTileMap.tileWidth());
+        const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+        int slain = 0;
+        game.mWorld.forEach<ZombieAI, Transform, Health>(
+            [&](Entity, ZombieAI& ai, Transform& t, Health& h)
+            {
+                const float dx = t.x - pt.x;
+                const float dy = t.y - pt.y;
+                if (h.current > 0.0f && dx * dx + dy * dy <= range * range)
+                {
+                    h.current = 0.0f;
+                    ai.lastDamagedBy = game.mPlayerEntity;
+                    ++slain;
+                }
+            });
+        std::cout << "[harness] slay: " << slain << " zombie(s)\n";
+    }
+    else if (op == "goto")
+    {
+        // goto risen|pack|grave: teleport beside the first such legacy entity.
+        if (!need(1)) return;
+        const std::string kind = lower(a[1]);
+        LegacyLinkKind want = LegacyLinkKind::Grave;
+        if (kind == "risen") want = LegacyLinkKind::Risen;
+        else if (kind == "pack") want = LegacyLinkKind::Pack;
+        bool found = false;
+        glm::vec2 target(0.0f);
+        game.mWorld.forEach<LegacyLink, Transform>(
+            [&](Entity, LegacyLink& link, Transform& t)
+            {
+                if (!found && link.kind == want)
+                {
+                    target = glm::vec2(t.x, t.y);
+                    found = true;
+                }
+            });
+        if (!found)
+        {
+            fail(command, "no legacy " + kind + " in the world");
+            return;
+        }
+        const int tileW = std::max(1, game.mTileMap.tileWidth());
+        const int tileH = std::max(1, game.mTileMap.tileHeight());
+        const int tx = static_cast<int>((target.x + 16.0f) / static_cast<float>(tileW));
+        const int ty = static_cast<int>((target.y + 16.0f) / static_cast<float>(tileH));
+        execute(game, Command{command.line, {"teleport", std::to_string(tx), std::to_string(ty)}});
     }
     else if (op == "kill" || op == "retire")
     {

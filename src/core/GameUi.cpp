@@ -260,100 +260,159 @@ void Game::renderNotebookOverlay()
         return;
     }
 
+    // The notebook is where the legacy reads as a story: what earlier runs
+    // left out there (live distance and direction), then who they were.
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
     const float w = static_cast<float>(mWindowWidth);
     const float h = static_cast<float>(mWindowHeight);
 
-    const float panelW = std::min(760.0f, w - 60.0f);
-    const float panelH = std::min(520.0f, h - 80.0f);
-    const float panelX = (w - panelW) * 0.5f;
-    const float panelY = (h - panelH) * 0.5f;
-
-    mSpriteBatch.draw(glm::vec2(0.0f, 0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.58f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.15f, 0.13f, 0.09f, 0.95f));
-    mSpriteBatch.draw(glm::vec2(panelX + 8.0f, panelY + 8.0f), glm::vec2(panelW - 16.0f, panelH - 16.0f), uiUv, glm::vec4(0.22f, 0.20f, 0.15f, 0.95f));
-
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, panelY + 18.0f), "NOTEBOOK // LEGACY", glm::vec4(0.94f, 0.86f, 0.62f, 1.0f), 2.0f);
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + panelW - 130.0f, panelY + 18.0f), "J to close", glm::vec4(0.72f, 0.72f, 0.68f, 0.95f), 1.1f);
-
-    float y = panelY + 50.0f;
-
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "Recent Characters", glm::vec4(0.90f, 0.84f, 0.66f, 0.98f), 1.35f);
-    y += 18.0f;
-
     const auto& history = mSaveManager.characterHistory();
+    const auto leads = currentLegacyLeads();
+    constexpr std::size_t kMaxLeads = 6;
+    constexpr std::size_t kMaxHistory = 10;
+    constexpr float kBody = 2.0f;
+    const float bodyLine = mFont.lineHeight(kBody) + 5.0f;
+
+    // Sized to what it holds: header, two sections, totals.
+    const std::size_t leadRows = std::max<std::size_t>(1, std::min(leads.size(), kMaxLeads));
+    const std::size_t historyRows = std::max<std::size_t>(1, std::min(history.size(), kMaxHistory));
+    const float contentH = 22.0f + bodyLine + 2.0f + 30.0f +
+                           18.0f + static_cast<float>(leadRows) * bodyLine + (leads.size() > kMaxLeads ? 16.0f : 0.0f) + 14.0f +
+                           18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) +
+                           44.0f;
+    const float panelW = std::min(900.0f, w - 40.0f);
+    const float panelH = std::min(contentH, h - 40.0f);
+    const float panelX = std::floor((w - panelW) * 0.5f);
+    const float panelY = std::floor((h - panelH) * 0.5f);
+
+    const glm::vec4 ink(0.90f, 0.88f, 0.80f, 1.0f);
+    const glm::vec4 dimInk(0.66f, 0.64f, 0.58f, 1.0f);
+    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const glm::vec4 risenColor = legacyLeadColor(legacy::LeadKind::Risen);
+    const glm::vec4 survivorColor = legacyLeadColor(legacy::LeadKind::Survivor);
+
+    mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.06f, 0.055f, 0.05f, 0.97f));
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, 3.0f), uiUv, gold);
+
+    const float left = panelX + 28.0f;
+    const float textW = panelW - 56.0f;
+    const auto fit = [&](const std::string& text, float scale)
+    {
+        const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, textW / (6.0f * scale)));
+        return truncateHudText(text, maxChars);
+    };
+    const auto heading = [&](float y, const std::string& text)
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), text, gold, 1.0f);
+        const float textEnd = left + mFont.measureText(text, 1.0f).x + 10.0f;
+        mSpriteBatch.draw(glm::vec2(textEnd, y + 4.0f), glm::vec2(left + textW - textEnd, 1.0f), uiUv,
+                          glm::vec4(gold.r, gold.g, gold.b, 0.35f));
+    };
+
+    // Title and who you are now.
+    const int run = mSaveManager.runNumber();
+    float y = panelY + 22.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "NOTEBOOK", gold, kBody);
+    const std::string closeHint = "J to close";
+    mFont.drawText(mSpriteBatch, glm::vec2(left + textW - mFont.measureText(closeHint, 1.0f).x, y + 4.0f), closeHint, dimInk, 1.0f);
+    y += bodyLine + 2.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(left, y),
+                   fit(mCurrentCharacterName + ", day " + std::to_string(mCurrentDay) + ". " +
+                           legacy::runHeadline(run, static_cast<int>(history.size())) + ".", 1.0f),
+                   dimInk, 1.0f);
+    y += 30.0f;
+
+    // What is out there.
+    heading(y, "WHAT IS OUT THERE");
+    y += 18.0f;
+    const glm::vec2 here = playerWorldCenter();
+    const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
+    if (leads.empty())
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit("Nothing yet. No one came this way before you.", kBody), dimInk, kBody);
+        y += bodyLine;
+    }
+    for (std::size_t i = 0; i < leads.size() && i < kMaxLeads; ++i)
+    {
+        const legacy::Lead& lead = leads[i];
+        mSpriteBatch.draw(glm::vec2(left, y + 5.0f), glm::vec2(8.0f, 8.0f), uiUv, legacyLeadColor(lead.kind));
+        mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y), fit(legacy::describeLead(lead, here, tileSize), kBody), ink, kBody);
+        y += bodyLine;
+    }
+    if (leads.size() > kMaxLeads)
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y),
+                       "and " + std::to_string(leads.size() - kMaxLeads) + " more on the map (M)", dimInk, 1.0f);
+        y += 16.0f;
+    }
+    y += 14.0f;
+
+    // Who came before, newest first.
+    heading(y, "WHO CAME BEFORE");
+    y += 18.0f;
+    const auto& graves = mLegacyGraves.empty() ? mSaveManager.graves() : mLegacyGraves;
+    const float statsY = panelY + panelH - 30.0f;
     if (history.empty())
     {
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 24.0f, y), "No history entries yet.", glm::vec4(0.70f, 0.70f, 0.66f, 0.95f), 1.05f);
-        y += 18.0f;
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), "No one. You are the first.", dimInk, kBody);
     }
-    else
+    std::size_t shown = 0;
+    for (auto it = history.rbegin(); it != history.rend() && shown < kMaxHistory && y + bodyLine < statsY - 6.0f; ++it, ++shown)
     {
-        const int maxEntries = 8;
-        const int start = std::max(0, static_cast<int>(history.size()) - maxEntries);
-        for (int i = static_cast<int>(history.size()) - 1; i >= start; --i)
+        const CharacterHistoryRecord& rec = *it;
+        std::string line = "Run " + std::to_string(rec.runIndex) + "  " + rec.name + " - ";
+        glm::vec4 color = ink;
+        if (rec.retired)
         {
-            const CharacterHistoryRecord& rec = history[static_cast<std::size_t>(i)];
-            std::string line = rec.name + " - Day " + std::to_string(rec.dayEnded) + (rec.retired ? " retired" : " died");
-            if (!rec.bloodlineTrait.empty())
-            {
-                line += " [" + rec.bloodlineTrait + "]";
-            }
-
-            mFont.drawText(mSpriteBatch, glm::vec2(panelX + 24.0f, y), truncateHudText(line, 80), glm::vec4(0.84f, 0.82f, 0.74f, 0.95f), 1.05f);
-            y += 16.0f;
+            line += "retired on day " + std::to_string(rec.dayEnded);
+            color = survivorColor;
         }
-    }
-
-    y += 8.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "World Memory", glm::vec4(0.90f, 0.84f, 0.66f, 0.98f), 1.35f);
-    y += 18.0f;
-
-    const auto& events = mSaveManager.worldMemoryEvents();
-    if (events.empty())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 24.0f, y), "No durable world events recorded.", glm::vec4(0.70f, 0.70f, 0.66f, 0.95f), 1.05f);
-    }
-    else
-    {
-        const int maxEvents = 10;
-        const int start = std::max(0, static_cast<int>(events.size()) - maxEvents);
-        for (int i = static_cast<int>(events.size()) - 1; i >= start; --i)
+        else
         {
-            const WorldMemoryEventRecord& event = events[static_cast<std::size_t>(i)];
-            std::string eventLabel = "Event";
-            switch (event.type)
+            line += "day " + std::to_string(rec.dayEnded) + ", " + rec.cause;
+            for (const GraveRecord& grave : graves)
             {
-            case WorldMemoryEventType::BurnedTile: eventLabel = "Burn scar"; break;
-            case WorldMemoryEventType::GravePlaced: eventLabel = "Grave"; break;
-            case WorldMemoryEventType::RetirementPlaced: eventLabel = "Retirement marker"; break;
-            case WorldMemoryEventType::VehicleAbandoned: eventLabel = "Abandoned vehicle"; break;
-            case WorldMemoryEventType::StructureAbandoned: eventLabel = "Abandoned structure"; break;
-            case WorldMemoryEventType::LootedContainer: eventLabel = "Looted container"; break;
-            default: break;
-            }
-
-            std::ostringstream line;
-            line << "Day " << event.day << " R" << event.runIndex << " - "
-                 << eventLabel << " @ T(" << event.tileX << "," << event.tileY << ")";
-            if (!event.detail.empty())
-            {
-                line << " - " << event.detail;
-            }
-
-            mFont.drawText(
-                mSpriteBatch,
-                glm::vec2(panelX + 24.0f, y),
-                truncateHudText(line.str(), 90),
-                glm::vec4(0.82f, 0.80f, 0.72f, 0.95f),
-                1.0f);
-            y += 15.0f;
-            if (y > panelY + panelH - 24.0f)
-            {
-                break;
+                if (grave.runIndex == rec.runIndex && grave.name == rec.name)
+                {
+                    if (grave.risen) { line += " (walks again)"; color = risenColor; }
+                    else if (grave.laidToRest) { line += " (at rest)"; }
+                    break;
+                }
             }
         }
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit(line, kBody), color, kBody);
+        y += bodyLine;
     }
+    if (shown < history.size())
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), "and " + std::to_string(history.size() - shown) + " before them", dimInk, 1.0f);
+    }
+
+    // Totals across every run in this town.
+    int daysTotal = 0;
+    int longest = 0;
+    std::string longestName;
+    for (const CharacterHistoryRecord& rec : history)
+    {
+        const int days = std::max(1, rec.dayEnded - rec.dayStarted + 1);
+        daysTotal += days;
+        if (days > longest)
+        {
+            longest = days;
+            longestName = rec.name;
+        }
+    }
+    int laidToRest = 0;
+    for (const GraveRecord& grave : graves)
+    {
+        laidToRest += grave.laidToRest ? 1 : 0;
+    }
+    std::string stats = "Lives " + std::to_string(history.size()) + "   Days survived " + std::to_string(daysTotal);
+    if (longest > 0) stats += "   Longest " + std::to_string(longest) + (longest == 1 ? " day (" : " days (") + longestName + ")";
+    if (laidToRest > 0) stats += "   Laid to rest " + std::to_string(laidToRest);
+    mSpriteBatch.draw(glm::vec2(left, statsY - 8.0f), glm::vec2(textW, 1.0f), uiUv, glm::vec4(gold.r, gold.g, gold.b, 0.25f));
+    mFont.drawText(mSpriteBatch, glm::vec2(left, statsY), fit(stats, 1.0f), dimInk, 1.0f);
 }
 
 void Game::renderDeathOverlay()
@@ -1009,69 +1068,66 @@ void Game::renderContainerOverlay()
     }
 
     const Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
-    constexpr float kSmallScale = 1.5f;
-
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    constexpr float kItemScale = 2.0f;
+    const float itemLine = mFont.lineHeight(kItemScale) + 4.0f;
 
-    // Semi-transparent panel background
-    const float panelW = 300.0f;
-    const float panelX = (static_cast<float>(mWindowWidth) - panelW) * 0.5f;
-    const float panelY = 120.0f;
-
-    // Count items
-    int itemCount = 0;
-    for (const auto& slot : containerInv.slots)
-    {
-        if (slot.itemId >= 0 && slot.count > 0) ++itemCount;
-    }
-
-    const float panelH = 40.0f + static_cast<float>(std::max(1, itemCount)) * 18.0f;
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH),
-                       uiUv, glm::vec4(0.06f, 0.06f, 0.1f, 0.88f));
-
-    // Header
-    std::string header = "CONTAINER";
+    std::string header = "Container";
     if (mWorld.hasComponent<Interactable>(mOpenContainerEntity))
     {
         const Interactable& inter = mWorld.getComponent<Interactable>(mOpenContainerEntity);
         if (!inter.prompt.empty()) header = inter.prompt;
     }
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 10.0f, panelY + 8.0f), header,
-                    glm::vec4(0.9f, 0.85f, 0.5f, 1.0f), 2.0f);
 
-    float y = panelY + 32.0f;
-    int idx = 0;
+    std::vector<std::string> lines;
     for (const auto& slot : containerInv.slots)
     {
         if (slot.itemId < 0 || slot.count <= 0) continue;
-
-        const bool selected = (idx == mContainerCursor);
         const ItemDef* item = mItemDatabase.find(slot.itemId);
         std::string line = item ? item->name : ("Item #" + std::to_string(slot.itemId));
         if (slot.count > 1) line += " x" + std::to_string(slot.count);
+        lines.push_back(std::move(line));
+    }
+    const std::string hint = lines.empty() ? "Esc close" : "W/S select   E take   Esc close";
 
+    // Wide enough for the header and every line, never off screen.
+    float contentW = std::max(mFont.measureText(header, kItemScale).x, mFont.measureText(hint, 1.0f).x);
+    for (const std::string& line : lines)
+    {
+        contentW = std::max(contentW, mFont.measureText(line, kItemScale).x + 8.0f);
+    }
+    const float panelW = std::min(static_cast<float>(mWindowWidth) - 24.0f, std::max(300.0f, contentW + 32.0f));
+    const float panelX = std::floor((static_cast<float>(mWindowWidth) - panelW) * 0.5f);
+    const float panelY = 110.0f;
+    const float listY = panelY + 40.0f;
+    const float panelH = 40.0f + static_cast<float>(std::max<std::size_t>(1, lines.size())) * itemLine + 26.0f;
+
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.06f, 0.055f, 0.05f, 0.94f));
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, 2.0f), uiUv, glm::vec4(0.95f, 0.84f, 0.56f, 1.0f));
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + 12.0f), header, glm::vec4(0.95f, 0.84f, 0.56f, 1.0f), kItemScale);
+
+    float y = listY;
+    for (std::size_t i = 0; i < lines.size(); ++i)
+    {
+        const bool selected = static_cast<int>(i) == mContainerCursor;
         if (selected)
         {
-            mSpriteBatch.draw(glm::vec2(panelX + 4.0f, y - 1.0f), glm::vec2(panelW - 8.0f, 17.0f),
-                               uiUv, glm::vec4(0.25f, 0.35f, 0.5f, 0.5f));
+            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 2.0f), glm::vec2(panelW - 16.0f, itemLine), uiUv,
+                              glm::vec4(0.95f, 0.84f, 0.56f, 0.16f));
+            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 2.0f), glm::vec2(2.0f, itemLine), uiUv,
+                              glm::vec4(0.95f, 0.84f, 0.56f, 0.9f));
         }
-
-        const glm::vec4 color = selected ? glm::vec4(1.0f, 1.0f, 0.7f, 1.0f) : glm::vec4(0.7f, 0.7f, 0.65f, 0.9f);
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 12.0f, y), line, color, kSmallScale);
-        y += 18.0f;
-        ++idx;
+        const glm::vec4 color = selected ? glm::vec4(1.0f, 0.97f, 0.86f, 1.0f) : glm::vec4(0.76f, 0.75f, 0.70f, 1.0f);
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), lines[i], color, kItemScale);
+        y += itemLine;
     }
-
-    if (itemCount == 0)
+    if (lines.empty())
     {
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 12.0f, y), "Empty",
-                        glm::vec4(0.5f, 0.5f, 0.5f, 0.7f), kSmallScale);
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "Empty", glm::vec4(0.56f, 0.55f, 0.52f, 1.0f), kItemScale);
     }
 
-    // Controls hint
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 10.0f, panelY + panelH + 4.0f),
-                    "W/S: Select  E: Take  ESC: Close",
-                    glm::vec4(0.5f, 0.5f, 0.45f, 0.7f), 1.0f);
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + panelH - 18.0f), hint,
+                   glm::vec4(0.66f, 0.64f, 0.58f, 1.0f), 1.0f);
 }
 
 void Game::renderBuildModeOverlay()

@@ -117,7 +117,6 @@ void MapGenerator::generateSpawns(SpawnData& outSpawns, std::uint32_t runSeed)
 {
     mRng.seed(runSeed);
     selectSpawns(outSpawns);
-    outSpawns.playerStart = mLayout.playerStart;
 }
 
 void MapGenerator::packLayout()
@@ -1050,10 +1049,44 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             return da < db;
         });
 
-    if (!buildingsByDist.empty())
+    // Each run starts in a different home: one of the houses nearest the
+    // centre, picked by the run seed (falls back to any building).
+    constexpr std::size_t kStartCandidates = 6;
+    std::vector<std::size_t> startCandidates;
+    for (const std::size_t i : buildingsByDist)
     {
-        const auto& bf = buildingFloors[buildingsByDist[0]];
+        const auto& b = mBuildings[static_cast<std::size_t>(buildingFloors[i].buildingIdx)];
+        if (archetypeForWidth(b.w) == BuildingArchetype::Residential && !buildingFloors[i].tiles.empty())
+        {
+            startCandidates.push_back(i);
+            if (startCandidates.size() >= kStartCandidates) break;
+        }
+    }
+    if (startCandidates.empty() && !buildingsByDist.empty())
+    {
+        startCandidates.push_back(buildingsByDist[0]);
+    }
+
+    if (!startCandidates.empty())
+    {
+        const auto& bf = buildingFloors[startCandidates[mRng() % startCandidates.size()]];
+        const auto& b = mBuildings[static_cast<std::size_t>(bf.buildingIdx)];
+        // The floor tile nearest the middle of the house, away from doors.
+        const glm::vec2 middle(static_cast<float>(b.x) + static_cast<float>(b.w) * 0.5f,
+                               static_cast<float>(b.y) + static_cast<float>(b.h) * 0.5f);
+        float best = 1e9f;
         outSpawns.playerStart = bf.tiles[0];
+        for (const glm::ivec2& t : bf.tiles)
+        {
+            if (isDoorTile(t.x, t.y) || isNextToDoor(t.x, t.y)) continue;
+            const float dx = static_cast<float>(t.x) + 0.5f - middle.x;
+            const float dy = static_cast<float>(t.y) + 0.5f - middle.y;
+            if (dx * dx + dy * dy < best)
+            {
+                best = dx * dx + dy * dy;
+                outSpawns.playerStart = t;
+            }
+        }
         playerBuildingIdx = bf.buildingIdx;
     }
     else

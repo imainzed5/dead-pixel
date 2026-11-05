@@ -41,7 +41,7 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | 5 | Wave 1b: readability (scale/zoom, HUD rework, night lighting) | done |
 | 6 | Walls with height, wall/roof occlusion, art generator upgrade | done |
 | 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | done |
-| 8 | Wave 2: make the legacy hook visible | |
+| 8 | Wave 2: make the legacy hook visible | done |
 | 9 | Wave 3: extras polish, tone presets with real effects | |
 | 10 | Docs, README and audit sync | |
 | 11 | Final verification and handoff | |
@@ -215,6 +215,47 @@ as new world-memory events at every run end, and burn events carry the ending
 run's index like graves and history do. Harness: `kill [cause]` and
 `retire [cause]` end the run the way the game does.
 
+## Wave 2: the legacy hook (2026-11-06)
+
+The hook is a fixed town that remembers earlier runs. The save already held
+that memory, but the game barely showed it: a grave sprite, a cairn, and a
+notebook listing events by tile coordinates. Now every earlier life leaves
+something the next one can find and act on:
+
+| How the life ended | What later runs find |
+|---|---|
+| Zombies, or anything with an infected bite | They **rise**: a named, tougher zombie that stays near where they fell. Put them down and they get a grave, with their pack beside it. |
+| Anything else | A **grave** with their epitaph, and their **pack** (everything they carried) until someone empties it |
+| Retiring | A cairn, and they **live on** as a cautious survivor who keeps to themselves |
+
+- **Run-start card:** "Run 4 - three came before you", then the nearest
+  leads with distance and direction. Directions are on-screen directions
+  (N is up), the same as the map's.
+- **Name labels** over the risen, graves and retired survivors at close range.
+- **Town map (M):**
+  - isometric, oriented like the game;
+  - buildings drawn as floor plans, plus roads, burn scars and infected
+    districts;
+  - named legacy markers and a legend.
+- **Notebook (J):**
+  - *What is out there*: live distance and direction to each lead.
+  - *Who came before*: newest first, marked "walks again" or "at rest".
+  - Totals across lives.
+- **Minimap** dots use the same colours as the map and notebook
+  (`legacyLeadColor`).
+- **Start homes:** each run starts inside one of the homes near the town
+  centre, chosen by the run seed.
+- **Container panel:** restyled. The header no longer overflows, and the text
+  uses an integer scale.
+- **Code:**
+  - The rules live in `src/legacy/LegacyRules` (who rises, lead order and
+    text) and are unit tested.
+  - The entities live in `GameLegacy.cpp`.
+  - Grave records gained `items`, `risen` and `laidToRest`, with a save
+    round-trip test.
+- **Harness:** `slay R` and `goto risen|pack|grave`. The script
+  `tools/harness/legacy.txt` plays four lives and captures each step.
+
 ## Known issues found during revival
 
 - ~~Input transitions cleared per render frame, not per tick~~ (fixed: latched
@@ -240,6 +281,11 @@ run's index like graves and history do. Harness: `kill [cause]` and
   (fixed: wall blocks, cut-away and roofs).
 - Building interiors have no furniture; loot lies on bare floors.
 - Character sprites face only up/down/right; isometric movement is diagonal.
+- ~~Notebook, world map and minimap text rendered as garbage~~ (fixed: each
+  UI layer draws its shapes with the sprite sheet, then all of its text with
+  the font atlas).
+- ~~Container panel header overflowed its box; hint text barely visible~~
+  (fixed).
 
 ## Log
 
@@ -261,3 +307,6 @@ run's index like graves and history do. Harness: `kill [cause]` and
 - 2026-11-06: `Game.cpp` split into ten files; `update()` carved into named
   steps; shared run-end persistence; burn-scar event fix; harness `kill` and
   `retire`.
+- 2026-11-06: Wave 2 legacy hook: risen characters, packs, retired survivors,
+  run-start card, name labels, isometric town map, notebook rework, varied
+  start homes, UI text layering fix, harness `slay`/`goto`.

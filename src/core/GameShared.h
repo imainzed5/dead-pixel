@@ -16,6 +16,7 @@
 #include "components/Facing.h"
 #include "components/Health.h"
 #include "components/Interactable.h"
+#include "components/LegacyLink.h"
 #include "components/Inventory.h"
 #include "components/MentalState.h"
 #include "components/Needs.h"
@@ -163,6 +164,20 @@ inline int wrapIndex(int value, int count)
         wrapped += count;
     }
     return wrapped;
+}
+
+// Marker colour for a legacy lead: the minimap, the town map and the notebook
+// all use these, so a colour means the same thing everywhere.
+inline glm::vec4 legacyLeadColor(legacy::LeadKind kind)
+{
+    switch (kind)
+    {
+    case legacy::LeadKind::Risen: return glm::vec4(0.94f, 0.34f, 0.28f, 1.0f);
+    case legacy::LeadKind::Pack: return glm::vec4(0.96f, 0.72f, 0.30f, 1.0f);
+    case legacy::LeadKind::Survivor: return glm::vec4(0.50f, 0.71f, 0.96f, 1.0f);
+    case legacy::LeadKind::Grave: break;
+    }
+    return glm::vec4(0.71f, 0.71f, 0.73f, 1.0f);
 }
 
 inline std::string truncateHudText(const std::string& text, std::size_t maxChars)

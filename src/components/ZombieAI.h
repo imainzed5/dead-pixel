@@ -57,4 +57,10 @@ struct ZombieAI
     // Who dealt the most recent damage (player, projectile shooter, fire,
     // survivor, vehicle). Kills are credited from this.
     Entity lastDamagedBy = kInvalidEntity;
+
+    // Leash: a wandering zombie with leashTiles > 0 drifts back toward
+    // leashHome when it strays further than that (the risen dead stay near
+    // where they fell).
+    glm::vec2 leashHome{0.0f, 0.0f};
+    float leashTiles = 0.0f;
 };

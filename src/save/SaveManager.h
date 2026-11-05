@@ -21,6 +21,11 @@ struct GraveRecord
     int day = 1;
     int runIndex = 0;
     std::string cause;
+    // What they carried. Lies by the grave until someone takes it, or is
+    // carried by them while they walk.
+    std::vector<std::pair<int, int>> items; // (itemId, count)
+    bool risen = false;      // came back: walks near (x, y) as a zombie
+    bool laidToRest = false; // a later survivor put them down
 };
 
 struct RetirementRecord
@@ -231,6 +236,10 @@ public:
     void addRunStats(int kills, int daysSurvived);
 
     bool recordDeath(const GraveRecord& record);
+    // Replace an existing grave (pack taken, risen put to rest, ...). Call
+    // flushLegacy() afterwards to write the change.
+    void updateGrave(std::size_t index, const GraveRecord& record);
+    bool flushLegacy() const { return writeLegacy(); }
     bool recordRetirement(const RetirementRecord& record);
     bool addCharacterHistoryRecord(const CharacterHistoryRecord& record);
     bool saveStructures(const std::vector<StructureRecord>& structures);

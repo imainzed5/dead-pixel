@@ -254,6 +254,16 @@ void ZombieAISystem::update(
                                              : (nextRandom(zombieAI, zombieEntity) - 0.5f) * 1.8f;
                     zombieAI.heading = std::fmod(zombieAI.heading + turn + kTwoPi, kTwoPi);
 
+                    if (zombieAI.leashTiles > 0.0f)
+                    {
+                        const glm::vec2 toHome = zombieAI.leashHome - zombieCenter;
+                        const float leash = zombieAI.leashTiles * tileSize;
+                        if (glm::dot(toHome, toHome) > leash * leash)
+                        {
+                            zombieAI.heading = std::atan2(toHome.y, toHome.x);
+                        }
+                    }
+
                     const float stepTiles = 2.0f + nextRandom(zombieAI, zombieEntity) * 3.0f;
                     const glm::vec2 dir(std::cos(zombieAI.heading), std::sin(zombieAI.heading));
                     glm::vec2 candidate = zombieCenter + dir * stepTiles * tileSize;

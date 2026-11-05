@@ -1,5 +1,7 @@
 #include "TestFramework.h"
 
+#include <algorithm>
+
 #include "map/MapGenerator.h"
 
 DP_TEST(mapgen_same_seed_gives_identical_layout)
@@ -81,4 +83,28 @@ DP_TEST(mapgen_building_layer_marks_interiors_only)
     }
     DP_CHECK(!map.isIndoors(-1, -1));
     DP_CHECK(!map.isIndoorsAtWorld(-50.0f, -50.0f));
+}
+
+DP_TEST(mapgen_runs_start_in_different_homes)
+{
+    MapGenerator gen;
+    gen.generateLayout(1234u);
+    TileMap map;
+    gen.applyToTileMap(map);
+
+    std::vector<int> homes;
+    for (std::uint32_t run = 1; run <= 12; ++run)
+    {
+        SpawnData spawns;
+        gen.generateSpawns(spawns, run * 7919u);
+        const glm::ivec2 start = spawns.playerStart;
+        const int building = map.getBuildingId(start.x, start.y);
+        DP_CHECK(building > 0);
+        DP_CHECK(!map.isSolid(start.x, start.y));
+        if (std::find(homes.begin(), homes.end(), building) == homes.end())
+        {
+            homes.push_back(building);
+        }
+    }
+    DP_CHECK(homes.size() >= 3);
 }

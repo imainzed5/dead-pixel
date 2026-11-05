@@ -39,6 +39,7 @@ add_library(dead_pixel_core STATIC
     src/core/GameVehicles.cpp
     src/core/GameFire.cpp
     src/core/GameInventory.cpp
+    src/core/GameLegacy.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
     src/ecs/EntityManager.cpp
@@ -77,6 +78,7 @@ add_library(dead_pixel_core STATIC
     src/rendering/BitmapFont.cpp
     src/rendering/SpriteSheet.cpp
     src/rendering/StructureView.cpp
+    src/legacy/LegacyRules.cpp
     src/ui/Hud.cpp
     src/systems/AnimationSystem.cpp
     src/systems/ParticleSystem.cpp
@@ -124,6 +126,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_survival.cpp
         tests/test_hud.cpp
         tests/test_structures.cpp
+        tests/test_legacy.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

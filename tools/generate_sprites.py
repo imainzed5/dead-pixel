@@ -889,6 +889,7 @@ def generate_atlas():
 
     # Rows 8+: structures (walls, doorways, roofs).
     add_structure_sprites(img, sprites)
+    add_legacy_props(img, sprites)
 
     return img, sprites
 
@@ -1355,6 +1356,219 @@ def add_structure_sprites(img, sprites):
         img.paste(roof, (x, y_low), roof)
         sprites["roof_" + kind] = {"x": x, "y": y_low, "w": ISO_TILE_W, "h": ISO_TILE_H}
         x += ISO_TILE_W
+
+
+# --- Legacy props ------------------------------------------------------------
+# 64x64 cells drawn like characters: the renderer puts the bottom centre of the
+# cell on the tile centre, so each prop's footprint sits along the bottom.
+
+PROP = 64
+
+
+def ground_ellipse(img, cx, cy, rx, ry, color_fn):
+    """Fill an iso-flattened ellipse; color_fn(dx, dy, t) -> (rgb, alpha) or None."""
+    for y in range(int(cy - ry) - 1, int(cy + ry) + 2):
+        for x in range(int(cx - rx) - 1, int(cx + rx) + 2):
+            dx = (x + 0.5 - cx) / rx
+            dy = (y + 0.5 - cy) / ry
+            t = dx * dx + dy * dy
+            if t <= 1.0 and 0 <= x < PROP and 0 <= y < PROP:
+                c = color_fn(dx, dy, t)
+                if c is not None:
+                    put(img, x, y, c[0], c[1])
+
+
+def soft_shadow(img, cx, cy, rx, ry, alpha=70):
+    def fn(dx, dy, t):
+        return ((10, 12, 10), int(alpha * (1.0 - t) ** 0.6))
+    ground_ellipse(img, cx, cy, rx, ry, fn)
+
+
+def dirt_mound(img, rng, cx, cy, rx, ry, base, height=5):
+    """A low mound: iso ellipse with a lit top-left and a darker front lip."""
+    soft_shadow(img, cx + 2, cy + 2, rx + 3, ry + 2)
+
+    def fn(dx, dy, t):
+        light = -dx * 10 - dy * 16
+        n = rng.randint(-9, 9)
+        c = shade(base, light + n)
+        if rng.random() < 0.07:
+            c = shade(c, 22)  # pebbles
+        return (c, 255)
+    # body (raised): draw the front lip first, then the top shifted up
+    def lip(dx, dy, t):
+        if dy < 0.1:
+            return None
+        return (shade(base, -26 + rng.randint(-6, 6)), 255)
+    ground_ellipse(img, cx, cy, rx, ry, lip)
+    ground_ellipse(img, cx, cy - height * 0.5, rx, ry, fn)
+
+
+def headstone(img, rng, x0, y_base, w, h, stone=(132, 134, 136)):
+    """Upright slab with a rounded top, a lit front and a darker east side."""
+    side = 4
+    top_r = w // 2
+    for y in range(y_base - h, y_base):
+        for x in range(x0, x0 + w + side):
+            # rounded top
+            ry = y - (y_base - h)
+            if ry < top_r:
+                cxr = x0 + w / 2.0
+                if (x + 0.5 - cxr) ** 2 + (top_r - ry - 0.5) ** 2 > top_r ** 2 and x < x0 + w:
+                    continue
+                if x >= x0 + w and ry < top_r - 2:
+                    continue
+            if x < x0 + w:
+                c = shade(stone, 10 - ry * 0.5 + rng.randint(-5, 5))
+                if x == x0:
+                    c = shade(c, 14)
+            else:
+                # side face, sheared up by the iso angle
+                if y - (x - x0 - w) // 2 < y_base - h + top_r - 1:
+                    continue
+                c = shade(stone, -34 + rng.randint(-4, 4))
+            put(img, x, y, c)
+    # carved lines
+    for i, yy in enumerate((y_base - h + top_r + 3, y_base - h + top_r + 6, y_base - h + top_r + 9)):
+        if yy >= y_base - 3:
+            break
+        inset = 3 if i else 2
+        for x in range(x0 + inset, x0 + w - inset):
+            put(img, x, yy, shade(stone, -30))
+    # moss
+    for _ in range(6):
+        x = x0 + rng.randint(0, w - 1)
+        y = y_base - rng.randint(1, 5)
+        put(img, x, y, (78, 104, 58))
+
+
+def wooden_cross(img, x_mid, y_base, h):
+    wood = (118, 86, 54)
+    dark = shade(wood, -32)
+    for y in range(y_base - h, y_base):
+        put(img, x_mid, y, wood)
+        put(img, x_mid + 1, y, wood)
+        put(img, x_mid + 2, y, dark)
+    arm_y = y_base - h + 5
+    for x in range(x_mid - 6, x_mid + 9):
+        put(img, x, arm_y, shade(wood, 10))
+        put(img, x, arm_y + 1, wood)
+        put(img, x, arm_y + 2, dark)
+
+
+def outline_opaque(img, color, alpha_min=200):
+    """Darken opaque pixels that touch transparency, for a readable silhouette."""
+    w, h = img.size
+    src = img.copy()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = src.getpixel((x, y))
+            if a < alpha_min:
+                continue
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if not (0 <= nx < w and 0 <= ny < h) or src.getpixel((nx, ny))[3] < 60:
+                    img.putpixel((x, y), (color[0], color[1], color[2], 255))
+                    break
+
+
+def make_prop(kind, seed):
+    rng = random.Random(9000 + seed)
+    img = Image.new("RGBA", (PROP, PROP), (0, 0, 0, 0))
+    cx = PROP / 2.0
+    if kind == "grave":
+        dirt_mound(img, rng, cx + 1, 54, 17, 7, (92, 72, 50), height=4)
+        headstone(img, rng, 22, 50, 15, 22)
+        # a few grass tufts at the base
+        for _ in range(10):
+            x = rng.randint(14, 48)
+            y = rng.randint(55, 61)
+            put(img, x, y, (70, 112, 52))
+            put(img, x, y - 1, (84, 128, 60))
+    elif kind == "grave_cross":
+        dirt_mound(img, rng, cx + 1, 54, 17, 7, (70, 52, 36), height=5)
+        wooden_cross(img, 30, 52, 24)
+        # a small stone or two on the fresh soil
+        for (x, y) in ((24, 55), (38, 53)):
+            put(img, x, y, (150, 150, 146))
+            put(img, x + 1, y, (128, 128, 124))
+    elif kind == "pack":
+        soft_shadow(img, cx + 2, 57, 15, 5, 90)
+        body = (138, 100, 62)
+        # main bag lying on its back, seen from the iso angle
+        for y in range(40, 58):
+            for x in range(19, 45):
+                fx = (x - 32) / 13.0
+                fy = (y - 49) / 9.0
+                if fx * fx + fy * fy > 1.0:
+                    continue
+                c = shade(body, -fx * 10 - fy * 18 + rng.randint(-5, 5))
+                put(img, x, y, c)
+        # top flap
+        for y in range(38, 46):
+            for x in range(23, 41):
+                fx = (x - 32) / 9.0
+                fy = (y - 42) / 4.5
+                if fx * fx + fy * fy <= 1.0:
+                    put(img, x, y, shade(body, 14 - fy * 8 + rng.randint(-4, 4)))
+        # straps and buckle
+        for y in range(43, 57):
+            put(img, 27, y, (58, 50, 36))
+            put(img, 37, y, (58, 50, 36))
+        for x in (26, 27, 28):
+            put(img, x, 50, (176, 160, 104))
+        for x in (36, 37, 38):
+            put(img, x, 50, (176, 160, 104))
+        # side pocket
+        for y in range(48, 55):
+            for x in range(42, 47):
+                put(img, x, y, shade(body, -18 + rng.randint(-3, 3)))
+        outline_opaque(img, (52, 38, 26))
+        # a red tag so it reads as someone's belongings, not a rock
+        for (x, y) in ((40, 41), (41, 42), (41, 41), (42, 43)):
+            put(img, x, y, (186, 54, 44))
+    elif kind == "cairn":
+        soft_shadow(img, cx + 2, 56, 14, 5, 80)
+        stones = [(32, 54, 11, 5, (128, 126, 120)), (31, 47, 9, 4, (142, 140, 134)),
+                  (33, 41, 7, 3.5, (120, 120, 116)), (32, 35.5, 5, 3, (150, 148, 142))]
+        for sx, sy, rx, ry, col in stones:
+            def fn(dx, dy, t, col=col):
+                return (shade(col, -dx * 12 - dy * 22 + rng.randint(-5, 5)), 255)
+            ground_ellipse(img, sx, sy, rx, ry, fn)
+        # a strip of cloth tied around the top stone
+        for x in range(28, 37):
+            put(img, x, 36, (150, 60, 52))
+        put(img, 37, 37, (150, 60, 52))
+        put(img, 38, 38, (130, 52, 46))
+    return img
+
+
+def add_legacy_props(img, sprites):
+    """Graves, a dropped pack and a retirement cairn, below the structure rows."""
+    y = 448
+    x = 0
+    for seed, kind in enumerate(("grave", "grave_cross", "pack", "cairn")):
+        prop = make_prop(kind, seed)
+        img.paste(prop, (x, y), prop)
+        sprites["prop_" + kind] = {"x": x, "y": y, "w": PROP, "h": PROP}
+        x += PROP
+
+    # A torn journal page lying flat (32x32, drawn at pickup size).
+    note = Image.new("RGBA", (ITEM_SIZE, ITEM_SIZE), (0, 0, 0, 0))
+    rng = random.Random(77)
+    paper = (214, 204, 176)
+    for py in range(10, 26):
+        for px in range(4, 28):
+            # a parallelogram lying on the iso ground
+            if abs((px - 16) * 0.5 + (py - 18)) > 6 or abs(px - 16 - (py - 18) * 0.6) > 11:
+                continue
+            put(note, px, py, shade(paper, rng.randint(-8, 6)))
+    for py in range(12, 25, 3):
+        for px in range(6, 26):
+            if note.getpixel((px, py))[3] and rng.random() < 0.7:
+                put(note, px, py, (110, 104, 96))
+    outline_opaque(note, (96, 86, 70))
+    img.paste(note, (x, y), note)
+    sprites["prop_note"] = {"x": x, "y": y, "w": ITEM_SIZE, "h": ITEM_SIZE}
 
 
 def main():

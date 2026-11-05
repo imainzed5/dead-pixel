@@ -99,6 +99,8 @@ DP_TEST(save_death_records_grave_and_advances_run)
     grave.day = 4;
     grave.runIndex = 1;
     grave.cause = "Bitten";
+    grave.items = {{0, 2}, {5, 1}};
+    grave.risen = true;
     DP_CHECK(save.recordDeath(grave));
     DP_CHECK_EQ(save.runNumber(), 2);
     DP_CHECK(save.currentRunSeed() != firstRunSeed);
@@ -111,6 +113,24 @@ DP_TEST(save_death_records_grave_and_advances_run)
     DP_CHECK_EQ(reloaded.graves()[0].day, 4);
     DP_CHECK_EQ(reloaded.graves()[0].cause, std::string("Bitten"));
     DP_CHECK_NEAR(reloaded.graves()[0].x, 320.0f, 0.001);
+    DP_CHECK(reloaded.graves()[0].risen);
+    DP_CHECK(!reloaded.graves()[0].laidToRest);
+    DP_CHECK_EQ(reloaded.graves()[0].items.size(), std::size_t{2});
+    DP_CHECK_EQ(reloaded.graves()[0].items[1].first, 5);
+
+    // A later run puts them down and takes the pack.
+    GraveRecord rested = reloaded.graves()[0];
+    rested.risen = false;
+    rested.laidToRest = true;
+    rested.items.clear();
+    reloaded.updateGrave(0, rested);
+    DP_CHECK(reloaded.flushLegacy());
+
+    SaveManager third;
+    DP_CHECK(third.loadOrCreateSlot("grave_slot"));
+    DP_CHECK(!third.graves()[0].risen);
+    DP_CHECK(third.graves()[0].laidToRest);
+    DP_CHECK(third.graves()[0].items.empty());
 }
 
 DP_TEST(save_world_memory_round_trips)

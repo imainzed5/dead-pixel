@@ -1,0 +1,57 @@
+# Legacy: three lives end in different ways, then the fourth finds what they left.
+# Checks the run-start card, risen/pack/grave/survivor leads, the town map (M),
+# the notebook (J), putting a risen down and searching their pack.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/legacy.txt --hidden --world-seed 1234 --shots shots/legacy
+
+# Run 1: overrun, so they rise.
+newrun
+waits 1
+hold D 40
+waits 0.5
+kill Overrun near the store
+waits 0.5
+
+# Run 2: starved, so they stay down and their pack waits by the grave.
+newrun
+waits 1
+hold A 60
+waits 0.5
+kill Starved
+waits 0.5
+
+# Run 3: retires, and stays on in town as a survivor.
+newrun
+waits 1
+hold S 30
+waits 0.3
+retire
+waits 0.5
+
+# Run 4: what is out there.
+newrun
+god on
+waits 1.5
+shot 01_run4_card
+tap M
+waits 0.4
+shot 02_town_map
+tap M
+waits 0.2
+tap J
+waits 0.4
+shot 03_notebook
+tap J
+waits 0.2
+goto risen
+waits 0.3
+shot 04_risen
+slay 3
+waits 0.5
+shot 05_laid_to_rest
+goto pack
+waits 0.3
+tap E
+waits 0.3
+shot 06_pack_open
+quit

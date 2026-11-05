@@ -26,7 +26,22 @@ void Game::beginDeathState(const std::string& cause)
     record.day = mCurrentDay;
     record.runIndex = runIndex;
     record.cause = cause;
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+        {
+            if (slot.itemId >= 0 && slot.count > 0)
+            {
+                record.items.emplace_back(slot.itemId, slot.count);
+            }
+        }
+    }
+    const bool infectedBite = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Wounds>(mPlayerEntity) &&
+                              hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity));
+    record.risen = legacy::shouldRise(cause, infectedBite);
 
+    // Earlier graves first (packs taken, risen put down), then this one.
+    syncLegacyToSave();
     mInteractionMessage = mSaveManager.recordDeath(record)
         ? "Their grave has been marked."
         : "Death recorded, but legacy write failed.";
@@ -74,6 +89,7 @@ void Game::beginRetirementState(const std::string& customCause)
     record.y = mDeathWorldPosition.y;
     record.day = mCurrentDay;
     record.runIndex = runIndex;
+    syncLegacyToSave();
     mSaveManager.recordRetirement(record);
 
     CharacterHistoryRecord history = runEndHistory(true, runIndex);
@@ -84,7 +100,20 @@ void Game::beginRetirementState(const std::string& customCause)
     mSaveManager.addCharacterHistoryRecord(history);
     addRunEndMemoryEvent(WorldMemoryEventType::RetirementPlaced, runIndex);
 
-    persistWorldForNextRun(runIndex);
+    // They stay on in town as a survivor, keeping to themselves.
+    const glm::ivec2 retireTile = worldToTile(mTileMap, mDeathWorldPosition);
+    SurvivorRecord retiree;
+    retiree.name = mCurrentCharacterName;
+    retiree.alive = true;
+    retiree.spawnDay = mCurrentDay;
+    retiree.x = mDeathWorldPosition.x;
+    retiree.y = mDeathWorldPosition.y;
+    retiree.aggression = 0.1f;
+    retiree.cooperation = 0.85f;
+    retiree.competence = std::clamp(0.3f + static_cast<float>(mCurrentDay) * 0.05f, 0.3f, 0.9f);
+    retiree.homeDistrictId = mTileMap.getDistrictId(retireTile.x, retireTile.y);
+
+    persistWorldForNextRun(runIndex, &retiree);
 
     // Balance instrumentation
     std::cout << "[Run End] Retirement - " << mCurrentCharacterName
@@ -151,7 +180,7 @@ void Game::addRunEndMemoryEvent(WorldMemoryEventType type, int runIndex)
 // Everything the next run inherits: structures and caches, cars, fires and
 // burn scars, survivors, looted spots and cumulative stats. The mid-run
 // checkpoint is deleted (death is permanent; retirement ends the run).
-void Game::persistWorldForNextRun(int runIndex)
+void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
 {
     {
         std::vector<StructureRecord> structRecords;
@@ -266,6 +295,10 @@ void Game::persistWorldForNextRun(int runIndex)
                 sr.homeDistrictId = ai.homeDistrictId;
                 survivorRecords.push_back(sr);
             });
+        if (retiree != nullptr)
+        {
+            survivorRecords.push_back(*retiree);
+        }
         mSaveManager.saveSurvivors(survivorRecords);
     }
 }
