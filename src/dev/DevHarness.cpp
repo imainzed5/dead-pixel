@@ -10,6 +10,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
+#include "components/Corpse.h"
 #include "components/Health.h"
 #include "components/Interactable.h"
 #include "components/Inventory.h"
@@ -690,7 +691,10 @@ void DevHarness::execute(Game& game, const Command& command)
                 ++count;
                 health += h.current;
             });
-        std::cout << "[harness] tick " << mTick << ": zombies " << count << " health " << static_cast<int>(health) << '\n';
+        int corpses = 0;
+        game.mWorld.forEach<Corpse>([&](Entity, Corpse&) { ++corpses; });
+        std::cout << "[harness] tick " << mTick << ": zombies " << count << " health " << static_cast<int>(health)
+                  << " corpses " << corpses << " kills " << game.mRunStats.kills << '\n';
     }
     else if (op == "log")
     {

@@ -57,8 +57,7 @@ private:
         Entity playerEntity,
         const glm::vec2& playerCenter,
         float facingRadians,
-        Combat& combat,
-        std::vector<Entity>& destroyedEntities);
+        Combat& combat);
 
     std::mt19937 mRng;
     std::uniform_real_distribution<float> mDist;

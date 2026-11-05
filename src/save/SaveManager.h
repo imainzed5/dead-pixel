@@ -69,6 +69,14 @@ struct ZombieRecord
     int spawnDay = 1;
 };
 
+// A body lying where a zombie fell.
+struct CorpseRecord
+{
+    float x = 0.0f; // Transform position (sprite top-left)
+    float y = 0.0f;
+    bool flipX = false;
+};
+
 struct FireTileRecord
 {
     int tileX = 0;
@@ -200,6 +208,7 @@ struct RunCheckpoint
     // Checkpoints from before zombies were saved leave this false.
     bool zombiesSaved = false;
     std::vector<ZombieRecord> zombies;
+    std::vector<CorpseRecord> corpses;
 };
 
 class SaveManager

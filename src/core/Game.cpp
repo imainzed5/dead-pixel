@@ -401,6 +401,9 @@ RunCheckpoint Game::buildRunCheckpoint()
             record.spawnDay = ai.spawnDay;
             cp.zombies.push_back(record);
         });
+    mWorld.forEach<Corpse, Transform, Sprite>(
+        [&](Entity, Corpse&, Transform& transform, Sprite& sprite)
+        { cp.corpses.push_back(CorpseRecord{transform.x, transform.y, sprite.flipX}); });
     return cp;
 }
 
@@ -544,6 +547,7 @@ void Game::registerComponents()
     mWorld.registerComponent<Traits>();
     mWorld.registerComponent<SurvivorAI>();
     mWorld.registerComponent<LegacyLink>();
+    mWorld.registerComponent<Corpse>();
 }
 
 void Game::startNewRun()

@@ -372,6 +372,12 @@ something the next one can find and act on:
   walk cycles, crouch and crouch-walk (bent knees), a swing, a zombie lunge
   with arms out, and lying dead. The player wears a backpack; zombies shamble,
   hunched, arms reaching. Script: `tools/harness/facing.txt`.
+- **Bodies stay down:** a zombie put down leaves its body lying in a pool of
+  blood (the risen still become graves). Bodies last the run, up to 60 with
+  the oldest cleared first, and checkpoints keep them. Melee kills now count:
+  the combat system used to delete its kills before the kill counter saw
+  them, so they never reached the run's kills or desensitisation. Harness:
+  `zombies` also prints bodies and kills; script: `tools/harness/corpses.txt`.
 
 ## Known issues found during revival
 
@@ -409,6 +415,8 @@ something the next one can find and act on:
   sprites~~ (fixed: their loot goes into furniture).
 - ~~Character sprites face only up/down/right; isometric movement is
   diagonal~~ (fixed: front and back views, mirrored, picked on screen).
+- ~~Melee kills never counted toward kills or desensitisation~~ (fixed: the
+  game counts every death before clearing the body away).
 - ~~Notebook, world map and minimap text rendered as garbage~~ (fixed: each
   UI layer draws its shapes with the sprite sheet, then all of its text with
   the font atlas).
@@ -454,4 +462,6 @@ something the next one can find and act on:
   (`5340380`); caches go into furniture (`513076d`); checkpoints keep
   zombies (`8a689f1`).
 - 2026-11-06: Characters redrawn with front and back views, mirrored, facing
-  picked on screen; crouch, swing, lunge and dead poses.
+  picked on screen; crouch, swing, lunge and dead poses (`9768b05`).
+- 2026-11-06: Bodies stay where zombies fall and persist in checkpoints;
+  melee kills counted.

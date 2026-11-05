@@ -7,6 +7,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include "components/Corpse.h"
 #include "components/PlayerInput.h"
 #include "components/Sprite.h"
 #include "components/SurvivorAI.h"
@@ -151,7 +152,8 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
         const bool isHumanoid =
             world.hasComponent<PlayerInput>(command.entity) ||
             world.hasComponent<ZombieAI>(command.entity) ||
-            world.hasComponent<SurvivorAI>(command.entity);
+            world.hasComponent<SurvivorAI>(command.entity) ||
+            world.hasComponent<Corpse>(command.entity);
 
         const float visualYOffset = isHumanoid ? (kHumanoidFootPadding * scaledSize) : 0.0f;
 

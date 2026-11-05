@@ -13,6 +13,7 @@
 #include "components/Animation.h"
 #include "components/Bleeding.h"
 #include "components/Combat.h"
+#include "components/Corpse.h"
 #include "components/Fire.h"
 #include "components/Facing.h"
 #include "components/Health.h"

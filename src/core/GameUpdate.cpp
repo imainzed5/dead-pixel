@@ -518,19 +518,59 @@ void Game::update(float dtSeconds)
             });
     }
 
-    // Clear away the dead however they died. Melee kills are removed by the
-    // combat system; burned or shot zombies used to stay standing, frozen,
-    // and kept anyone nearby from sleeping.
+    // Clear away the dead however they died, once their kills are counted,
+    // and leave a body where each one fell. (The risen become graves instead.)
     {
-        std::vector<Entity> dead;
+        struct Fallen
+        {
+            Entity zombie;
+            bool leavesBody;
+        };
+        std::vector<Fallen> dead;
         mWorld.forEach<ZombieAI, Health>(
             [&](Entity zombie, ZombieAI&, Health& h)
             {
-                if (h.current <= 0.0f) dead.push_back(zombie);
+                if (h.current <= 0.0f)
+                {
+                    dead.push_back(Fallen{zombie, !mWorld.hasComponent<LegacyLink>(zombie) &&
+                                                      mWorld.hasComponent<Transform>(zombie) &&
+                                                      mWorld.hasComponent<Sprite>(zombie)});
+                }
             });
-        for (const Entity zombie : dead)
+        for (const Fallen& fallen : dead)
         {
-            mWorld.destroyEntity(zombie);
+            if (fallen.leavesBody)
+            {
+                const Transform& t = mWorld.getComponent<Transform>(fallen.zombie);
+                const Sprite& s = mWorld.getComponent<Sprite>(fallen.zombie);
+                const glm::vec2 topLeft(t.x, t.y);
+                const bool flipX = s.flipX;
+                const glm::vec4 tint = s.color;
+                mWorld.destroyEntity(fallen.zombie);
+                spawnCorpse(topLeft, flipX, tint);
+            }
+            else
+            {
+                mWorld.destroyEntity(fallen.zombie);
+            }
+        }
+
+        // Bodies stay for the run, up to a limit; the oldest go first.
+        std::vector<std::pair<float, Entity>> bodies;
+        mWorld.forEach<Corpse>(
+            [&](Entity corpse, Corpse& c)
+            {
+                c.age += dtSeconds;
+                bodies.emplace_back(c.age, corpse);
+            });
+        if (bodies.size() > kMaxCorpses)
+        {
+            std::sort(bodies.begin(), bodies.end(),
+                      [](const auto& a, const auto& b) { return a.first > b.first; });
+            for (std::size_t i = 0; i < bodies.size() - kMaxCorpses; ++i)
+            {
+                mWorld.destroyEntity(bodies[i].second);
+            }
         }
     }
 
@@ -876,6 +916,24 @@ const char* viewSuffix(bool away)
     return away ? "_back" : "_front";
 }
 } // namespace
+
+void Game::spawnCorpse(const glm::vec2& topLeft, bool flipX, const glm::vec4& tint)
+{
+    Transform body{};
+    body.x = body.prevX = topLeft.x;
+    body.y = body.prevY = topLeft.y;
+    Sprite sprite{};
+    sprite.textureId = mSpriteSheet.textureId();
+    sprite.uvRect = mSpriteSheet.uvRect("zombie_dead");
+    sprite.color = tint;
+    sprite.layer = 3; // on the floor, under anything standing
+    sprite.drawSize = SpriteSizes::kHumanoid;
+    sprite.flipX = flipX;
+    const Entity corpse = mWorld.createEntity();
+    mWorld.addComponent<Transform>(corpse, body);
+    mWorld.addComponent<Sprite>(corpse, sprite);
+    mWorld.addComponent<Corpse>(corpse, Corpse{});
+}
 
 // Character animation: which pose, which way they face on screen.
 void Game::updateAnimations(float dtSeconds)

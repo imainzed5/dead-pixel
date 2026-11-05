@@ -216,6 +216,8 @@ private:
     void restoreTownFromCheckpoint(const RunCheckpoint& cp);
     void spawnScorchMark(int tileX, int tileY);
     void spawnFireTile(const FireTileRecord& record, float spreadPhase);
+    // A body on the floor where a zombie fell (sprite top-left, mirrored or not).
+    void spawnCorpse(const glm::vec2& topLeft, bool flipX, const glm::vec4& tint);
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
 
     LaunchOptions mLaunchOptions;
@@ -395,6 +397,7 @@ private:
     // Flashlight (Q): a beam at night that zombies can see from afar.
     bool mFlashlightOn = false;
     static constexpr float kFlashlightRangeTiles = 9.0f;
+    static constexpr std::size_t kMaxCorpses = 60; // bodies left lying in a run
     static constexpr float kFlashlightHalfAngleDegrees = 26.0f;
 
     double mFpsTimer = 0.0;

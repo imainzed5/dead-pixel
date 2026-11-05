@@ -1208,6 +1208,11 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         json["zombies"].push_back({{"x", z.x}, {"y", z.y}, {"hp", z.health}, {"maxHp", z.maxHealth},
                                    {"speed", z.baseMoveSpeed}, {"day", z.spawnDay}});
     }
+    json["corpses"] = nlohmann::json::array();
+    for (const CorpseRecord& c : cp.corpses)
+    {
+        json["corpses"].push_back({{"x", c.x}, {"y", c.y}, {"flip", c.flipX}});
+    }
 
     const std::string tempPath = mCheckpointPath + ".tmp";
     {
@@ -1343,6 +1348,17 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             {
                 cp.zombies.push_back(z);
             }
+        }
+    }
+    if (json.contains("corpses") && json["corpses"].is_array())
+    {
+        for (const auto& cj : json["corpses"])
+        {
+            CorpseRecord c;
+            c.x = cj.value("x", 0.0f);
+            c.y = cj.value("y", 0.0f);
+            c.flipX = cj.value("flip", false);
+            cp.corpses.push_back(c);
         }
     }
 

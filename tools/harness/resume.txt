@@ -10,7 +10,7 @@ zombies
 enter 4
 slay 12
 waits 0.5
-# Fewer walking now; the checkpoint must keep it that way.
+# Fewer walking now and three bodies down; the checkpoint must keep both.
 zombies
 shot 01_cleared
 save

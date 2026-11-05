@@ -210,6 +210,7 @@ DP_TEST(save_checkpoint_round_trips_and_is_run_scoped)
     ZombieRecord dead = zombie;
     dead.health = 0.0f;
     cp.zombies = {zombie, dead};
+    cp.corpses = {CorpseRecord{200.0f, 64.0f, true}};
     DP_CHECK(save.saveCheckpoint(cp));
 
     const RunCheckpoint loaded = save.loadCheckpoint();
@@ -239,6 +240,9 @@ DP_TEST(save_checkpoint_round_trips_and_is_run_scoped)
     DP_CHECK_NEAR(loaded.zombies[0].health, 18.0f, 0.001);
     DP_CHECK_NEAR(loaded.zombies[0].maxHealth, 55.0f, 0.001);
     DP_CHECK_EQ(loaded.zombies[0].spawnDay, 2);
+    DP_CHECK_EQ(loaded.corpses.size(), std::size_t{1});
+    DP_CHECK_NEAR(loaded.corpses[0].x, 200.0f, 0.001);
+    DP_CHECK(loaded.corpses[0].flipX);
 
     // A death ends the run: the old checkpoint must not restore into the next run.
     GraveRecord grave;

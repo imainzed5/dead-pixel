@@ -104,6 +104,10 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
             mWorld.getComponent<Health>(zombie).current = record.health;
         }
     }
+    for (const CorpseRecord& record : cp.corpses)
+    {
+        spawnCorpse(glm::vec2(record.x, record.y), record.flipX, glm::vec4(1.0f));
+    }
 }
 
 void Game::setupScene()
