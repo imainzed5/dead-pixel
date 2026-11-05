@@ -3,6 +3,7 @@
 #include <GL/glew.h>
 #include <SDL.h>
 
+#include <array>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 
@@ -111,6 +112,24 @@ private:
         float titleScale = 2.0f;
         float lineScale = 2.0f;
     };
+    struct CraftingLayout
+    {
+        glm::vec2 pos{0.0f};
+        glm::vec2 size{0.0f};
+        std::array<glm::vec4, 3> tabs{}; // x, y, w, h
+        glm::vec2 listPos{0.0f};
+        float listW = 0.0f;
+        float rowH = 0.0f;
+        int maxRows = 1;
+        glm::vec2 detailPos{0.0f};
+        float detailW = 0.0f;
+        float detailBottom = 0.0f;
+        float footerY = 0.0f;
+    };
+    // Shared by drawing and mouse hit-testing.
+    [[nodiscard]] CraftingLayout craftingLayout() const;
+    // First visible row of the recipe list, keeping the cursor in view.
+    [[nodiscard]] int craftingListScroll(int count, int maxRows) const;
     void updateDoors(float dtSeconds);
     // Every door closed, except those broken down in earlier runs.
     void resetDoors();
@@ -322,9 +341,8 @@ private:
     int mCraftingRecipeCursor = 0;
     int mCraftingQuantity = 1;
     int mCraftingCategory = 0; // 0=ALL, 1=TOOLS, 2=MED
-    bool mCraftingNotebookView = false;
     std::vector<std::pair<int, int>> mSessionDiscoveredRecipes;
-    bool mCraftingRenderTextPass = false;
+    glm::vec2 mCraftingLastMouse{-1.0f};
 
     struct CraftQueueEntry
     {

@@ -31,6 +31,11 @@ struct ItemDef
     bool curesInfection = false;
     float spoilHours = 0.0f;
     int weaponCategory = -1; // -1 = not a weapon
+    // Crafted weapons improve on their category's stats.
+    float weaponDamageScale = 1.0f;
+    float weaponRangeScale = 1.0f;
+    float weaponDurabilityScale = 1.0f;
+    bool weaponCausesBleeding = false;
 };
 
 class ItemDatabase

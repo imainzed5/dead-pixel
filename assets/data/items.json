@@ -270,11 +270,13 @@
       "weight": 0.1,
       "maxStack": 5,
       "sprite": "item_bandage",
-      "woundTreatment": 1,
+      "woundTreatment": 2,
       "stopsBleeding": true,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "curesInfection": true,
+      "illnessRelief": 10.0
     },
     {
       "id": 25,
@@ -305,7 +307,21 @@
       "weight": 1.8,
       "maxStack": 1,
       "sprite": "item_bat",
-      "weaponCategory": 2
+      "weaponCategory": 2,
+      "damageScale": 1.35,
+      "durabilityScale": 1.5,
+      "causesBleeding": true
+    },
+    {
+      "id": 28,
+      "name": "Spear",
+      "category": "weapon",
+      "weight": 1.6,
+      "maxStack": 1,
+      "sprite": "item_pipe",
+      "weaponCategory": 1,
+      "rangeScale": 1.6,
+      "damageScale": 0.85
     }
   ]
 }

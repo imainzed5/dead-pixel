@@ -993,6 +993,18 @@ inline const char* weatherConditionLabel(WeatherCondition condition)
     return "Clear";
 }
 
+// A weapon item's stats: its category's, improved by the item's own scales.
+inline WeaponStats weaponStatsForItem(const ItemDef& item)
+{
+    WeaponStats stats = makeWeaponStats(static_cast<WeaponCategory>(std::max(0, item.weaponCategory)));
+    stats.damage *= item.weaponDamageScale;
+    stats.rangePixels *= item.weaponRangeScale;
+    stats.maxDurability = std::max(1, static_cast<int>(std::round(static_cast<float>(stats.maxDurability) * item.weaponDurabilityScale)));
+    stats.durability = stats.maxDurability;
+    stats.causesBleeding = stats.causesBleeding || item.weaponCausesBleeding;
+    return stats;
+}
+
 inline const char* craftingCategoryLabel(int category)
 {
     switch (category)

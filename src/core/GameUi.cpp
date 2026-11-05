@@ -276,9 +276,40 @@ void Game::renderNotebookOverlay()
     // Sized to what it holds: header, two sections, totals.
     const std::size_t leadRows = std::max<std::size_t>(1, std::min(leads.size(), kMaxLeads));
     const std::size_t historyRows = std::max<std::size_t>(1, std::min(history.size(), kMaxHistory));
+    // Recipes written down, as wrapped lines of names.
+    std::vector<std::string> knownLines;
+    {
+        std::string names;
+        for (const auto& [a, b] : mSaveManager.discoveredRecipes())
+        {
+            const CraftingRecipe* recipe = mCraftingSystem.findRecipe(a, b);
+            if (recipe == nullptr) continue;
+            names += (names.empty() ? "" : ", ") + recipe->label;
+        }
+        if (names.empty())
+        {
+            names = "Nothing written down. Carry a notebook item when you work out a recipe.";
+        }
+        const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, (std::min(900.0f, w - 40.0f) - 56.0f) / (6.0f * kBody)));
+        std::istringstream words(names);
+        std::string word;
+        std::string line;
+        while (words >> word)
+        {
+            if (!line.empty() && line.size() + 1 + word.size() > maxChars)
+            {
+                knownLines.push_back(line);
+                line.clear();
+            }
+            line += (line.empty() ? "" : " ") + word;
+        }
+        if (!line.empty()) knownLines.push_back(line);
+        if (knownLines.size() > 3) knownLines.resize(3);
+    }
     const float contentH = 22.0f + bodyLine + 2.0f + 30.0f +
                            18.0f + static_cast<float>(leadRows) * bodyLine + (leads.size() > kMaxLeads ? 16.0f : 0.0f) + 14.0f +
-                           18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) +
+                           18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) + 14.0f +
+                           18.0f + static_cast<float>(knownLines.size()) * bodyLine +
                            44.0f;
     const float panelW = std::min(900.0f, w - 40.0f);
     const float panelH = std::min(contentH, h - 40.0f);
@@ -387,6 +418,26 @@ void Game::renderNotebookOverlay()
     if (shown < history.size())
     {
         mFont.drawText(mSpriteBatch, glm::vec2(left, y), "and " + std::to_string(history.size() - shown) + " before them", dimInk, 1.0f);
+        y += 16.0f;
+    }
+    else if (history.empty())
+    {
+        y += bodyLine;
+    }
+    y += 14.0f;
+
+    // What earlier lives worked out and wrote down.
+    if (y + 18.0f + bodyLine < statsY - 6.0f)
+    {
+        heading(y, "WHAT WE KNOW");
+        y += 18.0f;
+        const bool none = mSaveManager.discoveredRecipes().empty();
+        for (const std::string& line : knownLines)
+        {
+            if (y + bodyLine >= statsY - 6.0f) break;
+            mFont.drawText(mSpriteBatch, glm::vec2(left, y), line, none ? dimInk : ink, kBody);
+            y += bodyLine;
+        }
     }
 
     // Totals across every run in this town.
@@ -687,6 +738,40 @@ void Game::renderInventoryOverlay()
                    glm::vec4(0.54f, 0.54f, 0.50f, 0.9f), 1.0f, TextAlign::Center);
 }
 
+Game::CraftingLayout Game::craftingLayout() const
+{
+    CraftingLayout layout;
+    const float w = static_cast<float>(mWindowWidth);
+    const float h = static_cast<float>(mWindowHeight);
+    layout.size = glm::vec2(std::min(980.0f, w - 32.0f), std::min(620.0f, h - 48.0f));
+    layout.pos = glm::floor((glm::vec2(w, h) - layout.size) * 0.5f);
+
+    // Category tabs, right-aligned in the header.
+    float tabRight = layout.pos.x + layout.size.x - 24.0f;
+    for (int i = 2; i >= 0; --i)
+    {
+        const float tabW = mFont.measureText(craftingCategoryLabel(i), 2.0f).x + 24.0f;
+        tabRight -= tabW;
+        layout.tabs[static_cast<std::size_t>(i)] = glm::vec4(tabRight, layout.pos.y + 18.0f, tabW, 30.0f);
+        tabRight -= 6.0f;
+    }
+
+    layout.footerY = layout.pos.y + layout.size.y - 44.0f;
+    layout.listPos = glm::vec2(layout.pos.x + 16.0f, layout.pos.y + 76.0f);
+    layout.listW = 330.0f;
+    layout.rowH = 40.0f;
+    layout.maxRows = std::max(1, static_cast<int>((layout.footerY - 8.0f - layout.listPos.y) / layout.rowH));
+    layout.detailPos = glm::vec2(layout.listPos.x + layout.listW + 24.0f, layout.pos.y + 80.0f);
+    layout.detailW = layout.pos.x + layout.size.x - 24.0f - layout.detailPos.x;
+    layout.detailBottom = layout.footerY - 12.0f;
+    return layout;
+}
+
+int Game::craftingListScroll(int count, int maxRows) const
+{
+    return std::clamp(mCraftingRecipeCursor - maxRows + 1, 0, std::max(0, count - maxRows));
+}
+
 void Game::renderCraftingOverlay()
 {
     if (!mShowCrafting || mRunState != RunState::Playing ||
@@ -696,411 +781,357 @@ void Game::renderCraftingOverlay()
     }
 
     const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-    const auto visible = buildVisibleRecipeList(
-        mCraftingSystem,
-        mSaveManager,
-        inv,
-        mSessionDiscoveredRecipes,
-        mCraftingCategory);
-
+    const auto visible = buildVisibleRecipeList(mCraftingSystem, mSaveManager, inv, mSessionDiscoveredRecipes, mCraftingCategory);
     const auto& recipes = mCraftingSystem.recipes();
+    const CraftingLayout layout = craftingLayout();
 
-    // Sample a single texel from the center of solid_white to avoid atlas edge bleeding
-    // when drawing large stretched UI quads.
-    const glm::vec4 uiUvRegion = mSpriteSheet.uvRect("solid_white");
-    const glm::vec4 uiUv(
-        uiUvRegion.x + uiUvRegion.z * 0.5f,
-        uiUvRegion.y + uiUvRegion.w * 0.5f,
-        0.0f,
-        0.0f);
+    const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
+    const glm::vec4 ink(0.90f, 0.88f, 0.80f, 1.0f);
+    const glm::vec4 dimInk(0.62f, 0.60f, 0.55f, 1.0f);
+    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const glm::vec4 good(0.50f, 0.86f, 0.48f, 1.0f);
+    const glm::vec4 bad(0.94f, 0.46f, 0.40f, 1.0f);
+    const float bodyLine = mFont.lineHeight(2.0f) + 6.0f;
 
-    const float pad = 0.0f;
-    const float w = static_cast<float>(mWindowWidth);
-    const float h = static_cast<float>(mWindowHeight);
-
-    const float listW = std::max(260.0f, w * 0.17f);
-    const float invW = std::max(260.0f, w * 0.19f);
-    const float detailX = listW + pad;
-    const float detailW = w - listW - invW - pad * 2.0f;
-    const float invX = w - invW;
-
-    auto drawRect = [&](const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color)
+    const auto rect = [&](const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color)
     {
-        if (!mCraftingRenderTextPass)
+        mSpriteBatch.draw(pos, size, white, color);
+    };
+    const auto text = [&](const glm::vec2& pos, const std::string& s, const glm::vec4& color, float scale)
+    {
+        mFont.drawText(mSpriteBatch, pos, s, color, scale);
+    };
+    const auto textRight = [&](float right, float y, const std::string& s, const glm::vec4& color, float scale)
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(right - mFont.measureText(s, scale).x, y), s, color, scale);
+    };
+    const auto fit = [&](const std::string& s, float width, float scale)
+    {
+        return truncateHudText(s, static_cast<std::size_t>(std::max(4.0f, width / (6.0f * scale))));
+    };
+    const auto wrap = [&](const std::string& s, float width, float scale)
+    {
+        const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, width / (6.0f * scale)));
+        std::vector<std::string> lines;
+        std::string line;
+        std::istringstream words(s);
+        std::string word;
+        while (words >> word)
         {
-            mSpriteBatch.draw(pos, size, uiUv, color);
+            if (!line.empty() && line.size() + 1 + word.size() > maxChars)
+            {
+                lines.push_back(line);
+                line.clear();
+            }
+            line += (line.empty() ? "" : " ") + word;
+        }
+        if (!line.empty()) lines.push_back(line);
+        return lines;
+    };
+    const auto itemIcon = [&](const glm::vec2& pos, float size, int itemId, float alpha)
+    {
+        const ItemDef* def = mItemDatabase.find(itemId);
+        rect(pos, glm::vec2(size), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
+        if (def != nullptr && !def->sprite.empty())
+        {
+            mSpriteBatch.draw(pos, glm::vec2(size), mSpriteSheet.uvRect(def->sprite), glm::vec4(1.0f, 1.0f, 1.0f, alpha));
         }
     };
-
-    auto drawText = [&](const glm::vec2& pos, const std::string& text, const glm::vec4& color, float scale, TextAlign align = TextAlign::Left)
+    const auto unknownIcon = [&](const glm::vec2& pos, float size)
     {
-        if (mCraftingRenderTextPass)
-        {
-            const glm::vec4 shadowColor(0.0f, 0.0f, 0.0f, std::min(1.0f, color.a * 0.9f));
-            mFont.drawText(mSpriteBatch, pos + glm::vec2(1.0f, 1.0f), text, shadowColor, scale, align);
-            mFont.drawText(mSpriteBatch, pos, text, color, scale, align);
-        }
+        rect(pos, glm::vec2(size), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
+        const float scale = size >= 48.0f ? 4.0f : 2.0f;
+        const glm::vec2 q = mFont.measureText("?", scale);
+        text(glm::floor(pos + (glm::vec2(size) - q) * 0.5f), "?", dimInk, scale);
     };
-
-    auto isDiscovered = [&](const CraftingRecipe& recipe) -> bool
+    const auto heading = [&](float x, float y, float width, const std::string& s)
+    {
+        text(glm::vec2(x, y), s, gold, 1.0f);
+        const float end = x + mFont.measureText(s, 1.0f).x + 10.0f;
+        rect(glm::vec2(end, y + 4.0f), glm::vec2(x + width - end, 1.0f), glm::vec4(gold.r, gold.g, gold.b, 0.35f));
+    };
+    const auto isDiscovered = [&](const CraftingRecipe& recipe)
     {
         return recipe.startsKnown ||
             mSaveManager.isRecipeDiscovered(recipe.inputA, recipe.inputB) ||
-            std::find(
-                mSessionDiscoveredRecipes.begin(),
-                mSessionDiscoveredRecipes.end(),
-                CraftingSystem::normalizePair(recipe.inputA, recipe.inputB)) != mSessionDiscoveredRecipes.end();
+            std::find(mSessionDiscoveredRecipes.begin(), mSessionDiscoveredRecipes.end(),
+                      CraftingSystem::normalizePair(recipe.inputA, recipe.inputB)) != mSessionDiscoveredRecipes.end();
     };
-
-    // Dim whole scene and column backgrounds.
-    drawRect(glm::vec2(0.0f, 0.0f), glm::vec2(w, h), glm::vec4(0.0f, 0.0f, 0.0f, 0.82f));
-    drawRect(glm::vec2(0.0f, 0.0f), glm::vec2(listW, h), glm::vec4(0.035f, 0.042f, 0.05f, 1.0f));
-    drawRect(glm::vec2(detailX, 0.0f), glm::vec2(detailW, h), glm::vec4(0.045f, 0.05f, 0.058f, 1.0f));
-    drawRect(glm::vec2(invX, 0.0f), glm::vec2(invW, h), glm::vec4(0.052f, 0.057f, 0.064f, 1.0f));
-    drawRect(glm::vec2(0.0f, 0.0f), glm::vec2(w, 40.0f), glm::vec4(0.01f, 0.01f, 0.015f, 0.75f));
-    drawRect(glm::vec2(listW - 1.0f, 0.0f), glm::vec2(1.0f, h), glm::vec4(0.16f, 0.14f, 0.10f, 0.95f));
-    drawRect(glm::vec2(invX, 0.0f), glm::vec2(1.0f, h), glm::vec4(0.16f, 0.14f, 0.10f, 0.95f));
-
-    drawText(glm::vec2(12.0f, 12.0f), "CRAFTING", glm::vec4(0.92f, 0.84f, 0.58f, 1.0f), 1.95f);
-    drawText(glm::vec2(invX + 12.0f, 12.0f), "INVENTORY", glm::vec4(0.84f, 0.86f, 0.88f, 1.0f), 1.95f);
-
-    // Search strip (visual only for now).
-    drawRect(glm::vec2(0.0f, 44.0f), glm::vec2(listW, 32.0f), glm::vec4(0.02f, 0.02f, 0.024f, 0.96f));
-    drawText(glm::vec2(14.0f, 54.0f), "> search recipes...", glm::vec4(0.52f, 0.55f, 0.56f, 0.95f), 1.05f);
-
-    // Category tabs.
-    const float tabY = 78.0f;
-    const float tabW = listW / 3.0f;
-    const float tabH = 46.0f;
-    const float tabTextScale = 1.28f;
-    for (int i = 0; i < 3; ++i)
+    const auto itemName = [&](int itemId)
     {
-        const float x0 = std::floor(tabW * static_cast<float>(i));
-        const float x1 = (i == 2) ? listW : std::floor(tabW * static_cast<float>(i + 1));
-        const float tabWidth = std::max(1.0f, x1 - x0);
-        const bool active = (i == mCraftingCategory);
-        drawRect(
-            glm::vec2(x0, tabY),
-            glm::vec2(tabWidth, tabH),
-            active ? glm::vec4(0.13f, 0.11f, 0.08f, 0.95f) : glm::vec4(0.05f, 0.05f, 0.05f, 0.95f));
-        drawText(
-            glm::vec2(x0 + tabWidth * 0.5f, tabY + 15.0f),
-            craftingCategoryLabel(i),
-            active ? glm::vec4(0.90f, 0.78f, 0.45f, 0.95f) : glm::vec4(0.40f, 0.40f, 0.36f, 0.9f),
-            tabTextScale,
-            TextAlign::Center);
-    }
-
-    // Recipe list (name + craftability dot).
-    float rowY = tabY + tabH + 8.0f;
-    const float rowH = 58.0f;
-
-    for (std::size_t listIndex = 0; listIndex < visible.size(); ++listIndex)
+        const ItemDef* def = mItemDatabase.find(itemId);
+        return def != nullptr ? def->name : std::string("something");
+    };
+    // For an undiscovered recipe: the half you hold, and a clue to the other.
+    const auto heldHalf = [&](const CraftingRecipe& recipe, std::string& clue)
     {
-        const std::size_t recipeIndex = visible[listIndex];
-        const CraftingRecipe& recipe = recipes[recipeIndex];
-        const bool selected = static_cast<int>(listIndex) == mCraftingRecipeCursor;
-        const bool discovered = isDiscovered(recipe);
-        const bool craftable =
-            discovered &&
-            hasCraftIngredients(inv, recipe, 1) &&
-            hasCraftTools(inv, recipe) &&
-            (!recipe.requiresWorkbench || hasNearbyWorkbench(mWorld, mPlayerEntity));
-
-        drawRect(
-            glm::vec2(0.0f, rowY),
-            glm::vec2(listW, rowH),
-            selected ? glm::vec4(0.165f, 0.12f, 0.07f, 0.98f) : glm::vec4(0.028f, 0.03f, 0.034f, 0.95f));
-
-        drawRect(
-            glm::vec2(0.0f, rowY),
-            glm::vec2(3.0f, rowH),
-            selected ? glm::vec4(0.90f, 0.72f, 0.30f, 0.95f) : glm::vec4(0.16f, 0.18f, 0.20f, 0.80f));
-
-        drawText(
-            glm::vec2(14.0f, rowY + 18.0f),
-            discovered ? recipe.label : "???",
-            discovered ? glm::vec4(0.94f, 0.88f, 0.74f, 1.0f) : glm::vec4(0.68f, 0.70f, 0.72f, 0.92f),
-            1.75f);
-
-        drawRect(
-            glm::vec2(listW - 14.0f, rowY + 24.0f),
-            glm::vec2(6.0f, 6.0f),
-            craftable ? glm::vec4(0.25f, 0.75f, 0.30f, 1.0f) : glm::vec4(0.55f, 0.20f, 0.20f, 1.0f));
-
-        rowY += rowH;
-        if (rowY > h - 90.0f)
+        if (InventorySystem::countItem(inv, recipe.inputA) > 0)
         {
-            break;
+            clue = recipe.hintB;
+            return recipe.inputA;
+        }
+        clue = recipe.hintA;
+        return recipe.inputB;
+    };
+    const ItemDef* notebookDef = mItemDatabase.findByName("Notebook");
+    const bool hasNotebook = notebookDef != nullptr && InventorySystem::countItem(inv, notebookDef->id) > 0;
+    const bool nearWorkbench = hasNearbyWorkbench(mWorld, mPlayerEntity);
+
+    // Backdrop and panel.
+    rect(glm::vec2(0.0f), glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
+         glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
+    rect(layout.pos, layout.size, glm::vec4(0.06f, 0.055f, 0.05f, 0.97f));
+    rect(layout.pos, glm::vec2(layout.size.x, 3.0f), gold);
+
+    // Header: title and category tabs (the notebook view has no tabs).
+    text(layout.pos + glm::vec2(24.0f, 20.0f), "CRAFTING", gold, 3.0f);
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            const glm::vec4 tab = layout.tabs[static_cast<std::size_t>(i)];
+            const bool active = i == mCraftingCategory;
+            rect(glm::vec2(tab.x, tab.y), glm::vec2(tab.z, tab.w),
+                 active ? glm::vec4(0.20f, 0.16f, 0.09f, 1.0f) : glm::vec4(0.09f, 0.085f, 0.08f, 1.0f));
+            if (active)
+            {
+                rect(glm::vec2(tab.x, tab.y + tab.w - 2.0f), glm::vec2(tab.z, 2.0f), gold);
+            }
+            text(glm::vec2(tab.x + 12.0f, tab.y + 6.0f), craftingCategoryLabel(i), active ? gold : dimInk, 2.0f);
         }
     }
+    rect(glm::vec2(layout.pos.x + 16.0f, layout.pos.y + 64.0f), glm::vec2(layout.size.x - 32.0f, 1.0f),
+         glm::vec4(gold.r, gold.g, gold.b, 0.25f));
+
+    // Footer: the keys.
+    rect(glm::vec2(layout.pos.x + 16.0f, layout.footerY), glm::vec2(layout.size.x - 32.0f, 1.0f),
+         glm::vec4(gold.r, gold.g, gold.b, 0.25f));
+    {
+        const std::string keys = "W/S choose   A/D tab   Enter craft   +/- amount   X stop   N close";
+        const float scale = mFont.measureText(keys, 2.0f).x <= layout.size.x - 48.0f ? 2.0f : 1.0f;
+        text(glm::vec2(layout.pos.x + 24.0f, layout.footerY + 14.0f), keys, dimInk, scale);
+    }
+
+    const float dx = layout.detailPos.x;
+    const float dy = layout.detailPos.y;
+    const float dw = layout.detailW;
+
+    // Recipe list.
+    const int count = static_cast<int>(visible.size());
+    const int first = craftingListScroll(count, layout.maxRows);
+    if (visible.empty())
+    {
+        for (const std::string& line : wrap("Nothing to make yet.", layout.listW - 16.0f, 2.0f))
+        {
+            text(layout.listPos + glm::vec2(8.0f, 10.0f), line, dimInk, 2.0f);
+        }
+    }
+    for (int row = 0; row < layout.maxRows && first + row < count; ++row)
+    {
+        const int listIndex = first + row;
+        const CraftingRecipe& recipe = recipes[visible[static_cast<std::size_t>(listIndex)]];
+        const bool selected = listIndex == mCraftingRecipeCursor;
+        const bool known = isDiscovered(recipe);
+        const bool craftable = known && hasCraftIngredients(inv, recipe, 1) && hasCraftTools(inv, recipe) &&
+                               (!recipe.requiresWorkbench || nearWorkbench);
+        const glm::vec2 rowPos = layout.listPos + glm::vec2(0.0f, static_cast<float>(row) * layout.rowH);
+
+        rect(rowPos, glm::vec2(layout.listW, layout.rowH - 2.0f),
+             selected ? glm::vec4(0.19f, 0.15f, 0.09f, 1.0f) : glm::vec4(0.085f, 0.08f, 0.072f, 1.0f));
+        if (selected)
+        {
+            rect(rowPos, glm::vec2(3.0f, layout.rowH - 2.0f), gold);
+        }
+
+        const glm::vec2 iconPos = rowPos + glm::vec2(8.0f, 3.0f);
+        std::string label;
+        if (known)
+        {
+            itemIcon(iconPos, 32.0f, recipe.outputItemId, 1.0f);
+            label = recipe.label;
+        }
+        else
+        {
+            unknownIcon(iconPos, 32.0f);
+            std::string clue;
+            label = itemName(heldHalf(recipe, clue)) + " + ?";
+        }
+        text(rowPos + glm::vec2(50.0f, 11.0f), fit(label, layout.listW - 50.0f - 24.0f, 2.0f), known ? ink : dimInk, 2.0f);
+        rect(rowPos + glm::vec2(layout.listW - 16.0f, 15.0f), glm::vec2(8.0f),
+             craftable ? good : (known ? glm::vec4(0.55f, 0.30f, 0.26f, 1.0f) : glm::vec4(0.32f, 0.31f, 0.29f, 1.0f)));
+    }
+    if (first > 0)
+    {
+        textRight(layout.listPos.x + layout.listW, layout.listPos.y - 12.0f, "more above", dimInk, 1.0f);
+    }
+    if (first + layout.maxRows < count)
+    {
+        textRight(layout.listPos.x + layout.listW, layout.listPos.y + static_cast<float>(layout.maxRows) * layout.rowH,
+                  "more below", dimInk, 1.0f);
+    }
+
+    // Recent message (crafting results, discoveries) above the action area.
+    const auto drawMessage = [&](float bottom)
+    {
+        if (mInteractionMessage.empty() || mInteractionMessageTimer <= 0.0f) return;
+        const auto lines = wrap(mInteractionMessage, dw, 2.0f);
+        float y = bottom - static_cast<float>(lines.size()) * bodyLine;
+        for (const std::string& line : lines)
+        {
+            text(glm::vec2(dx, y), line, gold, 2.0f);
+            y += bodyLine;
+        }
+    };
 
     if (visible.empty())
     {
-        drawText(
-            glm::vec2(14.0f, 140.0f),
-            "No known or nearby clues in this category.",
-            glm::vec4(0.74f, 0.76f, 0.78f, 0.95f),
-            1.15f);
+        float y = dy;
+        for (const std::string& line : wrap("Pick things up as you go. When you hold one half of something useful, it shows here.", dw, 2.0f))
+        {
+            text(glm::vec2(dx, y), line, dimInk, 2.0f);
+            y += bodyLine;
+        }
+        drawMessage(layout.detailBottom);
+        return;
     }
 
-    if (mCraftingNotebookView)
+    const int cursor = std::clamp(mCraftingRecipeCursor, 0, count - 1);
+    const std::size_t recipeIndex = visible[static_cast<std::size_t>(cursor)];
+    const CraftingRecipe& recipe = recipes[recipeIndex];
+
+    if (!isDiscovered(recipe))
     {
-        drawRect(glm::vec2(detailX + 14.0f, 10.0f), glm::vec2(detailW - 28.0f, 46.0f), glm::vec4(0.065f, 0.07f, 0.08f, 0.98f));
-        drawText(glm::vec2(detailX + 18.0f, 16.0f), "NOTEBOOK LOG", glm::vec4(0.86f, 0.74f, 0.44f, 0.95f), 2.0f);
-        drawText(glm::vec2(detailX + 18.0f, 52.0f), "Discovered Recipes", glm::vec4(0.72f, 0.72f, 0.66f, 0.9f), 1.2f);
+        // Half a recipe: what you hold and a clue to the rest.
+        unknownIcon(glm::vec2(dx, dy), 64.0f);
+        text(glm::vec2(dx + 80.0f, dy + 6.0f), "Unknown recipe", ink, 3.0f);
+        std::string clue;
+        const std::string held = itemName(heldHalf(recipe, clue));
+        text(glm::vec2(dx + 80.0f, dy + 40.0f), fit("Something goes with your " + held + ".", dw - 80.0f, 2.0f), dimInk, 2.0f);
 
-        float logY = 82.0f;
-        const auto& discoveredPairs = mSaveManager.discoveredRecipes();
-        if (discoveredPairs.empty())
+        float y = dy + 88.0f;
+        std::string body = "The " + held + " might go with " + (clue.empty() ? std::string("something else") : clue) + ".";
+        for (const std::string& line : wrap(body, dw, 2.0f))
         {
-            drawText(glm::vec2(detailX + 18.0f, logY), "No preserved entries yet.", glm::vec4(0.55f, 0.55f, 0.52f, 0.9f), 1.2f);
+            text(glm::vec2(dx, y), line, ink, 2.0f);
+            y += bodyLine;
         }
-        else
+        for (const std::string& line : wrap("Carry both together and you will work it out.", dw, 2.0f))
         {
-            for (const auto& pair : discoveredPairs)
-            {
-                const CraftingRecipe* recipe = mCraftingSystem.findRecipe(pair.first, pair.second);
-                const std::string title = (recipe != nullptr) ? recipe->label : "Unknown Entry";
-                drawText(glm::vec2(detailX + 18.0f, logY), "- " + title, glm::vec4(0.84f, 0.78f, 0.62f, 0.95f), 1.2f);
-                logY += 18.0f;
-                if (logY > h - 70.0f)
-                {
-                    break;
-                }
-            }
+            text(glm::vec2(dx, y), line, ink, 2.0f);
+            y += bodyLine;
         }
+        y += 12.0f;
+        for (const std::string& line : wrap(hasNotebook ? "Your notebook will keep what you work out for whoever comes next."
+                                                        : "Without a notebook, what you work out dies with you.",
+                                            dw, 2.0f))
+        {
+            text(glm::vec2(dx, y), line, hasNotebook ? good : dimInk, 2.0f);
+            y += bodyLine;
+        }
+        drawMessage(layout.detailBottom);
+        return;
     }
-    else if (!visible.empty())
+
+    // A known recipe: what it makes and what it takes.
+    itemIcon(glm::vec2(dx, dy), 64.0f, recipe.outputItemId, 1.0f);
+    text(glm::vec2(dx + 80.0f, dy + 6.0f), fit(recipe.label, dw - 80.0f, 3.0f), ink, 3.0f);
     {
-        const int selectedRecipeListIndex = std::clamp(mCraftingRecipeCursor, 0, static_cast<int>(visible.size()) - 1);
-        const std::size_t selectedRecipeIndex = visible[static_cast<std::size_t>(selectedRecipeListIndex)];
-        const CraftingRecipe& selectedRecipe = recipes[selectedRecipeIndex];
-        const bool discovered = isDiscovered(selectedRecipe);
-
-        const ItemDef* aDef = mItemDatabase.find(selectedRecipe.inputA);
-        const ItemDef* bDef = mItemDatabase.find(selectedRecipe.inputB);
-        const ItemDef* outDef = mItemDatabase.find(selectedRecipe.outputItemId);
-
-        drawRect(glm::vec2(detailX + 14.0f, 10.0f), glm::vec2(detailW - 28.0f, 46.0f), glm::vec4(0.065f, 0.07f, 0.08f, 0.98f));
-
-        drawText(
-            glm::vec2(detailX + 14.0f, 16.0f),
-            discovered ? selectedRecipe.label : "???",
-            glm::vec4(0.95f, 0.88f, 0.62f, 1.0f),
-            2.7f);
-
-        drawText(
-            glm::vec2(detailX + 14.0f, 50.0f),
-            discovered ? selectedRecipe.category + "  -  CRAFT ENTRY" : "UNKNOWN ENTRY",
-            glm::vec4(0.72f, 0.76f, 0.78f, 0.96f),
-            1.15f);
-
-        if (selectedRecipe.requiresWorkbench)
-        {
-            const bool nearWorkbench = hasNearbyWorkbench(mWorld, mPlayerEntity);
-            drawRect(
-                glm::vec2(detailX + 14.0f, 76.0f),
-                glm::vec2(detailW - 28.0f, 24.0f),
-                nearWorkbench ? glm::vec4(0.10f, 0.22f, 0.12f, 0.95f) : glm::vec4(0.26f, 0.09f, 0.09f, 0.95f));
-            drawText(
-                glm::vec2(detailX + 20.0f, 83.0f),
-                nearWorkbench ? "WORKBENCH IN RANGE" : "WORKBENCH REQUIRED (MOVE CLOSER)",
-                nearWorkbench ? glm::vec4(0.45f, 0.86f, 0.50f, 0.95f) : glm::vec4(0.95f, 0.45f, 0.45f, 0.95f),
-                1.1f);
-        }
-
-        const float ingredientTop = selectedRecipe.requiresWorkbench ? 116.0f : 104.0f;
-        drawText(glm::vec2(detailX + 14.0f, ingredientTop), "INGREDIENTS", glm::vec4(0.82f, 0.84f, 0.86f, 0.98f), 1.34f);
-
-        auto drawIngredientCard = [&](float x, const ItemDef* def, int needed)
-        {
-            const int have = (def != nullptr) ? InventorySystem::countItem(inv, def->id) : 0;
-            const bool ok = discovered && have >= needed;
-            drawRect(
-                glm::vec2(x, ingredientTop + 22.0f),
-                glm::vec2((detailW - 42.0f) * 0.5f, 60.0f),
-                ok ? glm::vec4(0.07f, 0.18f, 0.08f, 0.92f) : glm::vec4(0.20f, 0.07f, 0.07f, 0.92f));
-
-            drawText(
-                glm::vec2(x + 10.0f, ingredientTop + 36.0f),
-                (!discovered || def == nullptr) ? "???" : def->name,
-                glm::vec4(0.86f, 0.80f, 0.68f, 0.95f),
-                1.4f);
-
-            std::ostringstream qty;
-            qty << (discovered ? have : 0) << "/" << needed;
-            drawText(
-                glm::vec2(x + 10.0f, ingredientTop + 54.0f),
-                qty.str(),
-                ok ? glm::vec4(0.35f, 0.88f, 0.40f, 0.95f) : glm::vec4(0.92f, 0.45f, 0.45f, 0.95f),
-                1.2f);
-        };
-
-        drawIngredientCard(detailX + 14.0f, aDef, 1);
-        drawIngredientCard(detailX + 22.0f + (detailW - 42.0f) * 0.5f, bDef, 1);
-
-        const float toolsY = ingredientTop + 96.0f;
-        drawText(glm::vec2(detailX + 14.0f, toolsY), "REQUIRED TOOLS", glm::vec4(0.82f, 0.84f, 0.86f, 0.98f), 1.34f);
-
-        if (selectedRecipe.requiredTools.empty())
-        {
-            drawRect(glm::vec2(detailX + 14.0f, toolsY + 22.0f), glm::vec2(140.0f, 30.0f), glm::vec4(0.10f, 0.20f, 0.07f, 0.92f));
-            drawText(glm::vec2(detailX + 24.0f, toolsY + 31.0f), "NONE REQUIRED", glm::vec4(0.36f, 0.74f, 0.32f, 0.95f), 1.2f);
-        }
-        else
-        {
-            float toolX = detailX + 14.0f;
-            for (int toolId : selectedRecipe.requiredTools)
-            {
-                const ItemDef* toolDef = mItemDatabase.find(toolId);
-                const bool ok = toolDef != nullptr && InventorySystem::countItem(inv, toolId) > 0;
-
-                float bestCondition = 0.0f;
-                for (const auto& slot : inv.slots)
-                {
-                    if (slot.itemId == toolId && slot.count > 0)
-                    {
-                        bestCondition = std::max(bestCondition, slot.condition);
-                    }
-                }
-                const int conditionPct = static_cast<int>(std::round(std::clamp(bestCondition, 0.0f, 1.0f) * 100.0f));
-
-                drawRect(
-                    glm::vec2(toolX, toolsY + 22.0f),
-                    glm::vec2(170.0f, 30.0f),
-                    ok ? glm::vec4(0.09f, 0.18f, 0.10f, 0.92f) : glm::vec4(0.20f, 0.07f, 0.07f, 0.92f));
-
-                std::string toolLabel = toolDef ? toolDef->name : "Unknown tool";
-                if (ok)
-                {
-                    toolLabel += " [" + std::to_string(conditionPct) + "%]";
-                }
-
-                drawText(
-                    glm::vec2(toolX + 8.0f, toolsY + 31.0f),
-                    toolLabel,
-                    ok ? glm::vec4(0.40f, 0.86f, 0.48f, 0.95f) : glm::vec4(0.94f, 0.46f, 0.46f, 0.95f),
-                    1.1f);
-                toolX += 176.0f;
-            }
-        }
-
-        const float outY = toolsY + 70.0f;
-        drawText(glm::vec2(detailX + 14.0f, outY), "OUTPUT", glm::vec4(0.82f, 0.84f, 0.86f, 0.98f), 1.34f);
-        drawRect(glm::vec2(detailX + 14.0f, outY + 20.0f), glm::vec2(detailW - 28.0f, 82.0f), glm::vec4(0.08f, 0.08f, 0.08f, 0.92f));
-        drawText(
-            glm::vec2(detailX + 24.0f, outY + 36.0f),
-            discovered ? (outDef ? outDef->name : selectedRecipe.label) : "Unknown result",
-            glm::vec4(0.90f, 0.82f, 0.65f, 0.95f),
-            2.0f);
-        if (discovered && !selectedRecipe.notes.empty())
-        {
-            drawText(glm::vec2(detailX + 24.0f, outY + 58.0f), selectedRecipe.notes, glm::vec4(0.50f, 0.50f, 0.48f, 0.90f), 1.1f);
-        }
-
-        const float timeY = outY + 120.0f;
-        drawText(glm::vec2(detailX + 14.0f, timeY), "Craft time", glm::vec4(0.78f, 0.82f, 0.84f, 0.98f), 1.24f);
-        drawRect(glm::vec2(detailX + 14.0f, timeY + 18.0f), glm::vec2(detailW - 28.0f, 10.0f), glm::vec4(0.12f, 0.13f, 0.14f, 0.95f));
-
-        const float craftDuration = std::max(0.25f, static_cast<float>(selectedRecipe.craftTimeSeconds));
-        float progressRatio = 0.0f;
-        if (!mCraftQueue.empty() && mCraftQueue.front().recipeIndex == static_cast<int>(selectedRecipeIndex))
-        {
-            progressRatio = std::clamp(mActiveCraftProgressSeconds / craftDuration, 0.0f, 1.0f);
-        }
-        drawRect(
-            glm::vec2(detailX + 14.0f, timeY + 18.0f),
-            glm::vec2((detailW - 28.0f) * progressRatio, 10.0f),
-            glm::vec4(0.60f, 0.50f, 0.25f, 0.95f));
-
-        std::ostringstream timeText;
-        timeText << std::fixed << std::setprecision(1) << craftDuration << "s";
-        drawText(
-            glm::vec2(detailX + detailW - 96.0f, timeY + 12.0f),
-            timeText.str(),
-            glm::vec4(0.42f, 0.42f, 0.40f, 0.9f),
-            1.1f);
-
-        int queuedTotal = 0;
-        for (const CraftQueueEntry& entry : mCraftQueue)
-        {
-            queuedTotal += std::max(0, entry.remaining);
-        }
-
-        if (!mCraftQueue.empty())
-        {
-            const int activeRecipeIndex = mCraftQueue.front().recipeIndex;
-            const int activeRemaining = mCraftQueue.front().remaining;
-            const std::string activeName =
-                (activeRecipeIndex >= 0 && activeRecipeIndex < static_cast<int>(recipes.size()))
-                    ? recipes[static_cast<std::size_t>(activeRecipeIndex)].label
-                    : "Unknown";
-            drawText(
-                glm::vec2(detailX + 14.0f, timeY + 38.0f),
-                "Queue: " + activeName + " x" + std::to_string(std::max(0, activeRemaining)) +
-                    " (total " + std::to_string(queuedTotal) + ")",
-                glm::vec4(0.78f, 0.80f, 0.74f, 0.98f),
-                1.15f);
-        }
-        else
-        {
-            drawText(glm::vec2(detailX + 14.0f, timeY + 38.0f), "Queue: idle", glm::vec4(0.70f, 0.72f, 0.73f, 0.96f), 1.15f);
-        }
-
-        const float footerY = h - 64.0f;
-        drawRect(glm::vec2(detailX + 14.0f, footerY), glm::vec2(126.0f, 34.0f), glm::vec4(0.08f, 0.08f, 0.08f, 0.95f));
-        drawText(glm::vec2(detailX + 22.0f, footerY + 9.0f), "-", glm::vec4(0.75f, 0.70f, 0.58f, 0.95f), 2.0f);
-        drawText(glm::vec2(detailX + 64.0f, footerY + 9.0f), std::to_string(mCraftingQuantity), glm::vec4(0.88f, 0.82f, 0.66f, 0.95f), 1.8f);
-        drawText(glm::vec2(detailX + 108.0f, footerY + 9.0f), "+", glm::vec4(0.75f, 0.70f, 0.58f, 0.95f), 2.0f);
-
-        bool ready = discovered && hasCraftIngredients(inv, selectedRecipe, 1) && hasCraftTools(inv, selectedRecipe);
-        if (selectedRecipe.requiresWorkbench)
-        {
-            ready = ready && hasNearbyWorkbench(mWorld, mPlayerEntity);
-        }
-
-        drawRect(
-            glm::vec2(detailX + 150.0f, footerY),
-            glm::vec2(detailW - 164.0f, 34.0f),
-            ready ? glm::vec4(0.16f, 0.18f, 0.10f, 0.95f) : glm::vec4(0.12f, 0.12f, 0.12f, 0.95f));
-        drawText(
-            glm::vec2(detailX + detailW * 0.5f, footerY + 9.0f),
-            ready ? "QUEUE CRAFT" : "MISSING ITEMS",
-            ready ? glm::vec4(0.60f, 0.62f, 0.30f, 0.95f) : glm::vec4(0.45f, 0.45f, 0.42f, 0.95f),
-            1.8f,
-            TextAlign::Center);
+        std::string sub = std::string(recipe.category == "MED" ? "Medical" : "Tools") + "  -  " +
+                          std::to_string(recipe.craftTimeSeconds) + " s";
+        if (recipe.outputCount > 1) sub += "  -  makes " + std::to_string(recipe.outputCount);
+        text(glm::vec2(dx + 80.0f, dy + 40.0f), sub, dimInk, 2.0f);
     }
 
-    float invY = 44.0f;
-    for (int i = 0; i < Inventory::kMaxSlots; ++i)
+    float y = dy + 82.0f;
+    for (const std::string& line : wrap(recipe.notes, dw, 2.0f))
     {
-        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
-        if (slot.itemId < 0 || slot.count <= 0)
+        text(glm::vec2(dx, y), line, ink, 2.0f);
+        y += bodyLine;
+    }
+    y += 10.0f;
+    heading(dx, y, dw, "NEEDS");
+    y += 18.0f;
+
+    std::string missing;
+    const auto needRow = [&](int itemId, const std::string& right, bool ok)
+    {
+        itemIcon(glm::vec2(dx, y), 32.0f, itemId, ok ? 1.0f : 0.45f);
+        text(glm::vec2(dx + 44.0f, y + 8.0f), fit(itemName(itemId), dw - 44.0f - 120.0f, 2.0f), ok ? ink : dimInk, 2.0f);
+        textRight(dx + dw, y + 8.0f, right, ok ? good : bad, 2.0f);
+        if (!ok && missing.empty()) missing = itemName(itemId);
+        y += 38.0f;
+    };
+    for (int itemId : {recipe.inputA, recipe.inputB})
+    {
+        const int have = InventorySystem::countItem(inv, itemId);
+        const int need = recipe.inputA == recipe.inputB ? 2 : 1;
+        needRow(itemId, std::to_string(have) + " / " + std::to_string(need), have >= need);
+        if (recipe.inputA == recipe.inputB) break;
+    }
+    for (int toolId : recipe.requiredTools)
+    {
+        float condition = -1.0f;
+        for (const auto& slot : inv.slots)
         {
-            continue;
+            if (slot.itemId == toolId && slot.count > 0) condition = std::max(condition, slot.condition);
         }
-
-        const ItemDef* item = mItemDatabase.find(slot.itemId);
-        std::string line = item ? item->name : ("Item " + std::to_string(slot.itemId));
-        line += " x" + std::to_string(slot.count);
-
-        drawRect(glm::vec2(invX + 10.0f, invY), glm::vec2(invW - 20.0f, 34.0f), glm::vec4(0.11f, 0.12f, 0.13f, 0.96f));
-        drawText(glm::vec2(invX + 18.0f, invY + 10.0f), line, glm::vec4(0.92f, 0.94f, 0.96f, 1.0f), 1.58f);
-
-        invY += 40.0f;
-        if (invY > h - 60.0f)
-        {
-            break;
-        }
+        const bool ok = condition >= 0.0f;
+        needRow(toolId, ok ? "tool, " + std::to_string(static_cast<int>(std::round(std::clamp(condition, 0.0f, 1.0f) * 100.0f))) + "%"
+                           : "tool, missing",
+                ok);
+    }
+    if (recipe.requiresWorkbench)
+    {
+        rect(glm::vec2(dx, y), glm::vec2(32.0f), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
+        rect(glm::vec2(dx + 6.0f, y + 12.0f), glm::vec2(20.0f, 4.0f), nearWorkbench ? ink : dimInk);
+        rect(glm::vec2(dx + 8.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
+        rect(glm::vec2(dx + 21.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
+        text(glm::vec2(dx + 44.0f, y + 8.0f), "Workbench (a supply cache you built)", nearWorkbench ? ink : dimInk, 2.0f);
+        textRight(dx + dw, y + 8.0f, nearWorkbench ? "nearby" : "too far", nearWorkbench ? good : bad, 2.0f);
+        if (!nearWorkbench && missing.empty()) missing = "a workbench nearby";
+        y += 38.0f;
     }
 
-    drawRect(glm::vec2(0.0f, h - 24.0f), glm::vec2(w, 24.0f), glm::vec4(0.015f, 0.018f, 0.022f, 0.98f));
-    drawText(
-        glm::vec2(12.0f, h - 18.0f),
-        "N: Open/Close  Mouse: Hover/LMB Queue/RMB Append  W/S: Select  A/D: Category  +/-: Quantity  Enter: Queue  Shift+Enter: Append  X: Cancel  J: Notebook",
-        glm::vec4(0.78f, 0.82f, 0.84f, 0.98f),
-        1.06f);
+    // Action: progress while making it, otherwise what Enter will do.
+    const float actionY = layout.detailBottom - 40.0f;
+    const bool makingThis = !mCraftQueue.empty() && mCraftQueue.front().recipeIndex == static_cast<int>(recipeIndex);
+    if (makingThis)
+    {
+        const float duration = std::max(0.25f, static_cast<float>(recipe.craftTimeSeconds));
+        const float progress = std::clamp(mActiveCraftProgressSeconds / duration, 0.0f, 1.0f);
+        const int left = static_cast<int>(std::ceil(duration - mActiveCraftProgressSeconds));
+        std::string status = "Making " + recipe.label + "...  " + std::to_string(std::max(0, left)) + " s";
+        if (mCraftQueue.front().remaining > 1) status += "  (" + std::to_string(mCraftQueue.front().remaining) + " to go)";
+        text(glm::vec2(dx, actionY), fit(status, dw, 2.0f), ink, 2.0f);
+        rect(glm::vec2(dx, actionY + 26.0f), glm::vec2(dw, 10.0f), glm::vec4(0.12f, 0.11f, 0.10f, 1.0f));
+        rect(glm::vec2(dx, actionY + 26.0f), glm::vec2(std::floor(dw * progress), 10.0f), gold);
+    }
+    else if (missing.empty())
+    {
+        // Amount, then the craft button.
+        const std::string amount = "- " + std::to_string(mCraftingQuantity) + " +";
+        const float amountW = mFont.measureText(amount, 2.0f).x + 24.0f;
+        rect(glm::vec2(dx, actionY), glm::vec2(amountW, 36.0f), glm::vec4(0.10f, 0.095f, 0.09f, 1.0f));
+        text(glm::vec2(dx + 12.0f, actionY + 9.0f), amount, ink, 2.0f);
+        const float buttonX = dx + amountW + 8.0f;
+        rect(glm::vec2(buttonX, actionY), glm::vec2(dx + dw - buttonX, 36.0f), glm::vec4(0.22f, 0.18f, 0.09f, 1.0f));
+        rect(glm::vec2(buttonX, actionY + 34.0f), glm::vec2(dx + dw - buttonX, 2.0f), gold);
+        const std::string label = "Enter: craft " + std::to_string(mCraftingQuantity) + "x";
+        text(glm::vec2(std::floor(buttonX + (dx + dw - buttonX - mFont.measureText(label, 2.0f).x) * 0.5f), actionY + 9.0f),
+             label, gold, 2.0f);
+    }
+    else
+    {
+        text(glm::vec2(dx, actionY + 9.0f), fit("Missing: " + missing, dw, 2.0f), bad, 2.0f);
+    }
+    if (!mCraftQueue.empty() && !makingThis)
+    {
+        const int other = mCraftQueue.front().recipeIndex;
+        if (other >= 0 && other < static_cast<int>(recipes.size()))
+        {
+            text(glm::vec2(dx, actionY - 22.0f), fit("Making " + recipes[static_cast<std::size_t>(other)].label + "...", dw, 2.0f), dimInk, 2.0f);
+        }
+    }
+    drawMessage(actionY - (mCraftQueue.empty() || makingThis ? 10.0f : 32.0f));
 }
 
 void Game::renderContainerOverlay()

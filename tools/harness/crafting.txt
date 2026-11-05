@@ -1,0 +1,39 @@
+# Crafting screen: discoverable ("Fuel Can + ?"), known and craftable
+# recipes, crafting progress, and recipes written in the notebook (J).
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/crafting.txt --hidden --world-seed 1234 --shots shots
+
+newrun
+god on
+waits 1
+give Fuel Can
+give Baseball Bat
+tap N
+waits 0.3
+shot 01_clues
+tap S
+waits 0.2
+shot 02_clue_detail
+tap N
+waits 0.2
+give Antibiotics
+give Notebook
+give Wood Planks
+give Rope
+tap N
+waits 0.3
+shot 03_discovered
+tap Enter
+waits 2
+shot 04_crafting
+waits 5
+shot 05_crafted
+tap D
+waits 0.2
+shot 06_tools_tab
+tap N
+waits 0.2
+tap J
+waits 0.3
+shot 07_notebook_knows
+quit

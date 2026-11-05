@@ -301,6 +301,26 @@ something the next one can find and act on:
     view, a closed door shows as a low wooden stub.
   - Harness: `zombie DX DY`, `doors`, `goto door`, `save` and `resume`; the
     scripts are `tools/harness/doors.txt` and `tools/harness/doors_memory.txt`.
+- **Crafting screen rework:**
+  - A centred panel in the notebook's style, with whole-number text scales,
+    item icons and category tabs. Mouse hover and click share one layout with
+    drawing, and hover follows the mouse only when it moves, so W/S keep working.
+  - Undiscovered recipes read "Fuel Can + ?" and give a clue to the other half
+    ("something that burns"). Each recipe has a clue for each ingredient
+    (`hintA`/`hintB` in `recipes.json`).
+  - Each recipe's needs (ingredients, tools, workbench) are listed with have /
+    need counts. The panel shows progress, a craft button, "Missing: X" and
+    recent messages.
+  - Recipes written in a notebook appear in the J notebook under "What we
+    know". Picking up a notebook writes down what this life already worked out.
+  - Crafting takes 4 to 10 s instead of 40 to 90 s.
+  - Crafted items now earn their cost:
+    - Disinfected Bandage dresses two wounds and kills infection.
+    - Spiked Bat hits 35% harder, lasts 50% longer and causes bleeding
+      (per-item weapon scales in `items.json`).
+    - New recipe: **Spear** (Knife + Wood Planks, Rope as a tool), with longer
+      reach and lighter blows.
+  - Harness script: `tools/harness/crafting.txt`.
 
 ## Known issues found during revival
 
@@ -315,8 +335,8 @@ something the next one can find and act on:
   (fixed: doors).
 - ~~HUD status thresholds predated the Wave 1a thresholds~~ (fixed: the HUD reads
   them from `NeedsSystem`).
-- The crafting screen lists undiscovered recipes as "???" with no hint of how
-  to discover them.
+- ~~The crafting screen lists undiscovered recipes as "???" with no hint~~
+  (fixed: "Item + ?" with a clue).
 - Several items reuse other items' sprites (Flashlight, Jacket, Matches, ...).
 - ~~Tone presets are stored and shown but have no gameplay effect~~ (fixed:
   `ToneTuning`).
@@ -324,7 +344,8 @@ something the next one can find and act on:
   (fixed: shared `persistWorldForNextRun`).
 - ~~Mid-run checkpoints do not save fires or burn scars~~ (fixed: checkpoints
   keep doors, scars and fires). Zombies are still respawned on resume.
-- The crafting screen is a bare debug-style layout.
+- ~~The crafting screen is a bare debug-style layout~~ (fixed).
+- Equipping a weapon from the inventory resets its durability to full.
 - ~~No wall/roof occlusion: indoor zombies and loot can hide behind walls~~
   (fixed: wall blocks, cut-away and roofs).
 - Building interiors have no furniture; loot lies on bare floors.
@@ -365,3 +386,5 @@ something the next one can find and act on:
   (`88a3447`).
 - 2026-11-06: Broken doors persist across runs; checkpoints keep doors, burn
   scars and fires; harness `save`/`resume`.
+- 2026-11-06: Crafting screen rework, ingredient clues, recipes in the
+  notebook, crafted items with real effects, Spear.

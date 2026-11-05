@@ -552,7 +552,6 @@ void Game::startNewRun()
     mCraftingRecipeCursor = 0;
     mCraftingQuantity = 1;
     mCraftingCategory = 0;
-    mCraftingNotebookView = false;
     mSessionDiscoveredRecipes.clear();
     mCraftQueue.clear();
     mActiveCraftProgressSeconds = 0.0f;
@@ -766,7 +765,6 @@ void Game::returnToTitleScreen()
     mCraftingRecipeCursor = 0;
     mCraftingQuantity = 1;
     mCraftingCategory = 0;
-    mCraftingNotebookView = false;
     mSessionDiscoveredRecipes.clear();
     mCraftQueue.clear();
     mActiveCraftProgressSeconds = 0.0f;
@@ -899,7 +897,6 @@ void Game::handleEscapeKey()
             if (mShowCrafting)
             {
                 mShowCrafting = false;
-                mCraftingNotebookView = false;
             }
             else if (mContainerOpen)
             {

@@ -112,7 +112,6 @@ void Game::render()
             renderNotebookOverlay();
             renderRunEndOverlay();
             renderPauseOverlay();
-            mCraftingRenderTextPass = false;
             renderCraftingOverlay();
             renderInventoryPanel();
             renderContainerOverlay();
@@ -129,8 +128,6 @@ void Game::render()
             }
             renderInventoryOverlay();
             renderBuildModeOverlay();
-            mCraftingRenderTextPass = true;
-            renderCraftingOverlay();
             if (!mShowCrafting)
             {
                 renderControlsOverlay();

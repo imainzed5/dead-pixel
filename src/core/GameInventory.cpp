@@ -17,7 +17,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
             mOpenContainerEntity = kInvalidEntity;
             mCraftingRecipeCursor = 0;
             mCraftingQuantity = 1;
-            mCraftingNotebookView = false;
+            mInteractionMessage.clear();
+            mInteractionMessageTimer = 0.0f;
 
             if (mWorld.hasComponent<Velocity>(mPlayerEntity))
             {
@@ -42,6 +43,22 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
         // Discovery trigger: holding both ingredients together reveals recipe entry.
         const ItemDef* notebookItem = mItemDatabase.findByName("Notebook");
         const bool hasNotebook = notebookItem != nullptr && InventorySystem::countItem(inv, notebookItem->id) > 0;
+
+        // With a notebook in hand, write down what this life already worked out.
+        if (hasNotebook)
+        {
+            bool wrote = false;
+            for (const auto& [a, b] : mSessionDiscoveredRecipes)
+            {
+                wrote = mSaveManager.addDiscoveredRecipe(a, b) || wrote;
+            }
+            if (wrote)
+            {
+                mSaveManager.saveDiscoveredRecipes();
+                mInteractionMessage = "Written in your notebook.";
+                mInteractionMessageTimer = std::max(mInteractionMessageTimer, 2.5f);
+            }
+        }
         for (const CraftingRecipe& recipe : mCraftingSystem.recipes())
         {
             const bool alreadyKnown =
@@ -97,55 +114,53 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
             mInput.wasKeyPressed(SDL_SCANCODE_SPACE);
         bool craftQueueAppendRequested = false;
 
-        if (!mCraftingNotebookView)
         {
-            const float w = static_cast<float>(mWindowWidth);
-            const float listW = std::max(260.0f, w * 0.17f);
-            const float tabY = 78.0f;
-            const float tabH = 46.0f;
-            const float tabW = listW / 3.0f;
-
-            const float mouseX = static_cast<float>(mInput.mouseX());
-            const float mouseY = static_cast<float>(mInput.mouseY());
-
-            const bool overTabStrip =
-                mouseX >= 0.0f && mouseX <= listW &&
-                mouseY >= tabY && mouseY <= tabY + tabH;
-
-            if (overTabStrip && mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            const CraftingLayout layout = craftingLayout();
+            const glm::vec2 mouse(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+            const bool mouseMoved = mouse != mCraftingLastMouse;
+            mCraftingLastMouse = mouse;
+            const auto inside = [&](const glm::vec4& r)
             {
-                const int clickedCategory = std::clamp(
-                    static_cast<int>((mouseX / std::max(1.0f, tabW))),
-                    0,
-                    2);
-                if (clickedCategory != mCraftingCategory)
+                return mouse.x >= r.x && mouse.x < r.x + r.z && mouse.y >= r.y && mouse.y < r.y + r.w;
+            };
+
+            if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            {
+                for (int i = 0; i < 3; ++i)
                 {
-                    mCraftingCategory = clickedCategory;
-                    mCraftingRecipeCursor = 0;
+                    if (inside(layout.tabs[static_cast<std::size_t>(i)]) && i != mCraftingCategory)
+                    {
+                        mCraftingCategory = i;
+                        mCraftingRecipeCursor = 0;
+                    }
                 }
             }
 
-            if (!visible.empty())
+            const int count = static_cast<int>(visible.size());
+            const int first = craftingListScroll(count, layout.maxRows);
+            const glm::vec4 listRect(layout.listPos.x, layout.listPos.y, layout.listW,
+                                     layout.rowH * static_cast<float>(layout.maxRows));
+            if (count > 0 && inside(listRect))
             {
-                const float rowY0 = tabY + tabH + 8.0f;
-                const float rowH = 58.0f;
-                if (mouseX >= 0.0f && mouseX <= listW && mouseY >= rowY0)
+                const int hovered = first + static_cast<int>((mouse.y - layout.listPos.y) / layout.rowH);
+                if (hovered >= 0 && hovered < count)
                 {
-                    const int hovered = static_cast<int>((mouseY - rowY0) / rowH);
-                    if (hovered >= 0 && hovered < static_cast<int>(visible.size()))
+                    // Hover selects only when the mouse moves, so W/S still work
+                    // with the pointer resting on the list.
+                    if (mouseMoved)
                     {
                         mCraftingRecipeCursor = hovered;
-
-                        if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
-                        {
-                            craftActivateRequested = true;
-                        }
-
-                        if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT))
-                        {
-                            craftActivateRequested = true;
-                            craftQueueAppendRequested = true;
-                        }
+                    }
+                    if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+                    {
+                        mCraftingRecipeCursor = hovered;
+                        craftActivateRequested = true;
+                    }
+                    if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT))
+                    {
+                        mCraftingRecipeCursor = hovered;
+                        craftActivateRequested = true;
+                        craftQueueAppendRequested = true;
                     }
                 }
             }
@@ -184,11 +199,6 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
         if (mInput.wasKeyPressed(SDL_SCANCODE_EQUALS) || mInput.wasKeyPressed(SDL_SCANCODE_KP_PLUS))
         {
             mCraftingQuantity = std::min(10, mCraftingQuantity + 1);
-        }
-
-        if (mInput.wasKeyPressed(SDL_SCANCODE_J))
-        {
-            mCraftingNotebookView = !mCraftingNotebookView;
         }
 
         if (mInput.wasKeyPressed(SDL_SCANCODE_X) || mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE))
@@ -704,7 +714,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
                     else if (item->category == ItemCategory::Weapon && mWorld.hasComponent<Combat>(mPlayerEntity))
                     {
                         Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
-                        combat.weapon = makeWeaponStats(static_cast<WeaponCategory>(item->weaponCategory));
+                        combat.weapon = weaponStatsForItem(*item);
                         mInteractionMessage = "Equipped " + item->name + ".";
                         mInteractionMessageTimer = 3.0f;
                     }
