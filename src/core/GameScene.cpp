@@ -674,6 +674,7 @@ void Game::setupScene()
             mWorld.addComponent<Transform>(scorch, t);
             mWorld.addComponent<Sprite>(scorch, s);
         }
+        mBurnedTilesAtRunStart = mBurnedTiles.size();
     }
 
     // --- Active fire tiles restored from world memory ---

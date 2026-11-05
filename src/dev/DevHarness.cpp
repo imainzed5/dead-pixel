@@ -289,6 +289,28 @@ void DevHarness::execute(Game& game, const Command& command)
         game.startNewRun();
         mWasAlive = true;
     }
+    else if (op == "kill" || op == "retire")
+    {
+        // End the run the way the game does: kill [cause...] / retire [cause...]
+        std::string cause;
+        for (std::size_t i = 1; i < a.size(); ++i)
+        {
+            cause += (i > 1 ? " " : "") + a[i];
+        }
+        if (game.mRunState != Game::RunState::Playing)
+        {
+            fail(command, "no run in progress");
+            return;
+        }
+        if (op == "kill")
+        {
+            game.beginDeathState(cause.empty() ? "Harness" : cause);
+        }
+        else
+        {
+            game.beginRetirementState(cause);
+        }
+    }
     else if (op == "hours")
     {
         if (need(1)) game.mGameHours = std::clamp(std::stod(a[1]), 0.0, 23.99);

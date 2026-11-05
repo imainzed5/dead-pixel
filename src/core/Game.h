@@ -90,9 +90,25 @@ private:
     void setupScene();
     void beginDeathState(const std::string& cause);
     void beginRetirementState(const std::string& customCause = "");
+    void stopPlayerAtRunEnd();
+    [[nodiscard]] CharacterHistoryRecord runEndHistory(bool retired, int runIndex) const;
+    void addRunEndMemoryEvent(WorldMemoryEventType type, int runIndex);
+    void persistWorldForNextRun(int runIndex);
     void processInputEvents();
     void handleEscapeKey();
     void update(float dtSeconds);
+    // Pieces of update(), in the order it calls them.
+    void updateTitleScreen(float dtSeconds);
+    void updatePauseMenu();
+    void handleVehicleKey(bool playerAlive);
+    void updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle);
+    void updateCraftingPanel(float dtSeconds, bool drivingVehicle);
+    void updateInventoryInput(bool drivingVehicle);
+    void applyVehicleDriving();
+    void updateSleep(float dtSeconds);
+    void updateVehicleAfterPhysics(float dtSeconds);
+    void updateAnimations(float dtSeconds);
+    void updateParticles(float dtSeconds, float prevPlayerHp);
     void render();
     void renderMap();
     void renderAttackArcOverlay();
@@ -286,6 +302,7 @@ private:
     // M8 narrow slice state
     Entity mActiveVehicleEntity = kInvalidEntity;
     std::vector<std::pair<int, int>> mBurnedTiles;
+    std::size_t mBurnedTilesAtRunStart = 0; // tiles before this index burned in earlier runs
 
     float mZombieGrowlTimer = 0.0f;
 

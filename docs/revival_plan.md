@@ -40,7 +40,7 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | 4 | Wave 1a: simulation pressure (mental, needs/temperature, zombie pressure) | done |
 | 5 | Wave 1b: readability (scale/zoom, HUD rework, night lighting) | done |
 | 6 | Walls with height, wall/roof occlusion, art generator upgrade | done |
-| 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | |
+| 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | done |
 | 8 | Wave 2: make the legacy hook visible | |
 | 9 | Wave 3: extras polish, tone presets with real effects | |
 | 10 | Docs, README and audit sync | |
@@ -191,6 +191,30 @@ open/fade/hiding, the cut-away rule, sprite collection and the generator
 guarantees (closed buildings, doors that lead inside, one floor per room,
 sidewalks along roads).
 
+## Game.cpp split (2026-11-06)
+
+`Game.cpp` (9,100 lines) is now ten files in `src/core/`, each a slice of the
+`Game` class:
+
+| File | What it holds |
+|---|---|
+| `GameShared.h` | constants, panel layouts and small helpers (namespace `gameshared`) |
+| `Game.cpp` | startup, runs, saving, input plumbing, small queries |
+| `GameScene.cpp` | building the world for a run (map, entities, loot, legacy traces) |
+| `GameUpdate.cpp` | `update()` (now ~690 lines) plus sleep, animation, particles, noise |
+| `GameMenus.cpp` | title screen and pause menu input |
+| `GameInventory.cpp` | inventory, container, hotbar and crafting panel input |
+| `GameFire.cpp` | lighting/putting out fires, burn and spread simulation |
+| `GameVehicles.cpp` | getting in and out, refuelling, driving, fuel, wear, run-overs |
+| `GameRunEnd.cpp` | death and retirement and what the next run inherits |
+| `GameRender.cpp` / `GameUi.cpp` | world rendering / HUD snapshot and menu panels |
+
+Death and retirement share one persistence path (`persistWorldForNextRun`).
+Two fixes came with it: burn scars from earlier runs are no longer re-logged
+as new world-memory events at every run end, and burn events carry the ending
+run's index like graves and history do. Harness: `kill [cause]` and
+`retire [cause]` end the run the way the game does.
+
 ## Known issues found during revival
 
 - ~~Input transitions cleared per render frame, not per tick~~ (fixed: latched
@@ -207,8 +231,11 @@ sidewalks along roads).
   to discover them.
 - Several items reuse other items' sprites (Flashlight, Jacket, Matches, ...).
 - Tone presets are stored and shown but have no gameplay effect.
-- `beginDeathState` and `beginRetirementState` duplicate ~50 lines of
-  persistence code verbatim.
+- ~~`beginDeathState` and `beginRetirementState` duplicate persistence code~~
+  (fixed: shared `persistWorldForNextRun`).
+- Mid-run checkpoints do not save fires or burn scars; continuing a run
+  loses scars made earlier in it.
+- The crafting screen is a bare debug-style layout.
 - ~~No wall/roof occlusion: indoor zombies and loot can hide behind walls~~
   (fixed: wall blocks, cut-away and roofs).
 - Building interiors have no furniture; loot lies on bare floors.
@@ -231,3 +258,6 @@ sidewalks along roads).
 - 2026-11-06: Walls with height, roofs and cut-away (`StructureView`), tileset
   variants, room floors, asphalt roads with sidewalks, closed buildings,
   harness `enter` command.
+- 2026-11-06: `Game.cpp` split into ten files; `update()` carved into named
+  steps; shared run-end persistence; burn-scar event fix; harness `kill` and
+  `retire`.

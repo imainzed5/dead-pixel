@@ -35,6 +35,10 @@ add_library(dead_pixel_core STATIC
     src/core/GameUpdate.cpp
     src/core/GameRender.cpp
     src/core/GameUi.cpp
+    src/core/GameMenus.cpp
+    src/core/GameVehicles.cpp
+    src/core/GameFire.cpp
+    src/core/GameInventory.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
     src/ecs/EntityManager.cpp
