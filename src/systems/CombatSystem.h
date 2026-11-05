@@ -2,6 +2,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstdint>
 #include <random>
 #include <vector>
 
@@ -15,6 +16,9 @@ class CombatSystem
 {
 public:
     CombatSystem();
+
+    // Deterministic combat rolls for harness/test runs.
+    void reseed(std::uint32_t seed) { mRng.seed(seed); }
 
     void update(World& world, const Input& input, const TileMap& tileMap, NoiseModel& noiseModel, float dtSeconds);
 

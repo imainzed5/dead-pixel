@@ -179,6 +179,9 @@ struct RunCheckpoint
 class SaveManager
 {
 public:
+    // Dev/test hook: newly created slots use this world seed instead of a random one.
+    static void setSeedOverride(std::uint32_t seed);
+
     static constexpr int kCurrentSaveVersion = 1;
 
     bool loadOrCreateSlot(const std::string& slotName);

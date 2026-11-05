@@ -8,11 +8,13 @@
 
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "core/Input.h"
+#include "dev/LaunchOptions.h"
 #include "audio/AudioManager.h"
 #include "ecs/Types.h"
 #include "ecs/World.h"
@@ -51,10 +53,12 @@
 #include "systems/DistrictInfectionSystem.h"
 #include "components/Weather.h"
 
+class DevHarness;
+
 class Game
 {
 public:
-    Game() = default;
+    explicit Game(LaunchOptions options = {});
     ~Game();
 
     Game(const Game&) = delete;
@@ -63,6 +67,8 @@ public:
     int run();
 
 private:
+    friend class DevHarness;
+
     enum class RunState
     {
         TitleScreen,
@@ -82,6 +88,7 @@ private:
     void beginDeathState(const std::string& cause);
     void beginRetirementState(const std::string& customCause = "");
     void processInputEvents();
+    void handleEscapeKey();
     void update(float dtSeconds);
     void render();
     void renderMap();
@@ -111,6 +118,9 @@ private:
     void ensureCampaignObjective();
     bool saveCurrentRunCheckpoint(const std::string& statusMessage = "Run checkpoint saved.");
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
+
+    LaunchOptions mLaunchOptions;
+    std::unique_ptr<DevHarness> mHarness;
 
     SDL_Window* mWindow = nullptr;
     SDL_GLContext mGlContext = nullptr;

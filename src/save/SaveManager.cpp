@@ -7,13 +7,21 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <random>
 #include <sstream>
 
 namespace
 {
+std::optional<std::uint32_t> gSeedOverride;
+
 std::uint32_t randomSeed()
 {
+    if (gSeedOverride)
+    {
+        return *gSeedOverride;
+    }
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<std::uint32_t> dist(1u, 0xFFFFFFFEu);
@@ -1573,4 +1581,9 @@ std::vector<SurvivorRecord> SaveManager::loadSurvivors() const
         }
     }
     return result;
+}
+
+void SaveManager::setSeedOverride(std::uint32_t seed)
+{
+    gSeedOverride = seed;
 }

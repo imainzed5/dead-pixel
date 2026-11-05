@@ -25,6 +25,7 @@
 #include "components/Velocity.h"
 #include "components/ZombieAI.h"
 #include "components/SurvivorAI.h"
+#include "dev/DevHarness.h"
 
 #include <algorithm>
 #include <array>
@@ -893,6 +894,15 @@ bool hasCraftIngredients(const Inventory& inv, const CraftingRecipe& recipe, int
 }
 }
 
+Game::Game(LaunchOptions options)
+    : mLaunchOptions(std::move(options))
+{
+    if (mLaunchOptions.harnessEnabled())
+    {
+        mHarness = std::make_unique<DevHarness>(mLaunchOptions);
+    }
+}
+
 Game::~Game()
 {
     shutdown();
@@ -900,9 +910,53 @@ Game::~Game()
 
 int Game::run()
 {
+    if (mHarness)
+    {
+        std::string error;
+        if (!mHarness->loadScript(error))
+        {
+            std::cerr << "[harness] " << error << '\n';
+            return 1;
+        }
+    }
+
+    if (mLaunchOptions.worldSeed)
+    {
+        SaveManager::setSeedOverride(*mLaunchOptions.worldSeed);
+        mCombatSystem.reseed(*mLaunchOptions.worldSeed);
+    }
+
     if (!initialize())
     {
         return 1;
+    }
+
+    if (mHarness)
+    {
+        // Deterministic stepping: exactly one fixed tick per loop iteration,
+        // as fast as the machine allows. Rendering happens on demand
+        // (screenshots) or every tick with --watch.
+        while (mIsRunning && !mHarness->finished())
+        {
+            processInputEvents();
+            mHarness->beforeTick(*this);
+            snapshotPositions();
+            update(static_cast<float>(kFixedTimeStepSeconds));
+            mInput.consumeTransitions();
+            mHarness->afterTick(*this);
+
+            if (mLaunchOptions.watch)
+            {
+                mInterpolationAlpha = 1.0f;
+                render();
+                SDL_GL_SwapWindow(mWindow);
+            }
+        }
+
+        const int exitCode = mHarness->exitCode();
+        mHarness.reset();
+        shutdown();
+        return exitCode;
     }
 
     using clock = std::chrono::steady_clock;
@@ -927,6 +981,7 @@ int Game::run()
         {
             snapshotPositions();
             update(static_cast<float>(kFixedTimeStepSeconds));
+            mInput.consumeTransitions();
             accumulator -= kFixedTimeStepSeconds;
         }
 
@@ -962,7 +1017,7 @@ bool Game::initialize()
         SDL_WINDOWPOS_CENTERED,
         mWindowWidth,
         mWindowHeight,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+        (mLaunchOptions.hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
 
     if (mWindow == nullptr)
     {
@@ -986,7 +1041,8 @@ bool Game::initialize()
         return false;
     }
 
-    SDL_GL_SetSwapInterval(1);
+    // The harness steps as fast as possible; vsync would throttle --watch runs.
+    SDL_GL_SetSwapInterval(mHarness ? 0 : 1);
 
     glewExperimental = GL_TRUE;
     const GLenum glewResult = glewInit();
@@ -3318,8 +3374,6 @@ void Game::beginRetirementState(const std::string& customCause)
 
 void Game::processInputEvents()
 {
-    mInput.beginFrame();
-
     SDL_Event event;
     while (SDL_PollEvent(&event) != 0)
     {
@@ -3335,15 +3389,18 @@ void Game::processInputEvents()
         }
     }
 
-    mInput.refreshMouseState();
+    if (!mHarness)
+    {
+        mInput.refreshMouseState();
+    }
 
     if (mInput.quitRequested())
     {
         mIsRunning = false;
     }
 
-    // Mouse wheel zoom
-    if (mInput.scrollY() != 0)
+    // Mouse wheel zoom (frame-level: scroll is consumed here, not per tick)
+    if (const int scroll = mInput.consumeScroll(); scroll != 0)
     {
         const bool minimapZoomInput =
             mRunState == RunState::Playing &&
@@ -3352,31 +3409,61 @@ void Game::processInputEvents()
 
         if (minimapZoomInput)
         {
-            const float zoomFactor = 1.0f + static_cast<float>(mInput.scrollY()) * kMinimapZoomStep;
+            const float zoomFactor = 1.0f + static_cast<float>(scroll) * kMinimapZoomStep;
             mMinimapZoom = std::clamp(mMinimapZoom * zoomFactor, kMinimapZoomMin, kMinimapZoomMax);
         }
         else
         {
             constexpr float kZoomStep = 0.15f;
             const float currentZoom = mCamera.zoom();
-            const float newZoom = currentZoom * (1.0f + static_cast<float>(mInput.scrollY()) * kZoomStep);
+            const float newZoom = currentZoom * (1.0f + static_cast<float>(scroll) * kZoomStep);
             const glm::vec2 mouseScreen(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
             mCamera.zoomToward(newZoom, mouseScreen);
             mCamera.clampToBounds(mTileMap.pixelSize());
         }
     }
+}
 
+void Game::handleEscapeKey()
+{
     if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
     {
-        if (mRunState == RunState::Playing && mShowCrafting)
+        // While playing, Escape closes the topmost open panel; it only pauses
+        // when nothing is open. Panel handlers later in the tick see the same
+        // press, but their panels are already closed so it is a no-op.
+        if (mRunState == RunState::Playing)
         {
-            mShowCrafting = false;
-            mCraftingNotebookView = false;
-        }
-        else if (mRunState == RunState::Playing)
-        {
-            mRunState = RunState::Paused;
-            mPauseSelection = 0;
+            if (mShowCrafting)
+            {
+                mShowCrafting = false;
+                mCraftingNotebookView = false;
+            }
+            else if (mContainerOpen)
+            {
+                mContainerOpen = false;
+                mOpenContainerEntity = kInvalidEntity;
+            }
+            else if (mBuildSystem.isBuildMode())
+            {
+                mBuildSystem.exitBuildMode();
+            }
+            else if (mShowWorldMap)
+            {
+                mShowWorldMap = false;
+            }
+            else if (mShowNotebook)
+            {
+                mShowNotebook = false;
+            }
+            else if (mShowInventory)
+            {
+                mShowInventory = false;
+            }
+            else
+            {
+                mRunState = RunState::Paused;
+                mPauseSelection = 0;
+            }
         }
         else if (mRunState == RunState::Paused)
         {
@@ -3402,7 +3489,9 @@ void Game::processInputEvents()
 
 void Game::update(float dtSeconds)
 {
-    mMouseWorld = screenToWorld(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
+    handleEscapeKey();
+
+    mMouseWorld =screenToWorld(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
 
     mInteractionMessageTimer = std::max(0.0f, mInteractionMessageTimer - dtSeconds);
     if (mInteractionMessageTimer <= 0.0f)

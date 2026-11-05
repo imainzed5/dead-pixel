@@ -58,6 +58,8 @@ add_executable(dead_pixel_survival
     src/systems/AnimationSystem.cpp
     src/systems/ParticleSystem.cpp
     src/audio/AudioManager.cpp
+    src/dev/DevHarness.cpp
+    src/dev/LaunchOptions.cpp
 )
 
 target_include_directories(dead_pixel_survival PRIVATE src)
