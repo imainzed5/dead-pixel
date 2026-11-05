@@ -25,11 +25,13 @@ public:
     [[nodiscard]] const glm::vec2& position() const { return mPosition; }
     [[nodiscard]] const glm::vec2& viewportSize() const { return mViewportSize; }
 
-    static constexpr float kMinZoom = 0.5f;
+    static constexpr float kMinZoom = 0.75f;
     static constexpr float kMaxZoom = 3.0f;
+    // Default framing: about 13 tiles across a 1280 px window, people ~57 px tall.
+    static constexpr float kDefaultZoom = 1.5f;
 
 private:
     glm::vec2 mPosition{0.0f, 0.0f}; // Camera center in iso-space
     glm::vec2 mViewportSize{1280.0f, 720.0f};
-    float mZoom = 1.0f;
+    float mZoom = kDefaultZoom;
 };

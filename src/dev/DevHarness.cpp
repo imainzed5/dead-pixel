@@ -18,6 +18,7 @@
 #include "components/Transform.h"
 #include "components/ZombieAI.h"
 #include "core/Game.h"
+#include "systems/InventorySystem.h"
 
 namespace
 {
@@ -319,6 +320,32 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "god")
     {
         if (need(1)) mGodMode = lower(a[1]) == "on";
+    }
+    else if (op == "give")
+    {
+        // give ITEM NAME [COUNT]  (names may contain spaces)
+        if (!need(1)) return;
+        std::size_t nameEnd = a.size();
+        int count = 1;
+        if (a.size() > 2 && std::all_of(a.back().begin(), a.back().end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+        {
+            count = std::stoi(a.back());
+            nameEnd = a.size() - 1;
+        }
+        std::string name;
+        for (std::size_t i = 1; i < nameEnd; ++i)
+        {
+            if (!name.empty()) name += ' ';
+            name += a[i];
+        }
+        const ItemDef* item = game.mItemDatabase.findByName(name);
+        if (item == nullptr || game.mPlayerEntity == kInvalidEntity ||
+            !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+        {
+            fail(command, "cannot give '" + name + "'");
+            return;
+        }
+        InventorySystem::addItem(game.mWorld.getComponent<Inventory>(game.mPlayerEntity), game.mItemDatabase, item->id, count);
     }
     else if (op == "metrics")
     {

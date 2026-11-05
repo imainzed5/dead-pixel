@@ -16,5 +16,7 @@ private:
     // around source pixel row 49. We render entities at 32x32 world size, so we
     // shift humanoid sprites down by 7.5 screen pixels (at zoom 1.0) to align
     // visual feet with the world/collision anchor point.
-    static constexpr float kHumanoidVisualYOffset = 7.5f;
+    // Transparent rows below the feet in a humanoid frame, as a fraction of its
+    // height; the draw is shifted down by this so feet sit on the world anchor.
+    static constexpr float kHumanoidFootPadding = 14.0f / 64.0f;
 };

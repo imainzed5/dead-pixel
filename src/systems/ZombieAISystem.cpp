@@ -85,7 +85,7 @@ void ZombieAISystem::update(
     const DistrictInfectionSystem* infectionSystem) const
 {
     const bool isNight = (gameHours >= 20.0 || gameHours < 5.0);
-    const float visionMultiplier = isNight ? 1.5f : 1.0f;
+    const float visionMultiplier = isNight ? (mPlayerLit ? kNightVisionLit : kNightVisionDark) : 1.0f;
     const float tileSize = static_cast<float>(tileMap.tileWidth());
 
     const bool playerValid =

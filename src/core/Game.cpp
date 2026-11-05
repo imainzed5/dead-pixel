@@ -1726,6 +1726,7 @@ void Game::setupScene()
     playerSprite.uvRect = mSpriteSheet.uvRect("player_idle");
     playerSprite.color = glm::vec4(1.0f);
     playerSprite.layer = 10;
+    playerSprite.drawSize = SpriteSizes::kHumanoid;
 
     Animation playerAnim{};
     playerAnim.currentAnim = "player_idle";
@@ -1828,7 +1829,7 @@ void Game::setupScene()
                 if (!sr.alive) continue;
                 Entity npc = mWorld.createEntity();
                 Transform nt{}; nt.x = sr.x; nt.y = sr.y;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9;
+                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
                 Animation na{}; na.currentAnim = "player_idle"; na.frameDuration = 0.2f;
                 SurvivorAI sai{};
                 sai.name = sr.name;
@@ -1894,7 +1895,7 @@ void Game::setupScene()
 
                 Entity npc = mWorld.createEntity();
                 Transform nt{}; nt.x = spawnX; nt.y = spawnY;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9;
+                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
                 Animation na{}; na.currentAnim = "player_idle"; na.frameDuration = 0.2f;
 
                 SurvivorAI sai{};
@@ -1940,6 +1941,7 @@ void Game::setupScene()
     // Initialize district infection system
     mDistrictInfectionSystem.initialize(mMapGenerator.layoutData());
     mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(saveThreatModeFromIndex(mTitleModeIndex)));
+    mFlashlightOn = false;
 
     const auto& layoutDistricts = mMapGenerator.layoutData().districts;
     auto getDistrictType = [&](int tileX, int tileY) -> DistrictType
@@ -1962,7 +1964,7 @@ void Game::setupScene()
         if (mTileMap.isSolid(tile.x, tile.y)) continue;
         Entity food = mWorld.createEntity();
         Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(foodSprites[runRng() % foodSprites.size()]); s.color = glm::vec4(1.0f); s.layer = 6;
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(foodSprites[runRng() % foodSprites.size()]); s.color = glm::vec4(1.0f); s.layer = 6; s.drawSize = SpriteSizes::kPickup;
         Interactable inter{}; inter.type = InteractableType::FoodPickup; inter.hungerRestore = foodRestore(runRng); inter.prompt = "Scavenge food";
         mWorld.addComponent<Transform>(food, t);
         mWorld.addComponent<Sprite>(food, s);
@@ -1976,7 +1978,7 @@ void Game::setupScene()
         if (mTileMap.isSolid(tile.x, tile.y)) continue;
         Entity water = mWorld.createEntity();
         Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_water_bottle"); s.color = glm::vec4(1.0f); s.layer = 6;
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_water_bottle"); s.color = glm::vec4(1.0f); s.layer = 6; s.drawSize = SpriteSizes::kPickup;
         Interactable inter{}; inter.type = InteractableType::WaterPickup; inter.thirstRestore = waterRestoreDist(runRng); inter.prompt = "Collect water";
         mWorld.addComponent<Transform>(water, t);
         mWorld.addComponent<Sprite>(water, s);
@@ -1997,7 +1999,7 @@ void Game::setupScene()
         const auto& wd = weaponDefs[runRng() % weaponDefs.size()];
         Entity wpn = mWorld.createEntity();
         Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(wd.sprite); s.color = glm::vec4(1.0f); s.layer = 6;
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(wd.sprite); s.color = glm::vec4(1.0f); s.layer = 6; s.drawSize = SpriteSizes::kPickup;
         Interactable inter{}; inter.type = InteractableType::WeaponPickup; inter.weaponCategory = static_cast<int>(wd.category); inter.prompt = "Take weapon";
         mWorld.addComponent<Transform>(wpn, t);
         mWorld.addComponent<Sprite>(wpn, s);
@@ -2010,7 +2012,7 @@ void Game::setupScene()
         if (mTileMap.isSolid(tile.x, tile.y)) continue;
         Entity bandage = mWorld.createEntity();
         Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_bandage"); s.color = glm::vec4(1.0f); s.layer = 6;
+        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("item_bandage"); s.color = glm::vec4(1.0f); s.layer = 6; s.drawSize = SpriteSizes::kPickup;
         Interactable inter{}; inter.type = InteractableType::BandagePickup; inter.prompt = "Take bandage";
         mWorld.addComponent<Transform>(bandage, t);
         mWorld.addComponent<Sprite>(bandage, s);
@@ -2516,10 +2518,10 @@ void Game::setupScene()
         std::uniform_int_distribution<int> lootQtyDist(1, 3);
 
         // District loot tables (item IDs)
-        // Residential: food(0,1,2,21), drink(3), sleeping bag type items
+        // Residential: food(0,1,2,21), drink(3), jacket(20), flashlight(18)
         // Commercial: weapons(5-8,17), medical(4,15,16,22), general
         // Industrial: materials(9-14,18-20), bandages(4), tools
-        const std::array<int, 7> residentialLoot = {0, 1, 2, 21, 3, 3, 23};
+        const std::array<int, 9> residentialLoot = {0, 1, 2, 21, 3, 3, 23, 20, 18};
         const std::array<int, 7> commercialLoot  = {5, 6, 7, 8, 17, 22, 23};
         const std::array<int, 6> industrialLoot  = {9, 10, 11, 12, 18, 4};
 
@@ -2664,6 +2666,7 @@ void Game::setupScene()
             ns.uvRect = mSpriteSheet.uvRect("item_bandage");
             ns.color = glm::vec4(0.84f, 0.79f, 0.62f, 0.95f);
             ns.layer = 6;
+            ns.drawSize = SpriteSizes::kPickup;
 
             Interactable ni{};
             ni.type = InteractableType::JournalNote;
@@ -2844,6 +2847,7 @@ void Game::setupScene()
             js.uvRect = mSpriteSheet.uvRect("item_bandage"); // reuse small item sprite
             js.color = glm::vec4(0.85f, 0.80f, 0.65f, 1.0f); // parchment tint
             js.layer = 6;
+            js.drawSize = SpriteSizes::kPickup;
 
             // Generate procedural flavor text from the grave data
             const std::array<const char*, 5> residentialFlavor = {
@@ -3974,6 +3978,25 @@ void Game::update(float dtSeconds)
 
     // Weather system
     mWeatherSystem.update(mWeatherState, dtSeconds, mGameHours, mCurrentDay);
+
+    // Flashlight toggle (Q). Needs a flashlight in the pack.
+    if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
+    {
+        if (playerHasItem("Flashlight"))
+        {
+            mFlashlightOn = !mFlashlightOn;
+            mInteractionMessage = mFlashlightOn ? "Flashlight on. It will be seen." : "Flashlight off.";
+        }
+        else
+        {
+            mInteractionMessage = "You have no flashlight.";
+        }
+        mInteractionMessageTimer = 2.0f;
+    }
+    if (mFlashlightOn && !playerHasItem("Flashlight"))
+    {
+        mFlashlightOn = false;
+    }
 
     // Fire interaction key (L): active-slot Molotov ignites, active-slot water suppresses.
     if (playerAlive &&
@@ -5552,6 +5575,7 @@ void Game::update(float dtSeconds)
         }
     }
 
+    mZombieAISystem.setPlayerLit(mFlashlightOn);
     mZombieAISystem.update(
         mWorld,
         mTileMap,
@@ -5948,6 +5972,7 @@ void Game::render()
     mShader.setFloat("uAmbientLight", 1.0f);
     mShader.setVec3("uAmbientColor", glm::vec3(1.0f));
     mShader.setInt("uLightCount", 0);
+    mShader.setInt("uSpotEnabled", 0);
 
     mSpriteBatch.begin();
     renderTitleScreen();
@@ -5971,6 +5996,7 @@ void Game::render()
     mShader.setFloat("uAmbientLight", 1.0f);
     mShader.setVec3("uAmbientColor", glm::vec3(1.0f));
     mShader.setInt("uLightCount", 0);
+    mShader.setInt("uSpotEnabled", 0);
 
     mSpriteBatch.begin();
     if (!mShowCrafting)
@@ -6626,74 +6652,93 @@ void Game::snapshotPositions()
         });
 }
 
+float Game::nightFactor() const
+{
+    // 0 = full day, 1 = full night, with dusk 18-20 and dawn 5-6.
+    const double hour = mGameHours;
+    if (hour >= 6.0 && hour < 18.0) return 0.0f;
+    if (hour >= 18.0 && hour < 20.0) return static_cast<float>((hour - 18.0) / 2.0);
+    if (hour >= 5.0 && hour < 6.0) return 1.0f - static_cast<float>(hour - 5.0);
+    return 1.0f;
+}
+
 void Game::setupLightingUniforms()
 {
-    // Compute ambient light level from time of day
-    float ambientLevel = 1.0f;
-    glm::vec3 ambientColor(1.0f, 1.0f, 1.0f);
-
-    const double hour = mGameHours;
-    if (hour >= 6.0 && hour < 18.0)
+    // Ambient: daylight to a dark, cold night. Lights carry the night.
+    const float night = nightFactor();
+    const float ambientLevel = 1.0f - night * 0.80f;
+    const glm::vec3 dayColor(1.0f, 1.0f, 1.0f);
+    const glm::vec3 duskColor(1.0f, 0.78f, 0.62f);
+    const glm::vec3 nightColor(0.55f, 0.62f, 0.95f);
+    glm::vec3 ambientColor = night < 0.5f
+        ? glm::mix(dayColor, duskColor, night * 2.0f)
+        : glm::mix(duskColor, nightColor, (night - 0.5f) * 2.0f);
+    if (mGameHours >= 5.0 && mGameHours < 6.0)
     {
-        ambientLevel = 1.0f;
-        ambientColor = glm::vec3(1.0f, 1.0f, 1.0f);
-    }
-    else if (hour >= 18.0 && hour < 20.0)
-    {
-        const float t = static_cast<float>((hour - 18.0) / 2.0);
-        ambientLevel = 1.0f - t * 0.65f;
-        ambientColor = glm::vec3(
-            1.0f - t * 0.3f,
-            1.0f - t * 0.35f,
-            1.0f - t * 0.1f);
-    }
-    else if (hour >= 20.0 || hour < 5.0)
-    {
-        ambientLevel = 0.35f;
-        ambientColor = glm::vec3(0.7f, 0.7f, 0.9f);
-    }
-    else // 5.0 <= hour < 6.0 (dawn)
-    {
-        const float t = static_cast<float>((hour - 5.0) / 1.0);
-        ambientLevel = 0.35f + t * 0.65f;
-        ambientColor = glm::vec3(
-            0.7f + t * 0.3f,
-            0.7f + t * 0.3f,
-            0.9f + t * 0.1f);
+        ambientColor = glm::mix(nightColor, dayColor, 1.0f - night); // cool dawn, no orange
     }
 
     mShader.setFloat("uAmbientLight", ambientLevel);
     mShader.setVec3("uAmbientColor", ambientColor);
 
-    // Gather point lights from campfire structures
+    // A world radius in pixels becomes this many screen pixels on the
+    // (un-squashed) iso ground at the current zoom.
+    const float groundScale = 1.41421356f * mCamera.zoom();
+    const float tilePx = static_cast<float>(mTileMap.tileWidth());
+
     constexpr int kMaxLights = 16;
     glm::vec2 lightPositions[kMaxLights];
     glm::vec3 lightColors[kMaxLights];
     float lightRadii[kMaxLights];
     int lightCount = 0;
+    auto addLight = [&](const glm::vec2& worldCenter, const glm::vec3& color, float radiusTiles)
+    {
+        if (lightCount >= kMaxLights) return;
+        lightPositions[lightCount] = mCamera.worldToScreen(worldCenter);
+        lightColors[lightCount] = color;
+        lightRadii[lightCount] = radiusTiles * tilePx * groundScale;
+        ++lightCount;
+    };
 
+    const bool playerAlive = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity);
+    glm::vec2 playerCenter(0.0f);
+    if (playerAlive)
+    {
+        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+        const float lerpX = pt.prevX + (pt.x - pt.prevX) * mInterpolationAlpha;
+        const float lerpY = pt.prevY + (pt.y - pt.prevY) * mInterpolationAlpha;
+        playerCenter = glm::vec2(lerpX + kSpriteSize * 0.5f, lerpY + kSpriteSize * 0.5f);
+
+        // Eyes adjusted to the dark: a small, dim pool so the immediate
+        // surroundings stay readable.
+        if (night > 0.0f)
+        {
+            addLight(playerCenter, glm::vec3(0.30f, 0.30f, 0.36f) * night, 3.5f);
+            // Spill from the flashlight lights the holder too. Centered a little
+            // up-screen so the whole body is caught, not just the feet.
+            if (mFlashlightOn)
+            {
+                addLight(playerCenter - glm::vec2(10.0f, 10.0f), glm::vec3(0.45f, 0.43f, 0.38f) * night, 1.6f);
+            }
+        }
+    }
+
+    // Firelight flickers a little.
+    const float flicker = 0.92f + 0.08f * std::sin(static_cast<float>(SDL_GetTicks()) * 0.013f);
     mWorld.forEach<Structure, Transform>(
         [&](Entity, Structure& structure, Transform& transform)
         {
-            if (lightCount >= kMaxLights)
-            {
-                return;
-            }
-
-            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f)
-            {
-                return;
-            }
-
-            const glm::vec2 worldCenter(
-                transform.x + kSpriteSize * 0.5f,
-                transform.y + kSpriteSize * 0.5f);
-            const glm::vec2 screenPos = mCamera.worldToScreen(worldCenter);
-
-            lightPositions[lightCount] = screenPos;
-            lightColors[lightCount] = glm::vec3(1.0f, 0.7f, 0.3f);
-            lightRadii[lightCount] = 150.0f * mCamera.zoom();
-            ++lightCount;
+            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
+            addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
+                     glm::vec3(1.0f, 0.62f, 0.28f) * flicker, 5.0f);
+        });
+    mWorld.forEach<Fire, Transform>(
+        [&](Entity, Fire& fire, Transform& transform)
+        {
+            if (fire.intensity <= 0.05f) return;
+            const float strength = std::clamp(0.55f + fire.intensity * 0.35f, 0.0f, 1.2f) * flicker;
+            addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
+                     glm::vec3(1.0f, 0.55f, 0.22f) * strength, 3.0f + fire.intensity * 1.5f);
         });
 
     mShader.setInt("uLightCount", lightCount);
@@ -6702,6 +6747,24 @@ void Game::setupLightingUniforms()
         mShader.setVec2Array("uLightPositions[0]", lightPositions, lightCount);
         mShader.setVec3Array("uLightColors[0]", lightColors, lightCount);
         mShader.setFloatArray("uLightRadii[0]", lightRadii, lightCount);
+    }
+
+    // Flashlight beam along the facing direction.
+    const bool beam = playerAlive && mFlashlightOn && mWorld.hasComponent<Facing>(mPlayerEntity);
+    mShader.setInt("uSpotEnabled", beam ? 1 : 0);
+    if (beam)
+    {
+        const float angle = mWorld.getComponent<Facing>(mPlayerEntity).angleRadians;
+        const glm::vec2 worldDir(std::cos(angle), std::sin(angle));
+        // World direction -> iso screen direction, then un-squash y.
+        glm::vec2 groundDir(worldDir.x - worldDir.y, worldDir.x + worldDir.y);
+        groundDir = glm::length(groundDir) > 0.0001f ? glm::normalize(groundDir) : glm::vec2(1.0f, 0.0f);
+        mShader.setVec2("uSpotPosition", mCamera.worldToScreen(playerCenter));
+        mShader.setVec2("uSpotDirection", groundDir);
+        mShader.setFloat("uSpotCosHalfAngle", std::cos(glm::radians(kFlashlightHalfAngleDegrees)));
+        mShader.setFloat("uSpotRange", kFlashlightRangeTiles * tilePx * groundScale);
+        // Strong at night; barely visible in daylight.
+        mShader.setVec3("uSpotColor", glm::vec3(1.0f, 0.95f, 0.82f) * (0.15f + 0.75f * night));
     }
 }
 
@@ -7756,11 +7819,15 @@ void Game::renderMap()
                 continue;
             }
 
-            // Draw tile centered on its iso screen position
+            // Draw tile centered on its iso screen position. The placeholder
+            // diamonds stop a texel short of their cell, so grow each quad by
+            // one texel per side; back-to-front order hides the overlap.
+            const float overlapW = scaledTileW + 2.0f * zoom;
+            const float overlapH = scaledTileH + 2.0f * zoom;
             mSpriteBatch.draw(
-                glm::vec2(screenCenter.x - scaledTileW * 0.5f,
-                           screenCenter.y - scaledTileH * 0.5f),
-                glm::vec2(scaledTileW, scaledTileH),
+                glm::vec2(std::round(screenCenter.x - overlapW * 0.5f),
+                          std::round(screenCenter.y - overlapH * 0.5f)),
+                glm::vec2(overlapW, overlapH),
                 uvRect,
                 glm::vec4(1.0f));
         }
@@ -7863,27 +7930,34 @@ NeedsEnvironment Game::buildNeedsEnvironment()
         });
 
     // Clothing: a jacket in the pack counts as worn.
-    if (mPlayerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Needs>(mPlayerEntity) &&
-        mWorld.hasComponent<Inventory>(mPlayerEntity))
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
     {
         constexpr float kJacketInsulation = 5.0f;
-        const ItemDef* jacket = mItemDatabase.findByName("Jacket");
-        bool wearingJacket = false;
-        if (jacket != nullptr)
-        {
-            for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
-            {
-                if (slot.itemId == jacket->id && slot.count > 0)
-                {
-                    wearingJacket = true;
-                    break;
-                }
-            }
-        }
-        mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation = wearingJacket ? kJacketInsulation : 0.0f;
+        mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation =
+            playerHasItem("Jacket") ? kJacketInsulation : 0.0f;
     }
     return environment;
+}
+
+bool Game::playerHasItem(const char* itemName) const
+{
+    if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        return false;
+    }
+    const ItemDef* item = mItemDatabase.findByName(itemName);
+    if (item == nullptr)
+    {
+        return false;
+    }
+    for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+    {
+        if (slot.itemId == item->id && slot.count > 0)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Game::updateNoiseModel(float dtSeconds)

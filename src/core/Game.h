@@ -106,6 +106,8 @@ private:
     void renderWorldMapOverlay();
     void renderNotebookOverlay();
     void setupLightingUniforms();
+    [[nodiscard]] float nightFactor() const;
+    [[nodiscard]] bool playerHasItem(const char* itemName) const;
     void snapshotPositions();
     void updateNoiseModel(float dtSeconds);
     [[nodiscard]] NeedsEnvironment buildNeedsEnvironment();
@@ -268,6 +270,11 @@ private:
     std::vector<std::pair<int, int>> mBurnedTiles;
 
     float mZombieGrowlTimer = 0.0f;
+
+    // Flashlight (Q): a beam at night that zombies can see from afar.
+    bool mFlashlightOn = false;
+    static constexpr float kFlashlightRangeTiles = 9.0f;
+    static constexpr float kFlashlightHalfAngleDegrees = 26.0f;
 
     double mFpsTimer = 0.0;
     int mFramesThisSecond = 0;

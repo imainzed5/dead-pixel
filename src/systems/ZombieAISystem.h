@@ -22,6 +22,12 @@ public:
         int currentDay = 1,
         const DistrictInfectionSystem* infectionSystem = nullptr) const;
 
+    // Night vision depends on the player's light: darkness hides you, a lit
+    // flashlight makes you visible from further away than in daylight.
+    void setPlayerLit(bool lit) { mPlayerLit = lit; }
+    static constexpr float kNightVisionDark = 0.6f;
+    static constexpr float kNightVisionLit = 1.3f;
+
     // Send a zombie toward a world position (used by the threat director).
     // Long trips follow an A* path; `migrating` zombies shamble rather than rush.
     static void sendTo(ZombieAI& zombie, const glm::vec2& targetWorld, bool migrating);
@@ -60,4 +66,6 @@ private:
     static constexpr float kSeparationRadius = 14.0f;
 
     [[nodiscard]] static glm::vec2 tileCenterWorld(const TileMap& tileMap, const glm::ivec2& tile);
+
+    bool mPlayerLit = false;
 };

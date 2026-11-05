@@ -23,6 +23,7 @@ struct DrawCommand
     glm::vec4 uvRect{0.0f, 0.0f, 1.0f, 1.0f};
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     int layer = 0;
+    float size = 32.0f;
 };
 }
 
@@ -48,7 +49,8 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
                     glm::vec2(lerpX, lerpY),
                     sprite.uvRect,
                     sprite.color,
-                    sprite.layer});
+                    sprite.layer,
+                    sprite.drawSize});
         });
 
     // Primary sort by layer, secondary sort by iso depth (worldX + worldY)
@@ -65,10 +67,10 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
         });
 
     const float zoom = camera.zoom();
-    const float scaledSize = kSpriteSize * zoom;
 
     for (const DrawCommand& command : drawCommands)
     {
+        const float scaledSize = command.size * zoom;
         glm::vec4 uvRect = command.uvRect;
         glm::vec4 color = command.color;
 
@@ -97,7 +99,7 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
             world.hasComponent<ZombieAI>(command.entity) ||
             world.hasComponent<SurvivorAI>(command.entity);
 
-        const float visualYOffset = isHumanoid ? (kHumanoidVisualYOffset * zoom) : 0.0f;
+        const float visualYOffset = isHumanoid ? (kHumanoidFootPadding * scaledSize) : 0.0f;
 
         // Draw sprite centered on its iso screen position with optional humanoid
         // foot-pivot correction so visual feet sit on the physical world anchor.
