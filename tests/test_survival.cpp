@@ -8,6 +8,7 @@
 #include <glm/geometric.hpp>
 
 #include "components/Bleeding.h"
+#include "components/Combat.h"
 #include "components/Facing.h"
 #include "components/Health.h"
 #include "components/MentalState.h"
@@ -495,4 +496,13 @@ DP_TEST(wounds_only_dirty_bites_fester)
     // The clean bite and the cut closed; the infection stays until treated.
     DP_CHECK_EQ(list.size(), 1u);
     DP_CHECK(list.front().infected);
+}
+
+DP_TEST(weapon_condition_bands_follow_durability)
+{
+    DP_CHECK(weaponConditionFor(12, 12) == WeaponCondition::Good);
+    DP_CHECK(weaponConditionFor(7, 12) == WeaponCondition::Worn);
+    DP_CHECK(weaponConditionFor(3, 12) == WeaponCondition::Damaged);
+    DP_CHECK(weaponConditionFor(0, 12) == WeaponCondition::Broken);
+    DP_CHECK(weaponConditionFor(1, 0) == WeaponCondition::Good); // no divide by zero
 }

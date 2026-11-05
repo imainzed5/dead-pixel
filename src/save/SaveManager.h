@@ -175,6 +175,7 @@ struct RunCheckpoint
     std::vector<Wound> wounds;
     bool bleeding = false;
     Inventory inventory{};
+    int equippedSlot = -1; // inventory slot of the weapon in hand
     int kills = 0;
     int itemsLooted = 0;
     int structuresBuilt = 0;

@@ -718,8 +718,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
                     }
                     else if (item->category == ItemCategory::Weapon && mWorld.hasComponent<Combat>(mPlayerEntity))
                     {
-                        Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
-                        combat.weapon = weaponStatsForItem(*item);
+                        equipWeaponFromSlot(useSlot);
                         mInteractionMessage = "Equipped " + item->name + ".";
                         mInteractionMessageTimer = 3.0f;
                     }
@@ -728,4 +727,77 @@ void Game::updateInventoryInput(bool drivingVehicle)
         }
 
     }
+}
+
+void Game::equipWeaponFromSlot(int slotIndex)
+{
+    if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Combat>(mPlayerEntity) ||
+        !mWorld.hasComponent<Inventory>(mPlayerEntity) || slotIndex < 0 || slotIndex >= Inventory::kMaxSlots)
+    {
+        return;
+    }
+    const InventorySlot& slot = mWorld.getComponent<Inventory>(mPlayerEntity).slots[static_cast<std::size_t>(slotIndex)];
+    const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+    if (item == nullptr || item->category != ItemCategory::Weapon)
+    {
+        return;
+    }
+    WeaponStats stats = weaponStatsForItem(*item);
+    stats.durability = std::clamp(static_cast<int>(std::round(static_cast<float>(stats.maxDurability) * slot.condition)),
+                                  0, stats.maxDurability);
+    stats.condition = weaponConditionFor(stats.durability, stats.maxDurability);
+    mWorld.getComponent<Combat>(mPlayerEntity).weapon = stats;
+    mEquippedWeaponSlot = slotIndex;
+}
+
+void Game::equipStartingWeapon(int preferredSlot)
+{
+    mEquippedWeaponSlot = -1;
+    if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Combat>(mPlayerEntity) ||
+        !mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        return;
+    }
+    mWorld.getComponent<Combat>(mPlayerEntity).weapon = makeWeaponStats(WeaponCategory::Unarmed);
+    equipWeaponFromSlot(preferredSlot);
+    for (int i = 0; mEquippedWeaponSlot < 0 && i < Inventory::kMaxSlots; ++i)
+    {
+        equipWeaponFromSlot(i);
+    }
+}
+
+void Game::syncEquippedWeapon()
+{
+    if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Combat>(mPlayerEntity) ||
+        !mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        return;
+    }
+    Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
+    if (combat.weapon.itemId < 0)
+    {
+        return;
+    }
+    Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+    const auto holds = [&](int i)
+    {
+        return i >= 0 && i < Inventory::kMaxSlots && inv.slots[static_cast<std::size_t>(i)].itemId == combat.weapon.itemId &&
+               inv.slots[static_cast<std::size_t>(i)].count > 0;
+    };
+    // Slots can be swapped: follow the item.
+    if (!holds(mEquippedWeaponSlot))
+    {
+        mEquippedWeaponSlot = -1;
+        for (int i = 0; i < Inventory::kMaxSlots && mEquippedWeaponSlot < 0; ++i)
+        {
+            if (holds(i)) mEquippedWeaponSlot = i;
+        }
+    }
+    if (mEquippedWeaponSlot < 0)
+    {
+        combat.weapon = makeWeaponStats(WeaponCategory::Unarmed);
+        return;
+    }
+    inv.slots[static_cast<std::size_t>(mEquippedWeaponSlot)].condition =
+        static_cast<float>(combat.weapon.durability) / static_cast<float>(std::max(1, combat.weapon.maxDurability));
 }

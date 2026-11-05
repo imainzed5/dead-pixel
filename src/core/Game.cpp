@@ -363,6 +363,7 @@ RunCheckpoint Game::buildRunCheckpoint()
         cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
         if (mWorld.hasComponent<Inventory>(mPlayerEntity))
             cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
+        cp.equippedSlot = mEquippedWeaponSlot;
     }
 
     cp.kills = mRunStats.kills;
@@ -707,6 +708,7 @@ void Game::startNewRun()
         }
         if (mWorld.hasComponent<Inventory>(mPlayerEntity))
             mWorld.getComponent<Inventory>(mPlayerEntity) = cp.inventory;
+        equipStartingWeapon(cp.equippedSlot);
 
         mCurrentDay = cp.currentDay;
         mGameHours = cp.gameHours;

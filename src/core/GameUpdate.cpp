@@ -484,6 +484,7 @@ void Game::update(float dtSeconds)
     if (!mShowCrafting && !drivingVehicle)
     {
         mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, dtSeconds);
+        syncEquippedWeapon();
     }
     else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Combat>(mPlayerEntity))
     {

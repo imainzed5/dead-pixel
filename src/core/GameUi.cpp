@@ -193,6 +193,11 @@ void Game::buildHudState()
             out.icon = item->sprite;
             out.name = item->name;
             out.count = slot.count;
+            if (item->category == ItemCategory::Weapon)
+            {
+                out.wear = std::clamp(slot.condition, 0.0f, 1.0f);
+                out.equipped = static_cast<int>(i) == mEquippedWeaponSlot;
+            }
         }
     }
 

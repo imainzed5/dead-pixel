@@ -348,6 +348,13 @@ something the next one can find and act on:
     is empty.", and the panel header names it.
   - Harness: `goto furniture [KIND|any] [stocked]`; the script is
     `tools/harness/furniture.txt`.
+- **Weapon in hand:** the weapon you fight with is an inventory item. Runs
+  start with the knife in hand (it used to sit in the hotbar while you fought
+  with default "improvised" stats). Wear is kept in the item, so taking a
+  weapon out again does not mend it, and checkpoints remember which one was
+  in hand. Weapon slots show a wear bar and a gold corner on the one in hand;
+  the name reads "Knife - worn - in hand". Script:
+  `tools/harness/weapon_wear.txt`.
 
 ## Known issues found during revival
 
@@ -372,7 +379,8 @@ something the next one can find and act on:
 - ~~Mid-run checkpoints do not save fires or burn scars~~ (fixed: checkpoints
   keep doors, scars and fires). Zombies are still respawned on resume.
 - ~~The crafting screen is a bare debug-style layout~~ (fixed).
-- Equipping a weapon from the inventory resets its durability to full.
+- ~~Equipping a weapon from the inventory resets its durability to full~~
+  (fixed: wear lives in the item).
 - ~~No wall/roof occlusion: indoor zombies and loot can hide behind walls~~
   (fixed: wall blocks, cut-away and roofs).
 - ~~Building interiors have no furniture; loot lies on bare floors~~ (fixed:
@@ -421,4 +429,5 @@ something the next one can find and act on:
   notebook, crafted items with real effects, Spear.
 - 2026-11-06: Item icons: one per item in a single outlined style.
 - 2026-11-06: Furniture: furnished rooms, furniture containers and beds,
-  furniture sprites; dead zombies cleared however they died.
+  furniture sprites; dead zombies cleared however they died (`07e665e`).
+- 2026-11-06: Weapon in hand is an inventory item with lasting wear.

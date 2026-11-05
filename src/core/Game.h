@@ -138,6 +138,14 @@ private:
     // Furnishes the town from the layout; furniture is part of the world,
     // the same every run.
     void furnishWorld();
+    // The weapon in hand is an inventory item. Its wear is kept in the item's
+    // condition, so putting it away and taking it out again does not mend it.
+    void equipWeaponFromSlot(int slotIndex);
+    // Equips `preferredSlot` if it holds a weapon, else the first weapon
+    // carried, else bare hands.
+    void equipStartingWeapon(int preferredSlot);
+    // Writes the weapon's wear back to its slot; bare hands if it is gone.
+    void syncEquippedWeapon();
     // Moves run spawns that landed on furniture to a free tile beside it.
     void nudgeSpawnsOffFurniture();
     // E at a door: opens or closes it. False when no door is in reach.
@@ -352,6 +360,7 @@ private:
     int mCraftingCategory = 0; // 0=ALL, 1=TOOLS, 2=MED
     std::vector<std::pair<int, int>> mSessionDiscoveredRecipes;
     glm::vec2 mCraftingLastMouse{-1.0f};
+    int mEquippedWeaponSlot = -1;
 
     struct CraftQueueEntry
     {

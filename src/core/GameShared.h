@@ -1010,6 +1010,7 @@ inline WeaponStats weaponStatsForItem(const ItemDef& item)
     stats.maxDurability = std::max(1, static_cast<int>(std::round(static_cast<float>(stats.maxDurability) * item.weaponDurabilityScale)));
     stats.durability = stats.maxDurability;
     stats.causesBleeding = stats.causesBleeding || item.weaponCausesBleeding;
+    stats.itemId = item.id;
     return stats;
 }
 

@@ -48,7 +48,21 @@ struct WeaponStats
     WeaponCategory category = WeaponCategory::Improvised;
     bool causesBleeding = false;
     int ammo = 0;
+    int itemId = -1; // the inventory item in hand; -1 for none
 };
+
+// Condition bands for durability left.
+inline WeaponCondition weaponConditionFor(int durability, int maxDurability)
+{
+    if (durability <= 0)
+    {
+        return WeaponCondition::Broken;
+    }
+    const float ratio = static_cast<float>(durability) / static_cast<float>(maxDurability > 0 ? maxDurability : 1);
+    if (ratio > 0.66f) return WeaponCondition::Good;
+    if (ratio > 0.33f) return WeaponCondition::Worn;
+    return WeaponCondition::Damaged;
+}
 
 inline WeaponStats makeWeaponStats(WeaponCategory cat)
 {

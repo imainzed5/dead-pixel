@@ -65,6 +65,8 @@ struct HudSlot
     std::string icon;
     std::string name;
     int count = 0;
+    bool equipped = false; // the weapon in hand
+    float wear = -1.0f;    // weapon durability left, 0..1; -1 for other items
 };
 
 struct HudState
@@ -117,6 +119,8 @@ public:
 
     [[nodiscard]] static std::vector<HudStatus> buildConditions(const HudConditionInputs& in);
     [[nodiscard]] static glm::vec4 severityColor(HudSeverity severity);
+    // Name shown above the hotbar: "Knife - in hand", "Bat - worn", "Pipe - broken".
+    [[nodiscard]] static std::string slotLabel(const HudSlot& slot);
 
     // Layout constants (pixels at 1x).
     static constexpr float kMargin = 16.0f;

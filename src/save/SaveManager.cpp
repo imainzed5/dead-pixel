@@ -1175,6 +1175,7 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         json["inventory"].push_back({{"id", slot.itemId}, {"count", slot.count}, {"condition", slot.condition}});
     }
     json["activeSlot"] = cp.inventory.activeSlot;
+    json["equippedSlot"] = cp.equippedSlot;
 
     // Stats
     json["kills"] = cp.kills;
@@ -1280,6 +1281,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
         }
     }
     cp.inventory.activeSlot = json.value("activeSlot", 0);
+    cp.equippedSlot = json.value("equippedSlot", -1);
 
     cp.kills = json.value("kills", 0);
     cp.itemsLooted = json.value("itemsLooted", 0);

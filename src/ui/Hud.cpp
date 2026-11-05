@@ -211,6 +211,22 @@ void drawTextStrip(SpriteBatch& batch, const glm::vec4& uv, float centerX, float
 
 } // namespace
 
+std::string Hud::slotLabel(const HudSlot& slot)
+{
+    std::string label = slot.name;
+    if (slot.wear >= 0.0f)
+    {
+        if (slot.wear <= 0.0f) label += " - broken";
+        else if (slot.wear <= 0.33f) label += " - damaged";
+        else if (slot.wear <= 0.66f) label += " - worn";
+    }
+    if (slot.equipped)
+    {
+        label += " - in hand";
+    }
+    return label;
+}
+
 glm::vec4 Hud::severityColor(HudSeverity severity)
 {
     switch (severity)
@@ -522,13 +538,35 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
                            active ? glm::vec4(1.0f) : glm::vec4(0.88f, 0.88f, 0.88f, 1.0f));
             }
         }
+
+        // Weapons: wear along the bottom, a gold corner on the one in hand.
+        if (!slot.empty && slot.wear >= 0.0f)
+        {
+            const glm::vec2 barPos = pos + glm::vec2(5.0f, Hud::kSlotSize - 7.0f);
+            const float barW = Hud::kSlotSize - 10.0f;
+            batch.draw(barPos, glm::vec2(barW, 3.0f), white, glm::vec4(0.0f, 0.0f, 0.0f, 0.65f));
+            const glm::vec4 wearColor = slot.wear > 0.66f   ? glm::vec4(0.47f, 0.80f, 0.42f, 1.0f)
+                                        : slot.wear > 0.33f ? glm::vec4(0.95f, 0.74f, 0.28f, 1.0f)
+                                                            : glm::vec4(0.92f, 0.33f, 0.27f, 1.0f);
+            batch.draw(barPos, glm::vec2(std::max(1.0f, std::round(barW * slot.wear)), 3.0f), white, wearColor);
+        }
+        if (!slot.empty && slot.equipped)
+        {
+            const glm::vec4 gold(0.98f, 0.84f, 0.38f, 1.0f);
+            const glm::vec2 corner = pos + glm::vec2(Hud::kSlotSize - 3.0f, 3.0f);
+            for (int k = 0; k < 6; ++k)
+            {
+                batch.draw(corner + glm::vec2(-static_cast<float>(6 - k), static_cast<float>(k)),
+                           glm::vec2(static_cast<float>(6 - k), 1.0f), white, gold);
+            }
+        }
     }
 
     // Selected item name and message backings.
     const HudSlot& activeSlot = state.hotbar[static_cast<std::size_t>(std::clamp(state.activeSlot, 0, 7))];
     if (!activeSlot.empty && !activeSlot.name.empty())
     {
-        const float w = font.measureText(activeSlot.name, kLabelScale).x;
+        const float w = font.measureText(Hud::slotLabel(activeSlot), kLabelScale).x;
         drawTextStrip(batch, white, viewport.x * 0.5f, layout.itemNameY, w, 18.0f, 0.8f);
     }
 
@@ -653,7 +691,7 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
     const HudSlot& activeSlot = state.hotbar[static_cast<std::size_t>(std::clamp(state.activeSlot, 0, 7))];
     if (!activeSlot.empty && !activeSlot.name.empty())
     {
-        font.drawText(batch, glm::vec2(viewport.x * 0.5f, layout.itemNameY), activeSlot.name,
+        font.drawText(batch, glm::vec2(viewport.x * 0.5f, layout.itemNameY), Hud::slotLabel(activeSlot),
                       glm::vec4(0.98f, 0.90f, 0.62f, 0.95f), kLabelScale, TextAlign::Center);
     }
 

@@ -115,3 +115,22 @@ DP_TEST(hud_crisis_overrides_depression_label)
     DP_CHECK(hasLabel(statuses, "In crisis"));
     DP_CHECK(!hasLabel(statuses, "Despairing"));
 }
+
+DP_TEST(hud_weapon_slot_label_shows_wear_and_hand)
+{
+    HudSlot knife;
+    knife.empty = false;
+    knife.name = "Knife";
+    knife.wear = 1.0f;
+    knife.equipped = true;
+    DP_CHECK(Hud::slotLabel(knife) == "Knife - in hand");
+    knife.wear = 0.5f;
+    DP_CHECK(Hud::slotLabel(knife) == "Knife - worn - in hand");
+    knife.equipped = false;
+    knife.wear = 0.0f;
+    DP_CHECK(Hud::slotLabel(knife) == "Knife - broken");
+    HudSlot food;
+    food.empty = false;
+    food.name = "Canned Food";
+    DP_CHECK(Hud::slotLabel(food) == "Canned Food");
+}

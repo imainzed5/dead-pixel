@@ -290,26 +290,7 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
 void CombatSystem::degradeWeapon(Combat& combat)
 {
     combat.weapon.durability = std::max(0, combat.weapon.durability - 1);
-
-    if (combat.weapon.durability <= 0)
-    {
-        combat.weapon.condition = WeaponCondition::Broken;
-        return;
-    }
-
-    const float ratio = static_cast<float>(combat.weapon.durability) / static_cast<float>(combat.weapon.maxDurability);
-    if (ratio > 0.66f)
-    {
-        combat.weapon.condition = WeaponCondition::Good;
-    }
-    else if (ratio > 0.33f)
-    {
-        combat.weapon.condition = WeaponCondition::Worn;
-    }
-    else
-    {
-        combat.weapon.condition = WeaponCondition::Damaged;
-    }
+    combat.weapon.condition = weaponConditionFor(combat.weapon.durability, combat.weapon.maxDurability);
 }
 
 float CombatSystem::effectiveRangePixels(const Combat& combat)

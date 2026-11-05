@@ -146,6 +146,7 @@ void Game::setupScene()
         InventorySystem::addItem(inv, mItemDatabase, 0, startFood);
         InventorySystem::addItem(inv, mItemDatabase, 3, startWater);
     }
+    equipStartingWeapon(-1); // the knife, in hand from the start
     mWorld.addComponent<MentalState>(mPlayerEntity, MentalState{});
     mWorld.addComponent<Wounds>(mPlayerEntity, Wounds{});
 
