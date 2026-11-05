@@ -827,89 +827,143 @@ void Game::updateSleep(float dtSeconds)
     }
 }
 
-// Player and zombie animation state from movement and facing.
+namespace
+{
+// Which way a character faces on screen, from a direction in world space. The
+// iso view puts world (x, y) at screen (x - y, (x + y) / 2). Frames are drawn
+// facing right: away picks the back view, flip mirrors them to face left.
+// Near straight up or down the flip is kept, and near straight left or right
+// the view is kept, so a character walking a screen axis does not flicker.
+void faceToward(const glm::vec2& worldDir, bool& away, bool& flip)
+{
+    const float sx = worldDir.x - worldDir.y;
+    const float sy = (worldDir.x + worldDir.y) * 0.5f;
+    if (sx * sx + sy * sy < 1e-6f)
+    {
+        return;
+    }
+    if (std::abs(sy) > 0.2f * std::abs(sx))
+    {
+        away = sy < 0.0f;
+    }
+    if (std::abs(sx) > 0.2f * std::abs(sy))
+    {
+        flip = sx < 0.0f;
+    }
+}
+
+// Switch animation. Turning mid-stride (walk_front to walk_back) keeps the
+// step; anything else starts the new cycle from its first frame.
+void playAnimation(Animation& anim, const std::string& desired)
+{
+    if (anim.currentAnim == desired)
+    {
+        return;
+    }
+    const auto cycle = [](const std::string& name) { return name.substr(0, name.rfind('_')); };
+    const bool sameCycle = cycle(anim.currentAnim) == cycle(desired);
+    anim.currentAnim = desired;
+    if (!sameCycle)
+    {
+        anim.currentFrame = 0;
+        anim.frameTimer = 0.0f;
+    }
+    anim.finished = false;
+}
+
+const char* viewSuffix(bool away)
+{
+    return away ? "_back" : "_front";
+}
+} // namespace
+
+// Character animation: which pose, which way they face on screen.
 void Game::updateAnimations(float dtSeconds)
 {
-    // Update player animation based on movement and facing
+    // The player looks where they aim: the flashlight and every swing follow
+    // the mouse, so the body does too, even while backing away.
     if (mPlayerEntity != kInvalidEntity &&
         mWorld.hasComponent<Animation>(mPlayerEntity) &&
+        mWorld.hasComponent<Sprite>(mPlayerEntity) &&
         mWorld.hasComponent<Velocity>(mPlayerEntity) &&
         mWorld.hasComponent<Facing>(mPlayerEntity))
     {
         Animation& anim = mWorld.getComponent<Animation>(mPlayerEntity);
+        Sprite& sprite = mWorld.getComponent<Sprite>(mPlayerEntity);
         const Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
         const Facing& fac = mWorld.getComponent<Facing>(mPlayerEntity);
 
-        const float speed = vel.dx * vel.dx + vel.dy * vel.dy;
-        std::string desired = "player_idle";
-        if (speed > 4.0f)
+        faceToward(glm::vec2(std::cos(fac.angleRadians), std::sin(fac.angleRadians)), anim.facingAway, sprite.flipX);
+
+        const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 4.0f;
+        const bool dead = mWorld.hasComponent<Health>(mPlayerEntity) &&
+                          mWorld.getComponent<Health>(mPlayerEntity).current <= 0.0f;
+        bool swinging = false;
+        if (mWorld.hasComponent<Combat>(mPlayerEntity))
         {
-            if (std::abs(vel.dx) > std::abs(vel.dy))
+            const AttackPhase phase = mWorld.getComponent<Combat>(mPlayerEntity).phase;
+            swinging = phase == AttackPhase::Windup || phase == AttackPhase::Active;
+        }
+
+        std::string desired;
+        if (dead)
+        {
+            desired = "player_dead";
+        }
+        else
+        {
+            if (swinging)
             {
-                desired = "player_walk_right";
+                desired = "player_attack";
             }
-            else if (vel.dy < 0.0f)
+            else if (moving)
             {
-                desired = "player_walk_up";
+                desired = fac.crouching ? "player_crouchwalk" : "player_walk";
             }
             else
             {
-                desired = "player_walk_down";
+                desired = fac.crouching ? "player_crouch" : "player_idle";
             }
+            desired += viewSuffix(anim.facingAway);
         }
-        else if (fac.crouching)
-        {
-            desired = "player_crouch";
-        }
-
-        if (anim.currentAnim != desired)
-        {
-            anim.currentAnim = desired;
-            anim.currentFrame = 0;
-            anim.frameTimer = 0.0f;
-            anim.finished = false;
-        }
+        playAnimation(anim, desired);
     }
 
-    // Update zombie animations based on movement
-    for (const Entity entity : mWorld.livingEntities())
-    {
-        if (!mWorld.hasComponent<ZombieAI>(entity) ||
-            !mWorld.hasComponent<Animation>(entity) ||
-            !mWorld.hasComponent<Velocity>(entity))
+    // Zombies face where they shamble, and turn to their prey for a lunge.
+    mWorld.forEach<ZombieAI, Animation, Velocity, Sprite, Transform>(
+        [&](Entity, ZombieAI& ai, Animation& anim, Velocity& vel, Sprite& sprite, Transform& transform)
         {
-            continue;
-        }
+            const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 1.0f;
+            const bool lunging = ai.attackWindup > 0.0f;
+            if (lunging || ai.state == ZombieState::Attack)
+            {
+                const glm::vec2 centre(transform.x + 16.0f, transform.y + 16.0f);
+                faceToward(ai.targetWorld - centre, anim.facingAway, sprite.flipX);
+            }
+            else if (moving)
+            {
+                faceToward(glm::vec2(vel.dx, vel.dy), anim.facingAway, sprite.flipX);
+            }
+            const char* pose = lunging ? "zombie_attack" : (moving ? "zombie_walk" : "zombie_idle");
+            playAnimation(anim, std::string(pose) + viewSuffix(anim.facingAway));
+        });
 
-        Animation& anim = mWorld.getComponent<Animation>(entity);
-        const Velocity& vel = mWorld.getComponent<Velocity>(entity);
-
-        const float speed = vel.dx * vel.dx + vel.dy * vel.dy;
-        std::string desired = "zombie_idle";
-        if (speed > 1.0f)
+    // Survivors walk like the player and face where they go.
+    mWorld.forEach<SurvivorAI, Animation, Velocity, Sprite>(
+        [&](Entity, SurvivorAI& ai, Animation& anim, Velocity& vel, Sprite& sprite)
         {
-            if (std::abs(vel.dx) > std::abs(vel.dy))
+            if (ai.state == SurvivorState::Dead)
             {
-                desired = "zombie_walk_right";
+                playAnimation(anim, "player_dead");
+                return;
             }
-            else if (vel.dy < 0.0f)
+            const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 4.0f;
+            if (moving)
             {
-                desired = "zombie_walk_up";
+                faceToward(glm::vec2(vel.dx, vel.dy), anim.facingAway, sprite.flipX);
             }
-            else
-            {
-                desired = "zombie_walk_down";
-            }
-        }
-
-        if (anim.currentAnim != desired)
-        {
-            anim.currentAnim = desired;
-            anim.currentFrame = 0;
-            anim.frameTimer = 0.0f;
-            anim.finished = false;
-        }
-    }
+            playAnimation(anim, std::string(moving ? "player_walk" : "player_idle") + viewSuffix(anim.facingAway));
+        });
 
     mAnimationSystem.update(mWorld, mSpriteSheet, dtSeconds);
 }

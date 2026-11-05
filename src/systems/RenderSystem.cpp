@@ -7,7 +7,6 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
-#include "components/Facing.h"
 #include "components/PlayerInput.h"
 #include "components/Sprite.h"
 #include "components/SurvivorAI.h"
@@ -24,6 +23,7 @@ struct DrawCommand
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     int layer = 0;
     float size = 32.0f;
+    bool flipX = false;
 };
 }
 
@@ -62,7 +62,8 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
                     sprite.uvRect,
                     sprite.color,
                     sprite.layer,
-                    sprite.drawSize});
+                    sprite.drawSize,
+                    sprite.flipX});
         });
 
     // Draw order: flat decals first (by layer, then depth); then everything
@@ -135,21 +136,11 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
         const DrawCommand& command = drawCommands[static_cast<std::size_t>(item.index)];
         const float scaledSize = command.size * zoom;
         glm::vec4 uvRect = command.uvRect;
-        glm::vec4 color = command.color;
-
-        if (world.hasComponent<Facing>(command.entity))
+        const glm::vec4 color = command.color;
+        if (command.flipX)
         {
-            const Facing& facing = world.getComponent<Facing>(command.entity);
-            if (std::cos(facing.angleRadians) < 0.0f)
-            {
-                uvRect.x = command.uvRect.x + command.uvRect.z;
-                uvRect.z = -command.uvRect.z;
-            }
-
-            if (facing.crouching)
-            {
-                color *= glm::vec4(0.75f, 1.0f, 0.75f, 1.0f);
-            }
+            uvRect.x = command.uvRect.x + command.uvRect.z;
+            uvRect.z = -command.uvRect.z;
         }
 
         // Convert world center to screen position

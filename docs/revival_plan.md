@@ -364,6 +364,14 @@ something the next one can find and act on:
   risen still return with their graves). Older checkpoints without zombie
   data spawn a fresh town as before. Harness: `zombies`; script:
   `tools/harness/resume.txt`.
+- **Characters that turn:** player, zombies and survivors are redrawn as
+  outlined pixel figures in two views, front (walking down the screen) and
+  back (walking up it), both mirrored for the left. The player faces where
+  they aim, so the body, flashlight and swings agree; zombies and survivors
+  face where they walk, and a zombie turns to its prey for a lunge. New poses:
+  walk cycles, crouch and crouch-walk (bent knees), a swing, a zombie lunge
+  with arms out, and lying dead. The player wears a backpack; zombies shamble,
+  hunched, arms reaching. Script: `tools/harness/facing.txt`.
 
 ## Known issues found during revival
 
@@ -399,7 +407,8 @@ something the next one can find and act on:
   sleep nearby~~ (fixed: every dead zombie is cleared away).
 - ~~Medical and supply caches still use the old flat crate and shelf
   sprites~~ (fixed: their loot goes into furniture).
-- Character sprites face only up/down/right; isometric movement is diagonal.
+- ~~Character sprites face only up/down/right; isometric movement is
+  diagonal~~ (fixed: front and back views, mirrored, picked on screen).
 - ~~Notebook, world map and minimap text rendered as garbage~~ (fixed: each
   UI layer draws its shapes with the sprite sheet, then all of its text with
   the font atlas).
@@ -443,4 +452,6 @@ something the next one can find and act on:
   furniture sprites; dead zombies cleared however they died (`07e665e`).
 - 2026-11-06: Weapon in hand is an inventory item with lasting wear
   (`5340380`); caches go into furniture (`513076d`); checkpoints keep
-  zombies.
+  zombies (`8a689f1`).
+- 2026-11-06: Characters redrawn with front and back views, mirrored, facing
+  picked on screen; crouch, swing, lunge and dead poses.

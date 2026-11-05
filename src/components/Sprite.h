@@ -13,6 +13,9 @@ struct Sprite
     // Side of the square draw quad in world pixels at zoom 1. Humanoid frames
     // are authored at 64 px; ground pickups draw smaller than furniture.
     float drawSize = 32.0f;
+    // Mirror the frame left to right. Characters are drawn facing right and
+    // flip to face left.
+    bool flipX = false;
 };
 
 namespace SpriteSizes

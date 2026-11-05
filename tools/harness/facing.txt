@@ -1,0 +1,44 @@
+# Facing: characters turn on screen toward where they aim or walk, with a back
+# view going up the screen and a mirrored one for the left.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/facing.txt --hidden --world-seed 1234 --shots shots/facing
+
+newrun
+god on
+waits 1
+zoom 3
+mouse 900 520
+waits 0.3
+shot 01_aim_down_right
+mouse 380 520
+waits 0.3
+shot 02_aim_down_left
+mouse 900 200
+waits 0.3
+shot 03_aim_up_right
+mouse 380 200
+waits 0.3
+shot 04_aim_up_left
+# Walking toward the aim, then crouched.
+hold W 20
+waits 0.15
+shot 05_walk_up_left
+key LCtrl down
+waits 0.2
+shot 06_crouch
+hold S 20
+waits 0.15
+shot 07_crouch_walk
+key LCtrl up
+# Zombies closing in from three sides of the room.
+mouse 640 520
+zoom 2.5
+zombie 3 3
+zombie -3 0
+zombie 0 -3
+waits 0.25
+shot 08_zombies_coming
+waits 0.6
+shot 09_close
+expect alive
+quit

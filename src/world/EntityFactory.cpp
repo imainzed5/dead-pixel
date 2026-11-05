@@ -28,13 +28,13 @@ Entity spawnZombie(World& world, const SpriteSheet& spriteSheet, const ZombiePar
 
     Sprite sprite{};
     sprite.textureId = spriteSheet.textureId();
-    sprite.uvRect = spriteSheet.uvRect("zombie_idle");
+    sprite.uvRect = spriteSheet.uvRect("zombie_idle_front");
     sprite.color = glm::vec4(1.0f);
     sprite.layer = kZombieSpriteLayer;
     sprite.drawSize = SpriteSizes::kHumanoid;
 
     Animation animation{};
-    animation.currentAnim = "zombie_idle";
+    animation.currentAnim = "zombie_idle_front";
     animation.frameDuration = 0.18f;
 
     ZombieAI ai{};

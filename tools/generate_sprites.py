@@ -221,234 +221,529 @@ def gen_tile_fence(img, ox, oy):
 
 
 # --- Character Generation ---
+#
+# Characters are 64x64 frames whose feet rest on row 49 (the renderer pins the
+# bottom of that row to the ground point). Each is drawn in two views, both
+# turned to the viewer's right: "front" faces down-right on screen and "back"
+# faces up-right. The game mirrors them for the two left-hand directions.
+#
+# Flat-shaded pixel art (highlight, base, shadow) with a dark outline, so the
+# figures read against any floor, and a soft shadow on the ground.
 
-def draw_iso_character(img, ox, oy, body_color, head_color, leg_color,
-                       is_dead=False, is_hurt=False, is_crouch=False,
-                       walk_frame=0, facing='right'):
-    size = ENTITY_SIZE
-    cx = size // 2
+CHAR_FEET = 49
+CHAR_OUTLINE = (30, 24, 26, 255)
+CHAR_SHADOW = (0, 0, 0, 72)
+BLOOD = ((150, 40, 34), (122, 28, 26), (86, 18, 18))
 
-    if is_dead:
-        for py in range(28, 36):
-            for px in range(16, 48):
-                n = random.randint(-5, 5)
-                r, g, b = body_color
-                img.putpixel((ox + px, oy + py), (r + n, g + n, b + n, 255))
-        for py in range(30, 36):
-            for px in range(12, 18):
-                r, g, b = head_color
-                img.putpixel((ox + px, oy + py), (r, g, b, 255))
+PLAYER_PAL = {
+    "skin": ((232, 200, 168), (214, 178, 144), (178, 142, 112)),
+    "hair": ((96, 70, 50), (66, 48, 34), (44, 32, 24)),
+    "top": ((104, 124, 140), (80, 98, 114), (58, 72, 86)),
+    "legs": ((76, 86, 112), (58, 66, 90), (42, 48, 68)),
+    "shoes": ((74, 60, 48), (54, 42, 34), (36, 28, 22)),
+    "pack": ((140, 118, 80), (112, 94, 62), (84, 70, 46)),
+    "detail": (44, 54, 64),
+    "eye": (36, 30, 28),
+}
+
+ZOMBIE_PAL = {
+    "skin": ((156, 172, 130), (128, 148, 110), (96, 114, 86)),
+    "hair": ((70, 68, 58), (52, 50, 44), (38, 36, 32)),
+    "top": ((128, 114, 96), (104, 92, 80), (78, 68, 60)),
+    "legs": ((82, 80, 92), (66, 64, 76), (50, 48, 58)),
+    "shoes": ((66, 60, 54), (48, 44, 40), (34, 30, 28)),
+    "detail": (60, 52, 46),
+    "eye": (232, 220, 150),
+    "mouth": (52, 18, 22),
+}
+
+
+class CharCanvas:
+    """A 64x64 RGBA frame with the few primitives the characters need."""
+
+    def __init__(self):
+        self.img = Image.new("RGBA", (ENTITY_SIZE, ENTITY_SIZE), (0, 0, 0, 0))
+        self.under = Image.new("RGBA", (ENTITY_SIZE, ENTITY_SIZE), (0, 0, 0, 0))
+
+    def set(self, x, y, c, layer=None):
+        target = self.img if layer is None else layer
+        x, y = int(round(x)), int(round(y))
+        if 0 <= x < ENTITY_SIZE and 0 <= y < ENTITY_SIZE:
+            target.putpixel((x, y), tuple(c[:3]) + ((c[3],) if len(c) > 3 else (255,)))
+
+    def opaque(self, x, y):
+        return 0 <= x < ENTITY_SIZE and 0 <= y < ENTITY_SIZE and self.img.getpixel((x, y))[3] > 0
+
+    def rect(self, x0, y0, x1, y1, c):
+        for y in range(int(y0), int(y1) + 1):
+            for x in range(int(x0), int(x1) + 1):
+                self.set(x, y, c)
+
+    def ellipse(self, x0, y0, x1, y1, c, layer=None):
+        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        rx, ry = (x1 - x0) / 2.0 + 0.5, (y1 - y0) / 2.0 + 0.5
+        for y in range(int(y0), int(y1) + 1):
+            for x in range(int(x0), int(x1) + 1):
+                if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0:
+                    self.set(x, y, c, layer)
+
+    def limb(self, x0, y0, x1, y1, c, width=2, outline=True, colors=None):
+        """A thick line from (x0, y0) to (x1, y1), outlined so it reads over the body.
+        colors, when given, is a function t -> colour along the limb."""
+        n = max(abs(x1 - x0), abs(y1 - y0), 1)
+        points = []
+        for i in range(n + 1):
+            t = i / n
+            points.append((round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t), t))
+        if outline:
+            for x, y, _ in points:
+                for dy in range(-1, width + 1):
+                    for dx in range(-1, width + 1):
+                        if (dx in (-1, width)) and (dy in (-1, width)):
+                            continue
+                        self.set(x + dx, y + dy, CHAR_OUTLINE)
+        for x, y, t in points:
+            col = colors(t) if colors else c
+            for dy in range(width):
+                for dx in range(width):
+                    self.set(x + dx, y + dy, col)
+
+    def finish(self):
+        """Outline the figure, lay it over its shadow and return the frame."""
+        src = self.img
+        out = self.under.copy()
+        outline = Image.new("RGBA", src.size, (0, 0, 0, 0))
+        for y in range(ENTITY_SIZE):
+            for x in range(ENTITY_SIZE):
+                if src.getpixel((x, y))[3]:
+                    continue
+                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if 0 <= nx < ENTITY_SIZE and 0 <= ny < ENTITY_SIZE and src.getpixel((nx, ny))[3]:
+                        outline.putpixel((x, y), CHAR_OUTLINE)
+                        break
+        out.alpha_composite(outline)
+        out.alpha_composite(src)
+        return out
+
+
+def _leg(cv, pal, x, hip_y, fdx, fdy, tone, toe, knee=0):
+    """A trouser leg from the hip down to its shoe. fdx/fdy move the foot
+    (positive fdy lowers it); toe is +1 when the toes point right, 0 for heels;
+    knee pushes the middle of the leg out to the right (a bent knee)."""
+    legs, shoes = pal["legs"], pal["shoes"]
+    shoe_top = CHAR_FEET + fdy - 2
+    span = max(1, shoe_top - hip_y)
+    for y in range(hip_y, shoe_top):
+        t = (y - hip_y) / span
+        xo = x + round(fdx * t + knee * (1.0 - abs(2.0 * t - 1.0)))
+        cv.rect(xo, y, xo + 3, y, legs[tone])
+        cv.set(xo, y, legs[max(0, tone - 1)] if tone == 1 else legs[tone])
+        cv.set(xo + 3, y, legs[2])
+    sx = x + fdx
+    cv.rect(sx, shoe_top, sx + 3, shoe_top + 2, shoes[1])
+    cv.rect(sx, shoe_top + 2, sx + 3 + (1 if toe > 0 else 0), shoe_top + 2, shoes[2])
+    if toe > 0:
+        cv.set(sx + 4, shoe_top + 1, shoes[1])
+    cv.set(sx, shoe_top, shoes[0])
+
+
+def _torso(cv, pal, view, top, ox, zombie, player_pack):
+    """Jacket or shirt from the shoulders (row top) to the belt (top + 13)."""
+    t = pal["top"]
+    mid = tuple((a + b) // 2 for a, b in zip(t[1], t[2]))
+    for i in range(14):
+        if i == 0:
+            x0, x1 = 28, 36
+        elif i == 1:
+            x0, x1 = 27, 37
+        elif i <= 8:
+            x0, x1 = 26, 38
+        else:
+            x0, x1 = 27, 37
+        y = top + i
+        for x in range(x0, x1 + 1):
+            if zombie and i == 13 and (x % 3 == 0):
+                continue  # a ragged hem
+            if x <= x0 + 1:
+                c = mid  # the flank turned away from the viewer
+            elif x == x1:
+                c = t[2]
+            elif i <= 1 and x < 32:
+                c = t[0]
+            else:
+                c = t[1]
+            cv.set(x + ox, y, c)
+        if not zombie and i == 13:
+            for x in range(x0 + 2, x1):
+                cv.set(x + ox, y, t[2])
+
+    if zombie:
+        skin, blood = pal["skin"], BLOOD
+        if view == "front":
+            for (x, y) in ((29, 7), (30, 7), (30, 8), (35, 3), (36, 4)):
+                cv.set(x + ox, top + y, skin[1])
+            cv.rect(31 + ox, top + 1, 34 + ox, top + 2, blood[1])
+            cv.set(33 + ox, top + 3, blood[2])
+            cv.rect(34 + ox, top + 3, 34 + ox, top + 6, blood[1])
+            cv.rect(28 + ox, top + 10, 30 + ox, top + 11, blood[2])
+        else:
+            for i in range(5):
+                cv.set(29 + i + ox, top + 4 + i, blood[1])
+                cv.set(30 + i + ox, top + 4 + i, blood[2])
+            cv.set(35 + ox, top + 10, skin[1])
+            cv.set(36 + ox, top + 10, skin[2])
         return
 
-    body_h = 14 if not is_crouch else 10
-    body_top = 22 if not is_crouch else 30
-    head_top = body_top - 10 if not is_crouch else body_top - 7
-    leg_top = body_top + body_h
-    leg_h = 14 if not is_crouch else 8
-
-    leg_shift = 0
-    body_bob = 0
-    if walk_frame > 0:
-        phase = [0, 2, 0, -2][walk_frame % 4]
-        leg_shift = phase
-        body_bob = abs(phase) // 2
-
-    left_leg_x = cx - 5 + leg_shift
-    right_leg_x = cx + 2 - leg_shift
-    for py in range(leg_top - body_bob, leg_top + leg_h - body_bob):
-        for dx in range(4):
-            for lx in [left_leg_x + dx, right_leg_x + dx]:
-                if 0 <= lx < size and 0 <= py < size:
-                    r, g, b = leg_color
-                    n = random.randint(-5, 5)
-                    img.putpixel((ox + lx, oy + py), (max(0, min(255, r + n)), max(0, min(255, g + n)), max(0, min(255, b + n)), 255))
-
-    for py in range(body_top - body_bob, body_top + body_h - body_bob):
-        for px in range(cx - 6, cx + 7):
-            if 0 <= py < size:
-                r, g, b = body_color
-                n = random.randint(-8, 8)
-                shade = -15 if px > cx else 0
-                img.putpixel((ox + px, oy + py), (
-                    max(0, min(255, r + n + shade)),
-                    max(0, min(255, g + n + shade)),
-                    max(0, min(255, b + n + shade)), 255))
-
-    # --- Arms ---
-    arm_swing = 0
-    if walk_frame > 0:
-        arm_swing = [0, 3, 0, -3][walk_frame % 4]
-
-    arm_top = body_top + 2 - body_bob
-    arm_len = 10 if not is_crouch else 7
-    left_arm_x = cx - 8
-    right_arm_x = cx + 7
-
-    for i in range(arm_len):
-        ay = arm_top + i + (arm_swing if i > arm_len // 2 else 0)
-        # Left arm
-        if 0 <= left_arm_x < size and 0 <= ay < size:
-            r, g, b = body_color
-            n = random.randint(-5, 5)
-            img.putpixel((ox + left_arm_x, oy + ay), (max(0, min(255, r + n - 10)), max(0, min(255, g + n - 10)), max(0, min(255, b + n - 10)), 255))
-            img.putpixel((ox + left_arm_x + 1, oy + ay), (max(0, min(255, r + n - 10)), max(0, min(255, g + n - 10)), max(0, min(255, b + n - 10)), 255))
-        # Right arm
-        if 0 <= right_arm_x < size and 0 <= ay < size:
-            r, g, b = body_color
-            n = random.randint(-5, 5)
-            img.putpixel((ox + right_arm_x, oy + ay), (max(0, min(255, r + n - 15)), max(0, min(255, g + n - 15)), max(0, min(255, b + n - 15)), 255))
-            img.putpixel((ox + right_arm_x - 1, oy + ay), (max(0, min(255, r + n - 15)), max(0, min(255, g + n - 15)), max(0, min(255, b + n - 15)), 255))
-
-    # --- Hands (skin-colored circles at arm ends) ---
-    hand_y = arm_top + arm_len - 1 + (arm_swing if arm_len > 3 else 0)
-    for hdx in range(-1, 2):
-        for hdy in range(-1, 2):
-            if hdx * hdx + hdy * hdy <= 1:
-                hpx_l = left_arm_x + hdx
-                hpx_r = right_arm_x + hdx
-                hpy = hand_y + hdy
-                if 0 <= hpx_l < size and 0 <= hpy < size:
-                    r, g, b = head_color
-                    n = random.randint(-5, 5)
-                    img.putpixel((ox + hpx_l, oy + hpy), (max(0, min(255, r + n - 20)), max(0, min(255, g + n - 20)), max(0, min(255, b + n - 20)), 255))
-                if 0 <= hpx_r < size and 0 <= hpy < size:
-                    r, g, b = head_color
-                    n = random.randint(-5, 5)
-                    img.putpixel((ox + hpx_r, oy + hpy), (max(0, min(255, r + n - 20)), max(0, min(255, g + n - 20)), max(0, min(255, b + n - 20)), 255))
-
-    # --- Head ---
-    head_cy = head_top + 4 - body_bob
-    for py in range(head_top - body_bob, head_top + 9 - body_bob):
-        for px in range(cx - 4, cx + 5):
-            dy = py - head_cy
-            dxx = px - cx
-            if dxx * dxx / 20.0 + dy * dy / 18.0 <= 1.0:
-                if 0 <= py < size:
-                    r, g, b = head_color
-                    n = random.randint(-3, 3)
-                    img.putpixel((ox + px, oy + py), (max(0, min(255, r + n)), max(0, min(255, g + n)), max(0, min(255, b + n)), 255))
-
-    eye_y = head_cy - 1 - body_bob
-    if 0 <= eye_y < size:
-        img.putpixel((ox + cx - 2, oy + eye_y), (30, 30, 30, 255))
-        img.putpixel((ox + cx + 1, oy + eye_y), (30, 30, 30, 255))
-
-    if is_hurt:
-        for py in range(head_top - body_bob, leg_top + leg_h - body_bob):
-            for px in range(cx - 7, cx + 8):
-                if 0 <= px < size and 0 <= py < size:
-                    pixel = img.getpixel((ox + px, oy + py))
-                    if pixel[3] > 0:
-                        img.putpixel((ox + px, oy + py), (
-                            min(255, pixel[0] + 60), max(0, pixel[1] - 20),
-                            max(0, pixel[2] - 20), pixel[3]))
+    d = pal["detail"]
+    if view == "front":
+        cv.set(31 + ox, top, pal["skin"][2])
+        cv.set(32 + ox, top, pal["skin"][2])
+        cv.rect(33 + ox, top, 33 + ox, top + 12, d)  # zip, turned toward the right
+        cv.set(30 + ox, top + 10, d)
+        cv.set(36 + ox, top + 10, d)
+        if player_pack:
+            p = pal["pack"]
+            cv.rect(29 + ox, top + 1, 29 + ox, top + 8, p[2])
+            cv.rect(36 + ox, top + 1, 36 + ox, top + 7, p[2])
+    elif player_pack:
+        p = pal["pack"]
+        cv.rect(28 + ox, top + 1, 37 + ox, top + 11, p[1])
+        cv.rect(28 + ox, top + 1, 37 + ox, top + 3, p[0])
+        cv.rect(28 + ox, top + 4, 37 + ox, top + 4, p[2])
+        cv.rect(37 + ox, top + 1, 37 + ox, top + 11, p[2])
+        cv.rect(28 + ox, top + 11, 37 + ox, top + 11, p[2])
+        cv.rect(30 + ox, top + 6, 35 + ox, top + 6, p[2])
+        cv.rect(30 + ox, top + 6, 30 + ox, top + 9, p[2])
+        cv.rect(35 + ox, top + 6, 35 + ox, top + 9, p[2])
+        cv.set(32 + ox, top + 4, d)
+        cv.set(33 + ox, top + 4, d)
+    else:
+        cv.rect(32 + ox, top + 2, 32 + ox, top + 12, t[2])
 
 
-def gen_player_sprites(img, atlas_sprites, row_y):
-    body = (60, 65, 75)
-    head = (210, 180, 150)
-    legs = (50, 50, 55)
+def _head(cv, pal, view, hx, hy, zombie, mouth_open=False):
+    """A 9x10 head with its top-left at (hx, hy)."""
+    skin, hair = pal["skin"], pal["hair"]
+    cx, cy, rx, ry = hx + 4, hy + 4.5, 4.5, 5.0
 
-    x = 0
-    frames_walk_right = []
-    for f in range(4):
-        draw_iso_character(img, x, row_y, body, head, legs, walk_frame=f, facing='right')
-        frames_walk_right.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-        x += ENTITY_SIZE
-    atlas_sprites["player_walk_right"] = {
-        "x": 0, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE,
-        "frames": frames_walk_right
-    }
+    def inside(x, y):
+        return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0
 
-    frames_walk_down = []
-    sx = x
-    for f in range(4):
-        draw_iso_character(img, x, row_y, body, head, legs, walk_frame=f, facing='down')
-        frames_walk_down.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-        x += ENTITY_SIZE
-    atlas_sprites["player_walk_down"] = {
-        "x": sx, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE,
-        "frames": frames_walk_down
-    }
+    def put(x, y, c):
+        if inside(x, y):
+            cv.set(x, y, c)
 
-    frames_walk_up = []
-    sx = x
-    for f in range(4):
-        draw_iso_character(img, x, row_y, body, head, legs, walk_frame=f, facing='up')
-        frames_walk_up.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-        x += ENTITY_SIZE
-    atlas_sprites["player_walk_up"] = {
-        "x": sx, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE,
-        "frames": frames_walk_up
-    }
+    for y in range(hy, hy + 10):
+        for x in range(hx, hx + 9):
+            if not inside(x, y):
+                continue
+            if zombie or view == "front":
+                c = skin[2] if x >= hx + 7 else skin[1]
+                if x <= hx + 3 and y <= hy + 3:
+                    c = skin[0]
+            else:
+                c = hair[2] if (x >= hx + 7 or y >= hy + 8) else hair[1]
+                if hx + 2 <= x <= hx + 4 and hy + 1 <= y <= hy + 2:
+                    c = hair[0]
+            cv.set(x, y, c)
 
-    draw_iso_character(img, x, row_y, body, head, legs)
-    atlas_sprites["player_idle"] = {"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE}
-    x += ENTITY_SIZE
+    if view == "front":
+        if zombie:
+            for (x, y) in ((2, 0), (3, 0), (4, 0), (5, 1), (1, 2), (1, 3), (2, 1)):
+                put(hx + x, hy + y, hair[1])
+            put(hx + 4, hy + 4, skin[2])
+            put(hx + 7, hy + 4, skin[2])
+            put(hx + 4, hy + 5, pal["eye"])
+            put(hx + 7, hy + 5, pal["eye"])
+            put(hx + 5, hy + 7, pal["mouth"])
+            put(hx + 6, hy + 7, pal["mouth"])
+            if mouth_open:
+                for (x, y) in ((5, 8), (6, 8), (7, 8), (6, 9)):
+                    put(hx + x, hy + y, pal["mouth"])
+            put(hx + 6, hy + 9, BLOOD[1])
+        else:
+            for y in range(hy, hy + 3):
+                for x in range(hx, hx + 9):
+                    put(x, y, hair[1] if y > hy else hair[0])
+            for x in range(hx, hx + 6):
+                put(x, hy + 3, hair[1])
+            for y in range(hy + 3, hy + 7):
+                for x in range(hx, hx + 3):
+                    put(x, y, hair[2] if x == hx else hair[1])
+            put(hx + 3, hy + 6, skin[2])  # ear
+            put(hx + 4, hy + 5, pal["eye"])
+            put(hx + 7, hy + 5, pal["eye"])
+            put(hx + 6, hy + 6, skin[2])  # nose
+            put(hx + 5, hy + 8, skin[2])
+            put(hx + 6, hy + 8, skin[2])
+    else:
+        if zombie:
+            for (x, y) in ((1, 1), (2, 1), (3, 1), (2, 2), (3, 2), (4, 2), (1, 3), (5, 4), (6, 4)):
+                put(hx + x, hy + y, hair[1])
+            put(hx + 6, hy + 2, BLOOD[1])
+            put(hx + 7, hy + 3, BLOOD[2])
+        else:
+            put(hx + 8, hy + 5, skin[2])  # the cheek turned away
+            put(hx + 8, hy + 6, skin[2])
+            put(hx + 7, hy + 5, skin[1])  # ear
+            for x in range(hx + 3, hx + 6):
+                put(x, hy + 9, skin[2])  # nape
 
-    draw_iso_character(img, x, row_y, body, head, legs, is_hurt=True)
-    atlas_sprites["player_hurt"] = {"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE}
-    x += ENTITY_SIZE
 
-    draw_iso_character(img, x, row_y, body, head, legs, is_dead=True)
-    atlas_sprites["player_dead"] = {"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE}
-    x += ENTITY_SIZE
+def _arm(cv, pal, shoulder, hand, zombie, tone=1):
+    """An arm from the shoulder to the hand, with the hand in skin."""
+    sx, sy = shoulder
+    hx, hy = hand
+    skin, top = pal["skin"], pal["top"]
+    if zombie:
+        cv.limb(sx, sy, hx, hy, None, colors=lambda t: top[tone] if t < 0.35 else skin[tone])
+    else:
+        cv.limb(sx, sy, hx, hy, None, colors=lambda t: top[tone] if t < 0.85 else skin[1])
+    cv.set(hx, hy + 1, skin[1])
+    cv.set(hx + 1, hy + 1, skin[2])
 
-    draw_iso_character(img, x, row_y, body, head, legs, is_crouch=True)
-    atlas_sprites["player_crouch"] = {"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE}
-    x += ENTITY_SIZE
+
+def draw_character(pal, view, zombie=False, pose="idle", frame=0):
+    """One 64x64 character frame. view: "front" (faces down-right) or "back"
+    (faces up-right). pose: idle, walk, crouch, crouchwalk, attack, dead."""
+    cv = CharCanvas()
+    front = view == "front"
+
+    if pose == "dead":
+        _draw_dead(cv, pal, zombie)
+        return cv.finish()
+
+    cv.ellipse(23, 47, 41, 51, CHAR_SHADOW, layer=cv.under)
+
+    # Pose: feet offsets (dx, dy) for the near (left) and far (right) leg,
+    # body bob, forward lean, and hand offsets for the swinging arms.
+    near, far = (0, 0), (0, 0)
+    bob, lean = 0, 0
+    swing_near, swing_far = (0, 0), (0, 0)
+    hip_y = 36
+
+    crouched = pose in ("crouch", "crouchwalk")
+    knee = 0
+    if crouched:
+        hip_y = 40
+        bob, lean = 6, 2
+        knee = 3 if front else 1
+
+    if pose in ("walk", "crouchwalk"):
+        f = frame % 4
+        if zombie:
+            # A shamble: the right leg drags and the body sags on each step.
+            steps_front = [((1, 1), (0, -1), 0, 0), ((0, 0), (0, 0), 1, 1),
+                           ((0, -1), (1, 0), 0, 1), ((0, 0), (-1, 0), 1, 0)]
+            steps_back = [((1, -1), (0, 0), 0, 0), ((0, 0), (0, -1), 1, 1),
+                          ((0, 0), (1, -1), 0, 1), ((-1, 0), (0, 0), 1, 0)]
+            near, far, sag, tilt = (steps_front if front else steps_back)[f]
+            bob += sag
+            lean += tilt
+        else:
+            if front:
+                steps = [((1, 1), (-1, -2)), ((0, 0), (0, -1)), ((-1, -2), (1, 1)), ((0, -1), (0, 0))]
+            else:
+                steps = [((1, -2), (-1, 0)), ((0, 0), (0, -1)), ((-1, 0), (1, -2)), ((0, -1), (0, 0))]
+            near, far = steps[f]
+            if crouched:
+                near = (near[0], min(0, near[1]))
+                far = (far[0], min(0, far[1]))
+            if f in (1, 3):
+                bob -= 1
+            fwd = (2, -1) if front else (2, -2)
+            bwd = (-2, -1) if front else (-2, 0)
+            swing_near, swing_far = [(bwd, fwd), ((0, 0), (0, 0)), (fwd, bwd), ((0, 0), (0, 0))][f]
+    elif pose == "attack":
+        lean = 3 if zombie else 1
+        bob = 1 if zombie else 0
+        if not zombie:
+            near, far = ((1, 1), (-1, 0)) if front else ((1, -2), (-1, 0))
+
+    toe = 1 if front else 0
+    top = 23 + bob
+    head_x, head_y = 28 + lean, 13 + bob
+    if zombie:
+        head_x += 1
+        head_y += 2 if front else 1
+
+    # Shoulders and resting hands.
+    sh_near, sh_far = (24 + lean, top + 2), (39 + lean, top + 2)
+    hand_near = (24 + lean + swing_near[0], top + 10 + swing_near[1])
+    hand_far = (39 + lean + swing_far[0], top + 10 + swing_far[1])
+    if crouched:
+        hand_near = (hand_near[0] + 1, hand_near[1] - 1)
+        hand_far = (hand_far[0] + 1, hand_far[1] - 1)
+
+    # Arms reaching out ahead (zombies) or swinging (the player's attack).
+    reach_front = reach_back = None
+    if zombie:
+        bump = [0, 1, 1, 0][frame % 4] if pose == "walk" else 0
+        # Both arms held out ahead: toward the right in either view, the near
+        # one lower (front) or hidden behind the body (back).
+        out = 3 if pose == "attack" else 0
+        if front:
+            reach_front = (((28 + lean, top + 3), (41 + lean + out, top + 8 + bump)),
+                           ((37 + lean, top + 2), (46 + lean + out, top + 4 - bump)))
+        else:
+            reach_back = (((28 + lean, top + 3), (41 + lean + out, top + 1 + bump)),
+                          ((37 + lean, top + 2), (46 + lean + out, top - 1 - bump)))
+    elif pose == "attack":
+        if front:
+            hand_far = (45 + lean, top + 6)
+            hand_near = (27 + lean, top + 8)
+        else:
+            hand_far = (44 + lean, top - 4)
+
+    pack = not zombie
+
+    if front:
+        _leg(cv, pal, 33, hip_y, far[0], far[1], 2, toe, knee)
+        _leg(cv, pal, 28, hip_y, near[0], near[1], 1, toe, knee)
+        _torso(cv, pal, view, top, lean, zombie, pack)
+        _head(cv, pal, view, head_x, head_y, zombie, mouth_open=pose == "attack")
+        if reach_front:
+            (s1, h1), (s2, h2) = reach_front
+            _arm(cv, pal, s2, h2, zombie, tone=2)
+            _arm(cv, pal, s1, h1, zombie, tone=1)
+        else:
+            _arm(cv, pal, sh_far, hand_far, zombie, tone=2)
+            _arm(cv, pal, sh_near, hand_near, zombie, tone=1)
+    else:
+        if reach_back:
+            (s1, h1), _ = reach_back
+            _arm(cv, pal, s1, h1, zombie, tone=2)
+        _leg(cv, pal, 33, hip_y, far[0], far[1], 2, toe, knee)
+        _leg(cv, pal, 28, hip_y, near[0], near[1], 1, toe, knee)
+        _torso(cv, pal, view, top, lean, zombie, pack)
+        _head(cv, pal, view, head_x, head_y, zombie)
+        if reach_back:
+            _, (s2, h2) = reach_back
+            _arm(cv, pal, s2, h2, zombie, tone=1)
+        else:
+            _arm(cv, pal, sh_far, hand_far, zombie, tone=2)
+            _arm(cv, pal, sh_near, hand_near, zombie, tone=1)
+
+    return cv.finish()
+
+
+def _draw_dead(cv, pal, zombie):
+    """Lying on the back, head to the left, in a pool of blood."""
+    cv.ellipse(15, 44, 47, 52, BLOOD[2] + (210,), layer=cv.under)
+    cv.ellipse(19, 45, 40, 50, BLOOD[1] + (220,), layer=cv.under)
+    t, legs, shoes, skin, hair = pal["top"], pal["legs"], pal["shoes"], pal["skin"], pal["hair"]
+    # Far arm flung up and out.
+    cv.limb(27, 41, 31, 36, None, colors=lambda s: t[2] if s < 0.7 else skin[1])
+    # Legs, then shoes.
+    cv.rect(36, 41, 46, 43, legs[2])
+    cv.rect(36, 44, 46, 46, legs[1])
+    cv.rect(36, 44, 46, 44, legs[0])
+    cv.rect(47, 40, 49, 43, shoes[1])
+    cv.rect(47, 44, 49, 47, shoes[1])
+    # Torso.
+    cv.rect(22, 40, 36, 47, t[1])
+    cv.rect(22, 40, 36, 41, t[0])
+    cv.rect(22, 47, 36, 47, t[2])
+    if zombie:
+        cv.rect(27, 42, 31, 44, BLOOD[1])
+        cv.set(30, 45, BLOOD[2])
+    elif "pack" in pal:
+        cv.rect(23, 47, 33, 48, pal["pack"][2])
+    # Near arm along the body.
+    cv.limb(24, 47, 33, 47, None, colors=lambda s: t[2] if s < 0.7 else skin[1])
+    # Head.
+    cv.ellipse(13, 39, 21, 48, skin[1])
+    if zombie:
+        for (x, y) in ((14, 41), (15, 40), (14, 43), (16, 42)):
+            cv.set(x, y, hair[1])
+        cv.set(18, 45, pal["mouth"])
+        cv.set(19, 45, pal["mouth"])
+    else:
+        for y in range(39, 49):
+            for x in range(13, 16):
+                if cv.opaque(x, y):
+                    cv.set(x, y, hair[1])
+        cv.set(18, 42, pal["eye"])
+        cv.set(18, 45, pal["eye"])
+
+
+def _char_strip(img, atlas_sprites, name, row_y, slot, frames_drawn):
+    """Paste frames into consecutive 64 px slots and register them."""
+    frames = []
+    for i, frame in enumerate(frames_drawn):
+        x = (slot + i) * ENTITY_SIZE
+        img.alpha_composite(frame, (x, row_y))
+        frames.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+    entry = dict(frames[0])
+    if len(frames) > 1:
+        entry["frames"] = frames
+    atlas_sprites[name] = entry
+    return slot + len(frames_drawn)
+
+
+def gen_player_sprites(img, atlas_sprites, row_y, extra_row_y):
+    pal = PLAYER_PAL
+    slot = 0
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"player_walk_{view}", row_y, slot,
+                           [draw_character(pal, view, pose="walk", frame=f) for f in range(4)])
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"player_idle_{view}", row_y, slot, [draw_character(pal, view)])
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"player_crouch_{view}", row_y, slot,
+                           [draw_character(pal, view, pose="crouch")])
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"player_attack_{view}", row_y, slot,
+                           [draw_character(pal, view, pose="attack")])
+    slot = _char_strip(img, atlas_sprites, "player_hurt", row_y, slot,
+                       [_tint_frame(draw_character(pal, "front"), (210, 40, 36), 0.45)])
+    slot = _char_strip(img, atlas_sprites, "player_dead", row_y, slot, [draw_character(pal, "front", pose="dead")])
+
+    slot = 0
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"player_crouchwalk_{view}", extra_row_y, slot,
+                           [draw_character(pal, view, pose="crouchwalk", frame=f) for f in range(4)])
+
+    # The old one-view names, for anything still asking for them.
+    atlas_sprites["player_idle"] = dict(atlas_sprites["player_idle_front"])
+    atlas_sprites["player_crouch"] = dict(atlas_sprites["player_crouch_front"])
+    atlas_sprites["player_walk_right"] = dict(atlas_sprites["player_walk_front"])
+    atlas_sprites["player_walk_down"] = dict(atlas_sprites["player_walk_front"])
+    atlas_sprites["player_walk_up"] = dict(atlas_sprites["player_walk_back"])
 
 
 def gen_zombie_sprites(img, atlas_sprites, row_y):
-    body = (75, 95, 65)
-    head = (130, 160, 110)
-    legs = (60, 55, 50)
+    pal = ZOMBIE_PAL
+    slot = 0
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"zombie_walk_{view}", row_y, slot,
+                           [draw_character(pal, view, zombie=True, pose="walk", frame=f) for f in range(4)])
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"zombie_idle_{view}", row_y, slot,
+                           [draw_character(pal, view, zombie=True)])
+    for view in ("front", "back"):
+        slot = _char_strip(img, atlas_sprites, f"zombie_attack_{view}", row_y, slot,
+                           [draw_character(pal, view, zombie=True, pose="attack")])
+    slot = _char_strip(img, atlas_sprites, "zombie_dead", row_y, slot,
+                       [draw_character(pal, "front", zombie=True, pose="dead")])
 
-    x = 0
-    frames = []
-    for f in range(4):
-        draw_iso_character(img, x, row_y, body, head, legs, walk_frame=f)
-        frames.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-        x += ENTITY_SIZE
-    atlas_sprites["zombie_walk_right"] = {
-        "x": 0, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE, "frames": frames
-    }
+    atlas_sprites["zombie_idle"] = dict(atlas_sprites["zombie_idle_front"])
+    atlas_sprites["zombie_attack"] = dict(atlas_sprites["zombie_attack_front"])
+    atlas_sprites["zombie_walk_right"] = dict(atlas_sprites["zombie_walk_front"])
+    atlas_sprites["zombie_walk_down"] = dict(atlas_sprites["zombie_walk_front"])
+    atlas_sprites["zombie_walk_up"] = dict(atlas_sprites["zombie_walk_back"])
 
-    frames = []
-    sx = x
-    for f in range(4):
-        draw_iso_character(img, x, row_y, body, head, legs, walk_frame=f)
-        frames.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-        x += ENTITY_SIZE
-    atlas_sprites["zombie_walk_down"] = {
-        "x": sx, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE, "frames": frames
-    }
 
-    frames = []
-    sx = x
-    for f in range(4):
-        draw_iso_character(img, x, row_y, body, head, legs, walk_frame=f)
-        frames.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-        x += ENTITY_SIZE
-    atlas_sprites["zombie_walk_up"] = {
-        "x": sx, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE, "frames": frames
-    }
-
-    draw_iso_character(img, x, row_y, body, head, legs)
-    atlas_sprites["zombie_idle"] = {"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE}
-    x += ENTITY_SIZE
-
-    draw_iso_character(img, x, row_y, body, head, legs)
-    for py in range(row_y + 26, row_y + 32):
-        for px in range(x + 38, x + 48):
-            if px < ATLAS_W and py < ATLAS_H:
-                img.putpixel((px, py), (75, 95, 65, 255))
-    atlas_sprites["zombie_attack"] = {"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE}
-    x += ENTITY_SIZE
-
-    draw_iso_character(img, x, row_y, body, head, legs, is_dead=True)
-    atlas_sprites["zombie_dead"] = {"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE}
-    x += ENTITY_SIZE
+def _tint_frame(frame, colour, amount):
+    out = frame.copy()
+    tr, tg, tb = colour
+    for y in range(ENTITY_SIZE):
+        for x in range(ENTITY_SIZE):
+            r, g, b, a = out.getpixel((x, y))
+            if a == 255:
+                out.putpixel((x, y), (int(r + (tr - r) * amount), int(g + (tg - g) * amount),
+                                      int(b + (tb - b) * amount), a))
+    return out
 
 
 # --- Item Generation ---
@@ -801,8 +1096,8 @@ def generate_atlas():
         func(img, x, 0)
         sprites[name] = {"x": x, "y": 0, "w": ISO_TILE_W, "h": ISO_TILE_H}
 
-    # Row 1: Player (y=32, h=64)
-    gen_player_sprites(img, sprites, 32)
+    # Row 1: Player (y=32, h=64); crouch-walk frames overflow to y=848
+    gen_player_sprites(img, sprites, 32, 848)
 
     # Row 2: Zombies (y=96, h=64)
     gen_zombie_sprites(img, sprites, 96)
