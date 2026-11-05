@@ -395,62 +395,6 @@ void Game::setupScene()
         mWorld.addComponent<Interactable>(bandage, inter);
     }
 
-    // --- Medical caches ---
-    {
-        std::uniform_int_distribution<int> extraBandageDist(1, 2);
-        std::uniform_int_distribution<int> extraAntibioticDist(1, 2);
-
-        for (const auto& tile : mSpawnData.medicalCacheSpawns)
-        {
-            if (mTileMap.isSolid(tile.x, tile.y)) continue;
-
-            Entity cache = mWorld.createEntity();
-            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("env_shelf"); s.color = glm::vec4(0.85f, 0.9f, 0.95f, 1.0f); s.layer = 5;
-            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Raid med cache";
-            Inventory cacheInv{};
-
-            mWorld.addComponent<Transform>(cache, t);
-            mWorld.addComponent<Sprite>(cache, s);
-            mWorld.addComponent<Interactable>(cache, inter);
-            mWorld.addComponent<Inventory>(cache, cacheInv);
-
-            Inventory& inv = mWorld.getComponent<Inventory>(cache);
-            InventorySystem::addItem(inv, mItemDatabase, 22, 1);
-            InventorySystem::addItem(inv, mItemDatabase, 4, extraBandageDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 15, extraAntibioticDist(runRng));
-        }
-    }
-
-    // --- Supply caches ---
-    {
-        std::uniform_int_distribution<int> foodQtyDist(2, 4);
-        std::uniform_int_distribution<int> waterQtyDist(1, 3);
-        std::uniform_int_distribution<int> materialQtyDist(1, 3);
-
-        for (const auto& tile : mSpawnData.supplyCacheSpawns)
-        {
-            if (mTileMap.isSolid(tile.x, tile.y)) continue;
-
-            Entity cache = mWorld.createEntity();
-            Transform t{}; t.x = static_cast<float>(tile.x * mTileMap.tileWidth()); t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
-            Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect("env_crate"); s.color = glm::vec4(0.95f, 0.85f, 0.65f, 1.0f); s.layer = 5;
-            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Raid supply cache";
-            Inventory cacheInv{};
-
-            mWorld.addComponent<Transform>(cache, t);
-            mWorld.addComponent<Sprite>(cache, s);
-            mWorld.addComponent<Interactable>(cache, inter);
-            mWorld.addComponent<Inventory>(cache, cacheInv);
-
-            Inventory& inv = mWorld.getComponent<Inventory>(cache);
-            InventorySystem::addItem(inv, mItemDatabase, 0, foodQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 3, waterQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 9, materialQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 11, 1);
-        }
-    }
-
     // --- Sleeping bags (where there is no bed) ---
     std::vector<int> bedBuildings;
     for (const FurniturePiece& piece : mFurniture)
@@ -780,6 +724,116 @@ void Game::setupScene()
                 InventorySystem::addItem(inv, mItemDatabase, itemId, (lootRng() % 4) == 0 ? 2 : 1);
             }
         }
+    }
+
+    // --- Medical and supply caches: a well-stocked cupboard or crate ---
+    {
+        std::uniform_int_distribution<int> extraBandageDist(1, 2);
+        std::uniform_int_distribution<int> extraAntibioticDist(1, 2);
+        std::uniform_int_distribution<int> foodQtyDist(2, 4);
+        std::uniform_int_distribution<int> waterQtyDist(1, 3);
+        std::uniform_int_distribution<int> materialQtyDist(1, 3);
+
+        // Unsearched furniture containers, so a cache can go into the
+        // nearest one in its building.
+        const auto& lootedPos = mSaveManager.lootedPositions();
+        struct Stash
+        {
+            Entity entity;
+            glm::ivec2 tile;
+            int building;
+            FurnitureLoot loot;
+        };
+        std::vector<Stash> stashes;
+        mWorld.forEach<Interactable, Inventory, Transform>(
+            [&](Entity e, Interactable& inter, Inventory&, Transform& t)
+            {
+                if (inter.type != InteractableType::Container) return;
+                const glm::ivec2 tile(static_cast<int>(t.x) / mTileMap.tileWidth(), static_cast<int>(t.y) / mTileMap.tileHeight());
+                if (!mTileMap.hasFurniture(tile.x, tile.y)) return;
+                const bool looted = std::any_of(lootedPos.begin(), lootedPos.end(), [&](const std::pair<int, int>& p)
+                                                { return p.first == tile.x && p.second == tile.y; });
+                if (looted) return;
+                const auto piece = std::find_if(mFurniture.begin(), mFurniture.end(),
+                                                [&](const FurniturePiece& p) { return p.tile == tile; });
+                const FurnitureLoot loot = piece != mFurniture.end() ? furniture::info(piece->kind).loot : FurnitureLoot::None;
+                stashes.push_back(Stash{e, tile, mTileMap.getBuildingId(tile.x, tile.y), loot});
+            });
+        std::vector<Entity> usedStashes;
+        int props = 0;
+
+        // The nearest free stash in the same building, or a stand-alone prop.
+        // Medicine prefers cabinets and shelves; supplies prefer kitchens and storage.
+        const auto cacheAt = [&](const glm::ivec2& tile, bool medical, const char* propSprite, const glm::vec4& propTint,
+                                 const char* propPrompt) -> Inventory&
+        {
+            const auto fits = [&](FurnitureLoot loot)
+            {
+                if (medical)
+                {
+                    return loot == FurnitureLoot::Bathroom || loot == FurnitureLoot::Store || loot == FurnitureLoot::Bedroom;
+                }
+                return loot == FurnitureLoot::Kitchen || loot == FurnitureLoot::Fridge || loot == FurnitureLoot::Storage ||
+                       loot == FurnitureLoot::Workshop || loot == FurnitureLoot::Store;
+            };
+            const int building = mTileMap.getBuildingId(tile.x, tile.y);
+            const Stash* best = nullptr;
+            int bestDistance = 0;
+            for (const Stash& stash : stashes)
+            {
+                if (building <= 0 || stash.building != building) continue;
+                if (std::find(usedStashes.begin(), usedStashes.end(), stash.entity) != usedStashes.end()) continue;
+                const int distance = std::abs(stash.tile.x - tile.x) + std::abs(stash.tile.y - tile.y) + (fits(stash.loot) ? 0 : 100);
+                if (best == nullptr || distance < bestDistance)
+                {
+                    best = &stash;
+                    bestDistance = distance;
+                }
+            }
+            if (best != nullptr)
+            {
+                usedStashes.push_back(best->entity);
+                return mWorld.getComponent<Inventory>(best->entity);
+            }
+            ++props;
+            Entity cache = mWorld.createEntity();
+            Transform t{};
+            t.x = static_cast<float>(tile.x * mTileMap.tileWidth());
+            t.y = static_cast<float>(tile.y * mTileMap.tileHeight());
+            Sprite s{};
+            s.textureId = sheetTex;
+            s.uvRect = mSpriteSheet.uvRect(propSprite);
+            s.color = propTint;
+            s.layer = 5;
+            Interactable inter{};
+            inter.type = InteractableType::Container;
+            inter.prompt = propPrompt;
+            mWorld.addComponent<Transform>(cache, t);
+            mWorld.addComponent<Sprite>(cache, s);
+            mWorld.addComponent<Interactable>(cache, inter);
+            mWorld.addComponent<Inventory>(cache, Inventory{});
+            return mWorld.getComponent<Inventory>(cache);
+        };
+
+        for (const auto& tile : mSpawnData.medicalCacheSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            Inventory& inv = cacheAt(tile, true, "env_shelf", glm::vec4(0.85f, 0.9f, 0.95f, 1.0f), "Raid med cache");
+            InventorySystem::addItem(inv, mItemDatabase, 22, 1);
+            InventorySystem::addItem(inv, mItemDatabase, 4, extraBandageDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 15, extraAntibioticDist(runRng));
+        }
+
+        for (const auto& tile : mSpawnData.supplyCacheSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            Inventory& inv = cacheAt(tile, false, "env_crate", glm::vec4(0.95f, 0.85f, 0.65f, 1.0f), "Raid supply cache");
+            InventorySystem::addItem(inv, mItemDatabase, 0, foodQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 3, waterQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 9, materialQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, 11, 1);
+        }
+        std::cout << "[World] caches: " << usedStashes.size() << " in furniture, " << props << " stand-alone\n";
     }
 
     // --- Ambient journal notes (district-authored flavor lines) ---

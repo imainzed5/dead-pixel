@@ -344,6 +344,10 @@ something the next one can find and act on:
   - The old stand-in props (flat crates, shelves and beds) and the district
     "loot container" pass are gone; indoor blood stains remain. Run spawns
     that land on furniture move to a free tile beside it.
+  - Medical and supply caches are a well-stocked cupboard or crate: their
+    loot goes into the nearest unsearched piece in the building that suits it
+    (medicine in cabinets and shelves, supplies in kitchens and storage). Only
+    a building with no such piece gets the old stand-alone prop.
   - An empty container says what it is: "Search fridge (empty)", "The fridge
     is empty.", and the panel header names it.
   - Harness: `goto furniture [KIND|any] [stocked]`; the script is
@@ -387,7 +391,8 @@ something the next one can find and act on:
   furniture).
 - ~~Zombies killed by fire or gunshots stayed standing, frozen, and blocked
   sleep nearby~~ (fixed: every dead zombie is cleared away).
-- Medical and supply caches still use the old flat crate and shelf sprites.
+- ~~Medical and supply caches still use the old flat crate and shelf
+  sprites~~ (fixed: their loot goes into furniture).
 - Character sprites face only up/down/right; isometric movement is diagonal.
 - ~~Notebook, world map and minimap text rendered as garbage~~ (fixed: each
   UI layer draws its shapes with the sprite sheet, then all of its text with
