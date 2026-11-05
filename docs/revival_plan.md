@@ -42,8 +42,8 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | 6 | Walls with height, wall/roof occlusion, art generator upgrade | done |
 | 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | done |
 | 8 | Wave 2: make the legacy hook visible | done |
-| 9 | Wave 3: extras polish, tone presets with real effects | |
-| 10 | Docs, README and audit sync | |
+| 9 | Wave 3: extras polish, tone presets with real effects | done |
+| 10 | Docs, README and audit sync | done |
 | 11 | Final verification and handoff | |
 
 `Game.cpp` is split continuously: each wave moves the code it touches out
@@ -388,6 +388,24 @@ something the next one can find and act on:
   the next life finds a door boarded up as the last one left it. Harness:
   `doors` prints boarded doors, `goto door outside`; script:
   `tools/harness/boards.txt`.
+
+## Next, after the handoff
+
+Candidates for the next stretch, roughly in order. None is started.
+
+1. **Playtesting and balance.** The numbers are tuned by harness runs and
+   metrics, not by people playing. Supplies, zombie pressure, needs drain
+   and the tone presets need real play.
+2. **itch.io demo packaging.** Bundle the UCRT64 DLLs next to the exe, add a
+   settings screen (volume, fullscreen, key bindings) and decide how saves
+   are versioned.
+3. **Build mode.** B still places the flat 32 px props from before the
+   revival. Rebuild it in the new style, or fold it into furniture and
+   boarding up.
+4. **Sound.** The effects are generated placeholders, and there is no music
+   or ambience yet.
+5. **Survivors.** They need to handle boarded doors, and they deserve the
+   same depth the zombies got.
 
 ## Known issues found during revival
 
