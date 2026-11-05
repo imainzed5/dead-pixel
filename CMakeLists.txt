@@ -127,6 +127,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_hud.cpp
         tests/test_structures.cpp
         tests/test_legacy.cpp
+        tests/test_tone.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

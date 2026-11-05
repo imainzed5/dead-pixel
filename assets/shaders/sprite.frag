@@ -9,6 +9,7 @@ uniform sampler2D uTexture;
 // Lighting uniforms
 uniform float uAmbientLight;                  // 0.0 = pitch black, 1.0 = full daylight
 uniform vec3 uAmbientColor;                   // tint color for ambient light
+uniform float uSaturation;                    // 1.0 = as drawn; the tone preset drains or boosts colour
 uniform int uLightCount;                      // number of active point lights (max 16)
 uniform vec2 uLightPositions[16];             // screen-space positions
 uniform vec3 uLightColors[16];                // RGB color (and strength) of each light
@@ -62,5 +63,8 @@ void main()
     }
 
     lighting = clamp(lighting, 0.0, 1.0);
-    FragColor = vec4(texColor.rgb * lighting, texColor.a);
+    vec3 color = texColor.rgb * lighting;
+    float grey = dot(color, vec3(0.299, 0.587, 0.114));
+    color = clamp(mix(vec3(grey), color, uSaturation), 0.0, 1.0);
+    FragColor = vec4(color, texColor.a);
 }

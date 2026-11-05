@@ -142,8 +142,7 @@ private:
     void renderAttackArcOverlay();
     void buildHudState();
     void updateDistrictToast(float dtSeconds);
-    void renderDeathOverlay();
-    void renderRetirementOverlay();
+    void renderRunEndOverlay();
     void renderTextOverlays();
     void renderPauseOverlay();
     void renderTitleScreen();
@@ -276,6 +275,8 @@ private:
     std::uint64_t mLayoutFingerprint = 0;
 
     double mDeathStateTimer = 0.0;
+    // What this run leaves for the next, shown on the run-end screen.
+    std::string mRunEndLegacyLine;
     std::string mDeathCause;
     glm::vec2 mDeathWorldPosition{0.0f, 0.0f};
     std::string mCurrentCharacterName;

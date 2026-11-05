@@ -39,6 +39,9 @@ void Game::beginDeathState(const std::string& cause)
     const bool infectedBite = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Wounds>(mPlayerEntity) &&
                               hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity));
     record.risen = legacy::shouldRise(cause, infectedBite);
+    mRunEndLegacyLine = record.risen          ? "They will not stay down. Whoever comes next will meet them."
+                      : !record.items.empty() ? "Their pack will wait by the grave for whoever comes next."
+                                              : "A grave will mark where they fell.";
 
     // Earlier graves first (packs taken, risen put down), then this one.
     syncLegacyToSave();
@@ -75,6 +78,7 @@ void Game::beginRetirementState(const std::string& customCause)
 
     mRunState = RunState::Retired;
     mDeathStateTimer = 0.0;
+    mRunEndLegacyLine = "They will live on in town, keeping to themselves.";
     mDeathCause = customCause.empty()
         ? ("Gave up on Day " + std::to_string(mCurrentDay))
         : customCause;

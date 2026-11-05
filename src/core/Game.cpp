@@ -566,12 +566,15 @@ void Game::startNewRun()
     // Threat-mode spawn pressure tuning.
     {
         std::mt19937 runRng(mSaveManager.currentRunSeed() ^ 0xA11CEu);
-        auto reduceTo = [](std::vector<glm::ivec2>& list, float ratio)
+        // Trims a random subset, so cuts spread over the town instead of
+        // emptying whichever buildings were listed last.
+        auto reduceTo = [&runRng](std::vector<glm::ivec2>& list, float ratio)
         {
             if (list.empty()) return;
             const std::size_t target = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(static_cast<float>(list.size()) * ratio)));
             if (target < list.size())
             {
+                std::shuffle(list.begin(), list.end(), runRng);
                 list.resize(target);
             }
         };
@@ -622,6 +625,21 @@ void Game::startNewRun()
             reduceTo(mSpawnData.bandageSpawns, 0.82f);
             break;
         }
+
+        // Tone preset on top of the threat mode.
+        const ToneTuning tone = toneTuning(saveTonePresetFromIndex(mTitleToneIndex));
+        const auto scaleTo = [&](std::vector<glm::ivec2>& list, float ratio)
+        {
+            if (ratio >= 1.0f) duplicateTo(list, ratio);
+            else reduceTo(list, ratio);
+        };
+        for (std::vector<glm::ivec2>* supplies : {&mSpawnData.foodSpawns, &mSpawnData.waterSpawns, &mSpawnData.bandageSpawns,
+                                                  &mSpawnData.medicalCacheSpawns, &mSpawnData.supplyCacheSpawns})
+        {
+            scaleTo(*supplies, tone.suppliesScale);
+        }
+        scaleTo(mSpawnData.weaponSpawns, tone.weaponScale);
+        scaleTo(mSpawnData.zombieSpawns, tone.zombieCountScale);
     }
 
     ensureCampaignObjective();

@@ -256,6 +256,33 @@ something the next one can find and act on:
 - **Harness:** `slay R` and `goto risen|pack|grave`. The script
   `tools/harness/legacy.txt` plays four lives and captures each step.
 
+## Wave 3: polish (2026-11-06)
+
+- **Run-end screen:** death and retirement share one screen:
+  - who they were and how it ended, with traits and run stats;
+  - **what they leave behind**: "They will not stay down", "Their pack will
+    wait by the grave" or "They will live on in town";
+  - a grave or cairn icon, a fade-in, and a slim bar while the restart is
+    held back.
+- **Tone presets now change the run** (`src/systems/ToneTuning.h`, tested).
+  GRIM HUMAN is the baseline.
+
+  | Tone | Supplies | Weapons | Zombies at start | Zombie health | Nights | Colour | Stamina regen |
+  |---|---|---|---|---|---|---|---|
+  | HOPELESS | 70% | 80% | 100% | 115% | darker | drained | 90% |
+  | BRUTAL ARCADE | 115% | 150% | 135% | 70% | brighter | punchier | 130% |
+
+  Spawn cuts now pick a random subset, so they spread over the town instead
+  of emptying the last-listed buildings. On the title screen the town behind
+  the menu previews the tone's colour.
+- **Title screen:**
+  - big title, the menu on the left, and a line explaining the selected
+    option (threat and tone descriptions included);
+  - a "The town remembers" card: lives, graves, risen still walking, packs
+    waiting, survivors;
+  - the cursor skips "Continue Run" when there is nothing to continue;
+  - "Options" is now named for what it opens: "Controls".
+
 ## Known issues found during revival
 
 - ~~Input transitions cleared per render frame, not per tick~~ (fixed: latched
@@ -271,7 +298,8 @@ something the next one can find and act on:
 - The crafting screen lists undiscovered recipes as "???" with no hint of how
   to discover them.
 - Several items reuse other items' sprites (Flashlight, Jacket, Matches, ...).
-- Tone presets are stored and shown but have no gameplay effect.
+- ~~Tone presets are stored and shown but have no gameplay effect~~ (fixed:
+  `ToneTuning`).
 - ~~`beginDeathState` and `beginRetirementState` duplicate persistence code~~
   (fixed: shared `persistWorldForNextRun`).
 - Mid-run checkpoints do not save fires or burn scars; continuing a run

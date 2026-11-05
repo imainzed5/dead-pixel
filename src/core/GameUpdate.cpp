@@ -557,7 +557,7 @@ void Game::update(float dtSeconds)
         {
             EntityFactory::ZombieParams params;
             params.topLeftWorld = request.topLeftWorld;
-            params.health = request.health;
+            params.health = request.health * toneTuning(saveTonePresetFromIndex(mTitleToneIndex)).zombieHealthScale;
             params.baseMoveSpeed = request.baseMoveSpeed;
             params.spawnDay = mCurrentDay;
             EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);

@@ -32,6 +32,10 @@ void Game::updateTitleScreen(float dtSeconds)
     {
         const int previousSelection = mTitleMenuSelection;
         mTitleMenuSelection = wrapIndex(mTitleMenuSelection - 1, menuCount);
+        if (mTitleMenuSelection == 0 && !mTitleHasCheckpoint)
+        {
+            mTitleMenuSelection = menuCount - 1; // nothing to continue: skip it
+        }
         if (mTitleMenuSelection != previousSelection)
         {
             mTitleConfirmNewWorld = false;
@@ -41,12 +45,20 @@ void Game::updateTitleScreen(float dtSeconds)
     {
         const int previousSelection = mTitleMenuSelection;
         mTitleMenuSelection = wrapIndex(mTitleMenuSelection + 1, menuCount);
+        if (mTitleMenuSelection == 0 && !mTitleHasCheckpoint)
+        {
+            mTitleMenuSelection = 1;
+        }
         if (mTitleMenuSelection != previousSelection)
         {
             mTitleConfirmNewWorld = false;
         }
     }
 
+    if (mTitleMenuSelection == 0 && !mTitleHasCheckpoint)
+    {
+        mTitleMenuSelection = 1; // start on "Start New Run" when there is nothing to continue
+    }
     if (mTitleMenuSelection != 2)
     {
         mTitleConfirmNewWorld = false;
@@ -192,7 +204,7 @@ void Game::updateTitleScreen(float dtSeconds)
             adjustMenuValue(1);
             break;
 
-        case 7: // Options
+        case 7: // Controls
             mShowControls = !mShowControls;
             if (mShowControls)
             {

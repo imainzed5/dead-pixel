@@ -68,6 +68,7 @@ void Game::render()
     // Text a shape pass draws is deferred to that layer's text pass.
     mShader.setFloat("uAmbientLight", 1.0f);
     mShader.setVec3("uAmbientColor", glm::vec3(1.0f));
+    mShader.setFloat("uSaturation", 1.0f);
     mShader.setInt("uLightCount", 0);
     mShader.setInt("uSpotEnabled", 0);
 
@@ -109,8 +110,7 @@ void Game::render()
         {
             renderWorldMapOverlay();
             renderNotebookOverlay();
-            renderDeathOverlay();
-            renderRetirementOverlay();
+            renderRunEndOverlay();
             renderPauseOverlay();
             mCraftingRenderTextPass = false;
             renderCraftingOverlay();
@@ -651,8 +651,9 @@ void Game::renderDayNightOverlay()
 void Game::setupLightingUniforms()
 {
     // Ambient: daylight to a dark, cold night. Lights carry the night.
+    const ToneTuning tone = toneTuning(saveTonePresetFromIndex(mTitleToneIndex));
     const float night = nightFactor();
-    const float ambientLevel = 1.0f - night * 0.80f;
+    const float ambientLevel = 1.0f - night * tone.nightDarkness;
     const glm::vec3 dayColor(1.0f, 1.0f, 1.0f);
     const glm::vec3 duskColor(1.0f, 0.78f, 0.62f);
     const glm::vec3 nightColor(0.55f, 0.62f, 0.95f);
@@ -666,6 +667,7 @@ void Game::setupLightingUniforms()
 
     mShader.setFloat("uAmbientLight", ambientLevel);
     mShader.setVec3("uAmbientColor", ambientColor);
+    mShader.setFloat("uSaturation", tone.saturation);
 
     // A world radius in pixels becomes this many screen pixels on the
     // (un-squashed) iso ground at the current zoom.
@@ -757,7 +759,6 @@ void Game::setupLightingUniforms()
 void Game::renderTextOverlays()
 {
     constexpr float kTextScale = 2.0f;
-    constexpr float kSmallScale = 1.5f;
 
     // F3 infection debug: top infected districts for tuning and verification.
     if (mShowDistrictDebug && mRunState == RunState::Playing)
@@ -813,134 +814,6 @@ void Game::renderTextOverlays()
         }
     }
 
-    // Death overlay text
-    if (mRunState == RunState::Dead)
-    {
-        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
-        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
-
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 40.0f), "YOU DIED",
-                        glm::vec4(0.9f, 0.2f, 0.2f, 1.0f), 3.0f, TextAlign::Center);
-
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 4.0f), mCurrentCharacterName,
-                        glm::vec4(0.8f, 0.82f, 0.9f, 1.0f), kTextScale, TextAlign::Center);
-
-        // Traits on death screen
-        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
-        {
-            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-            std::string traitLine;
-            if (traits.positive != PositiveTrait::None) traitLine += traits.positiveName();
-            if (traits.negative != NegativeTrait::None)
-            {
-                if (!traitLine.empty()) traitLine += " / ";
-                traitLine += traits.negativeName();
-            }
-            if (!traitLine.empty())
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 12.0f), traitLine,
-                                glm::vec4(0.65f, 0.65f, 0.55f, 0.8f), 1.0f, TextAlign::Center);
-            }
-
-            if (traits.bloodline != BloodlineTrait::None)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 22.0f),
-                                std::string("Bloodline: ") + traits.bloodlineName(),
-                                glm::vec4(0.70f, 0.78f, 0.62f, 0.86f), 0.95f, TextAlign::Center);
-            }
-        }
-
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 32.0f), mDeathCause,
-                        glm::vec4(0.75f, 0.55f, 0.55f, 1.0f), kSmallScale, TextAlign::Center);
-
-        // Run stats
-        {
-            const int distMeters = static_cast<int>(mRunStats.distanceWalked / 32.0f);
-            std::string statsLine = "Day " + std::to_string(mCurrentDay)
-                + " | " + std::to_string(mRunStats.kills) + " kills"
-                + " | " + std::to_string(distMeters) + "m walked";
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 48.0f), statsLine,
-                            glm::vec4(0.65f, 0.65f, 0.7f, 0.9f), 1.0f, TextAlign::Center);
-        }
-
-        if (mDeathStateTimer >= kDeathRestartDelaySeconds)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f), "Press Enter to begin again",
-                            glm::vec4(0.5f, 0.85f, 0.5f, 1.0f), kSmallScale, TextAlign::Center);
-        }
-        else
-        {
-            const int remaining = static_cast<int>(std::ceil(kDeathRestartDelaySeconds - mDeathStateTimer));
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f),
-                            "Wait " + std::to_string(remaining) + "...",
-                            glm::vec4(0.6f, 0.4f, 0.4f, 0.8f), kSmallScale, TextAlign::Center);
-        }
-    }
-
-    // Retirement overlay text
-    if (mRunState == RunState::Retired)
-    {
-        const float centerX = static_cast<float>(mWindowWidth) * 0.5f;
-        const float centerY = static_cast<float>(mWindowHeight) * 0.5f;
-
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 40.0f), "GAVE UP",
-                        glm::vec4(0.5f, 0.5f, 0.7f, 1.0f), 3.0f, TextAlign::Center);
-
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY - 4.0f), mCurrentCharacterName,
-                        glm::vec4(0.7f, 0.7f, 0.8f, 1.0f), kTextScale, TextAlign::Center);
-
-        // Traits on retirement screen
-        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
-        {
-            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-            std::string traitLine;
-            if (traits.positive != PositiveTrait::None) traitLine += traits.positiveName();
-            if (traits.negative != NegativeTrait::None)
-            {
-                if (!traitLine.empty()) traitLine += " / ";
-                traitLine += traits.negativeName();
-            }
-            if (!traitLine.empty())
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 12.0f), traitLine,
-                                glm::vec4(0.55f, 0.55f, 0.5f, 0.8f), 1.0f, TextAlign::Center);
-            }
-
-            if (traits.bloodline != BloodlineTrait::None)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 22.0f),
-                                std::string("Bloodline: ") + traits.bloodlineName(),
-                                glm::vec4(0.66f, 0.78f, 0.66f, 0.86f), 0.95f, TextAlign::Center);
-            }
-        }
-
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 32.0f), mDeathCause,
-                        glm::vec4(0.5f, 0.5f, 0.65f, 1.0f), kSmallScale, TextAlign::Center);
-
-        // Run stats
-        {
-            const int distMeters = static_cast<int>(mRunStats.distanceWalked / 32.0f);
-            std::string statsLine = "Day " + std::to_string(mCurrentDay)
-                + " | " + std::to_string(mRunStats.kills) + " kills"
-                + " | " + std::to_string(distMeters) + "m walked";
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 48.0f), statsLine,
-                            glm::vec4(0.55f, 0.55f, 0.65f, 0.9f), 1.0f, TextAlign::Center);
-        }
-
-        if (mDeathStateTimer >= kDeathRestartDelaySeconds)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f), "Press Enter to try again",
-                            glm::vec4(0.45f, 0.65f, 0.75f, 1.0f), kSmallScale, TextAlign::Center);
-        }
-        else
-        {
-            const int remaining = static_cast<int>(std::ceil(kDeathRestartDelaySeconds - mDeathStateTimer));
-            mFont.drawText(mSpriteBatch, glm::vec2(centerX, centerY + 66.0f),
-                            "Wait " + std::to_string(remaining) + "...",
-                            glm::vec4(0.4f, 0.4f, 0.5f, 0.8f), kSmallScale, TextAlign::Center);
-        }
-    }
-
     // Pause overlay text
     if (mRunState == RunState::Paused)
     {
@@ -992,320 +865,6 @@ void Game::renderTextOverlays()
             mFont.drawText(mSpriteBatch,
                 glm::vec2(centerX, layout.optionsY + static_cast<float>(i) * PauseLayout::kOptionH + 5.0f),
                 options[i], color, kTextScale, TextAlign::Center);
-        }
-    }
-
-    // Title screen briefing hub text
-    if (mRunState == RunState::TitleScreen)
-    {
-        const TitlePanelLayout layout = computeTitlePanelLayout(mWindowWidth, mWindowHeight);
-        const float leftX = layout.leftTextX;
-        const float rightX = layout.rightTextX;
-        const std::size_t menuCharBudget = approximateCharBudget(layout.menuRowW - 20.0f, 8.0f);
-        const std::size_t rightCharBudget = approximateCharBudget(layout.rightCardTopW - 24.0f, 8.0f);
-        const std::size_t rightBottomBudget = approximateCharBudget(layout.rightCardBottomW - 24.0f, 8.0f);
-
-        const auto& graveHistory = mSaveManager.graves();
-        const auto& retirementHistory = mSaveManager.retirements();
-        const GraveRecord* lastGrave = graveHistory.empty() ? nullptr : &graveHistory.back();
-        const RetirementRecord* lastRetirement = retirementHistory.empty() ? nullptr : &retirementHistory.back();
-        const LatestLegacyEvent latestEvent = pickLatestLegacyEvent(graveHistory, retirementHistory);
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(leftX, layout.panelY + 16.0f),
-            "DEAD PIXEL SURVIVAL",
-            glm::vec4(0.95f, 0.36f, 0.30f, 1.0f),
-            3.0f);
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(leftX, layout.panelY + 48.0f),
-            "FIELD BRIEFING // PRE-RUN STAGING",
-            glm::vec4(0.84f, 0.78f, 0.66f, 0.95f),
-            1.2f);
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(leftX, layout.panelY + 75.0f),
-            "Set slot, review intel, then deploy.",
-            glm::vec4(0.72f, 0.74f, 0.69f, 0.92f),
-            1.15f);
-
-        float menuY = layout.menuRowY + 3.0f;
-        for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
-        {
-            std::string itemText = kTitleMenuItems[static_cast<std::size_t>(i)];
-            if (i == 3)
-            {
-                itemText += "  < " + std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) + " >";
-            }
-            else if (i == 4)
-            {
-                itemText += "  < " + std::string(kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)]) + " >";
-            }
-            else if (i == 5)
-            {
-                itemText += "  < " + std::string(kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)]) + " >";
-            }
-            else if (i == 6)
-            {
-                itemText += "  < " + std::string(kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)]) + " >";
-            }
-
-            glm::vec4 color(0.83f, 0.83f, 0.80f, 0.96f);
-            if (i == 0 && !mTitleHasCheckpoint)
-            {
-                color = glm::vec4(0.72f, 0.44f, 0.44f, 0.95f);
-                itemText += " [NO CHECKPOINT]";
-            }
-
-            if (i == mTitleMenuSelection)
-            {
-                color = glm::vec4(1.0f, 0.94f, 0.72f, 1.0f);
-                itemText = ">> " + itemText;
-            }
-            else
-            {
-                itemText = "   " + itemText;
-            }
-
-            mFont.drawText(
-                mSpriteBatch,
-                glm::vec2(leftX, menuY),
-                truncateHudText(itemText, menuCharBudget),
-                color,
-                i == mTitleMenuSelection ? 1.65f : 1.45f);
-            menuY += layout.menuRowStep;
-        }
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(leftX, layout.panelY + layout.panelH - 44.0f),
-            "W/S Move  A/D Change  Enter Select  Esc Close/Quit",
-            glm::vec4(0.74f, 0.75f, 0.71f, 0.95f),
-            1.15f);
-
-        float topY = layout.rightCardTopY + 10.0f;
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY),
-            "ACTIVE SLOT",
-            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
-            1.15f);
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY + 19.0f),
-            truncateHudText(std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) + " [" + mActiveSaveSlot + "]", rightCharBudget),
-            glm::vec4(0.92f, 0.92f, 0.86f, 0.98f),
-            1.25f);
-
-        const int completedRuns = std::max(0, mSaveManager.runNumber() - 1);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY + 42.0f),
-            "Runs Completed: " + std::to_string(completedRuns),
-            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
-            1.08f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY + 58.0f),
-            "Best Streak: Day " + std::to_string(mSaveManager.longestRunDays()),
-            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
-            1.08f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY + 74.0f),
-            truncateHudText("Total Kills: " + std::to_string(mSaveManager.totalKills()) +
-                "  |  Days Survived: " + std::to_string(mSaveManager.totalDaysSurvived()), rightCharBudget),
-            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
-            1.08f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY + 90.0f),
-            truncateHudText("Graves: " + std::to_string(graveHistory.size()) +
-                "  |  Retirements: " + std::to_string(retirementHistory.size()), rightCharBudget),
-            glm::vec4(0.77f, 0.79f, 0.75f, 0.95f),
-            1.08f);
-
-        std::string checkpointLine = "Checkpoint: none";
-        std::string checkpointLoc = "Location: --";
-        if (mTitleHasCheckpoint)
-        {
-            checkpointLine = "Checkpoint Day " + std::to_string(mTitleCheckpointDay) +
-                " // " + truncateHudText(mTitleCheckpointName, 16);
-            checkpointLoc = "Location: " + formatTileLocation(mTitleCheckpointX, mTitleCheckpointY, mTileMap);
-        }
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY + 114.0f),
-            truncateHudText(checkpointLine, rightCharBudget),
-            mTitleHasCheckpoint ? glm::vec4(0.68f, 0.90f, 0.70f, 0.98f) : glm::vec4(0.62f, 0.62f, 0.62f, 0.90f),
-            1.08f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, topY + 130.0f),
-            truncateHudText(checkpointLoc, rightCharBudget),
-            mTitleHasCheckpoint ? glm::vec4(0.66f, 0.83f, 0.68f, 0.95f) : glm::vec4(0.60f, 0.60f, 0.60f, 0.85f),
-            1.0f);
-
-        float midY = layout.rightCardMidY + 10.0f;
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, midY),
-            "MODE PROFILE",
-            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
-            1.15f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, midY + 19.0f),
-            kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)],
-            glm::vec4(0.95f, 0.91f, 0.78f, 0.98f),
-            1.25f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, midY + 37.0f),
-            truncateHudText(kTitleGameModeDescriptions[static_cast<std::size_t>(mTitleGameModeIndex)], rightCharBudget),
-            glm::vec4(0.74f, 0.77f, 0.71f, 0.95f),
-            1.08f);
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, midY + 53.0f),
-            truncateHudText(std::string("Threat: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)], rightCharBudget),
-            glm::vec4(0.70f, 0.74f, 0.77f, 0.95f),
-            1.02f);
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, midY + 67.0f),
-            truncateHudText(std::string("Tone: ") + kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)], rightCharBudget),
-            glm::vec4(0.70f, 0.74f, 0.77f, 0.95f),
-            1.02f);
-
-        const std::size_t briefingIndex =
-            (static_cast<std::size_t>(mSaveManager.worldSeed()) +
-             static_cast<std::size_t>(mSaveManager.runNumber()) +
-             static_cast<std::size_t>(mTitlePulseTimer * 0.4f)) % kBriefingLines.size();
-
-        float bottomY = layout.rightCardBottomY + 10.0f;
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, bottomY),
-            "BRIEFING NOTE",
-            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
-            1.1f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, bottomY + 18.0f),
-            truncateHudText(kBriefingLines[briefingIndex], rightBottomBudget),
-            glm::vec4(0.77f, 0.80f, 0.74f, 0.98f),
-            1.05f);
-
-        std::string latestHeader = "Latest Event: none";
-        std::string latestLineA = "No completed runs in this slot.";
-        std::string latestLineB = "Start or continue a run to build history.";
-        glm::vec4 latestColor(0.63f, 0.63f, 0.63f, 0.9f);
-
-        if (latestEvent.kind == LegacyEventKind::Death && latestEvent.death != nullptr)
-        {
-            latestHeader = "Latest Event: DEATH (D" + std::to_string(latestEvent.death->day) + ")";
-            latestLineA = truncateHudText(
-                latestEvent.death->name + " @ " + formatTileLocation(latestEvent.death->x, latestEvent.death->y, mTileMap),
-                rightBottomBudget);
-            latestLineB = "Cause: " + truncateHudText(latestEvent.death->cause, rightBottomBudget > 7 ? rightBottomBudget - 7 : rightBottomBudget);
-            latestColor = glm::vec4(0.88f, 0.66f, 0.66f, 0.98f);
-        }
-        else if (latestEvent.kind == LegacyEventKind::Retirement && latestEvent.retirement != nullptr)
-        {
-            latestHeader = "Latest Event: RETIREMENT (D" + std::to_string(latestEvent.retirement->day) + ")";
-            latestLineA = truncateHudText(
-                latestEvent.retirement->name + " @ " + formatTileLocation(latestEvent.retirement->x, latestEvent.retirement->y, mTileMap),
-                rightBottomBudget);
-            latestLineB = "Status: Survivor exited run";
-            latestColor = glm::vec4(0.76f, 0.86f, 0.74f, 0.98f);
-        }
-
-        std::string secondaryLine = "Previous Event: none";
-        if (latestEvent.kind == LegacyEventKind::Death && lastRetirement != nullptr)
-        {
-            secondaryLine = "Previous: RETIRE D" + std::to_string(lastRetirement->day) +
-                " " + truncateHudText(lastRetirement->name, 12);
-        }
-        else if (latestEvent.kind == LegacyEventKind::Retirement && lastGrave != nullptr)
-        {
-            secondaryLine = "Previous: DEATH D" + std::to_string(lastGrave->day) +
-                " " + truncateHudText(lastGrave->name, 12);
-        }
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, bottomY + 42.0f),
-            "LATEST SLOT EVENT",
-            glm::vec4(0.93f, 0.83f, 0.56f, 0.98f),
-            1.1f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, bottomY + 60.0f),
-            truncateHudText(latestHeader, rightBottomBudget),
-            latestColor,
-            1.05f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, bottomY + 76.0f),
-            truncateHudText(latestLineA, rightBottomBudget),
-            glm::vec4(0.76f, 0.80f, 0.74f, 0.95f),
-            1.0f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, bottomY + 92.0f),
-            truncateHudText(latestLineB, rightBottomBudget),
-            glm::vec4(0.72f, 0.74f, 0.71f, 0.95f),
-            1.0f);
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, bottomY + 108.0f),
-            truncateHudText(secondaryLine, rightBottomBudget),
-            glm::vec4(0.68f, 0.70f, 0.67f, 0.92f),
-            1.0f);
-
-        mFont.drawText(
-            mSpriteBatch,
-            glm::vec2(rightX, layout.panelY + layout.panelH - 42.0f),
-            truncateHudText("World Seed: " + std::to_string(mSaveManager.worldSeed()), rightCharBudget),
-            glm::vec4(0.67f, 0.69f, 0.66f, 0.90f),
-            1.05f);
-
-        if (!mTitleStatusMessage.empty() && mTitleStatusTimer > 0.0f)
-        {
-            mFont.drawText(
-                mSpriteBatch,
-                glm::vec2(layout.panelX + layout.panelW * 0.5f, layout.panelY + layout.panelH - 16.0f),
-                truncateHudText(mTitleStatusMessage, 64),
-                glm::vec4(0.99f, 0.86f, 0.58f, 0.98f),
-                1.25f,
-                TextAlign::Center);
-        }
-
-        if (mShowTitleCredits)
-        {
-            const float cx = layout.panelX + layout.panelW * 0.5f;
-            const float cy = layout.panelY + layout.panelH * 0.5f;
-            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy - 52.0f), "CREDITS",
-                            glm::vec4(0.96f, 0.86f, 0.60f, 1.0f), 2.2f, TextAlign::Center);
-            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy - 22.0f), "Dead Pixel Survival",
-                            glm::vec4(0.92f, 0.92f, 0.86f, 1.0f), 1.4f, TextAlign::Center);
-            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy - 4.0f), "Code + Design: In Progress Build",
-                            glm::vec4(0.80f, 0.82f, 0.78f, 0.98f), 1.1f, TextAlign::Center);
-            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy + 14.0f), "Engine: C++20 / SDL2 / OpenGL",
-                            glm::vec4(0.80f, 0.82f, 0.78f, 0.98f), 1.1f, TextAlign::Center);
-            mFont.drawText(mSpriteBatch, glm::vec2(cx, cy + 34.0f), "Press Credits again or Esc to close",
-                            glm::vec4(0.72f, 0.74f, 0.70f, 0.95f), 1.05f, TextAlign::Center);
         }
     }
 }

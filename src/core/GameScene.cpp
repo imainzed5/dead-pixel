@@ -31,7 +31,8 @@ void Game::setupScene()
     mWorld.addComponent<Velocity>(mPlayerEntity, Velocity{});
     mWorld.addComponent<Facing>(mPlayerEntity, Facing{});
     mWorld.addComponent<PlayerInput>(mPlayerEntity, PlayerInput{});
-    mWorld.addComponent<Stamina>(mPlayerEntity, Stamina{100.0f, 100.0f, 30.0f, 100.0f});
+    const ToneTuning tone = toneTuning(saveTonePresetFromIndex(mTitleToneIndex));
+    mWorld.addComponent<Stamina>(mPlayerEntity, Stamina{100.0f, 100.0f, 30.0f * tone.staminaRegenScale, 100.0f});
     mWorld.addComponent<Combat>(mPlayerEntity, Combat{});
     mWorld.addComponent<Health>(mPlayerEntity, Health{100.0f, 100.0f});
     mWorld.addComponent<Needs>(mPlayerEntity, Needs{});
@@ -99,7 +100,7 @@ void Game::setupScene()
         EntityFactory::ZombieParams params;
         params.topLeftWorld = glm::vec2(static_cast<float>(tile.x * mTileMap.tileWidth()),
                                         static_cast<float>(tile.y * mTileMap.tileHeight()));
-        params.health = hpDist(runRng);
+        params.health = hpDist(runRng) * tone.zombieHealthScale;
         params.baseMoveSpeed = 112.0f * speedMul(runRng);
         params.spawnDay = mCurrentDay;
         EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);

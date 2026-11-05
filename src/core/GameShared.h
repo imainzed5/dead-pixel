@@ -6,6 +6,7 @@
 #include "core/Game.h"
 
 #include "map/TileIds.h"
+#include "systems/ToneTuning.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -115,9 +116,9 @@ constexpr std::array<const char*, 3> kTitleToneNames = {
 };
 
 constexpr std::array<const char*, 3> kTitleToneDescriptions = {
-    "Bleak framing and sparse presentation",
-    "Dark world with readable human traces",
-    "Faster, harsher action-horror framing"
+    "Scarce supplies, tougher dead, darker nights, drained colour",
+    "The intended balance: dark, scarce, but fair",
+    "More dead but weaker, more weapons, quicker breath"
 };
 
 constexpr std::array<const char*, 16> kBriefingLines = {
@@ -147,7 +148,7 @@ constexpr std::array<const char*, 10> kTitleMenuItems = {
     "Game Mode",
     "Threat",
     "Tone",
-    "Options",
+    "Controls",
     "Credits",
     "Quit"
 };

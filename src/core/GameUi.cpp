@@ -415,64 +415,112 @@ void Game::renderNotebookOverlay()
     mFont.drawText(mSpriteBatch, glm::vec2(left, statsY), fit(stats, 1.0f), dimInk, 1.0f);
 }
 
-void Game::renderDeathOverlay()
+void Game::renderRunEndOverlay()
 {
-    if (mRunState != RunState::Dead)
+    const bool dead = mRunState == RunState::Dead;
+    if (!dead && mRunState != RunState::Retired)
     {
         return;
     }
 
-    const glm::vec4 uiUvRect = mSpriteSheet.uvRect("solid_white");
+    // One screen for both endings: who they were, how it ended, and what
+    // they leave in the town for whoever comes next.
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const float w = static_cast<float>(mWindowWidth);
+    const float h = static_cast<float>(mWindowHeight);
+    const float t = static_cast<float>(mDeathStateTimer);
+    const float fade = std::clamp(t / 0.8f, 0.0f, 1.0f);
+    const bool ready = mDeathStateTimer >= kDeathRestartDelaySeconds;
 
-    mSpriteBatch.draw(
-        glm::vec2(0.0f, 0.0f),
-        glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
-        uiUvRect,
-        glm::vec4(0.08f, 0.02f, 0.02f, 0.65f));
+    const glm::vec4 accent = dead ? glm::vec4(0.86f, 0.26f, 0.22f, 1.0f) : legacyLeadColor(legacy::LeadKind::Survivor);
+    const glm::vec4 ink(0.92f, 0.90f, 0.84f, 1.0f);
+    const glm::vec4 dimInk(0.64f, 0.62f, 0.58f, 1.0f);
+    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const auto faded = [&](glm::vec4 c) { c.a *= fade; return c; };
 
-    const glm::vec2 panelSize(360.0f, 120.0f);
-    const glm::vec2 panelPos(
-        (static_cast<float>(mWindowWidth) - panelSize.x) * 0.5f,
-        (static_cast<float>(mWindowHeight) - panelSize.y) * 0.5f);
-    mSpriteBatch.draw(panelPos, panelSize, uiUvRect, glm::vec4(0.05f, 0.05f, 0.05f, 0.85f));
+    const glm::vec4 backdrop = dead ? glm::vec4(0.10f, 0.02f, 0.02f, 0.72f) : glm::vec4(0.03f, 0.04f, 0.09f, 0.70f);
+    mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, faded(backdrop));
 
-    const glm::vec4 graveUvRect = mSpriteSheet.uvRect("env_grave");
-    mSpriteBatch.draw(panelPos + glm::vec2(20.0f, 28.0f), glm::vec2(64.0f, 64.0f), graveUvRect, glm::vec4(0.85f, 0.88f, 0.95f, 1.0f));
-
-    if (mDeathStateTimer < kDeathRestartDelaySeconds)
+    // Lines, top to bottom.
+    struct Line
     {
-        mSpriteBatch.draw(panelPos + glm::vec2(104.0f, 36.0f), glm::vec2(220.0f, 14.0f), uiUvRect, glm::vec4(0.65f, 0.15f, 0.15f, 0.9f));
+        std::string text;
+        glm::vec4 color;
+        float scale;
+        float gapAfter;
+    };
+    std::vector<Line> lines;
+    lines.push_back({dead ? "YOU DIED" : "RETIRED", accent, 3.0f, 10.0f});
+    lines.push_back({mCurrentCharacterName, ink, 2.0f, 6.0f});
+    lines.push_back({mDeathCause, dead ? glm::vec4(0.92f, 0.62f, 0.56f, 1.0f) : ink, 2.0f, 8.0f});
+
+    std::string traitLine;
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+    {
+        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        if (traits.positive != PositiveTrait::None) traitLine += traits.positiveName();
+        if (traits.negative != NegativeTrait::None) traitLine += (traitLine.empty() ? "" : " / ") + std::string(traits.negativeName());
+        if (traits.bloodline != BloodlineTrait::None) traitLine += (traitLine.empty() ? "Bloodline: " : "   Bloodline: ") + std::string(traits.bloodlineName());
+    }
+    if (!traitLine.empty()) lines.push_back({traitLine, dimInk, 1.0f, 4.0f});
+
+    const int metres = static_cast<int>(mRunStats.distanceWalked / std::max(1.0f, static_cast<float>(mTileMap.tileWidth())));
+    std::string stats = "Lasted until day " + std::to_string(mCurrentDay) + "   " +
+                        std::to_string(mRunStats.kills) + (mRunStats.kills == 1 ? " kill   " : " kills   ") +
+                        std::to_string(metres) + " m walked";
+    if (mRunStats.itemsLooted > 0) stats += "   " + std::to_string(mRunStats.itemsLooted) + " items found";
+    lines.push_back({stats, dimInk, 1.0f, 16.0f});
+
+    if (!mRunEndLegacyLine.empty()) lines.push_back({mRunEndLegacyLine, gold, 2.0f, 18.0f});
+
+    // Panel sized to the text.
+    // Props sit at the bottom of their 64 px cell; skip the empty top third.
+    constexpr float kIconCrop = 0.34f;
+    constexpr float kIcon = 112.0f;
+    const float iconH = kIcon * (1.0f - kIconCrop);
+    float contentW = 360.0f;
+    float contentH = iconH + 6.0f;
+    for (const Line& line : lines)
+    {
+        contentW = std::max(contentW, mFont.measureText(line.text, line.scale).x);
+        contentH += mFont.lineHeight(line.scale) + line.gapAfter;
+    }
+    contentH += mFont.lineHeight(2.0f) + 8.0f; // prompt or progress bar
+    const glm::vec2 panelSize(std::min(w - 24.0f, contentW + 64.0f), contentH + 36.0f);
+    const glm::vec2 panelPos(std::floor((w - panelSize.x) * 0.5f), std::floor((h - panelSize.y) * 0.5f));
+    mSpriteBatch.draw(panelPos, panelSize, uiUv, faded(glm::vec4(0.05f, 0.045f, 0.045f, 0.94f)));
+    mSpriteBatch.draw(panelPos, glm::vec2(panelSize.x, 3.0f), uiUv, faded(accent));
+
+    const float cx = panelPos.x + panelSize.x * 0.5f;
+    float y = panelPos.y + 18.0f;
+
+    // What marks them now: a grave or a cairn.
+    glm::vec4 iconUv = mSpriteSheet.uvRect(dead ? "prop_grave" : "prop_cairn");
+    iconUv.y += iconUv.w * kIconCrop;
+    iconUv.w *= 1.0f - kIconCrop;
+    mSpriteBatch.draw(glm::vec2(cx - kIcon * 0.5f, y), glm::vec2(kIcon, iconH), iconUv, faded(glm::vec4(1.0f)));
+    y += iconH + 6.0f;
+
+    for (const Line& line : lines)
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, y), line.text, faded(line.color), line.scale, TextAlign::Center);
+        y += mFont.lineHeight(line.scale) + line.gapAfter;
+    }
+
+    if (ready)
+    {
+        const float pulse = 0.75f + 0.25f * std::sin((t - static_cast<float>(kDeathRestartDelaySeconds)) * 3.0f);
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, y), "Press Enter to begin again",
+                       glm::vec4(ink.r, ink.g, ink.b, pulse), 2.0f, TextAlign::Center);
     }
     else
     {
-        mSpriteBatch.draw(panelPos + glm::vec2(104.0f, 36.0f), glm::vec2(220.0f, 14.0f), uiUvRect, glm::vec4(0.25f, 0.55f, 0.25f, 0.9f));
-    }
-}
-
-void Game::renderRetirementOverlay()
-{
-    if (mRunState != RunState::Retired)
-    {
-        return;
-    }
-
-    const glm::vec4 uiUvRect = mSpriteSheet.uvRect("solid_white");
-
-    mSpriteBatch.draw(
-        glm::vec2(0.0f, 0.0f),
-        glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
-        uiUvRect,
-        glm::vec4(0.05f, 0.05f, 0.12f, 0.60f));
-
-    const glm::vec2 panelSize(360.0f, 120.0f);
-    const glm::vec2 panelPos(
-        (static_cast<float>(mWindowWidth) - panelSize.x) * 0.5f,
-        (static_cast<float>(mWindowHeight) - panelSize.y) * 0.5f);
-    mSpriteBatch.draw(panelPos, panelSize, uiUvRect, glm::vec4(0.06f, 0.06f, 0.10f, 0.85f));
-
-    if (mDeathStateTimer >= kDeathRestartDelaySeconds)
-    {
-        mSpriteBatch.draw(panelPos + glm::vec2(20.0f, 90.0f), glm::vec2(320.0f, 14.0f), uiUvRect, glm::vec4(0.25f, 0.45f, 0.55f, 0.9f));
+        // A slim bar fills while the restart is held back.
+        const float barW = 220.0f;
+        const float progress = std::clamp(t / static_cast<float>(kDeathRestartDelaySeconds), 0.0f, 1.0f);
+        const glm::vec2 barPos(cx - barW * 0.5f, y + 6.0f);
+        mSpriteBatch.draw(barPos, glm::vec2(barW, 3.0f), uiUv, faded(glm::vec4(1.0f, 1.0f, 1.0f, 0.12f)));
+        mSpriteBatch.draw(barPos, glm::vec2(barW * progress, 3.0f), uiUv, faded(accent));
     }
 }
 
@@ -1214,142 +1262,227 @@ void Game::renderTitleScreen()
         return;
     }
 
+    // The town itself is the backdrop (the title camera drifts over it);
+    // the menu sits on the darker left, the town's memory on the right.
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
     const float w = static_cast<float>(mWindowWidth);
     const float h = static_cast<float>(mWindowHeight);
-    const float pulse = 0.5f + 0.5f * std::sin(mTitlePulseTimer * 1.2f);
-    const TitlePanelLayout layout = computeTitlePanelLayout(mWindowWidth, mWindowHeight);
+    const glm::vec4 ink(0.92f, 0.90f, 0.84f, 1.0f);
+    const glm::vec4 dimInk(0.62f, 0.61f, 0.57f, 1.0f);
+    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const glm::vec4 red(0.90f, 0.30f, 0.24f, 1.0f);
 
-    // Global dim to push the title UI to the foreground.
-    mSpriteBatch.draw(
-        glm::vec2(0.0f, 0.0f),
-        glm::vec2(w, h),
-        uiUv,
-        glm::vec4(0.02f, 0.03f, 0.04f, 0.78f));
-
-    // Main briefing panel.
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelX, layout.panelY),
-        glm::vec2(layout.panelW, layout.panelH),
-        uiUv,
-        glm::vec4(0.07f, 0.08f, 0.09f, 0.95f));
-
-    // Outer border.
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelX - 1.0f, layout.panelY - 1.0f),
-        glm::vec2(layout.panelW + 2.0f, 1.0f),
-        uiUv,
-        glm::vec4(0.75f, 0.40f, 0.30f, 0.60f));
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelX - 1.0f, layout.panelY + layout.panelH),
-        glm::vec2(layout.panelW + 2.0f, 1.0f),
-        uiUv,
-        glm::vec4(0.75f, 0.40f, 0.30f, 0.35f));
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelX - 1.0f, layout.panelY),
-        glm::vec2(1.0f, layout.panelH),
-        uiUv,
-        glm::vec4(0.75f, 0.40f, 0.30f, 0.35f));
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelX + layout.panelW, layout.panelY),
-        glm::vec2(1.0f, layout.panelH),
-        uiUv,
-        glm::vec4(0.75f, 0.40f, 0.30f, 0.60f));
-
-    // Header stripe.
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelX, layout.panelY),
-        glm::vec2(layout.panelW, 56.0f),
-        uiUv,
-        glm::vec4(0.20f, 0.08f, 0.06f, 0.94f));
-
-    // Left interaction column.
-    mSpriteBatch.draw(
-        glm::vec2(layout.leftColX, layout.leftColY),
-        glm::vec2(layout.leftColW, layout.leftColH),
-        uiUv,
-        glm::vec4(0.11f, 0.12f, 0.13f, 0.88f));
-
-    // Right status column.
-    mSpriteBatch.draw(
-        glm::vec2(layout.rightColX, layout.rightColY),
-        glm::vec2(layout.rightColW, layout.rightColH),
-        uiUv,
-        glm::vec4(0.10f, 0.11f, 0.12f, 0.90f));
-
-    // Strong center divider between action and intel.
-    mSpriteBatch.draw(
-        glm::vec2(layout.rightColX - 6.0f, layout.leftColY),
-        glm::vec2(2.0f, layout.leftColH),
-        uiUv,
-        glm::vec4(0.30f, 0.20f, 0.17f, 0.55f));
-
-    // Right column section cards for readability.
-    mSpriteBatch.draw(
-        glm::vec2(layout.rightCardTopX, layout.rightCardTopY),
-        glm::vec2(layout.rightCardTopW, layout.rightCardTopH),
-        uiUv,
-        glm::vec4(0.12f, 0.14f, 0.16f, 0.72f));
-    mSpriteBatch.draw(
-        glm::vec2(layout.rightCardMidX, layout.rightCardMidY),
-        glm::vec2(layout.rightCardMidW, layout.rightCardMidH),
-        uiUv,
-        glm::vec4(0.12f, 0.14f, 0.16f, 0.68f));
-    mSpriteBatch.draw(
-        glm::vec2(layout.rightCardBottomX, layout.rightCardBottomY),
-        glm::vec2(layout.rightCardBottomW, layout.rightCardBottomH),
-        uiUv,
-        glm::vec4(0.12f, 0.14f, 0.16f, 0.64f));
-
-    // Menu row strips to make scanning options easier.
-    for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
+    constexpr int kStrips = 48;
+    for (int i = 0; i < kStrips; ++i)
     {
-        const float rowY = layout.menuRowY + static_cast<float>(i) * layout.menuRowStep;
-        glm::vec4 rowColor = (i % 2 == 0)
-            ? glm::vec4(0.15f, 0.16f, 0.18f, 0.48f)
-            : glm::vec4(0.12f, 0.13f, 0.15f, 0.40f);
-
-        if (i == 0 && !mTitleHasCheckpoint)
-        {
-            rowColor = glm::vec4(0.20f, 0.12f, 0.12f, 0.44f);
-        }
-        if (i == mTitleMenuSelection)
-        {
-            rowColor = glm::vec4(0.40f, 0.26f, 0.16f, 0.70f);
-        }
-
-        mSpriteBatch.draw(
-            glm::vec2(layout.menuRowX, rowY),
-            glm::vec2(layout.menuRowW, layout.menuRowH),
-            uiUv,
-            rowColor);
+        const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(kStrips);
+        const float fadeT = std::clamp((t - 0.30f) / 0.70f, 0.0f, 1.0f);
+        const float alpha = 0.92f - 0.50f * fadeT * fadeT * (3.0f - 2.0f * fadeT);
+        // Strips meet exactly; overlapping edges would show as dark lines.
+        const float x0 = std::floor(w * static_cast<float>(i) / kStrips);
+        const float x1 = std::floor(w * static_cast<float>(i + 1) / kStrips);
+        mSpriteBatch.draw(glm::vec2(x0, 0.0f), glm::vec2(x1 - x0, h), uiUv, glm::vec4(0.02f, 0.025f, 0.03f, alpha));
     }
 
-    // Accent pulse strip.
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelX + layout.panelW - 10.0f, layout.leftColY),
-        glm::vec2(4.0f, layout.leftColH),
-        uiUv,
-        glm::vec4(0.85f, 0.25f + 0.25f * pulse, 0.18f, 0.65f));
-
-    // Light scan lines for a briefing-terminal feel.
-    for (int i = 0; i < 14; ++i)
+    const auto wrap = [](const std::string& text, std::size_t maxChars)
     {
-        const float lineY = layout.panelY + 74.0f + static_cast<float>(i) * ((layout.panelH - 100.0f) / 13.0f);
-        mSpriteBatch.draw(
-            glm::vec2(layout.panelX + 16.0f, lineY),
-            glm::vec2(layout.panelW - 32.0f, 1.0f),
-            uiUv,
-            glm::vec4(0.35f, 0.35f, 0.35f, 0.07f));
+        std::vector<std::string> lines;
+        std::string line;
+        std::size_t start = 0;
+        while (start < text.size())
+        {
+            std::size_t end = text.find(' ', start);
+            if (end == std::string::npos) end = text.size();
+            const std::string word = text.substr(start, end - start);
+            if (!line.empty() && line.size() + 1 + word.size() > maxChars)
+            {
+                lines.push_back(line);
+                line.clear();
+            }
+            line += (line.empty() ? "" : " ") + word;
+            start = end + 1;
+        }
+        if (!line.empty()) lines.push_back(line);
+        return lines;
+    };
+
+    const float left = std::max(32.0f, std::floor(w * 0.06f));
+    float y = std::max(28.0f, std::floor(h * 0.08f));
+
+    // Title.
+    const float titleScale = (w >= 1100.0f && h >= 680.0f) ? 6.0f : 4.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "DEAD PIXEL", ink, titleScale);
+    y += mFont.lineHeight(titleScale) + 2.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(left + 2.0f, y), "SURVIVAL", red, titleScale * 0.5f);
+    y += mFont.lineHeight(titleScale * 0.5f) + 10.0f;
+    mFont.drawText(mSpriteBatch, glm::vec2(left + 2.0f, y), "The town remembers every life you lose in it.", dimInk, 1.0f);
+    y += 34.0f;
+
+    // Menu.
+    const float rowH = 28.0f;
+    const float valueX = left + 220.0f;
+    const float rowW = std::min(560.0f, w - left * 2.0f);
+    const auto valueOf = [&](int item) -> std::string
+    {
+        switch (item)
+        {
+        case 3: return kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)];
+        case 4: return kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)];
+        case 5: return kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
+        case 6: return kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)];
+        default: return {};
+        }
+    };
+    for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
+    {
+        const float rowY = y + static_cast<float>(i) * rowH;
+        const bool selected = i == mTitleMenuSelection;
+        const bool disabled = i == 0 && !mTitleHasCheckpoint;
+        if (selected)
+        {
+            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 5.0f), glm::vec2(rowW, rowH - 2.0f), uiUv,
+                              glm::vec4(gold.r, gold.g, gold.b, 0.13f));
+            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 5.0f), glm::vec2(3.0f, rowH - 2.0f), uiUv, gold);
+        }
+        glm::vec4 color = selected ? glm::vec4(1.0f, 0.97f, 0.86f, 1.0f) : glm::vec4(0.78f, 0.77f, 0.72f, 1.0f);
+        if (disabled) color = glm::vec4(0.42f, 0.41f, 0.39f, 1.0f);
+        mFont.drawText(mSpriteBatch, glm::vec2(left, rowY), kTitleMenuItems[static_cast<std::size_t>(i)], color, 2.0f);
+
+        const std::string value = valueOf(i);
+        if (!value.empty())
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(valueX, rowY), selected ? "< " + value + " >" : value,
+                           selected ? gold : dimInk, 2.0f);
+        }
+    }
+    y += static_cast<float>(kTitleMenuItems.size()) * rowH + 12.0f;
+
+    // What the selected item does.
+    const auto& history = mSaveManager.characterHistory();
+    std::string about;
+    glm::vec4 aboutColor = dimInk;
+    switch (mTitleMenuSelection)
+    {
+    case 0:
+        about = mTitleHasCheckpoint
+            ? "Pick up where " + mTitleCheckpointName + " left off, day " + std::to_string(mTitleCheckpointDay) + "."
+            : "No run in progress in this slot.";
+        break;
+    case 1:
+        about = legacy::runHeadline(mSaveManager.runNumber(), static_cast<int>(history.size())) +
+                ". Someone new wakes up in town.";
+        break;
+    case 2:
+        about = mTitleConfirmNewWorld ? "Press Enter again. This town and everything it remembers will be gone."
+                                      : "A different town. This one, and everything it remembers, is erased.";
+        if (mTitleConfirmNewWorld) aboutColor = red;
+        break;
+    case 3: about = "Each slot is its own town with its own history."; break;
+    case 4: about = kTitleGameModeDescriptions[static_cast<std::size_t>(mTitleGameModeIndex)]; break;
+    case 5: about = kTitleModeDescriptions[static_cast<std::size_t>(mTitleModeIndex)]; break;
+    case 6: about = kTitleToneDescriptions[static_cast<std::size_t>(mTitleToneIndex)]; break;
+    case 7: about = "Every key on one page."; break;
+    case 8: about = "Who made this."; break;
+    case 9: about = "The town will still be here."; break;
+    default: break;
+    }
+    const std::size_t aboutChars = static_cast<std::size_t>(std::max(16.0f, (rowW - 16.0f) / 12.0f));
+    for (const std::string& line : wrap(about, aboutChars))
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), line, aboutColor, 2.0f);
+        y += mFont.lineHeight(2.0f) + 4.0f;
+    }
+
+    // The town remembers.
+    {
+        int risenWalking = 0;
+        int packsWaiting = 0;
+        for (const GraveRecord& grave : mSaveManager.graves())
+        {
+            if (grave.risen && !grave.laidToRest) ++risenWalking;
+            else if (!grave.items.empty()) ++packsWaiting;
+        }
+        const int graves = static_cast<int>(mSaveManager.graves().size());
+        const int survivors = static_cast<int>(mSaveManager.retirements().size());
+        const auto plural = [](int n, const char* one, const char* many)
+        {
+            return std::to_string(n) + " " + (n == 1 ? one : many);
+        };
+
+        std::vector<std::pair<std::string, glm::vec4>> lines;
+        if (history.empty())
+        {
+            lines.emplace_back("Nothing yet.", ink);
+            lines.emplace_back("Every life you lose", dimInk);
+            lines.emplace_back("here stays here.", dimInk);
+        }
+        else
+        {
+            lines.emplace_back(plural(static_cast<int>(history.size()), "life", "lives") + ", " +
+                                   plural(mSaveManager.totalDaysSurvived(), "day", "days"), ink);
+            if (graves > 0) lines.emplace_back(plural(graves, "grave", "graves"), legacyLeadColor(legacy::LeadKind::Grave));
+            if (risenWalking > 0) lines.emplace_back(plural(risenWalking, "walks again", "walk again"), legacyLeadColor(legacy::LeadKind::Risen));
+            if (packsWaiting > 0) lines.emplace_back(plural(packsWaiting, "pack waiting", "packs waiting"), legacyLeadColor(legacy::LeadKind::Pack));
+            if (survivors > 0) lines.emplace_back(plural(survivors, "survivor lives on", "survivors live on"), legacyLeadColor(legacy::LeadKind::Survivor));
+        }
+        std::string lastLine;
+        if (!history.empty())
+        {
+            const CharacterHistoryRecord& last = history.back();
+            lastLine = "Last: " + last.name + (last.retired ? ", retired" : ", " + last.cause);
+        }
+
+        const float cardW = 360.0f;
+        const float lineH = mFont.lineHeight(2.0f) + 6.0f;
+        const float cardH = 40.0f + static_cast<float>(lines.size()) * lineH + (lastLine.empty() ? 0.0f : 22.0f);
+        const float cardX = w - left - cardW;
+        const float cardY = h - 56.0f - cardH;
+        if (cardX > left + rowW + 24.0f || cardY > y + 12.0f)
+        {
+            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, cardH), uiUv, glm::vec4(0.04f, 0.04f, 0.045f, 0.86f));
+            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, 2.0f), uiUv, gold);
+            mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, cardY + 14.0f), "THE TOWN REMEMBERS", gold, 1.0f);
+            float ly = cardY + 34.0f;
+            for (const auto& [text, color] : lines)
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly), truncateHudText(text, 27), color, 2.0f);
+                ly += lineH;
+            }
+            if (!lastLine.empty())
+            {
+                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly + 2.0f), truncateHudText(lastLine, 52), dimInk, 1.0f);
+            }
+        }
+    }
+
+    // Footer.
+    mFont.drawText(mSpriteBatch, glm::vec2(left, h - 30.0f), "W/S move    A/D change    Enter select", dimInk, 1.0f);
+    const std::string seed = std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) +
+                             " slot  -  town " + std::to_string(mSaveManager.worldSeed());
+    mFont.drawText(mSpriteBatch, glm::vec2(w - left - mFont.measureText(seed, 1.0f).x, h - 30.0f), seed,
+                   glm::vec4(dimInk.r, dimInk.g, dimInk.b, 0.7f), 1.0f);
+
+    if (!mTitleStatusMessage.empty() && mTitleStatusTimer > 0.0f)
+    {
+        const float alpha = std::clamp(mTitleStatusTimer / 0.4f, 0.0f, 1.0f);
+        const glm::vec2 size = mFont.measureText(mTitleStatusMessage, 2.0f);
+        const glm::vec2 pos(std::floor((w - size.x) * 0.5f), h - 92.0f);
+        mSpriteBatch.draw(pos - glm::vec2(14.0f, 8.0f), size + glm::vec2(28.0f, 16.0f), uiUv, glm::vec4(0.04f, 0.04f, 0.045f, 0.9f * alpha));
+        mFont.drawText(mSpriteBatch, pos, mTitleStatusMessage, glm::vec4(gold.r, gold.g, gold.b, alpha), 2.0f);
     }
 
     if (mShowTitleCredits)
     {
-        mSpriteBatch.draw(
-            glm::vec2(layout.leftColX, layout.leftColY),
-            glm::vec2(layout.panelW - 24.0f, layout.leftColH),
-            uiUv,
-            glm::vec4(0.03f, 0.04f, 0.05f, 0.84f));
+        const glm::vec2 size(std::min(560.0f, w - 40.0f), 220.0f);
+        const glm::vec2 pos(std::floor((w - size.x) * 0.5f), std::floor((h - size.y) * 0.5f));
+        mSpriteBatch.draw(pos, size, uiUv, glm::vec4(0.05f, 0.045f, 0.045f, 0.97f));
+        mSpriteBatch.draw(pos, glm::vec2(size.x, 3.0f), uiUv, gold);
+        const float cx = pos.x + size.x * 0.5f;
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 24.0f), "CREDITS", gold, 3.0f, TextAlign::Center);
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 74.0f), "Dead Pixel Survival", ink, 2.0f, TextAlign::Center);
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 102.0f), "Design and code: L. Bartolome", dimInk, 2.0f, TextAlign::Center);
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 128.0f), "C++20, SDL2, OpenGL", dimInk, 2.0f, TextAlign::Center);
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + size.y - 30.0f), "Enter to close", dimInk, 1.0f, TextAlign::Center);
     }
 }
 
