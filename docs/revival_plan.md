@@ -321,6 +321,10 @@ something the next one can find and act on:
     - New recipe: **Spear** (Knife + Wood Planks, Rope as a tool), with longer
       reach and lighter blows.
   - Harness script: `tools/harness/crafting.txt`.
+- **Item icons:** every item has its own 32x32 icon in one style (solid
+  shapes, light from the top-left, 1px dark outline). There are 16 redrawn
+  icons and 13 new ones, from `add_item_icons` in `generate_sprites.py`.
+  Nothing else in the atlas changes.
 
 ## Known issues found during revival
 
@@ -337,7 +341,7 @@ something the next one can find and act on:
   them from `NeedsSystem`).
 - ~~The crafting screen lists undiscovered recipes as "???" with no hint~~
   (fixed: "Item + ?" with a clue).
-- Several items reuse other items' sprites (Flashlight, Jacket, Matches, ...).
+- ~~Several items reuse other items' sprites~~ (fixed: one icon per item).
 - ~~Tone presets are stored and shown but have no gameplay effect~~ (fixed:
   `ToneTuning`).
 - ~~`beginDeathState` and `beginRetirementState` duplicate persistence code~~
@@ -388,3 +392,4 @@ something the next one can find and act on:
   scars and fires; harness `save`/`resume`.
 - 2026-11-06: Crafting screen rework, ingredient clues, recipes in the
   notebook, crafted items with real effects, Spear.
+- 2026-11-06: Item icons: one per item in a single outlined style.

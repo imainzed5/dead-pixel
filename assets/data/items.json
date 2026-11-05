@@ -154,7 +154,7 @@
       "category": "material",
       "weight": 0.3,
       "maxStack": 20,
-      "sprite": "item_scrap",
+      "sprite": "item_ammo",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
@@ -165,7 +165,7 @@
       "category": "medical",
       "weight": 0.1,
       "maxStack": 3,
-      "sprite": "item_bandage",
+      "sprite": "item_antibiotics",
       "illnessRelief": 40.0,
       "curesInfection": true,
       "hungerRestore": 0.0,
@@ -178,7 +178,7 @@
       "category": "medical",
       "weight": 0.1,
       "maxStack": 5,
-      "sprite": "item_bandage",
+      "sprite": "item_painkillers",
       "panicRelief": 30.0,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
@@ -190,7 +190,7 @@
       "category": "weapon",
       "weight": 1.8,
       "maxStack": 1,
-      "sprite": "item_pipe",
+      "sprite": "item_hammer",
       "weaponCategory": 2
     },
     {
@@ -199,7 +199,7 @@
       "category": "material",
       "weight": 0.4,
       "maxStack": 1,
-      "sprite": "item_scrap",
+      "sprite": "item_flashlight",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
@@ -210,7 +210,7 @@
       "category": "material",
       "weight": 0.05,
       "maxStack": 10,
-      "sprite": "item_wood",
+      "sprite": "item_matches",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
@@ -221,7 +221,7 @@
       "category": "material",
       "weight": 1.5,
       "maxStack": 1,
-      "sprite": "item_rope",
+      "sprite": "item_jacket",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
@@ -232,7 +232,7 @@
       "category": "food",
       "weight": 0.3,
       "maxStack": 5,
-      "sprite": "item_canned_food",
+      "sprite": "item_rat_meat",
       "hungerRestore": 15.0,
       "thirstRestore": 0.0,
       "spoilHours": 12.0
@@ -258,7 +258,7 @@
       "category": "material",
       "weight": 0.2,
       "maxStack": 1,
-      "sprite": "item_bandage",
+      "sprite": "item_notebook",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
@@ -269,7 +269,7 @@
       "category": "medical",
       "weight": 0.1,
       "maxStack": 5,
-      "sprite": "item_bandage",
+      "sprite": "item_bandage_clean",
       "woundTreatment": 2,
       "stopsBleeding": true,
       "hungerRestore": 0.0,
@@ -284,7 +284,7 @@
       "category": "material",
       "weight": 0.1,
       "maxStack": 5,
-      "sprite": "item_bandage",
+      "sprite": "item_rag",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
@@ -295,7 +295,7 @@
       "category": "material",
       "weight": 1.1,
       "maxStack": 2,
-      "sprite": "item_fuel",
+      "sprite": "item_molotov",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0
@@ -306,7 +306,7 @@
       "category": "weapon",
       "weight": 1.8,
       "maxStack": 1,
-      "sprite": "item_bat",
+      "sprite": "item_bat_spiked",
       "weaponCategory": 2,
       "damageScale": 1.35,
       "durabilityScale": 1.5,
@@ -318,7 +318,7 @@
       "category": "weapon",
       "weight": 1.6,
       "maxStack": 1,
-      "sprite": "item_pipe",
+      "sprite": "item_spear",
       "weaponCategory": 1,
       "rangeScale": 1.6,
       "damageScale": 0.85

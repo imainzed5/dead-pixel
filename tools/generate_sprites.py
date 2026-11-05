@@ -890,6 +890,7 @@ def generate_atlas():
     # Rows 8+: structures (walls, doorways, roofs).
     add_structure_sprites(img, sprites)
     add_legacy_props(img, sprites)
+    add_item_icons(img, sprites)
 
     return img, sprites
 
@@ -1624,6 +1625,372 @@ def add_legacy_props(img, sprites):
     outline_opaque(note, (96, 86, 70))
     img.paste(note, (x, y), note)
     sprites["prop_note"] = {"x": x, "y": y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+
+
+# ---------------------------------------------------------------------------
+# Item icons: one 32x32 icon per item, in a single style (solid shapes, a
+# light edge to the top-left, a dark 1px outline). Drawn over the older item
+# cells and into free cells of the items row; each icon has its own RNG.
+# ---------------------------------------------------------------------------
+
+ICON_OUTLINE = (26, 22, 20)
+
+
+class Icon:
+    def __init__(self, seed):
+        self.px = [[None] * ITEM_SIZE for _ in range(ITEM_SIZE)]
+        self.rng = random.Random(seed)
+
+    def set(self, x, y, c):
+        if 0 <= x < ITEM_SIZE and 0 <= y < ITEM_SIZE:
+            self.px[y][x] = c
+
+    def get(self, x, y):
+        if 0 <= x < ITEM_SIZE and 0 <= y < ITEM_SIZE:
+            return self.px[y][x]
+        return None
+
+    def rect(self, x0, y0, x1, y1, c):
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                self.set(x, y, c)
+
+    def frame(self, x0, y0, x1, y1, c):
+        for x in range(x0, x1):
+            self.set(x, y0, c)
+            self.set(x, y1 - 1, c)
+        for y in range(y0, y1):
+            self.set(x0, y, c)
+            self.set(x1 - 1, y, c)
+
+    def ellipse(self, cx, cy, rx, ry, c):
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                dx = (x + 0.5 - cx) / rx
+                dy = (y + 0.5 - cy) / ry
+                if dx * dx + dy * dy <= 1.0:
+                    self.set(x, y, c)
+
+    def line(self, x0, y0, x1, y1, c, w=1):
+        steps = int(max(abs(x1 - x0), abs(y1 - y0)) * 2) + 1
+        r = (w - 1) / 2.0
+        for i in range(steps + 1):
+            t = i / steps
+            x = x0 + (x1 - x0) * t
+            y = y0 + (y1 - y0) * t
+            for yy in range(int(math.floor(y - r)), int(math.floor(y + r)) + 1):
+                for xx in range(int(math.floor(x - r)), int(math.floor(x + r)) + 1):
+                    self.set(xx, yy, c)
+
+    def poly(self, pts, c):
+        n = len(pts)
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                px, py = x + 0.5, y + 0.5
+                inside = False
+                j = n - 1
+                for i in range(n):
+                    xi, yi = pts[i]
+                    xj, yj = pts[j]
+                    if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+                        inside = not inside
+                    j = i
+                if inside:
+                    self.set(x, y, c)
+
+    def light(self, amount=26, dark=-30):
+        """Light from the top-left: brighten edges facing up/left, darken the rest."""
+        src = [row[:] for row in self.px]
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                c = src[y][x]
+                if c is None:
+                    continue
+                up = src[y - 1][x] if y > 0 else None
+                left = src[y][x - 1] if x > 0 else None
+                down = src[y + 1][x] if y < ITEM_SIZE - 1 else None
+                right = src[y][x + 1] if x < ITEM_SIZE - 1 else None
+                if up is None or left is None:
+                    self.px[y][x] = shade(c, amount)
+                elif down is None or right is None:
+                    self.px[y][x] = shade(c, dark)
+
+    def grain(self, spread=4):
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                c = self.px[y][x]
+                if c is not None:
+                    self.px[y][x] = shade(c, self.rng.randint(-spread, spread))
+
+    def outline(self, color=ICON_OUTLINE):
+        src = [row[:] for row in self.px]
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                if src[y][x] is not None:
+                    continue
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    xx, yy = x + dx, y + dy
+                    if 0 <= xx < ITEM_SIZE and 0 <= yy < ITEM_SIZE and src[yy][xx] is not None:
+                        self.px[y][x] = color
+                        break
+
+    def paste(self, img, ox, oy):
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                c = self.px[y][x]
+                img.putpixel((ox + x, oy + y), (c[0], c[1], c[2], 255) if c is not None else (0, 0, 0, 0))
+
+
+def icon_bandage_roll(ic, cloth, cross):
+    ic.rect(7, 11, 20, 23, cloth)
+    ic.light()
+    ic.ellipse(20, 17, 4.2, 6.2, shade(cloth, 14))
+    ic.ellipse(20, 17, 2.2, 3.3, shade(cloth, -22))
+    ic.ellipse(20, 17, 1.0, 1.5, shade(cloth, 6))
+    ic.rect(20, 21, 27, 24, shade(cloth, -10))   # the loose end
+    ic.rect(10, 13, 13, 21, cross)
+    ic.rect(8, 15, 15, 18, cross)
+
+
+def icon_bat(ic, wood):
+    ic.line(7, 25, 14, 18, wood, 2)
+    ic.line(14, 18, 23, 9, wood, 4)
+    ic.ellipse(23.5, 8.5, 2.6, 2.6, wood)
+    ic.ellipse(6.5, 25.5, 1.8, 1.8, shade(wood, -20))
+    ic.light(30, -34)
+    ic.line(8, 24, 12, 20, (62, 52, 48), 2)      # grip tape
+
+
+def draw_item_icon(name):
+    ic = Icon(name)
+    if name == "item_canned_food":
+        ic.rect(10, 9, 22, 26, (176, 52, 44))
+        ic.rect(10, 14, 22, 19, (222, 190, 80))
+        ic.light()
+        ic.ellipse(16, 9, 6.2, 2.2, (182, 184, 188))
+        ic.ellipse(16, 9, 4.5, 1.2, (150, 152, 158))
+        ic.rect(10, 24, 22, 26, (150, 152, 158))
+    elif name == "item_apple":
+        ic.ellipse(16, 18, 7.5, 7.0, (188, 40, 38))
+        ic.light(24, -30)
+        ic.ellipse(13, 15, 2.0, 2.4, (238, 120, 108))
+        ic.set(16, 11, (120, 26, 26))
+        ic.line(16, 11, 17, 6, (96, 64, 34), 1)
+        ic.ellipse(20, 7.5, 3.0, 1.6, (92, 150, 62))
+    elif name == "item_bread":
+        ic.ellipse(16, 18, 11, 6.5, (190, 132, 64))
+        ic.ellipse(16, 16.5, 9.5, 4.2, (222, 170, 96))
+        for x in (10, 15, 20):
+            ic.line(x, 18, x + 2, 15, (164, 106, 50), 1)
+        ic.light(18, -26)
+    elif name == "item_water_bottle":
+        ic.rect(12, 10, 21, 27, (112, 170, 226))
+        ic.rect(13, 7, 20, 10, (112, 170, 226))
+        ic.rect(14, 5, 19, 7, (150, 196, 236))
+        ic.rect(14, 3, 19, 5, (44, 92, 172))
+        ic.rect(12, 15, 21, 20, (228, 234, 240))
+        ic.rect(12, 17, 21, 18, (60, 120, 200))
+        ic.light(30, -26)
+        ic.line(13, 11, 13, 14, (196, 226, 248), 1)
+    elif name == "item_bandage":
+        icon_bandage_roll(ic, (234, 228, 216), (200, 50, 44))
+    elif name == "item_bandage_clean":
+        icon_bandage_roll(ic, (214, 234, 244), (52, 132, 204))
+        ic.line(24, 5, 24, 10, (250, 250, 255), 1)
+        ic.line(21.5, 7.5, 26.5, 7.5, (250, 250, 255), 1)
+    elif name == "item_knife":
+        ic.line(11, 21, 24, 8, (192, 196, 202), 2)
+        ic.line(12, 22, 25, 9, (150, 154, 160), 1)
+        ic.light(30, -20)
+        ic.line(9, 19, 13, 23, (70, 70, 74), 1)
+        ic.line(6, 26, 10, 22, (102, 62, 34), 3)
+    elif name == "item_bat":
+        icon_bat(ic, (198, 150, 92))
+    elif name == "item_bat_spiked":
+        icon_bat(ic, (176, 128, 78))
+        for t, side in ((0.25, 1), (0.45, -1), (0.65, 1), (0.85, -1)):
+            x = 14 + (23 - 14) * t
+            y = 18 + (9 - 18) * t
+            ic.line(x + side * 2, y + side * 2, x + side * 4, y + side * 4, (206, 208, 214), 1)
+    elif name == "item_pipe":
+        ic.line(7, 25, 24, 8, (142, 144, 150), 4)
+        ic.light(30, -30)
+        ic.ellipse(15.5, 16.5, 3.4, 3.4, (112, 114, 120))
+        ic.ellipse(24, 8, 1.4, 1.4, (52, 52, 56))
+    elif name == "item_axe":
+        ic.line(8, 26, 20, 9, (150, 105, 60), 2)
+        ic.poly([(17, 7), (25, 4), (28, 12), (22, 13), (19, 11)], (176, 180, 186))
+        ic.light(34, -26)
+        ic.line(25, 4, 28, 12, (230, 234, 238), 1)
+    elif name == "item_wood":
+        ic.poly([(4, 18), (22, 7), (26, 11), (8, 22)], (178, 132, 78))
+        ic.poly([(6, 24), (24, 13), (27, 17), (9, 27)], (160, 116, 66))
+        ic.light(22, -26)
+        ic.line(8, 17, 21, 9, (140, 98, 56), 1)
+        ic.line(10, 23, 23, 15, (128, 88, 48), 1)
+        ic.set(22, 10, (70, 70, 76))
+        ic.set(24, 16, (70, 70, 76))
+    elif name == "item_scrap":
+        ic.poly([(5, 15), (17, 8), (27, 13), (23, 24), (9, 26)], (128, 132, 138))
+        ic.light(28, -28)
+        ic.line(17, 9, 15, 25, (98, 102, 108), 1)
+        for _ in range(6):
+            x, y = ic.rng.randint(8, 23), ic.rng.randint(12, 23)
+            if ic.get(x, y) is not None:
+                ic.set(x, y, (156, 94, 60))
+        ic.ellipse(21.5, 18.5, 1.5, 1.5, (190, 192, 198))
+    elif name == "item_rope":
+        ic.ellipse(16, 17, 10, 8, (192, 160, 104))
+        ic.ellipse(16, 17, 5, 3.6, (0, 0, 0))
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                if ic.get(x, y) == (0, 0, 0):
+                    ic.set(x, y, None)
+        ic.light(22, -28)
+        for a in range(0, 360, 30):
+            x = 16 + 7.5 * math.cos(math.radians(a))
+            y = 17 + 5.8 * math.sin(math.radians(a))
+            ic.set(int(x), int(y), (150, 120, 72))
+        ic.line(24, 22, 27, 27, (192, 160, 104), 2)
+    elif name == "item_fuel":
+        ic.rect(8, 10, 23, 27, (190, 46, 40))
+        ic.light(28, -30)
+        ic.line(9, 11, 22, 26, (166, 38, 34), 1)
+        ic.line(22, 11, 9, 26, (166, 38, 34), 1)
+        ic.frame(10, 6, 17, 10, (150, 40, 36))
+        ic.line(20, 10, 25, 4, (150, 152, 158), 2)
+    elif name == "item_glass":
+        for tri in ([(7, 23), (13, 7), (17, 21)], [(16, 25), (24, 11), (27, 26)], [(5, 27), (12, 24), (9, 28)]):
+            ic.poly(tri, (188, 222, 238))
+        ic.light(40, -24)
+    elif name == "item_ammo":
+        ic.rect(8, 16, 25, 27, (92, 102, 70))
+        ic.rect(8, 19, 25, 22, (206, 182, 92))
+        ic.light(24, -26)
+        for x in (10, 15, 20):
+            ic.rect(x, 10, x + 3, 16, (210, 168, 72))
+            ic.ellipse(x + 1.5, 10, 1.6, 2.2, (192, 112, 62))
+    elif name == "item_antibiotics":
+        ic.rect(11, 11, 22, 27, (214, 128, 40))
+        ic.rect(11, 15, 22, 22, (240, 238, 232))
+        ic.rect(13, 18, 20, 19, (210, 52, 48))
+        ic.rect(10, 6, 23, 11, (236, 236, 236))
+        ic.light(26, -30)
+        for x in range(11, 23, 2):
+            ic.set(x, 9, (200, 200, 204))
+    elif name == "item_painkillers":
+        ic.rect(5, 9, 27, 24, (198, 202, 210))
+        ic.light(26, -30)
+        for i, (x, y) in enumerate(((10, 13), (16, 13), (22, 13), (10, 19), (16, 19), (22, 19))):
+            if i == 4:
+                ic.ellipse(x, y, 2.3, 1.8, (150, 154, 162))
+            else:
+                ic.ellipse(x, y, 2.3, 1.8, (246, 246, 246))
+                ic.set(x, y - 1, (255, 255, 255))
+        ic.rect(5, 24, 27, 26, (62, 112, 190))
+    elif name == "item_hammer":
+        ic.line(17, 11, 14, 27, (160, 114, 64), 3)
+        ic.rect(11, 6, 24, 11, (120, 124, 130))
+        ic.rect(22, 5, 26, 12, (150, 154, 160))
+        ic.poly([(12, 6), (8, 3), (7, 6), (11, 10)], (120, 124, 130))
+        ic.light(30, -30)
+    elif name == "item_flashlight":
+        ic.line(7, 25, 18, 14, (62, 66, 74), 5)
+        ic.ellipse(20.5, 11.5, 4.8, 4.8, (92, 96, 106))
+        ic.light(28, -24)
+        ic.ellipse(22, 10, 2.6, 2.6, (250, 238, 180))
+        ic.rect(11, 19, 13, 21, (200, 60, 50))
+    elif name == "item_matches":
+        for x0, x1, y1 in ((12, 14, 4), (16, 19, 5), (20, 23, 7)):
+            ic.line(x0, 12, x1, y1 + 1, (228, 204, 150), 1)
+            ic.ellipse(x1 + 0.5, y1 + 0.5, 1.5, 1.6, (182, 42, 40))
+        ic.rect(8, 11, 24, 14, (196, 162, 110))
+        ic.rect(6, 14, 26, 26, (198, 58, 48))
+        ic.rect(9, 17, 23, 23, (222, 190, 82))
+        ic.light(24, -30)
+    elif name == "item_jacket":
+        ic.poly([(10, 8), (22, 8), (27, 14), (26, 25), (6, 25), (5, 14)], (98, 108, 70))
+        ic.poly([(5, 14), (10, 9), (10, 26), (3, 25)], (88, 98, 62))
+        ic.poly([(27, 14), (22, 9), (22, 26), (29, 25)], (88, 98, 62))
+        ic.light(22, -26)
+        ic.line(13, 8, 16, 13, (70, 78, 48), 1)
+        ic.line(19, 8, 16, 13, (70, 78, 48), 1)
+        ic.line(16, 13, 16, 25, (176, 176, 156), 1)
+    elif name == "item_rat_meat":
+        ic.ellipse(14, 18, 9, 6.5, (186, 84, 86))
+        ic.light(24, -30)
+        for _ in range(4):
+            x, y = ic.rng.randint(8, 19), ic.rng.randint(15, 21)
+            ic.line(x, y, x + 3, y - 1, (230, 156, 148), 1)
+        ic.line(21, 14, 26, 8, (236, 226, 202), 2)
+        ic.ellipse(27, 7, 1.8, 1.8, (236, 226, 202))
+        ic.ellipse(25.5, 5.5, 1.6, 1.6, (236, 226, 202))
+    elif name == "item_medkit":
+        ic.rect(6, 11, 27, 27, (236, 234, 230))
+        ic.light(14, -30)
+        ic.frame(12, 7, 21, 12, (150, 150, 154))
+        ic.rect(14, 13, 19, 25, (200, 44, 40))
+        ic.rect(10, 16, 23, 21, (200, 44, 40))
+    elif name == "item_notebook":
+        ic.rect(21, 7, 25, 27, (232, 222, 196))
+        for y in range(9, 26, 2):
+            ic.set(23, y, (190, 180, 160))
+        ic.rect(8, 6, 22, 28, (122, 78, 50))
+        ic.light(24, -26)
+        ic.rect(10, 10, 19, 15, (226, 214, 184))
+        ic.rect(18, 6, 20, 28, (44, 34, 28))
+    elif name == "item_rag":
+        ic.poly([(5, 15), (13, 9), (24, 10), (28, 18), (21, 26), (8, 25)], (192, 172, 112))
+        ic.light(20, -26)
+        for cx, cy, rx, ry in ((12, 18, 3.5, 2.5), (20, 15, 2.5, 2), (19, 22, 3, 2)):
+            ic.ellipse(cx, cy, rx, ry, (148, 118, 66))
+        ic.line(10, 13, 16, 20, (170, 150, 96), 1)
+    elif name == "item_molotov":
+        ic.rect(12, 14, 21, 28, (70, 128, 80))
+        ic.rect(13, 11, 20, 14, (70, 128, 80))
+        ic.rect(14, 7, 19, 11, (70, 128, 80))
+        ic.light(34, -28)
+        ic.line(13, 15, 13, 26, (130, 186, 136), 1)
+        ic.poly([(14, 8), (19, 8), (21, 3), (17, 4)], (204, 184, 124))
+        ic.ellipse(21, 3.5, 2.6, 2.4, (240, 140, 40))
+        ic.ellipse(21.5, 3, 1.3, 1.3, (252, 222, 92))
+    elif name == "item_spear":
+        ic.line(5, 27, 21, 11, (152, 110, 64), 2)
+        ic.poly([(19, 11), (23, 5), (28, 3), (26, 8), (21, 13)], (186, 190, 196))
+        ic.light(34, -26)
+        for t in (0.0, 1.5):
+            ic.line(17 + t, 12 + t, 20 + t, 15 + t, (192, 160, 104), 1)
+    else:
+        ic.rect(9, 9, 23, 23, (150, 150, 150))
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+# Older item cells redrawn in the new style, and new items in free cells of
+# the items row (y=160, x from 512).
+ITEM_ICONS_REDRAWN = [
+    "item_canned_food", "item_apple", "item_bread", "item_water_bottle",
+    "item_bandage", "item_knife", "item_bat", "item_pipe", "item_axe",
+    "item_ammo", "item_medkit", "item_wood", "item_scrap", "item_rope",
+    "item_fuel", "item_glass",
+]
+ITEM_ICONS_NEW = [
+    "item_antibiotics", "item_painkillers", "item_hammer", "item_flashlight",
+    "item_matches", "item_jacket", "item_rat_meat", "item_notebook",
+    "item_bandage_clean", "item_rag", "item_molotov", "item_bat_spiked",
+    "item_spear",
+]
+
+
+def add_item_icons(img, sprites):
+    for name in ITEM_ICONS_REDRAWN:
+        cell = sprites[name]
+        draw_item_icon(name).paste(img, cell["x"], cell["y"])
+    for i, name in enumerate(ITEM_ICONS_NEW):
+        x = 512 + i * ITEM_SIZE
+        draw_item_icon(name).paste(img, x, 160)
+        sprites[name] = {"x": x, "y": 160, "w": ITEM_SIZE, "h": ITEM_SIZE}
 
 
 def main():
