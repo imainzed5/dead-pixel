@@ -29,7 +29,7 @@ float urgency(float need, float threshold)
 }
 
 void SurvivorAISystem::update(World& world, const TileMap& tileMap, const NoiseModel& /*noiseModel*/,
-                               Entity playerEntity, float dtSeconds, double /*gameHours*/, int /*currentDay*/) const
+                               Entity /*playerEntity*/, float dtSeconds, double /*gameHours*/, int /*currentDay*/) const
 {
     world.forEach<SurvivorAI, Transform, Velocity, Health>(
         [&](Entity entity, SurvivorAI& ai, Transform& transform, Velocity& vel, Health& health)

@@ -34,17 +34,50 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | # | Phase | Status |
 |---|---|---|
 | 0 | Branch, plan, CI fix | done |
-| 1 | Dev harness: scripted autoplay, offscreen screenshots, metrics, input-latch fix | in progress |
-| 2 | Baseline screenshots and assessment | |
-| 3 | Test target: save round-trip and core logic tests | |
-| 4 | Split `Game.cpp` into systems and UI modules | |
-| 5 | Wave 1: core loop and first 15 minutes | |
-| 6 | Isometric wall/roof occlusion | |
-| 7 | Placeholder art generator upgrade | |
+| 1 | Dev harness: scripted autoplay, offscreen screenshots, metrics, input-latch fix | done |
+| 2 | Baseline screenshots and assessment | done |
+| 3 | Test target: core library, save round-trip and logic tests | in progress |
+| 4 | Wave 1a: simulation pressure (mental, needs/temperature, zombie pressure) | |
+| 5 | Wave 1b: readability (scale/zoom, HUD rework, night lighting) | |
+| 6 | Walls with height, wall/roof occlusion, art generator upgrade | |
+| 7 | Split remaining `Game.cpp` (vehicles, fire, persistence duplication) | |
 | 8 | Wave 2: make the legacy hook visible | |
 | 9 | Wave 3: extras polish, tone presets with real effects | |
 | 10 | Docs, README and audit sync | |
 | 11 | Final verification and handoff | |
+
+`Game.cpp` is split continuously: each wave moves the code it touches out
+(e.g. the HUD rework extracts the HUD renderer).
+
+## Baseline assessment (2026-11-05)
+
+From the harness tour (`tools/harness/baseline_tour.txt`) and a two-day idle
+soak (`tools/harness/soak_idle.txt`, world seed 1234):
+
+**Look and readability**
+- At default zoom the player is ~20 px tall; items are drawn as big as people.
+  Humanoid sprites are authored at 64 px but rendered at 32 px.
+- Buildings read as floor plans: walls are low studded tiles the player stands on.
+- Ground is speckled with random dirt/stone/water diamonds that mean nothing.
+- HUD: unlabeled bars, overlapping HP text, a column of small debug-style text,
+  a large mode/threat banner, a hotbar of tiny text. Inventory is a bare text
+  list over the world with no panel.
+- Night darkens everything evenly. No light around the player or from windows.
+
+**Simulation (idle soak, 2 game days)**
+- 44 zombies, none came within 10 tiles in two days. No ambient pressure.
+- Depression reaches the cap by 17:00 on day 1 from "isolation" (no zombie in
+  sight gives +0.2/s). The 24 h crisis never starts because decay runs after the
+  clamp, leaving depression at 99.998 < 100.
+- Body temperature sits at 30 °C every night, indoors, with no consequence.
+- Panic stays at 0 alone in the dark.
+- HP stays at 100 until thirst hits exactly 0, then death within an hour.
+  No gradual warning effects.
+- A kill was credited with no player action: any zombie death counts as a kill.
+- Idle survival ≈ 46 game hours, ended by thirst.
+
+**Engine**
+- Harness runs ~4,000 ticks/s hidden (2 game days in 43 s, Release).
 
 ## Known issues found during revival
 

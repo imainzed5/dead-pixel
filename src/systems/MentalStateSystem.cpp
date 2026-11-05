@@ -37,6 +37,11 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
     // --- Panic triggers ---
     float panicGain = 0.0f;
 
+    // Depression changes are accumulated and applied once (gain, relief, clamp)
+    // so the cap check sees a stable value instead of cap-minus-decay.
+    float depressionGain = 0.0f;
+    float depressionRelief = 0.0f;
+
     // Zombie proximity panic
     int zombiesInSight = 0;
     glm::vec2 nearestFleeDirection(0.0f, 0.0f);
@@ -82,7 +87,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
     if (isDark)
     {
         panicGain += kDarknessPanicGain * dtSeconds;
-        mental.depression = std::min(100.0f, mental.depression + 0.15f * dtSeconds);
+        depressionGain += 0.15f * dtSeconds;
     }
 
     // Low needs depression + panic from low needs
@@ -96,7 +101,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
 
         if (lowNeedsCount > 0.0f)
         {
-            mental.depression = std::min(100.0f, mental.depression + kLowNeedsDepressionGain * lowNeedsCount * dtSeconds);
+            depressionGain += kLowNeedsDepressionGain * lowNeedsCount * dtSeconds;
         }
     }
 
@@ -142,7 +147,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
     // Isolation: no zombies means alone, slowly increases depression
     if (zombiesInSight == 0)
     {
-        mental.depression = std::min(100.0f, mental.depression + kIsolationDepressionGain * dtSeconds);
+        depressionGain += kIsolationDepressionGain * dtSeconds;
     }
 
     // Hardened bloodline trait: reduce early depression accumulation
@@ -153,12 +158,12 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         {
             // Offset some of the depression gained this frame
             const float relief = kIsolationDepressionGain * (1.0f - kHardenedDepressionFactor) * dtSeconds;
-            mental.depression = std::max(0.0f, mental.depression - relief);
+            depressionRelief += relief;
         }
     }
 
     // Depression natural decay (very slow)
-    mental.depression = std::max(0.0f, mental.depression - mental.depressionDecayPerSecond * dtSeconds);
+    depressionRelief += mental.depressionDecayPerSecond * dtSeconds;
 
     // --- Social recovery: NPC proximity reduces depression and panic ---
     mental.socialRecoveryTimer = std::max(0.0f, mental.socialRecoveryTimer - dtSeconds);
@@ -180,7 +185,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
 
         if (npcNearby)
         {
-            mental.depression = std::max(0.0f, mental.depression - kSocialDepressionRelief * kSocialRecoveryCooldown);
+            depressionRelief += kSocialDepressionRelief * kSocialRecoveryCooldown;
             mental.panic = std::max(0.0f, mental.panic - kSocialPanicRelief * kSocialRecoveryCooldown);
             mental.socialRecoveryTimer = kSocialRecoveryCooldown;
         }
@@ -191,12 +196,14 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
     if (mental.desensitisation > 30.0f)
     {
         const float extraDepression = (mental.desensitisation - 30.0f) * 0.005f * dtSeconds;
-        mental.depression = std::min(100.0f, mental.depression + extraDepression);
+        depressionGain += extraDepression;
     }
+
+    mental.depression = std::clamp(mental.depression + depressionGain - depressionRelief, 0.0f, kDepressionRetirementThreshold);
 
     // --- Depression crisis window (M5) ---
     mForceRetire = false;
-    if (mental.depression >= kDepressionRetirementThreshold)
+    if (mental.depression >= kCrisisEntryThreshold)
     {
         if (!mental.inCrisis)
         {

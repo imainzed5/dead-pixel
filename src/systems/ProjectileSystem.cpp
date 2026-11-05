@@ -47,7 +47,7 @@ void ProjectileSystem::update(World& world, const TileMap& tileMap, NoiseModel& 
             // Zombie collision
             const glm::vec2 projCenter(pt.x, pt.y);
             world.forEach<ZombieAI, Transform, Health>(
-                [&](Entity ze, ZombieAI&, Transform& zt, Health& zh)
+                [&](Entity, ZombieAI&, Transform& zt, Health& zh)
                 {
                     if (zh.current <= 0.0f) return;
                     const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);

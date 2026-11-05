@@ -42,7 +42,7 @@ void DistrictInfectionSystem::dailyUpdate(World& world, const LayoutData& layout
     }
 
     world.forEach<ZombieAI, Transform, Health>(
-        [&](Entity, ZombieAI& zai, Transform& t, Health& h)
+        [&](Entity, ZombieAI&, Transform& t, Health& h)
         {
             if (h.current <= 0.0f) return;
 

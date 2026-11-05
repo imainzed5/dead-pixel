@@ -35,6 +35,8 @@ private:
     // M5: Crisis window
     static constexpr double kCrisisWindowHours = 24.0;
     static constexpr float kCrisisRecoveryThreshold = 90.0f;
+    // Float-safe "at the cap" check for entering the crisis.
+    static constexpr float kCrisisEntryThreshold = 99.5f;
 
     // M5: Social recovery
     static constexpr float kSocialRecoveryRange = 160.0f;

@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(DEAD_PIXEL_BUILD_TESTS "Build the unit test runner" ON)
+
 find_package(SDL2 REQUIRED CONFIG)
 find_package(SDL2_mixer REQUIRED CONFIG)
 find_package(OpenGL REQUIRED)
@@ -17,8 +19,16 @@ find_package(nlohmann_json REQUIRED CONFIG)
 # stb ships headers only (no CMake package); fail at configure time if missing.
 find_path(STB_INCLUDE_DIR stb/stb_image.h REQUIRED)
 
-add_executable(dead_pixel_survival
-    src/main.cpp
+function(dead_pixel_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+# Everything except main(): shared by the game and the test runner.
+add_library(dead_pixel_core STATIC
     src/core/Game.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
@@ -62,14 +72,10 @@ add_executable(dead_pixel_survival
     src/dev/LaunchOptions.cpp
 )
 
-target_include_directories(dead_pixel_survival PRIVATE src)
-target_include_directories(dead_pixel_survival SYSTEM PRIVATE ${STB_INCLUDE_DIR})
+target_include_directories(dead_pixel_core PUBLIC src)
+target_include_directories(dead_pixel_core SYSTEM PUBLIC ${STB_INCLUDE_DIR})
 
-if(TARGET SDL2::SDL2main)
-    target_link_libraries(dead_pixel_survival PRIVATE SDL2::SDL2main)
-endif()
-
-target_link_libraries(dead_pixel_survival PRIVATE
+target_link_libraries(dead_pixel_core PUBLIC
     SDL2::SDL2
     SDL2_mixer::SDL2_mixer
     OpenGL::GL
@@ -77,6 +83,15 @@ target_link_libraries(dead_pixel_survival PRIVATE
     glm::glm
     nlohmann_json::nlohmann_json
 )
+dead_pixel_warnings(dead_pixel_core)
+
+add_executable(dead_pixel_survival src/main.cpp)
+
+if(TARGET SDL2::SDL2main)
+    target_link_libraries(dead_pixel_survival PRIVATE SDL2::SDL2main)
+endif()
+target_link_libraries(dead_pixel_survival PRIVATE dead_pixel_core)
+dead_pixel_warnings(dead_pixel_survival)
 
 add_custom_command(TARGET dead_pixel_survival POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -84,8 +99,21 @@ add_custom_command(TARGET dead_pixel_survival POST_BUILD
         $<TARGET_FILE_DIR:dead_pixel_survival>/assets
 )
 
-if(MSVC)
-    target_compile_options(dead_pixel_survival PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(dead_pixel_survival PRIVATE -Wall -Wextra -Wpedantic)
+if(DEAD_PIXEL_BUILD_TESTS)
+    enable_testing()
+
+    add_executable(dead_pixel_tests
+        tests/test_main.cpp
+        tests/test_input.cpp
+        tests/test_mapgen.cpp
+        tests/test_save.cpp
+        tests/test_simulation.cpp
+    )
+    target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
+    target_compile_definitions(dead_pixel_tests PRIVATE
+        DEAD_PIXEL_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+        SDL_MAIN_HANDLED)
+    dead_pixel_warnings(dead_pixel_tests)
+
+    add_test(NAME unit COMMAND dead_pixel_tests)
 endif()
