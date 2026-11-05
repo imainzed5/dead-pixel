@@ -1581,6 +1581,47 @@ def door_remains(u, h, left):
     return c
 
 
+# Boards nailed across a closed door, in the door face's (u, h) space: centre
+# height and slope of each plank, outermost last.
+DOOR_BOARDS = ((13, -0.12), (27, 0.14), (38, -0.08))
+BOARD_WOOD = (178, 136, 88)
+
+
+def make_door_boards(count, left, height=WALL_H, boards=DOOR_BOARDS):
+    """An overlay for a closed door with `count` planks nailed across it, on the
+    left (south) or right (east) face. Same frame as a wall block of `height`
+    (the cut-away stub takes one plank low down)."""
+    img = Image.new("RGBA", (ISO_TILE_W, ISO_TILE_H + height), (0, 0, 0, 0))
+    for px in range(1, 63):
+        if (px <= 31) != left:
+            continue
+        u = px - 1 if left else 62 - px
+        if not 6 <= u <= 25:
+            continue
+        yb = diamond_bottom(px)
+        for centre, slope in boards[:count]:
+            mid = centre + round((u - 15.5) * slope)
+            # A soft shadow on the door just under the plank.
+            put(img, px, yb + height - (mid - 2), (40, 26, 16), 120)
+            for dh in range(-1, 3):
+                h = mid + dh
+                c = BOARD_WOOD
+                if dh == 2:
+                    c = shade(BOARD_WOOD, 22)   # top edge catches the light
+                elif dh == -1:
+                    c = shade(BOARD_WOOD, -40)  # underside
+                elif (u * 5 + centre) % 7 == 0:
+                    c = shade(BOARD_WOOD, -16)  # grain
+                if u in (7, 24) and dh in (0, 1):
+                    c = (54, 50, 48) if dh == 0 else (150, 146, 140)  # nail heads
+                if u in (6, 25) and dh == -1:
+                    continue  # ragged sawn ends
+                if not left:
+                    c = shade(c, -18)
+                put(img, px, yb + height - h, c)
+    return img
+
+
 def make_block(material, height, feature=None, seed=0):
     """A wall block: top cap diamond plus the two faces the camera sees.
 
@@ -1708,6 +1749,22 @@ def add_structure_sprites(img, sprites):
             img.paste(block, (x, y_doors), block)
             sprites["wall_" + material + "_" + feature] = {"x": x, "y": y_doors, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_H}
             x += ISO_TILE_W
+
+    # Boards over a closed door: overlays drawn on top of it, one per face and
+    # count. Beside the player's crouch-walk frames.
+    y_boards = 848
+    x = 512
+    for face in ("l", "r"):
+        for count in (1, 2, 3):
+            overlay = make_door_boards(count, face == "l")
+            img.paste(overlay, (x, y_boards), overlay)
+            sprites["door_boards%d_%s" % (count, face)] = {"x": x, "y": y_boards, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_H}
+            x += ISO_TILE_W
+    for face in ("l", "r"):
+        overlay = make_door_boards(1, face == "l", WALL_LOW_H, ((4, 0.0),))
+        img.paste(overlay, (x, y_boards), overlay)
+        sprites["door_boardslow_%s" % face] = {"x": x, "y": y_boards, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_LOW_H}
+        x += ISO_TILE_W
 
 
 # --- Legacy props ------------------------------------------------------------

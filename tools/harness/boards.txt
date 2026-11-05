@@ -1,0 +1,53 @@
+# Boards: a hammer and planks nail a closed door shut. Nobody opens it, the
+# dead split the boards before they reach the door, and boards are remembered
+# by checkpoints and by the next life.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/boards.txt --hidden --world-seed 1234 --shots shots/boards
+
+newrun
+god on
+waits 1
+goto door
+waits 0.3
+zoom 3
+# No hammer yet: nothing happens.
+tap R
+waits 0.3
+doors
+give Hammer
+give Wood Planks 3
+tap R
+waits 0.3
+tap R
+waits 0.3
+tap R
+waits 0.3
+# Nailed shut: E does not open it.
+tap E
+waits 0.3
+doors
+shot 01_boarded_inside
+goto door outside
+waits 0.3
+shot 02_boarded_outside
+goto door
+waits 0.3
+save
+waits 0.5
+resume
+waits 1
+doors
+# The dead come for you; the boards give way first.
+zombie 6 0
+zombie -6 0
+zombie 0 6
+zombie 0 -6
+waits 8
+doors
+shot 03_splintering
+kill boards test
+waits 6
+newrun
+waits 1
+doors
+quit

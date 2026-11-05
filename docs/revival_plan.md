@@ -378,6 +378,16 @@ something the next one can find and act on:
   the combat system used to delete its kills before the kill counter saw
   them, so they never reached the run's kills or desensitisation. Harness:
   `zombies` also prints bodies and kills; script: `tools/harness/corpses.txt`.
+- **Boarding up:** at a closed door, R nails a plank across it (a hammer, or
+  the back of an axe, and one plank per board; up to three). A boarded door
+  will not open from either side; X pries a board off and gives the plank
+  back. The dead split the boards one at a time ("A board splinters. 2 boards
+  hold.") before they reach the door itself, and hammering is loud enough to
+  draw them. Boards show on the door from outside and as a plank on the
+  cut-away stub from inside. Checkpoints keep them, and so does the world:
+  the next life finds a door boarded up as the last one left it. Harness:
+  `doors` prints boarded doors, `goto door outside`; script:
+  `tools/harness/boards.txt`.
 
 ## Known issues found during revival
 
@@ -417,6 +427,9 @@ something the next one can find and act on:
   diagonal~~ (fixed: front and back views, mirrored, picked on screen).
 - ~~Melee kills never counted toward kills or desensitisation~~ (fixed: the
   game counts every death before clearing the body away).
+- Survivors cannot get through a boarded door and may stand at one.
+- The old build mode (B) still places flat 32 px props from before the
+  revival; its barricade overlaps with boarding up doors.
 - ~~Notebook, world map and minimap text rendered as garbage~~ (fixed: each
   UI layer draws its shapes with the sprite sheet, then all of its text with
   the font atlas).
@@ -464,4 +477,5 @@ something the next one can find and act on:
 - 2026-11-06: Characters redrawn with front and back views, mirrored, facing
   picked on screen; crouch, swing, lunge and dead poses (`9768b05`).
 - 2026-11-06: Bodies stay where zombies fall and persist in checkpoints;
-  melee kills counted.
+  melee kills counted (`1e55dd5`).
+- 2026-11-06: Boarding up doors, remembered across checkpoints and lives.

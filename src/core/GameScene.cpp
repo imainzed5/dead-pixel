@@ -52,6 +52,13 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
         mDoors.setState(mTileMap, glm::ivec2(x, y), DoorState::Open);
     for (const auto& [x, y] : cp.brokenDoors)
         mDoors.setState(mTileMap, glm::ivec2(x, y), DoorState::Broken);
+    if (cp.boardsSaved)
+    {
+        for (const Doors::Door& door : mDoors.all())
+            mDoors.setBoards(mTileMap, door.tile, 0.0f);
+        for (const BoardedDoorRecord& record : cp.boardedDoors)
+            mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp);
+    }
 
     // Scars from earlier runs are already on the ground; add this run's.
     for (const auto& [x, y] : cp.burnedTiles)

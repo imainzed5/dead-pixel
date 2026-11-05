@@ -323,6 +323,7 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     mFireTiles.clear();
     mBurnedTiles.clear();
     mBrokenDoors.clear();
+    mBoardedDoors.clear();
     mCharacterHistory.clear();
     mWorldEvents.clear();
 
@@ -1195,6 +1196,11 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     };
     json["openDoors"] = tilesToJson(cp.openDoors);
     json["brokenDoors"] = tilesToJson(cp.brokenDoors);
+    json["boardedDoors"] = nlohmann::json::array();
+    for (const BoardedDoorRecord& door : cp.boardedDoors)
+    {
+        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}});
+    }
     json["burned"] = tilesToJson(cp.burnedTiles);
     json["fires"] = nlohmann::json::array();
     for (const FireTileRecord& fire : cp.fires)
@@ -1316,6 +1322,15 @@ RunCheckpoint SaveManager::loadCheckpoint() const
     };
     cp.openDoors = tilesFromJson("openDoors");
     cp.brokenDoors = tilesFromJson("brokenDoors");
+    if (json.contains("boardedDoors") && json["boardedDoors"].is_array())
+    {
+        cp.boardsSaved = true;
+        for (const auto& dj : json["boardedDoors"])
+        {
+            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f)};
+            if (door.boardHp > 0.0f) cp.boardedDoors.push_back(door);
+        }
+    }
     cp.burnedTiles = tilesFromJson("burned");
     if (json.contains("fires") && json["fires"].is_array())
     {
@@ -1430,6 +1445,15 @@ void SaveManager::setFireTileRecords(std::vector<FireTileRecord> fireTiles)
     mFireTiles = std::move(fireTiles);
 }
 
+void SaveManager::setBoardedDoors(std::vector<BoardedDoorRecord> boardedDoors)
+{
+    mBoardedDoors.clear();
+    for (const BoardedDoorRecord& door : boardedDoors)
+    {
+        if (door.boardHp > 0.0f) mBoardedDoors.push_back(door);
+    }
+}
+
 void SaveManager::setBrokenDoors(std::vector<std::pair<int,int>> brokenDoors)
 {
     mBrokenDoors.clear();
@@ -1505,6 +1529,11 @@ bool SaveManager::saveLootedPositions()
     {
         json["brokenDoors"].push_back({{"x", x}, {"y", y}});
     }
+    json["boardedDoors"] = nlohmann::json::array();
+    for (const BoardedDoorRecord& door : mBoardedDoors)
+    {
+        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}});
+    }
 
     json["events"] = nlohmann::json::array();
     for (const WorldMemoryEventRecord& event : mWorldEvents)
@@ -1551,6 +1580,7 @@ bool SaveManager::loadLootedPositions()
     mFireTiles.clear();
     mBurnedTiles.clear();
     mBrokenDoors.clear();
+    mBoardedDoors.clear();
     mWorldEvents.clear();
     std::string contents = readFileToString(mWorldMemoryPath);
     if (contents.empty()) return true;
@@ -1657,6 +1687,14 @@ bool SaveManager::loadLootedPositions()
         for (const auto& dj : json["brokenDoors"])
         {
             addUniqueTile(mBrokenDoors, dj.value("x", 0), dj.value("y", 0));
+        }
+    }
+    if (json.contains("boardedDoors") && json["boardedDoors"].is_array())
+    {
+        for (const auto& dj : json["boardedDoors"])
+        {
+            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f)};
+            if (door.boardHp > 0.0f) mBoardedDoors.push_back(door);
         }
     }
 

@@ -344,7 +344,8 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         std::cout << "[harness] tick " << mTick << ": doors closed=" << game.mDoors.count(game.mTileMap, DoorState::Closed)
                   << " open=" << game.mDoors.count(game.mTileMap, DoorState::Open)
-                  << " broken=" << game.mDoors.count(game.mTileMap, DoorState::Broken) << '\n';
+                  << " broken=" << game.mDoors.count(game.mTileMap, DoorState::Broken)
+                  << " boarded=" << game.boardedDoorRecords().size() << '\n';
     }
     else if (op == "slay")
     {
@@ -460,17 +461,20 @@ void DevHarness::execute(Game& game, const Command& command)
                 fail(command, "no doors");
                 return;
             }
+            // goto door [outside]: the floor just inside the nearest door, or
+            // the ground just outside it.
+            const bool outside = a.size() > 2 && lower(a[2]) == "outside";
             const glm::ivec2 sides[4] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
             for (const glm::ivec2& side : sides)
             {
                 const glm::ivec2 tile = door->tile + side;
-                if (!game.mTileMap.isSolid(tile.x, tile.y) && game.mTileMap.getBuildingId(tile.x, tile.y) > 0)
+                if (!game.mTileMap.isSolid(tile.x, tile.y) && (game.mTileMap.getBuildingId(tile.x, tile.y) > 0) != outside)
                 {
                     execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
                     return;
                 }
             }
-            fail(command, "no floor inside the nearest door");
+            fail(command, outside ? "no ground outside the nearest door" : "no floor inside the nearest door");
             return;
         }
         LegacyLinkKind want = LegacyLinkKind::Grave;

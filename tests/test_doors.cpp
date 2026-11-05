@@ -1,5 +1,6 @@
 // Doors: closed doors block like walls, paths still lead through them, and
-// enough zombie blows break them for good.
+// enough zombie blows break them for good. Boards hold a door shut and take
+// the blows first.
 #include "TestFramework.h"
 
 #include "ai/Pathfinder.h"
@@ -112,4 +113,52 @@ DP_TEST(doors_restore_saved_states)
     doors.setState(room.map, tile, DoorState::Closed);
     DP_CHECK(doors.find(tile)->hp == Doors::kMaxHp);
     DP_CHECK(room.map.isSolid(1, 2));
+}
+
+DP_TEST(doors_boards_hold_shut_and_take_blows_first)
+{
+    Room room;
+    Doors doors;
+    doors.reset(room.map, room.layout);
+    const glm::ivec2 tile(1, 2);
+
+    // Only a closed door takes boards, and no more than three.
+    doors.open(room.map, tile);
+    DP_CHECK(!doors.addBoard(room.map, tile));
+    DP_CHECK(doors.toggle(room.map, tile) == DoorState::Closed);
+    for (int i = 0; i < Doors::kMaxBoards; ++i)
+    {
+        DP_CHECK(doors.addBoard(room.map, tile));
+    }
+    DP_CHECK(!doors.addBoard(room.map, tile));
+    DP_CHECK_EQ(doors.boards(tile), Doors::kMaxBoards);
+    DP_CHECK_EQ(room.map.doorBoards(1, 2), Doors::kMaxBoards);
+
+    // Nailed shut: nobody opens it, from either side.
+    DP_CHECK(doors.toggle(room.map, tile) == DoorState::Closed);
+    doors.open(room.map, tile);
+    DP_CHECK(room.map.isClosedDoor(1, 2));
+
+    // Blows split the boards one by one before the door takes any.
+    int splinters = 0;
+    for (int i = 0; i < 100 && doors.boards(tile) > 0; ++i)
+    {
+        doors.tick(Doors::kBangInterval);
+        if (doors.batter(room.map, tile, 10.0f) == Doors::Blow::Splinters) ++splinters;
+    }
+    DP_CHECK_EQ(splinters, Doors::kMaxBoards);
+    DP_CHECK_EQ(room.map.doorBoards(1, 2), 0);
+    DP_CHECK(doors.find(tile)->hp == Doors::kMaxHp);
+
+    // Prying a board off gives it back; a broken door sheds its boards.
+    DP_CHECK(doors.addBoard(room.map, tile));
+    DP_CHECK(doors.removeBoard(room.map, tile));
+    DP_CHECK(!doors.removeBoard(room.map, tile));
+    DP_CHECK(doors.toggle(room.map, tile) == DoorState::Open);
+    DP_CHECK(doors.toggle(room.map, tile) == DoorState::Closed);
+    doors.setBoards(room.map, tile, 150.0f);
+    DP_CHECK_EQ(doors.boards(tile), 2);
+    doors.setState(room.map, tile, DoorState::Broken);
+    DP_CHECK_EQ(doors.boards(tile), 0);
+    DP_CHECK_EQ(room.map.doorBoards(1, 2), 0);
 }

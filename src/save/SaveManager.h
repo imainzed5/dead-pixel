@@ -69,6 +69,14 @@ struct ZombieRecord
     int spawnDay = 1;
 };
 
+// A boarded-up door and what is left of its boards.
+struct BoardedDoorRecord
+{
+    int x = 0;
+    int y = 0;
+    float boardHp = 0.0f;
+};
+
 // A body lying where a zombie fell.
 struct CorpseRecord
 {
@@ -202,6 +210,10 @@ struct RunCheckpoint
     // The town as this run has changed it so far.
     std::vector<std::pair<int,int>> openDoors;
     std::vector<std::pair<int,int>> brokenDoors;
+    // Boards on closed doors. Checkpoints from before boards leave
+    // boardsSaved false, and the doors keep what the world remembers.
+    bool boardsSaved = false;
+    std::vector<BoardedDoorRecord> boardedDoors;
     std::vector<std::pair<int,int>> burnedTiles; // all scars, earlier runs' included
     std::vector<FireTileRecord> fires;
     // The dead still walking (not the risen, who come back with their graves).
@@ -233,6 +245,8 @@ public:
     [[nodiscard]] const std::vector<std::pair<int,int>>& burnedTiles() const { return mBurnedTiles; }
     // Doors the dead broke down in earlier runs stay broken.
     [[nodiscard]] const std::vector<std::pair<int,int>>& brokenDoors() const { return mBrokenDoors; }
+    // Doors boarded up in earlier runs stay boarded.
+    [[nodiscard]] const std::vector<BoardedDoorRecord>& boardedDoors() const { return mBoardedDoors; }
     [[nodiscard]] const std::vector<CharacterHistoryRecord>& characterHistory() const { return mCharacterHistory; }
     [[nodiscard]] const std::vector<WorldMemoryEventRecord>& worldMemoryEvents() const { return mWorldEvents; }
     [[nodiscard]] const RunPresentationSettings& presentationSettings() const { return mPresentationSettings; }
@@ -260,6 +274,7 @@ public:
     void setFireTileRecords(std::vector<FireTileRecord> fireTiles);
     void setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles);
     void setBrokenDoors(std::vector<std::pair<int,int>> brokenDoors);
+    void setBoardedDoors(std::vector<BoardedDoorRecord> boardedDoors);
     bool addWorldMemoryEvent(const WorldMemoryEventRecord& record);
 
     // Cumulative stats
@@ -327,6 +342,7 @@ private:
     std::vector<FireTileRecord> mFireTiles;
     std::vector<std::pair<int,int>> mBurnedTiles;
     std::vector<std::pair<int,int>> mBrokenDoors;
+    std::vector<BoardedDoorRecord> mBoardedDoors;
     std::vector<CharacterHistoryRecord> mCharacterHistory;
     std::vector<WorldMemoryEventRecord> mWorldEvents;
     RunPresentationSettings mPresentationSettings{};

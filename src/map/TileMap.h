@@ -69,6 +69,9 @@ public:
     void setDoorState(int tileX, int tileY, DoorState state);
     [[nodiscard]] DoorState doorState(int tileX, int tileY) const;
     [[nodiscard]] bool isClosedDoor(int tileX, int tileY) const { return doorState(tileX, tileY) == DoorState::Closed; }
+    // Boards nailed across a closed door (0 = none).
+    void setDoorBoards(int tileX, int tileY, int boards);
+    [[nodiscard]] int doorBoards(int tileX, int tileY) const;
 
     // Furniture stands on a whole tile and blocks movement through it.
     void setFurniture(int tileX, int tileY, bool present);
@@ -98,5 +101,6 @@ private:
     std::vector<int> mDistrictLayer;
     std::vector<int> mBuildingLayer;
     std::vector<DoorState> mDoorLayer;
+    std::vector<std::uint8_t> mDoorBoards;
     std::vector<std::uint8_t> mFurnitureLayer;
 };

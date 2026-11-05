@@ -216,6 +216,10 @@ private:
     void restoreTownFromCheckpoint(const RunCheckpoint& cp);
     void spawnScorchMark(int tileX, int tileY);
     void spawnFireTile(const FireTileRecord& record, float spreadPhase);
+    // R at a closed door: nail a board across it (hammer and a plank).
+    void boardUpDoor(const glm::ivec2& tile);
+    // Every door with boards on it, for saving.
+    [[nodiscard]] std::vector<BoardedDoorRecord> boardedDoorRecords() const;
     // A body on the floor where a zombie fell (sprite top-left, mirrored or not).
     void spawnCorpse(const glm::vec2& topLeft, bool flipX, const glm::vec4& tint);
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;

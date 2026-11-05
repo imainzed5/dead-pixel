@@ -497,7 +497,7 @@ struct ControlBinding
     const char* action;
 };
 
-constexpr std::array<ControlBinding, 24> kControlBindings = {{
+constexpr std::array<ControlBinding, 25> kControlBindings = {{
     {"WASD", "Move"},
     {"Shift", "Run"},
     {"C", "Crouch"},
@@ -505,6 +505,7 @@ constexpr std::array<ControlBinding, 24> kControlBindings = {{
     {"LClick", "Attack"},
     {"RClick", "Grab"},
     {"E", "Interact"},
+    {"R", "Board up door"},
     {"F", "Use item"},
     {"Q", "Flashlight"},
     {"1-8", "Hotbar slot"},
@@ -532,7 +533,7 @@ struct ControlsLayout
     float columnWidth = 0.0f;
     static constexpr float kRowH = 22.0f;
     static constexpr float kKeyColumn = 108.0f;
-    static constexpr std::size_t kRowsPerColumn = 12;
+    static constexpr std::size_t kRowsPerColumn = 13;
 };
 
 inline ControlsLayout computeControlsLayout(int windowWidth, int windowHeight)

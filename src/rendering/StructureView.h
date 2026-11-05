@@ -59,6 +59,12 @@ struct StructureSprites
     std::array<glm::vec4, 3> doorClosedRight{};
     std::array<glm::vec4, 3> doorBrokenLeft{};
     std::array<glm::vec4, 3> doorBrokenRight{};
+    // Planks over a closed door, by count (index 0 = one board).
+    std::array<glm::vec4, 3> boardsLeft{};
+    std::array<glm::vec4, 3> boardsRight{};
+    // A plank across the cut-away stub of a boarded door.
+    glm::vec4 boardsLowLeft{};
+    glm::vec4 boardsLowRight{};
     std::array<glm::vec4, 3> roof{};
 
     [[nodiscard]] static StructureSprites fromSheet(const SpriteSheet& sheet);

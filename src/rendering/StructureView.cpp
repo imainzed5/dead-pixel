@@ -65,7 +65,11 @@ StructureSprites StructureSprites::fromSheet(const SpriteSheet& sheet)
         s.doorBrokenLeft[i] = sheet.uvRect(base + "_doorbroken_l");
         s.doorBrokenRight[i] = sheet.uvRect(base + "_doorbroken_r");
         s.roof[i] = sheet.uvRect(std::string("roof_") + kRoofs[i]);
+        s.boardsLeft[i] = sheet.uvRect("door_boards" + std::to_string(i + 1) + "_l");
+        s.boardsRight[i] = sheet.uvRect("door_boards" + std::to_string(i + 1) + "_r");
     }
+    s.boardsLowLeft = sheet.uvRect("door_boardslow_l");
+    s.boardsLowRight = sheet.uvRect("door_boardslow_r");
     return s;
 }
 
@@ -340,6 +344,14 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
                         // Slightly behind anyone standing in the doorway.
                         out.push_back(StaticSprite{
                             glm::vec2(left, top - wallH), glm::vec2(tileW, tileH + wallH), uv, glm::vec4(1.0f), depth - 8.0f});
+                        const int boards = door == DoorState::Closed ? std::min(doors->doorBoards(x, y), 3) : 0;
+                        if (boards > 0)
+                        {
+                            const auto i = static_cast<std::size_t>(boards - 1);
+                            out.push_back(StaticSprite{glm::vec2(left, top - wallH), glm::vec2(tileW, tileH + wallH),
+                                                       alongY ? sprites.boardsRight[i] : sprites.boardsLeft[i],
+                                                       glm::vec4(1.0f), depth - 7.5f});
+                        }
                     }
                     else if (door == DoorState::Closed)
                     {
@@ -347,6 +359,12 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
                         out.push_back(StaticSprite{
                             glm::vec2(left, top - lowH), glm::vec2(tileW, tileH + lowH), sprites.wallLow[m],
                             glm::vec4(0.80f, 0.58f, 0.38f, 1.0f), depth});
+                        if (doors != nullptr && doors->doorBoards(x, y) > 0)
+                        {
+                            out.push_back(StaticSprite{glm::vec2(left, top - lowH), glm::vec2(tileW, tileH + lowH),
+                                                       alongY ? sprites.boardsLowRight : sprites.boardsLowLeft,
+                                                       glm::vec4(1.0f), depth + 0.25f});
+                        }
                     }
                 }
             }

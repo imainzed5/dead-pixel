@@ -375,6 +375,8 @@ RunCheckpoint Game::buildRunCheckpoint()
         cp.openDoors.emplace_back(tile.x, tile.y);
     for (const glm::ivec2& tile : mDoors.tilesIn(mTileMap, DoorState::Broken))
         cp.brokenDoors.emplace_back(tile.x, tile.y);
+    cp.boardsSaved = true;
+    cp.boardedDoors = boardedDoorRecords();
     cp.burnedTiles = mBurnedTiles;
     mWorld.forEach<Fire, Transform>(
         [&](Entity, Fire& fire, Transform& transform)

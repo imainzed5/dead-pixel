@@ -18,6 +18,7 @@ void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
     mDistrictLayer.assign(size, 0);
     mBuildingLayer.assign(size, 0);
     mDoorLayer.assign(size, DoorState::None);
+    mDoorBoards.assign(size, 0);
     mFurnitureLayer.assign(size, 0);
 }
 
@@ -142,6 +143,27 @@ void TileMap::setDoorState(int tileX, int tileY, DoorState state)
     }
     mDoorLayer.resize(static_cast<std::size_t>(mWidth * mHeight), DoorState::None);
     mDoorLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))] = state;
+}
+
+void TileMap::setDoorBoards(int tileX, int tileY, int boards)
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return;
+    }
+    mDoorBoards.resize(static_cast<std::size_t>(mWidth * mHeight), 0);
+    mDoorBoards[static_cast<std::size_t>(tileIndex(tileX, tileY))] =
+        static_cast<std::uint8_t>(std::clamp(boards, 0, 255));
+}
+
+int TileMap::doorBoards(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return 0;
+    }
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return index < mDoorBoards.size() ? mDoorBoards[index] : 0;
 }
 
 DoorState TileMap::doorState(int tileX, int tileY) const

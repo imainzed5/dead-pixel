@@ -269,6 +269,8 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
             broken.emplace_back(tile.x, tile.y);
         }
         mSaveManager.setBrokenDoors(std::move(broken));
+        // So do the boards someone nailed up.
+        mSaveManager.setBoardedDoors(boardedDoorRecords());
     }
 
     // Burn scars: earlier runs' scars are already in world memory, so only
