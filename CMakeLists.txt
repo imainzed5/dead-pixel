@@ -30,6 +30,11 @@ endfunction()
 # Everything except main(): shared by the game and the test runner.
 add_library(dead_pixel_core STATIC
     src/core/Game.cpp
+    src/core/GameScene.cpp
+    src/core/GameRunEnd.cpp
+    src/core/GameUpdate.cpp
+    src/core/GameRender.cpp
+    src/core/GameUi.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
     src/ecs/EntityManager.cpp
