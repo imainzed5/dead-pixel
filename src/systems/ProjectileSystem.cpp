@@ -38,7 +38,8 @@ void ProjectileSystem::update(World& world, const TileMap& tileMap, NoiseModel& 
             // Wall collision
             const int tileX = static_cast<int>(pt.x / static_cast<float>(std::max(1, tileMap.tileWidth())));
             const int tileY = static_cast<int>(pt.y / static_cast<float>(std::max(1, tileMap.tileHeight())));
-            if (tileMap.isSolid(tileX, tileY))
+            // Shots pass over furniture.
+            if (tileMap.blocksSight(tileX, tileY))
             {
                 toDestroy.push_back(projEntity);
                 return;
@@ -47,13 +48,14 @@ void ProjectileSystem::update(World& world, const TileMap& tileMap, NoiseModel& 
             // Zombie collision
             const glm::vec2 projCenter(pt.x, pt.y);
             world.forEach<ZombieAI, Transform, Health>(
-                [&](Entity ze, ZombieAI&, Transform& zt, Health& zh)
+                [&](Entity, ZombieAI& zai, Transform& zt, Health& zh)
                 {
                     if (zh.current <= 0.0f) return;
                     const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
                     if (glm::distance(projCenter, zc) < kHitRadius)
                     {
                         zh.current = std::max(0.0f, zh.current - proj.damage);
+                        zai.lastDamagedBy = proj.source;
                         noiseModel.emitNoise(zc, NoiseTier::Medium, 0.5f, proj.source);
                         toDestroy.push_back(projEntity);
                     }

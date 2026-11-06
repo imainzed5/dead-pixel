@@ -82,6 +82,12 @@ void BitmapFont::drawText(
         return;
     }
 
+    if (mDeferring)
+    {
+        mPending.push_back(PendingText{position, text, color, scale, align});
+        return;
+    }
+
     // Split into lines for alignment
     std::vector<std::string> lines;
     {
@@ -168,4 +174,15 @@ glm::vec2 BitmapFont::measureText(const std::string& text, float scale) const
 void BitmapFont::bindTexture(GLenum textureUnit) const
 {
     mTexture.bind(textureUnit);
+}
+
+void BitmapFont::drawDeferred(SpriteBatch& batch) const
+{
+    mDeferring = false;
+    std::vector<PendingText> pending;
+    pending.swap(mPending);
+    for (const PendingText& item : pending)
+    {
+        drawText(batch, item.position, item.text, item.color, item.scale, item.align);
+    }
 }

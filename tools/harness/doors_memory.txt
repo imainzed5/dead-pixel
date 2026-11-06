@@ -1,0 +1,35 @@
+# Doors are remembered: a mid-run checkpoint keeps open and broken doors,
+# and a door the dead broke down is still broken in the next life.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/doors_memory.txt --hidden --world-seed 1234 --shots shots
+
+newrun
+god on
+waits 1
+goto door
+waits 0.3
+tap E
+waits 0.4
+tap E
+waits 0.4
+doors
+# The door beside you is shut: the dead must break it down to reach you.
+zombie 6 0
+zombie -6 0
+zombie 0 6
+zombie 0 -6
+waits 24
+doors
+save
+waits 0.5
+resume
+waits 1
+doors
+shot 01_resumed
+kill memory test
+waits 6
+newrun
+waits 1
+doors
+shot 02_next_life
+quit

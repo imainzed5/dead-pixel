@@ -1,0 +1,34 @@
+# Corpses: a zombie killed in melee counts as a kill and leaves a body where it
+# fell; zombies put down any other way leave bodies too.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/corpses.txt --hidden --world-seed 1234 --shots shots/corpses
+
+newrun
+god on
+waits 1
+zoom 2.5
+zombies
+zombie 2 2
+mouse 640 430
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+# One kill, one body.
+zombies
+shot 01_body
+expect alive
+quit

@@ -10,4 +10,7 @@ struct Animation
     float frameDuration = 0.15f;
     bool looping = true;
     bool finished = false;
+    // Characters: showing the back view (walking away up the screen) rather
+    // than the front. Kept between frames so a pause keeps the last look.
+    bool facingAway = false;
 };

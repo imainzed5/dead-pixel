@@ -1,0 +1,50 @@
+# HUD states: a fresh character, a character in trouble, and night.
+# Run from an empty directory with the assets copied next to the binary:
+#   dead_pixel_survival --script hud_states.txt --hidden --world-seed 1234 --shots shots/hud
+newrun
+god on
+waits 1.0
+shot 01_fresh
+waits 3.0
+shot 02_toast_faded
+
+give Water Bottle 2
+give Canned Food 3
+give Knife
+give Flashlight
+give Bandage 4
+tap 2
+waits 0.3
+shot 03_hotbar
+
+set hunger 18
+set thirst 8
+set sleepdebt 75
+set temp 34.6
+set panic 80
+set depression 65
+set illness 45
+set stamina 30
+waits 0.3
+shot 04_stressed
+
+god off
+set hp 22
+waits 0.3
+shot 05_low_health
+god on
+set hp 100
+
+hours 22.5
+waits 0.3
+tap Q
+waits 0.3
+shot 06_night_flashlight
+
+tap Esc
+waits 0.2
+shot 07_pause
+tap Esc
+waits 0.2
+expect playing
+quit

@@ -57,6 +57,8 @@ bool CraftingSystem::loadRecipesFromFile(const std::string& jsonPath)
         recipe.craftTimeSeconds = std::max(1, recipeJson.value("craftTimeSeconds", 60));
         recipe.category = recipeJson.value("category", std::string("ALL"));
         recipe.notes = recipeJson.value("notes", std::string{});
+        recipe.hintA = recipeJson.value("hintA", std::string{});
+        recipe.hintB = recipeJson.value("hintB", std::string{});
         recipe.startsKnown = recipeJson.value("startsKnown", false);
         recipe.requiresWorkbench = recipeJson.value("requiresWorkbench", false);
 

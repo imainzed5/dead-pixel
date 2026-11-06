@@ -9,9 +9,25 @@
 
 namespace
 {
-constexpr float kWoundHealSeconds = 120.0f;    // 2 min real = wound heals naturally
-constexpr float kBiteInfectionHours = 3.0f;    // game-hours until bite becomes infected
-constexpr float kInfectionIllnessPerSecond = 2.0f;
+// Untreated wounds close on their own after this many real seconds
+// (60 s = 1 game hour). Bites take longest, long enough to fester.
+constexpr float kBruiseHealSeconds = 2.0f * 60.0f;
+constexpr float kCutHealSeconds = 6.0f * 60.0f;
+constexpr float kBiteHealSeconds = 18.0f * 60.0f;
+constexpr float kBiteInfectionHours = 3.0f;    // game-hours until a dirty bite becomes infected
+// Infection: illness climbs ~3 per game hour until antibiotics cure it.
+constexpr float kInfectionIllnessPerSecond = 0.05f;
+
+float healSecondsFor(WoundType type)
+{
+    switch (type)
+    {
+    case WoundType::Bruise: return kBruiseHealSeconds;
+    case WoundType::Cut: return kCutHealSeconds;
+    case WoundType::Bite: return kBiteHealSeconds;
+    }
+    return kCutHealSeconds;
+}
 constexpr float kMaxHpPenaltyPerWound = 5.0f;
 constexpr float kStableRecoveryPerSecond = 0.02f;
 }
@@ -33,14 +49,14 @@ void WoundSystem::update(World& world, Entity playerEntity, float dtSeconds, dou
 
         // Heal timer ticks down
         w.healTimer += dtSeconds;
-        if (w.healTimer >= kWoundHealSeconds && !w.infected)
+        if (w.healTimer >= healSecondsFor(w.type) && !w.infected)
         {
             it = wounds.active.erase(it);
             continue;
         }
 
         // Bite infection progress
-        if (w.type == WoundType::Bite && !w.infected)
+        if (w.type == WoundType::Bite && w.contaminated && !w.infected)
         {
             w.infectionTimer += gameHoursThisTick;
             if (w.infectionTimer >= kBiteInfectionHours)

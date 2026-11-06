@@ -3,16 +3,25 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <random>
 #include <sstream>
 
 namespace
 {
+std::optional<std::uint32_t> gSeedOverride;
+
 std::uint32_t randomSeed()
 {
+    if (gSeedOverride)
+    {
+        return *gSeedOverride;
+    }
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<std::uint32_t> dist(1u, 0xFFFFFFFEu);
@@ -39,6 +48,210 @@ std::pair<int, int> normalizeRecipePair(int itemA, int itemB)
         return {itemA, itemB};
     }
     return {itemB, itemA};
+}
+
+void addUniqueTile(std::vector<std::pair<int, int>>& tiles, int x, int y)
+{
+    for (const auto& [tx, ty] : tiles)
+    {
+        if (tx == x && ty == y)
+        {
+            return;
+        }
+    }
+    tiles.emplace_back(x, y);
+}
+
+std::string toLowerCopy(std::string value)
+{
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char c)
+        {
+            return static_cast<char>(std::tolower(c));
+        });
+    return value;
+}
+
+const char* saveGameModeToString(SaveGameMode mode)
+{
+    switch (mode)
+    {
+    case SaveGameMode::Campaign:
+        return "campaign";
+    case SaveGameMode::Endless:
+    default:
+        return "endless";
+    }
+}
+
+SaveGameMode parseSaveGameMode(const nlohmann::json& value)
+{
+    if (value.is_string())
+    {
+        const std::string lowered = toLowerCopy(value.get<std::string>());
+        if (lowered == "campaign")
+        {
+            return SaveGameMode::Campaign;
+        }
+        return SaveGameMode::Endless;
+    }
+
+    if (value.is_number_integer())
+    {
+        const int mode = value.get<int>();
+        return mode == 0 ? SaveGameMode::Campaign : SaveGameMode::Endless;
+    }
+
+    return SaveGameMode::Endless;
+}
+
+const char* saveThreatModeToString(SaveThreatMode mode)
+{
+    switch (mode)
+    {
+    case SaveThreatMode::OverwhelmingSwarm:
+        return "overwhelming_swarm";
+    case SaveThreatMode::Stalker:
+        return "stalker";
+    case SaveThreatMode::MutatingThreat:
+        return "mutating_threat";
+    case SaveThreatMode::InfectedSociety:
+        return "infected_society";
+    case SaveThreatMode::Unknown:
+        return "unknown";
+    case SaveThreatMode::Hybrid:
+        return "hybrid";
+    default:
+        return "overwhelming_swarm";
+    }
+}
+
+SaveThreatMode parseSaveThreatMode(const nlohmann::json& value)
+{
+    if (value.is_string())
+    {
+        const std::string lowered = toLowerCopy(value.get<std::string>());
+        if (lowered == "stalker") return SaveThreatMode::Stalker;
+        if (lowered == "mutating_threat") return SaveThreatMode::MutatingThreat;
+        if (lowered == "infected_society") return SaveThreatMode::InfectedSociety;
+        if (lowered == "unknown") return SaveThreatMode::Unknown;
+        if (lowered == "hybrid") return SaveThreatMode::Hybrid;
+        return SaveThreatMode::OverwhelmingSwarm;
+    }
+
+    if (value.is_number_integer())
+    {
+        const int mode = value.get<int>();
+        switch (mode)
+        {
+        case 0: return SaveThreatMode::OverwhelmingSwarm;
+        case 1: return SaveThreatMode::Stalker;
+        case 2: return SaveThreatMode::MutatingThreat;
+        case 3: return SaveThreatMode::InfectedSociety;
+        case 4: return SaveThreatMode::Unknown;
+        case 5: return SaveThreatMode::Hybrid;
+        default: return SaveThreatMode::OverwhelmingSwarm;
+        }
+    }
+
+    return SaveThreatMode::OverwhelmingSwarm;
+}
+
+const char* saveTonePresetToString(SaveTonePreset preset)
+{
+    switch (preset)
+    {
+    case SaveTonePreset::Hopeless:
+        return "hopeless";
+    case SaveTonePreset::GrimHuman:
+        return "grim_human";
+    case SaveTonePreset::BrutalArcade:
+        return "brutal_arcade";
+    default:
+        return "grim_human";
+    }
+}
+
+SaveTonePreset parseSaveTonePreset(const nlohmann::json& value)
+{
+    if (value.is_string())
+    {
+        const std::string lowered = toLowerCopy(value.get<std::string>());
+        if (lowered == "hopeless") return SaveTonePreset::Hopeless;
+        if (lowered == "brutal_arcade") return SaveTonePreset::BrutalArcade;
+        return SaveTonePreset::GrimHuman;
+    }
+
+    if (value.is_number_integer())
+    {
+        const int preset = value.get<int>();
+        switch (preset)
+        {
+        case 0: return SaveTonePreset::Hopeless;
+        case 1: return SaveTonePreset::GrimHuman;
+        case 2: return SaveTonePreset::BrutalArcade;
+        default: return SaveTonePreset::GrimHuman;
+        }
+    }
+
+    return SaveTonePreset::GrimHuman;
+}
+
+const char* worldMemoryEventTypeToString(WorldMemoryEventType type)
+{
+    switch (type)
+    {
+    case WorldMemoryEventType::LootedContainer:
+        return "looted_container";
+    case WorldMemoryEventType::BurnedTile:
+        return "burned_tile";
+    case WorldMemoryEventType::VehicleAbandoned:
+        return "vehicle_abandoned";
+    case WorldMemoryEventType::StructureAbandoned:
+        return "structure_abandoned";
+    case WorldMemoryEventType::GravePlaced:
+        return "grave_placed";
+    case WorldMemoryEventType::RetirementPlaced:
+        return "retirement_placed";
+    case WorldMemoryEventType::Other:
+    default:
+        return "other";
+    }
+}
+
+WorldMemoryEventType parseWorldMemoryEventType(const nlohmann::json& value)
+{
+    if (value.is_string())
+    {
+        const std::string lowered = toLowerCopy(value.get<std::string>());
+        if (lowered == "looted_container") return WorldMemoryEventType::LootedContainer;
+        if (lowered == "burned_tile") return WorldMemoryEventType::BurnedTile;
+        if (lowered == "vehicle_abandoned") return WorldMemoryEventType::VehicleAbandoned;
+        if (lowered == "structure_abandoned") return WorldMemoryEventType::StructureAbandoned;
+        if (lowered == "grave_placed") return WorldMemoryEventType::GravePlaced;
+        if (lowered == "retirement_placed") return WorldMemoryEventType::RetirementPlaced;
+        return WorldMemoryEventType::Other;
+    }
+
+    if (value.is_number_integer())
+    {
+        const int type = value.get<int>();
+        switch (type)
+        {
+        case 0: return WorldMemoryEventType::LootedContainer;
+        case 1: return WorldMemoryEventType::BurnedTile;
+        case 2: return WorldMemoryEventType::VehicleAbandoned;
+        case 3: return WorldMemoryEventType::StructureAbandoned;
+        case 4: return WorldMemoryEventType::GravePlaced;
+        case 5: return WorldMemoryEventType::RetirementPlaced;
+        default: return WorldMemoryEventType::Other;
+        }
+    }
+
+    return WorldMemoryEventType::Other;
 }
 }
 
@@ -85,6 +298,70 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
     return true;
 }
 
+bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
+{
+    if (mSlotName.empty())
+    {
+        return false;
+    }
+
+    const RunPresentationSettings preserved = mPresentationSettings;
+
+    mSaveVersion = kCurrentSaveVersion;
+    mWorldSeed = randomSeed();
+    mRunNumber = 1;
+    mTotalKills = 0;
+    mLongestRunDays = 0;
+    mTotalDaysSurvived = 0;
+
+    mGraves.clear();
+    mRetirements.clear();
+    mStructures.clear();
+    mLootedPositions.clear();
+    mDiscoveredRecipes.clear();
+    mVehicles.clear();
+    mFireTiles.clear();
+    mBurnedTiles.clear();
+    mBrokenDoors.clear();
+    mBoardedDoors.clear();
+    mCharacterHistory.clear();
+    mWorldEvents.clear();
+
+    mPresentationSettings = keepPresentationSettings ? preserved : RunPresentationSettings{};
+
+    std::error_code ec;
+    std::filesystem::remove(mLayoutPath, ec);
+    ec.clear();
+    std::filesystem::remove(mLayoutBackupPath, ec);
+    ec.clear();
+    std::filesystem::remove(mCheckpointPath, ec);
+    ec.clear();
+    std::filesystem::remove(mSurvivorPath, ec);
+    ec.clear();
+
+    if (!writeLegacy())
+    {
+        return false;
+    }
+
+    if (!writeStructures())
+    {
+        return false;
+    }
+
+    if (!saveLootedPositions())
+    {
+        return false;
+    }
+
+    if (!writeMeta())
+    {
+        return false;
+    }
+
+    return true;
+}
+
 std::uint32_t SaveManager::currentRunSeed() const
 {
     return mWorldSeed ^ static_cast<std::uint32_t>(mRunNumber);
@@ -108,6 +385,14 @@ bool SaveManager::recordDeath(const GraveRecord& record)
     return true;
 }
 
+void SaveManager::updateGrave(std::size_t index, const GraveRecord& record)
+{
+    if (index < mGraves.size())
+    {
+        mGraves[index] = record;
+    }
+}
+
 bool SaveManager::recordRetirement(const RetirementRecord& record)
 {
     mRetirements.push_back(record);
@@ -124,6 +409,70 @@ bool SaveManager::recordRetirement(const RetirementRecord& record)
     }
 
     return true;
+}
+
+bool SaveManager::addCharacterHistoryRecord(const CharacterHistoryRecord& record)
+{
+    mCharacterHistory.push_back(record);
+    return writeLegacy();
+}
+
+BloodlineTrait SaveManager::selectBloodlineForNewRun() const
+{
+    // Preserve existing behavior: any retirement history guarantees Hardened.
+    if (!mRetirements.empty())
+    {
+        return BloodlineTrait::Hardened;
+    }
+
+    if (!mCharacterHistory.empty())
+    {
+        const CharacterHistoryRecord& latest = mCharacterHistory.back();
+        const std::string causeLower = toLowerCopy(latest.cause);
+
+        if (causeLower.find("burn") != std::string::npos ||
+            causeLower.find("fire") != std::string::npos)
+        {
+            return BloodlineTrait::Firewise;
+        }
+
+        if (causeLower.find("starv") != std::string::npos ||
+            causeLower.find("thirst") != std::string::npos)
+        {
+            return BloodlineTrait::Scavenger;
+        }
+    }
+
+    if (mGraves.size() >= 4)
+    {
+        return BloodlineTrait::Vigilant;
+    }
+
+    return BloodlineTrait::None;
+}
+
+bool SaveManager::addWorldMemoryEvent(const WorldMemoryEventRecord& record)
+{
+    for (const WorldMemoryEventRecord& existing : mWorldEvents)
+    {
+        if (existing.type == record.type &&
+            existing.tileX == record.tileX &&
+            existing.tileY == record.tileY &&
+            existing.day == record.day &&
+            existing.runIndex == record.runIndex &&
+            existing.detail == record.detail)
+        {
+            return true;
+        }
+    }
+
+    mWorldEvents.push_back(record);
+    return saveLootedPositions();
+}
+
+bool SaveManager::savePresentationSettings()
+{
+    return writeMeta();
 }
 
 bool SaveManager::loadMeta()
@@ -151,6 +500,26 @@ bool SaveManager::loadMeta()
         mTotalKills = std::max(0, json.value("totalKills", 0));
         mLongestRunDays = std::max(0, json.value("longestRunDays", 0));
         mTotalDaysSurvived = std::max(0, json.value("totalDaysSurvived", 0));
+
+        mPresentationSettings = RunPresentationSettings{};
+        if (json.contains("presentation") && json["presentation"].is_object())
+        {
+            const nlohmann::json& presentationJson = json["presentation"];
+            mPresentationSettings.gameMode = parseSaveGameMode(presentationJson.value("gameMode", nlohmann::json("endless")));
+            mPresentationSettings.threatMode = parseSaveThreatMode(presentationJson.value("threatMode", nlohmann::json("overwhelming_swarm")));
+            mPresentationSettings.tonePreset = parseSaveTonePreset(presentationJson.value("tonePreset", nlohmann::json("grim_human")));
+
+            if (presentationJson.contains("campaignObjective") && presentationJson["campaignObjective"].is_object())
+            {
+                const nlohmann::json& objectiveJson = presentationJson["campaignObjective"];
+                mPresentationSettings.campaignObjective.active = objectiveJson.value("active", false);
+                mPresentationSettings.campaignObjective.tileX = objectiveJson.value("tileX", 0);
+                mPresentationSettings.campaignObjective.tileY = objectiveJson.value("tileY", 0);
+                mPresentationSettings.campaignObjective.districtId = objectiveJson.value("districtId", 0);
+                mPresentationSettings.campaignObjective.infectionDeadlineDay = objectiveJson.value("infectionDeadlineDay", 0);
+                mPresentationSettings.campaignObjective.completed = objectiveJson.value("completed", false);
+            }
+        }
         return true;
     };
 
@@ -175,6 +544,7 @@ bool SaveManager::loadMeta()
     mTotalKills = 0;
     mLongestRunDays = 0;
     mTotalDaysSurvived = 0;
+    mPresentationSettings = RunPresentationSettings{};
     mGraves.clear();
     mRetirements.clear();
     mStructures.clear();
@@ -208,6 +578,20 @@ bool SaveManager::loadLegacy()
                 record.day = std::max(1, graveJson.value("day", 1));
                 record.runIndex = std::max(0, graveJson.value("runIndex", 0));
                 record.cause = graveJson.value("cause", std::string("Unknown"));
+                record.risen = graveJson.value("risen", false);
+                record.laidToRest = graveJson.value("laidToRest", false);
+                if (graveJson.contains("items") && graveJson["items"].is_array())
+                {
+                    for (const auto& itemJson : graveJson["items"])
+                    {
+                        const int id = itemJson.value("id", -1);
+                        const int count = itemJson.value("count", 0);
+                        if (id >= 0 && count > 0)
+                        {
+                            record.items.emplace_back(id, count);
+                        }
+                    }
+                }
                 mGraves.push_back(record);
             }
         }
@@ -224,6 +608,27 @@ bool SaveManager::loadLegacy()
                 record.day = std::max(1, retJson.value("day", 1));
                 record.runIndex = std::max(0, retJson.value("runIndex", 0));
                 mRetirements.push_back(record);
+            }
+        }
+
+        mCharacterHistory.clear();
+        if (json.contains("characters") && json["characters"].is_array())
+        {
+            for (const auto& charJson : json["characters"])
+            {
+                CharacterHistoryRecord record;
+                record.name = charJson.value("name", std::string("Unknown"));
+                record.runIndex = std::max(0, charJson.value("runIndex", 0));
+                record.dayStarted = std::max(1, charJson.value("dayStarted", 1));
+                record.dayEnded = std::max(record.dayStarted, charJson.value("dayEnded", 1));
+                record.retired = charJson.value("retired", false);
+                record.cause = charJson.value("cause", std::string{});
+                record.locationTag = charJson.value("locationTag", std::string{});
+                record.positiveTrait = charJson.value("positiveTrait", std::string{});
+                record.negativeTrait = charJson.value("negativeTrait", std::string{});
+                record.bloodlineTrait = charJson.value("bloodlineTrait", std::string{});
+                record.finalNote = charJson.value("finalNote", std::string{});
+                mCharacterHistory.push_back(record);
             }
         }
 
@@ -250,6 +655,7 @@ bool SaveManager::loadLegacy()
 
     mGraves.clear();
     mRetirements.clear();
+    mCharacterHistory.clear();
     return writeLegacy();
 }
 
@@ -264,6 +670,20 @@ bool SaveManager::writeMeta() const
     json["longestRunDays"] = mLongestRunDays;
     json["totalDaysSurvived"] = mTotalDaysSurvived;
 
+    nlohmann::json presentationJson;
+    presentationJson["gameMode"] = saveGameModeToString(mPresentationSettings.gameMode);
+    presentationJson["threatMode"] = saveThreatModeToString(mPresentationSettings.threatMode);
+    presentationJson["tonePreset"] = saveTonePresetToString(mPresentationSettings.tonePreset);
+    presentationJson["campaignObjective"] = {
+        {"active", mPresentationSettings.campaignObjective.active},
+        {"tileX", mPresentationSettings.campaignObjective.tileX},
+        {"tileY", mPresentationSettings.campaignObjective.tileY},
+        {"districtId", mPresentationSettings.campaignObjective.districtId},
+        {"infectionDeadlineDay", mPresentationSettings.campaignObjective.infectionDeadlineDay},
+        {"completed", mPresentationSettings.campaignObjective.completed}
+    };
+    json["presentation"] = presentationJson;
+
     return writeJsonAtomic(mMetaPath, mMetaBackupPath, json.dump(2));
 }
 
@@ -272,6 +692,7 @@ bool SaveManager::writeLegacy() const
     nlohmann::json json;
     json["graves"] = nlohmann::json::array();
     json["retirements"] = nlohmann::json::array();
+    json["characters"] = nlohmann::json::array();
 
     for (const GraveRecord& grave : mGraves)
     {
@@ -282,6 +703,22 @@ bool SaveManager::writeLegacy() const
         graveJson["day"] = grave.day;
         graveJson["runIndex"] = grave.runIndex;
         graveJson["cause"] = grave.cause;
+        if (grave.risen)
+        {
+            graveJson["risen"] = true;
+        }
+        if (grave.laidToRest)
+        {
+            graveJson["laidToRest"] = true;
+        }
+        if (!grave.items.empty())
+        {
+            graveJson["items"] = nlohmann::json::array();
+            for (const auto& [itemId, count] : grave.items)
+            {
+                graveJson["items"].push_back({{"id", itemId}, {"count", count}});
+            }
+        }
         json["graves"].push_back(graveJson);
     }
 
@@ -294,6 +731,23 @@ bool SaveManager::writeLegacy() const
         retJson["day"] = ret.day;
         retJson["runIndex"] = ret.runIndex;
         json["retirements"].push_back(retJson);
+    }
+
+    for (const CharacterHistoryRecord& character : mCharacterHistory)
+    {
+        nlohmann::json characterJson;
+        characterJson["name"] = character.name;
+        characterJson["runIndex"] = character.runIndex;
+        characterJson["dayStarted"] = character.dayStarted;
+        characterJson["dayEnded"] = character.dayEnded;
+        characterJson["retired"] = character.retired;
+        characterJson["cause"] = character.cause;
+        characterJson["locationTag"] = character.locationTag;
+        characterJson["positiveTrait"] = character.positiveTrait;
+        characterJson["negativeTrait"] = character.negativeTrait;
+        characterJson["bloodlineTrait"] = character.bloodlineTrait;
+        characterJson["finalNote"] = character.finalNote;
+        json["characters"].push_back(characterJson);
     }
 
     return writeJsonAtomic(mLegacyPath, mLegacyBackupPath, json.dump(2));
@@ -709,6 +1163,8 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         wj["severity"] = w.severity;
         wj["infected"] = w.infected;
         wj["infectionTimer"] = w.infectionTimer;
+        wj["contaminated"] = w.contaminated;
+        wj["healTimer"] = w.healTimer;
         json["wounds"].push_back(wj);
     }
     json["bleeding"] = cp.bleeding;
@@ -720,12 +1176,49 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         json["inventory"].push_back({{"id", slot.itemId}, {"count", slot.count}, {"condition", slot.condition}});
     }
     json["activeSlot"] = cp.inventory.activeSlot;
+    json["equippedSlot"] = cp.equippedSlot;
 
     // Stats
     json["kills"] = cp.kills;
     json["itemsLooted"] = cp.itemsLooted;
     json["structuresBuilt"] = cp.structuresBuilt;
     json["distanceWalked"] = cp.distanceWalked;
+
+    // The town as this run has changed it.
+    const auto tilesToJson = [](const std::vector<std::pair<int,int>>& tiles)
+    {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& [x, y] : tiles)
+        {
+            arr.push_back({x, y});
+        }
+        return arr;
+    };
+    json["openDoors"] = tilesToJson(cp.openDoors);
+    json["brokenDoors"] = tilesToJson(cp.brokenDoors);
+    json["boardedDoors"] = nlohmann::json::array();
+    for (const BoardedDoorRecord& door : cp.boardedDoors)
+    {
+        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}});
+    }
+    json["burned"] = tilesToJson(cp.burnedTiles);
+    json["fires"] = nlohmann::json::array();
+    for (const FireTileRecord& fire : cp.fires)
+    {
+        json["fires"].push_back(
+            {{"tileX", fire.tileX}, {"tileY", fire.tileY}, {"intensity", fire.intensity}, {"lifeRemaining", fire.lifeRemaining}});
+    }
+    json["zombies"] = nlohmann::json::array();
+    for (const ZombieRecord& z : cp.zombies)
+    {
+        json["zombies"].push_back({{"x", z.x}, {"y", z.y}, {"hp", z.health}, {"maxHp", z.maxHealth},
+                                   {"speed", z.baseMoveSpeed}, {"day", z.spawnDay}});
+    }
+    json["corpses"] = nlohmann::json::array();
+    for (const CorpseRecord& c : cp.corpses)
+    {
+        json["corpses"].push_back({{"x", c.x}, {"y", c.y}, {"flip", c.flipX}});
+    }
 
     const std::string tempPath = mCheckpointPath + ".tmp";
     {
@@ -787,6 +1280,8 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             w.severity = wj.value("severity", 1.0f);
             w.infected = wj.value("infected", false);
             w.infectionTimer = wj.value("infectionTimer", 0.0f);
+            w.contaminated = wj.value("contaminated", w.type == WoundType::Bite);
+            w.healTimer = wj.value("healTimer", 0.0f);
             cp.wounds.push_back(w);
         }
     }
@@ -803,11 +1298,84 @@ RunCheckpoint SaveManager::loadCheckpoint() const
         }
     }
     cp.inventory.activeSlot = json.value("activeSlot", 0);
+    cp.equippedSlot = json.value("equippedSlot", -1);
 
     cp.kills = json.value("kills", 0);
     cp.itemsLooted = json.value("itemsLooted", 0);
     cp.structuresBuilt = json.value("structuresBuilt", 0);
     cp.distanceWalked = json.value("distanceWalked", 0.0f);
+
+    const auto tilesFromJson = [&json](const char* key)
+    {
+        std::vector<std::pair<int,int>> tiles;
+        if (json.contains(key) && json[key].is_array())
+        {
+            for (const auto& tj : json[key])
+            {
+                if (tj.is_array() && tj.size() == 2 && tj[0].is_number_integer() && tj[1].is_number_integer())
+                {
+                    tiles.emplace_back(tj[0].get<int>(), tj[1].get<int>());
+                }
+            }
+        }
+        return tiles;
+    };
+    cp.openDoors = tilesFromJson("openDoors");
+    cp.brokenDoors = tilesFromJson("brokenDoors");
+    if (json.contains("boardedDoors") && json["boardedDoors"].is_array())
+    {
+        cp.boardsSaved = true;
+        for (const auto& dj : json["boardedDoors"])
+        {
+            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f)};
+            if (door.boardHp > 0.0f) cp.boardedDoors.push_back(door);
+        }
+    }
+    cp.burnedTiles = tilesFromJson("burned");
+    if (json.contains("fires") && json["fires"].is_array())
+    {
+        for (const auto& fj : json["fires"])
+        {
+            FireTileRecord fire;
+            fire.tileX = fj.value("tileX", 0);
+            fire.tileY = fj.value("tileY", 0);
+            fire.intensity = std::clamp(fj.value("intensity", 0.0f), 0.0f, 2.0f);
+            fire.lifeRemaining = std::max(0.0f, fj.value("lifeRemaining", 0.0f));
+            if (fire.lifeRemaining > 0.0f && fire.intensity > 0.0f)
+            {
+                cp.fires.push_back(fire);
+            }
+        }
+    }
+    if (json.contains("zombies") && json["zombies"].is_array())
+    {
+        cp.zombiesSaved = true;
+        for (const auto& zj : json["zombies"])
+        {
+            ZombieRecord z;
+            z.x = zj.value("x", 0.0f);
+            z.y = zj.value("y", 0.0f);
+            z.maxHealth = std::max(1.0f, zj.value("maxHp", 50.0f));
+            z.health = std::clamp(zj.value("hp", z.maxHealth), 0.0f, z.maxHealth);
+            z.baseMoveSpeed = std::clamp(zj.value("speed", 112.0f), 10.0f, 400.0f);
+            z.spawnDay = std::max(1, zj.value("day", 1));
+            if (z.health > 0.0f)
+            {
+                cp.zombies.push_back(z);
+            }
+        }
+    }
+    if (json.contains("corpses") && json["corpses"].is_array())
+    {
+        for (const auto& cj : json["corpses"])
+        {
+            CorpseRecord c;
+            c.x = cj.value("x", 0.0f);
+            c.y = cj.value("y", 0.0f);
+            c.flipX = cj.value("flip", false);
+            cp.corpses.push_back(c);
+        }
+    }
 
     return cp;
 }
@@ -867,6 +1435,44 @@ bool SaveManager::isRecipeDiscovered(int itemA, int itemB) const
     return false;
 }
 
+void SaveManager::setVehicleRecords(std::vector<VehicleRecord> vehicles)
+{
+    mVehicles = std::move(vehicles);
+}
+
+void SaveManager::setFireTileRecords(std::vector<FireTileRecord> fireTiles)
+{
+    mFireTiles = std::move(fireTiles);
+}
+
+void SaveManager::setBoardedDoors(std::vector<BoardedDoorRecord> boardedDoors)
+{
+    mBoardedDoors.clear();
+    for (const BoardedDoorRecord& door : boardedDoors)
+    {
+        if (door.boardHp > 0.0f) mBoardedDoors.push_back(door);
+    }
+}
+
+void SaveManager::setBrokenDoors(std::vector<std::pair<int,int>> brokenDoors)
+{
+    mBrokenDoors.clear();
+    for (const auto& [x, y] : brokenDoors)
+    {
+        addUniqueTile(mBrokenDoors, x, y);
+    }
+}
+
+void SaveManager::setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles)
+{
+    mBurnedTiles.clear();
+    mBurnedTiles.reserve(burnedTiles.size());
+    for (const auto& [x, y] : burnedTiles)
+    {
+        addUniqueTile(mBurnedTiles, x, y);
+    }
+}
+
 bool SaveManager::saveLootedPositions()
 {
     nlohmann::json json;
@@ -880,6 +1486,67 @@ bool SaveManager::saveLootedPositions()
     for (const auto& [a, b] : mDiscoveredRecipes)
     {
         json["recipes"].push_back({{"a", a}, {"b", b}});
+    }
+
+    json["vehicles"] = nlohmann::json::array();
+    for (const auto& vehicle : mVehicles)
+    {
+        nlohmann::json vehicleJson;
+        vehicleJson["x"] = vehicle.x;
+        vehicleJson["y"] = vehicle.y;
+        vehicleJson["condition"] = vehicle.condition;
+        vehicleJson["fuel"] = vehicle.fuel;
+        vehicleJson["maxFuel"] = vehicle.maxFuel;
+        vehicleJson["engineOn"] = vehicle.engineOn;
+
+        if (!vehicle.items.empty())
+        {
+            vehicleJson["items"] = nlohmann::json::array();
+            for (const auto& [itemId, count] : vehicle.items)
+            {
+                vehicleJson["items"].push_back({{"id", itemId}, {"count", count}});
+            }
+        }
+
+        json["vehicles"].push_back(vehicleJson);
+    }
+
+    json["fires"] = nlohmann::json::array();
+    for (const auto& fire : mFireTiles)
+    {
+        json["fires"].push_back(
+            {{"tileX", fire.tileX}, {"tileY", fire.tileY}, {"intensity", fire.intensity}, {"lifeRemaining", fire.lifeRemaining}});
+    }
+
+    json["burned"] = nlohmann::json::array();
+    for (const auto& [x, y] : mBurnedTiles)
+    {
+        json["burned"].push_back({{"x", x}, {"y", y}});
+    }
+
+    json["brokenDoors"] = nlohmann::json::array();
+    for (const auto& [x, y] : mBrokenDoors)
+    {
+        json["brokenDoors"].push_back({{"x", x}, {"y", y}});
+    }
+    json["boardedDoors"] = nlohmann::json::array();
+    for (const BoardedDoorRecord& door : mBoardedDoors)
+    {
+        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}});
+    }
+
+    json["events"] = nlohmann::json::array();
+    for (const WorldMemoryEventRecord& event : mWorldEvents)
+    {
+        json["events"].push_back(
+            {
+                {"type", worldMemoryEventTypeToString(event.type)},
+                {"tileX", event.tileX},
+                {"tileY", event.tileY},
+                {"day", event.day},
+                {"runIndex", event.runIndex},
+                {"detail", event.detail}
+            });
     }
 
     const std::string tempPath = mWorldMemoryPath + ".tmp";
@@ -909,6 +1576,12 @@ bool SaveManager::loadLootedPositions()
 {
     mLootedPositions.clear();
     mDiscoveredRecipes.clear();
+    mVehicles.clear();
+    mFireTiles.clear();
+    mBurnedTiles.clear();
+    mBrokenDoors.clear();
+    mBoardedDoors.clear();
+    mWorldEvents.clear();
     std::string contents = readFileToString(mWorldMemoryPath);
     if (contents.empty()) return true;
 
@@ -951,6 +1624,92 @@ bool SaveManager::loadLootedPositions()
             {
                 mDiscoveredRecipes.push_back(normalized);
             }
+        }
+    }
+
+    if (json.contains("vehicles") && json["vehicles"].is_array())
+    {
+        for (const auto& vj : json["vehicles"])
+        {
+            VehicleRecord record;
+            record.x = vj.value("x", 0.0f);
+            record.y = vj.value("y", 0.0f);
+            record.condition = std::clamp(vj.value("condition", 100.0f), 0.0f, 100.0f);
+            record.fuel = std::max(0.0f, vj.value("fuel", 0.0f));
+            record.maxFuel = std::max(1.0f, vj.value("maxFuel", 30.0f));
+            record.engineOn = vj.value("engineOn", false);
+
+            if (vj.contains("items") && vj["items"].is_array())
+            {
+                for (const auto& ij : vj["items"])
+                {
+                    const int itemId = ij.value("id", -1);
+                    const int count = ij.value("count", 0);
+                    if (itemId >= 0 && count > 0)
+                    {
+                        record.items.emplace_back(itemId, count);
+                    }
+                }
+            }
+
+            mVehicles.push_back(record);
+        }
+    }
+
+    if (json.contains("fires") && json["fires"].is_array())
+    {
+        for (const auto& fj : json["fires"])
+        {
+            FireTileRecord fire;
+            fire.tileX = fj.value("tileX", 0);
+            fire.tileY = fj.value("tileY", 0);
+            fire.intensity = std::clamp(fj.value("intensity", 0.0f), 0.0f, 2.0f);
+            fire.lifeRemaining = std::max(0.0f, fj.value("lifeRemaining", 0.0f));
+            if (fire.lifeRemaining > 0.0f && fire.intensity > 0.0f)
+            {
+                mFireTiles.push_back(fire);
+            }
+        }
+    }
+
+    if (json.contains("burned") && json["burned"].is_array())
+    {
+        for (const auto& bj : json["burned"])
+        {
+            const int x = bj.value("x", 0);
+            const int y = bj.value("y", 0);
+            addUniqueTile(mBurnedTiles, x, y);
+        }
+    }
+
+    if (json.contains("brokenDoors") && json["brokenDoors"].is_array())
+    {
+        for (const auto& dj : json["brokenDoors"])
+        {
+            addUniqueTile(mBrokenDoors, dj.value("x", 0), dj.value("y", 0));
+        }
+    }
+    if (json.contains("boardedDoors") && json["boardedDoors"].is_array())
+    {
+        for (const auto& dj : json["boardedDoors"])
+        {
+            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f)};
+            if (door.boardHp > 0.0f) mBoardedDoors.push_back(door);
+        }
+    }
+
+    if (json.contains("events") && json["events"].is_array())
+    {
+        for (const auto& ej : json["events"])
+        {
+            WorldMemoryEventRecord event;
+            event.type = parseWorldMemoryEventType(ej.value("type", nlohmann::json("other")));
+            event.tileX = ej.value("tileX", 0);
+            event.tileY = ej.value("tileY", 0);
+            event.day = std::max(1, ej.value("day", 1));
+            event.runIndex = std::max(0, ej.value("runIndex", 0));
+            event.detail = ej.value("detail", std::string{});
+            mWorldEvents.push_back(event);
         }
     }
 
@@ -1023,4 +1782,9 @@ std::vector<SurvivorRecord> SaveManager::loadSurvivors() const
         }
     }
     return result;
+}
+
+void SaveManager::setSeedOverride(std::uint32_t seed)
+{
+    gSeedOverride = seed;
 }

@@ -52,7 +52,7 @@ Entity findNearestStructure(World& world, const glm::vec2& playerCenter, float k
 std::string BuildSystem::update(World& world, const Input& input, const TileMap& tileMap,
                           NoiseModel& noiseModel, const ItemDatabase& db,
                           const SpriteSheet& spriteSheet, Entity playerEntity,
-                          const glm::vec2& mouseWorld, float dtSeconds, double gameHours)
+                          const glm::vec2& mouseWorld, float dtSeconds, double /*gameHours*/)
 {
     std::string resultMessage;
 

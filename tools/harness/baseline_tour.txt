@@ -1,0 +1,64 @@
+# Baseline tour: a quick look at every major screen of a fresh run.
+# Run: dead_pixel_survival.exe --script tools/harness/baseline_tour.txt --hidden --world-seed 1234 --shots shots/baseline
+
+waits 0.5
+shot 01_title
+newrun
+waits 1.5
+shot 02_spawn_day
+expect alive
+
+# Walk around (screen-up, then screen-right) at default zoom.
+hold W 90
+waits 1.5
+hold D 90
+waits 1.5
+shot 03_after_walk
+
+# Inventory and world map overlays.
+tap Tab
+waits 0.2
+shot 04_inventory
+tap Tab
+tap M
+waits 0.2
+shot 05_world_map
+tap M
+tap J
+waits 0.2
+shot 06_notebook
+tap J
+tap N
+waits 0.2
+shot 07_crafting
+tap Esc
+waits 0.2
+
+# Zoomed in and out.
+zoom 2.0
+waits 0.2
+shot 08_zoom_in
+zoom 0.6
+waits 0.2
+shot 09_zoom_out
+zoom 1.0
+
+# Dusk and night lighting.
+hours 19.5
+waits 0.5
+shot 10_dusk
+hours 23
+waits 0.5
+shot 11_night
+
+# Pause menu and controls.
+tap Esc
+waits 0.2
+shot 12_pause
+tap Esc
+tap F2
+waits 0.2
+shot 13_controls
+tap F2
+expect alive
+quit

@@ -23,7 +23,7 @@
 **Deliverables:** Stable layout per slot, separate run variance, district data model, correct grave/structure placement on stable geography, retirement path separated from death path.
 **Exit criterion:** Multiple runs in one slot share identical geography while spawns vary.
 
----
+---   
 
 ### M2 — Prototype Stabilization ✅
 **Deliverables:** Cleaner interaction prompts, container UX improvements, structure repair/dismantle loops, run-state checkpointing (sleep, district transition, timed), initial balancing instrumentation.
@@ -55,25 +55,25 @@
 
 ---
 
-### M7 — Crafting and Expanded Base Loop
+### M7 — Crafting and Expanded Base Loop ✅
 **Deliverables:** Two-item discovery crafting, notebook memory, expanded utility structures, stronger world-memory linkage.
 **Exit criterion:** Crafting and base decisions open new survival routes.
 
 ---
 
-### M8 — Vehicles and Fire
+### M8 — Vehicles and Fire ✅
 **Deliverables:** Narrow vehicle slice (sedan, fuel, condition, storage, noise), narrow fire slice (flammability, spread, suppression), integrated with noise/weather/persistence.
 **Exit criterion:** Both systems add decisions without breaking save/world model.
 
 ---
 
-### M9 — Full Legacy and World History
+### M9 — Full Legacy and World History ✅
 **Deliverables:** Bloodline traits, retirement markers, richer history artifacts, deeper world memory.
 **Exit criterion:** Inter-run identity is obvious and valuable.
 
 ---
 
-### M10 — Modes, Threat Framing, and UI Overhaul
+### M10 — Modes, Threat Framing, and UI Overhaul ✅
 **Deliverables:** Campaign mode, Endless mode, threat modes, tone presets, minimap/world map, notebook UI, contextual panels, polished death/retirement screens.
 **Exit criterion:** The game matches its intended strategic and presentation surface.
 

@@ -41,7 +41,6 @@ CombatSystem::CombatSystem()
 
 void CombatSystem::update(World& world, const Input& input, const TileMap& tileMap, NoiseModel& noiseModel, float dtSeconds)
 {
-    std::vector<Entity> destroyedEntities;
 
     world.forEach<PlayerInput, Transform, Facing, Combat, Stamina>(
         [&](Entity playerEntity, PlayerInput&, Transform& transform, Facing& facing, Combat& combat, Stamina& stamina)
@@ -137,9 +136,9 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
                         {
                             Health& zh = world.getComponent<Health>(combat.grabTarget);
                             zh.current = std::max(0.0f, zh.current - kGrabExecuteDamage);
-                            if (zh.current <= 0.0f)
+                            if (world.hasComponent<ZombieAI>(combat.grabTarget))
                             {
-                                destroyedEntities.push_back(combat.grabTarget);
+                                world.getComponent<ZombieAI>(combat.grabTarget).lastDamagedBy = playerEntity;
                             }
                             // Loud noise from execution
                             noiseModel.emitNoise(pCenter, NoiseTier::Loud, 0.8f, playerEntity);
@@ -252,8 +251,7 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
                         playerEntity,
                         entityCenter(transform),
                         facing.angleRadians,
-                        combat,
-                        destroyedEntities);
+                        combat);
                     combat.hitProcessed = true;
                 }
 
@@ -274,38 +272,12 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
             }
         });
 
-    for (Entity entity : destroyedEntities)
-    {
-        if (world.hasComponent<ZombieAI>(entity))
-        {
-            world.destroyEntity(entity);
-        }
-    }
 }
 
 void CombatSystem::degradeWeapon(Combat& combat)
 {
     combat.weapon.durability = std::max(0, combat.weapon.durability - 1);
-
-    if (combat.weapon.durability <= 0)
-    {
-        combat.weapon.condition = WeaponCondition::Broken;
-        return;
-    }
-
-    const float ratio = static_cast<float>(combat.weapon.durability) / static_cast<float>(combat.weapon.maxDurability);
-    if (ratio > 0.66f)
-    {
-        combat.weapon.condition = WeaponCondition::Good;
-    }
-    else if (ratio > 0.33f)
-    {
-        combat.weapon.condition = WeaponCondition::Worn;
-    }
-    else
-    {
-        combat.weapon.condition = WeaponCondition::Damaged;
-    }
+    combat.weapon.condition = weaponConditionFor(combat.weapon.durability, combat.weapon.maxDurability);
 }
 
 float CombatSystem::effectiveRangePixels(const Combat& combat)
@@ -375,8 +347,7 @@ void CombatSystem::resolveSwing(
     Entity playerEntity,
     const glm::vec2& playerCenter,
     float facingRadians,
-    Combat& combat,
-    std::vector<Entity>& destroyedEntities)
+    Combat& combat)
 {
     degradeWeapon(combat);
 
@@ -423,8 +394,12 @@ void CombatSystem::resolveSwing(
     const float knockback = combat.weapon.knockbackPixels;
 
     world.forEach<ZombieAI, Transform, Velocity, Health>(
-        [&](Entity zombieEntity, ZombieAI&, Transform& zombieTransform, Velocity& zombieVelocity, Health& zombieHealth)
+        [&](Entity zombieEntity, ZombieAI& zombieAI, Transform& zombieTransform, Velocity& zombieVelocity, Health& zombieHealth)
         {
+            if (zombieHealth.current <= 0.0f)
+            {
+                return; // already down; the game clears the dead after counting kills
+            }
             const glm::vec2 zombieCenter = entityCenter(zombieTransform);
             if (!isPointInsideArc(playerCenter, facingRadians, arcDegrees, rangePixels, zombieCenter))
             {
@@ -449,6 +424,7 @@ void CombatSystem::resolveSwing(
             }
 
             zombieHealth.current = std::max(0.0f, zombieHealth.current - finalDamage);
+            zombieAI.lastDamagedBy = playerEntity;
             ++combat.lastHitCount;
 
             // Apply bleeding from bladed weapons to surviving zombies
@@ -495,10 +471,5 @@ void CombatSystem::resolveSwing(
 
             zombieVelocity.dx = pushDirection.x * 120.0f;
             zombieVelocity.dy = pushDirection.y * 120.0f;
-
-            if (zombieHealth.current <= 0.0f)
-            {
-                destroyedEntities.push_back(zombieEntity);
-            }
         });
 }

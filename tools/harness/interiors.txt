@@ -1,0 +1,31 @@
+# Interiors: walk into several buildings and check walls, cut-away, roofs and furniture.
+# Run: dead_pixel_survival.exe --script tools/harness/interiors.txt --hidden --world-seed 1234 --shots shots/interiors
+
+newrun
+god on
+waits 1.0
+shot 01_spawn
+enter 0
+waits 0.6
+shot 02_building0
+enter 3
+waits 0.6
+shot 03_building3
+enter 6
+waits 0.6
+shot 04_building6
+enter 9
+waits 0.6
+shot 05_building9
+enter 12
+waits 0.6
+shot 06_building12
+zoom 0.6
+waits 0.3
+shot 07_building12_wide
+zoom 1.0
+hours 23
+waits 0.6
+shot 08_building12_night
+expect alive
+quit

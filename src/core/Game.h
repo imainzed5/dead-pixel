@@ -3,20 +3,26 @@
 #include <GL/glew.h>
 #include <SDL.h>
 
+#include <array>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "core/Input.h"
+#include "dev/LaunchOptions.h"
 #include "audio/AudioManager.h"
 #include "ecs/Types.h"
 #include "ecs/World.h"
 #include "items/ItemDatabase.h"
+#include "legacy/LegacyRules.h"
+#include "world/Doors.h"
+#include "world/Furniture.h"
 #include "map/MapGenerator.h"
 #include "map/TileMap.h"
 #include "map/TiledLoader.h"
@@ -26,6 +32,8 @@
 #include "rendering/SpriteBatch.h"
 #include "rendering/BitmapFont.h"
 #include "rendering/SpriteSheet.h"
+#include "rendering/FurnitureView.h"
+#include "rendering/StructureView.h"
 #include "rendering/Texture.h"
 #include "save/SaveManager.h"
 #include "systems/CollisionSystem.h"
@@ -49,12 +57,16 @@
 #include "systems/SurvivorInteractionSystem.h"
 #include "systems/WeatherSystem.h"
 #include "systems/DistrictInfectionSystem.h"
+#include "systems/ThreatDirectorSystem.h"
 #include "components/Weather.h"
+#include "ui/Hud.h"
+
+class DevHarness;
 
 class Game
 {
 public:
-    Game() = default;
+    explicit Game(LaunchOptions options = {});
     ~Game();
 
     Game(const Game&) = delete;
@@ -63,6 +75,8 @@ public:
     int run();
 
 private:
+    friend class DevHarness;
+
     enum class RunState
     {
         TitleScreen,
@@ -70,13 +84,6 @@ private:
         Paused,
         Dead,
         Retired
-    };
-
-    enum class TitleRunMode
-    {
-        Survival = 0,
-        Scavenger = 1,
-        Overrun = 2
     };
 
     bool initialize();
@@ -87,30 +94,138 @@ private:
     void shutdown();
     void setupScene();
     void beginDeathState(const std::string& cause);
-    void beginRetirementState();
+    void beginRetirementState(const std::string& customCause = "");
+    void stopPlayerAtRunEnd();
+    [[nodiscard]] CharacterHistoryRecord runEndHistory(bool retired, int runIndex) const;
+    void addRunEndMemoryEvent(WorldMemoryEventType type, int runIndex);
+    void persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree = nullptr);
+
+    // Legacy layer (GameLegacy.cpp)
+    struct RisenTrack
+    {
+        Entity entity = kInvalidEntity;
+        int graveIndex = -1;
+        glm::vec2 lastTopLeft{0.0f};
+    };
+    struct LegacyCardLayout
+    {
+        glm::vec2 pos{0.0f};
+        glm::vec2 size{0.0f};
+        float titleScale = 2.0f;
+        float lineScale = 2.0f;
+    };
+    struct CraftingLayout
+    {
+        glm::vec2 pos{0.0f};
+        glm::vec2 size{0.0f};
+        std::array<glm::vec4, 3> tabs{}; // x, y, w, h
+        glm::vec2 listPos{0.0f};
+        float listW = 0.0f;
+        float rowH = 0.0f;
+        int maxRows = 1;
+        glm::vec2 detailPos{0.0f};
+        float detailW = 0.0f;
+        float detailBottom = 0.0f;
+        float footerY = 0.0f;
+    };
+    // Shared by drawing and mouse hit-testing.
+    [[nodiscard]] CraftingLayout craftingLayout() const;
+    // First visible row of the recipe list, keeping the cursor in view.
+    [[nodiscard]] int craftingListScroll(int count, int maxRows) const;
+    void updateDoors(float dtSeconds);
+    // Every door closed, except those broken down in earlier runs.
+    void resetDoors();
+    // Furnishes the town from the layout; furniture is part of the world,
+    // the same every run.
+    void furnishWorld();
+    // The weapon in hand is an inventory item. Its wear is kept in the item's
+    // condition, so putting it away and taking it out again does not mend it.
+    void equipWeaponFromSlot(int slotIndex);
+    // Equips `preferredSlot` if it holds a weapon, else the first weapon
+    // carried, else bare hands.
+    void equipStartingWeapon(int preferredSlot);
+    // Writes the weapon's wear back to its slot; bare hands if it is gone.
+    void syncEquippedWeapon();
+    // Moves run spawns that landed on furniture to a free tile beside it.
+    void nudgeSpawnsOffFurniture();
+    // E at a door: opens or closes it. False when no door is in reach.
+    bool handleDoorInteraction(const ProximityPrompt& entityPrompt);
+    void spawnLegacy();
+    void spawnGrave(int graveIndex);
+    void spawnLegacyPack(int graveIndex, const glm::vec2& topLeftWorld);
+    void spawnRisen(int graveIndex);
+    void updateLegacy(float dtSeconds);
+    void syncLegacyToSave();
+    void renderLegacyCardShapes();
+    void renderLegacyText();
+    [[nodiscard]] LegacyCardLayout legacyCardLayout() const;
+    [[nodiscard]] std::vector<legacy::Lead> currentLegacyLeads();
+    [[nodiscard]] glm::vec2 playerWorldCenter() const;
+    [[nodiscard]] DistrictType districtTypeAt(int tileX, int tileY) const;
     void processInputEvents();
+    void handleEscapeKey();
     void update(float dtSeconds);
+    // Pieces of update(), in the order it calls them.
+    void updateTitleScreen(float dtSeconds);
+    void updatePauseMenu();
+    void handleVehicleKey(bool playerAlive);
+    void updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle);
+    void updateCraftingPanel(float dtSeconds, bool drivingVehicle);
+    void updateInventoryInput(bool drivingVehicle);
+    void applyVehicleDriving();
+    void updateSleep(float dtSeconds);
+    void updateVehicleAfterPhysics(float dtSeconds);
+    void updateAnimations(float dtSeconds);
+    void updateParticles(float dtSeconds, float prevPlayerHp);
     void render();
     void renderMap();
     void renderAttackArcOverlay();
-    void renderNeedsHudOverlay();
-    void renderDeathOverlay();
-    void renderRetirementOverlay();
+    void buildHudState();
+    void updateDistrictToast(float dtSeconds);
+    void renderRunEndOverlay();
     void renderTextOverlays();
     void renderPauseOverlay();
     void renderTitleScreen();
+    void renderControlsPanel();
     void renderControlsOverlay();
     void renderDayNightOverlay();
+    void renderMinimapOverlay();
+    void renderWorldMapOverlay();
+    void renderNotebookOverlay();
     void setupLightingUniforms();
+    [[nodiscard]] float nightFactor() const;
+    [[nodiscard]] glm::ivec2 playerTile() const;
+    [[nodiscard]] bool playerHasItem(const char* itemName) const;
     void snapshotPositions();
     void updateNoiseModel(float dtSeconds);
+    [[nodiscard]] NeedsEnvironment buildNeedsEnvironment();
+    void refreshTitleCheckpoint();
     void renderNoiseDebugOverlay();
     void updateWindowTitle(double frameSeconds);
+    void renderInventoryPanel();
     void renderInventoryOverlay();
     void renderCraftingOverlay();
     void renderBuildModeOverlay();
     void renderContainerOverlay();
+    void syncPresentationSettingsFromSave();
+    void syncPresentationSettingsToSave();
+    void ensureCampaignObjective();
+    bool saveCurrentRunCheckpoint(const std::string& statusMessage = "Run checkpoint saved.");
+    [[nodiscard]] RunCheckpoint buildRunCheckpoint();
+    // The town as the checkpoint left it: doors, scars, fires.
+    void restoreTownFromCheckpoint(const RunCheckpoint& cp);
+    void spawnScorchMark(int tileX, int tileY);
+    void spawnFireTile(const FireTileRecord& record, float spreadPhase);
+    // R at a closed door: nail a board across it (hammer and a plank).
+    void boardUpDoor(const glm::ivec2& tile);
+    // Every door with boards on it, for saving.
+    [[nodiscard]] std::vector<BoardedDoorRecord> boardedDoorRecords() const;
+    // A body on the floor where a zombie fell (sprite top-left, mirrored or not).
+    void spawnCorpse(const glm::vec2& topLeft, bool flipX, const glm::vec4& tint);
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
+
+    LaunchOptions mLaunchOptions;
+    std::unique_ptr<DevHarness> mHarness;
 
     SDL_Window* mWindow = nullptr;
     SDL_GLContext mGlContext = nullptr;
@@ -155,6 +270,7 @@ private:
     SurvivorInteractionSystem mSurvivorInteractionSystem;
     WeatherSystem mWeatherSystem;
     DistrictInfectionSystem mDistrictInfectionSystem;
+    ThreatDirectorSystem mThreatDirector;
 
     WeatherState mWeatherState;
 
@@ -163,21 +279,26 @@ private:
     RunState mRunState = RunState::TitleScreen;
 
     // Pause menu
-    int mPauseSelection = 0; // 0=Resume, 1=Back to Menu, 2=Restart, 3=Quit
+    int mPauseSelection = 0; // 0=Resume, 1=Save, 2=Back to Menu, 3=Restart, 4=Quit
 
     // Title screen hub
     int mTitleMenuSelection = 0;
     int mTitleSaveSlotIndex = 0;
-    int mTitleModeIndex = 0;
+    int mTitleModeIndex = 0;     // threat mode index
+    int mTitleGameModeIndex = 1; // 0=Campaign, 1=Endless
+    int mTitleToneIndex = 1;     // 0=Hopeless, 1=Grim Human, 2=Brutal Arcade
     bool mTitleHasCheckpoint = false;
     int mTitleCheckpointDay = 1;
     std::string mTitleCheckpointName;
     float mTitleCheckpointX = 0.0f;
     float mTitleCheckpointY = 0.0f;
+    float mTitleCheckpointRefreshTimer = 0.0f;
     bool mShowTitleCredits = false;
     std::string mTitleStatusMessage;
     float mTitleStatusTimer = 0.0f;
     float mTitlePulseTimer = 0.0f;
+    bool mTitleConfirmNewWorld = false;
+    float mTitleConfirmNewWorldTimer = 0.0f;
     bool mIgnoreCheckpointRestoreOnce = false;
     std::string mActiveSaveSlot = "default_slot";
 
@@ -205,12 +326,33 @@ private:
     std::uint64_t mLayoutFingerprint = 0;
 
     double mDeathStateTimer = 0.0;
+    // What this run leaves for the next, shown on the run-end screen.
+    std::string mRunEndLegacyLine;
     std::string mDeathCause;
     glm::vec2 mDeathWorldPosition{0.0f, 0.0f};
     std::string mCurrentCharacterName;
     std::string mInteractionMessage;
     float mInteractionMessageTimer = 0.0f;
     std::string mProximityPrompt;
+
+    Hud mHud;
+    HudState mHudState;
+
+    StructureView mStructureView;
+    std::vector<FurniturePiece> mFurniture;
+    FurnitureView mFurnitureView;
+    StructureSprites mStructureSprites;
+    std::vector<StaticSprite> mStaticSprites;
+    float mHudClock = 0.0f;
+    int mHudDistrictId = -1;
+    float mDistrictToastTimer = 0.0f;
+    std::string mDistrictToastText;
+    bool mDistrictToastDanger = false;
+
+    bool mShowWorldMap = false;
+    bool mShowNotebook = false;
+    CampaignObjectiveState mCampaignObjective{};
+    float mMinimapZoom = 1.0f;
 
     double mGameHours = 8.0;
     int mCurrentDay = 1;
@@ -222,9 +364,9 @@ private:
     int mCraftingRecipeCursor = 0;
     int mCraftingQuantity = 1;
     int mCraftingCategory = 0; // 0=ALL, 1=TOOLS, 2=MED
-    bool mCraftingNotebookView = false;
     std::vector<std::pair<int, int>> mSessionDiscoveredRecipes;
-    bool mCraftingRenderTextPass = false;
+    glm::vec2 mCraftingLastMouse{-1.0f};
+    int mEquippedWeaponSlot = -1;
 
     struct CraftQueueEntry
     {
@@ -238,7 +380,29 @@ private:
     bool mContainerOpen = false;
     Entity mOpenContainerEntity = kInvalidEntity;
     int mContainerCursor = 0;
+
+    // M8 narrow slice state
+    Entity mActiveVehicleEntity = kInvalidEntity;
+    std::vector<std::pair<int, int>> mBurnedTiles;
+    Doors mDoors;
+    std::vector<glm::ivec2> mDoorBlows; // this tick's zombie blows on closed doors
+
+    // This run's view of the grave records; written back by syncLegacyToSave.
+    std::vector<GraveRecord> mLegacyGraves;
+    std::vector<bool> mLegacyPackSpawned;
+    std::vector<RisenTrack> mRisenTracks;
+    float mLegacyCardTimer = 0.0f;
+    std::string mLegacyCardTitle;
+    std::vector<std::string> mLegacyCardLines;
+    std::size_t mBurnedTilesAtRunStart = 0; // tiles before this index burned in earlier runs
+
     float mZombieGrowlTimer = 0.0f;
+
+    // Flashlight (Q): a beam at night that zombies can see from afar.
+    bool mFlashlightOn = false;
+    static constexpr float kFlashlightRangeTiles = 9.0f;
+    static constexpr std::size_t kMaxCorpses = 60; // bodies left lying in a run
+    static constexpr float kFlashlightHalfAngleDegrees = 26.0f;
 
     double mFpsTimer = 0.0;
     int mFramesThisSecond = 0;

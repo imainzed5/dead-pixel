@@ -30,6 +30,7 @@ public:
                 const glm::vec2& mouseWorld, float dtSeconds, double gameHours);
 
     [[nodiscard]] bool isBuildMode() const { return mBuildMode; }
+    void exitBuildMode() { mBuildMode = false; }
     [[nodiscard]] int selectedRecipe() const { return mSelectedRecipe; }
     [[nodiscard]] glm::vec2 ghostPosition() const { return mGhostPosition; }
     [[nodiscard]] bool ghostValid() const { return mGhostValid; }

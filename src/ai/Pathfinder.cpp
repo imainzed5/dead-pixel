@@ -38,7 +38,8 @@ std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::
         return path;
     }
 
-    if (tileMap.isSolid(goal.x, goal.y))
+    // A closed door can be the goal: it is reached by battering it.
+    if (tileMap.isSolid(goal.x, goal.y) && !tileMap.isClosedDoor(goal.x, goal.y))
     {
         return path;
     }
@@ -107,7 +108,14 @@ std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::
         for (const glm::ivec2& delta : neighbors)
         {
             const glm::ivec2 nextPos = currentPos + delta;
-            if (!inBounds(tileMap, nextPos) || tileMap.isSolid(nextPos.x, nextPos.y))
+            if (!inBounds(tileMap, nextPos))
+            {
+                continue;
+            }
+            // A closed door blocks like a wall but can be opened or broken,
+            // so a route through it costs extra instead of being ruled out.
+            const bool closedDoor = tileMap.isClosedDoor(nextPos.x, nextPos.y);
+            if (tileMap.isSolid(nextPos.x, nextPos.y) && !closedDoor)
             {
                 continue;
             }
@@ -118,7 +126,8 @@ std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::
                 continue;
             }
 
-            const float tentativeG = gScore[static_cast<std::size_t>(current.index)] + 1.0f;
+            const float stepCost = closedDoor ? kClosedDoorCost : 1.0f;
+            const float tentativeG = gScore[static_cast<std::size_t>(current.index)] + stepCost;
             if (tentativeG < gScore[static_cast<std::size_t>(nextIndex)])
             {
                 cameFrom[static_cast<std::size_t>(nextIndex)] = current.index;

@@ -39,6 +39,7 @@ int interactionPriority(InteractableType type)
         return 3;
     case InteractableType::JournalNote:
     case InteractableType::GraveMarker:
+    case InteractableType::RetirementMarker:
         return 2;
     case InteractableType::SleepSpot:
     default:
@@ -294,6 +295,9 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
     case InteractableType::GraveMarker:
         return interactable.message.empty() ? "An old grave marker." : interactable.message;
 
+    case InteractableType::RetirementMarker:
+        return interactable.message.empty() ? "A retired survivor's shelter marker." : interactable.message;
+
     case InteractableType::JournalNote:
         return interactable.message.empty() ? "A crumpled note. Nothing legible." : interactable.message;
     }
@@ -413,7 +417,7 @@ ProximityPrompt InteractionSystem::getProximityPrompt(World& world, Entity playe
             }
             if (!hasLoot)
             {
-                action = "Search (Empty)";
+                action = (interactable.prompt.empty() ? std::string("Search") : interactable.prompt) + " (empty)";
             }
         }
         break;

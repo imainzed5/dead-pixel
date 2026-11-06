@@ -8,8 +8,10 @@
       "count": 1,
       "category": "MED",
       "tools": [],
-      "craftTimeSeconds": 60,
-      "notes": "Bleach can substitute Alcohol at 2x panic cost.",
+      "craftTimeSeconds": 6,
+      "notes": "Dresses two wounds at once and kills any infection in them.",
+      "hintA": "a clean dressing",
+      "hintB": "pills from a medicine cabinet",
       "startsKnown": false,
       "requiresWorkbench": false
     },
@@ -21,8 +23,10 @@
       "count": 1,
       "category": "TOOLS",
       "tools": [],
-      "craftTimeSeconds": 40,
-      "notes": "Core intermediate for fire tools.",
+      "craftTimeSeconds": 4,
+      "notes": "Burns long and bright. Half of a firebomb.",
+      "hintA": "a strip of cloth",
+      "hintB": "something that burns",
       "startsKnown": false,
       "requiresWorkbench": false
     },
@@ -33,9 +37,13 @@
       "out": 26,
       "count": 1,
       "category": "TOOLS",
-      "tools": [19],
-      "craftTimeSeconds": 90,
-      "notes": "Use from range. Fire draws attention fast.",
+      "tools": [
+        19
+      ],
+      "craftTimeSeconds": 6,
+      "notes": "Select it and press L to set the ground you aim at alight. Fire draws the dead from far off.",
+      "hintA": "a bottle",
+      "hintB": "a rag soaked in fuel",
       "startsKnown": false,
       "requiresWorkbench": false
     },
@@ -46,11 +54,32 @@
       "out": 27,
       "count": 1,
       "category": "TOOLS",
-      "tools": [17],
-      "craftTimeSeconds": 75,
-      "notes": "Durable but noisy in close quarters.",
+      "tools": [
+        17
+      ],
+      "craftTimeSeconds": 10,
+      "notes": "Hits harder, lasts longer and opens wounds that bleed.",
+      "hintA": "a sturdy club",
+      "hintB": "scraps of metal",
       "startsKnown": false,
       "requiresWorkbench": true
+    },
+    {
+      "name": "Spear",
+      "a": 5,
+      "b": 9,
+      "out": 28,
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [
+        11
+      ],
+      "craftTimeSeconds": 8,
+      "notes": "A blade lashed to a pole. Keeps them at a distance: longer reach, lighter blows.",
+      "hintA": "a blade",
+      "hintB": "a long piece of wood",
+      "startsKnown": false,
+      "requiresWorkbench": false
     }
   ]
 }

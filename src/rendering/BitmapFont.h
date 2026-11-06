@@ -6,6 +6,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "rendering/Texture.h"
 
@@ -45,6 +46,12 @@ public:
 
     void bindTexture(GLenum textureUnit) const;
 
+    // Deferred mode: while on, drawText queues text instead of emitting quads,
+    // so panels drawn with the sprite sheet bound can still place text. The
+    // queue is drawn later with the font texture bound.
+    void beginDeferred() const { mDeferring = true; }
+    void drawDeferred(SpriteBatch& batch) const;
+
     [[nodiscard]] float lineHeight(float scale = 1.0f) const { return mCellH * scale; }
 
 private:
@@ -52,4 +59,15 @@ private:
     float mCellW = 0.0f;
     float mCellH = 0.0f;
     std::unordered_map<char, GlyphMetrics> mGlyphs;
+
+    struct PendingText
+    {
+        glm::vec2 position{0.0f};
+        std::string text;
+        glm::vec4 color{1.0f};
+        float scale = 1.0f;
+        TextAlign align = TextAlign::Left;
+    };
+    mutable bool mDeferring = false;
+    mutable std::vector<PendingText> mPending;
 };

@@ -62,6 +62,10 @@ bool ItemDatabase::loadFromFile(const std::string& jsonPath)
         def.curesInfection = obj.value("curesInfection", false);
         def.spoilHours = obj.value("spoilHours", 0.0f);
         def.weaponCategory = obj.value("weaponCategory", -1);
+        def.weaponDamageScale = obj.value("damageScale", 1.0f);
+        def.weaponRangeScale = obj.value("rangeScale", 1.0f);
+        def.weaponDurabilityScale = obj.value("durabilityScale", 1.0f);
+        def.weaponCausesBleeding = obj.value("causesBleeding", false);
 
         const std::size_t idx = mItems.size();
         mIdIndex[def.id] = idx;

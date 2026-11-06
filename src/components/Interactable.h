@@ -7,6 +7,7 @@ enum class InteractableType
     FoodPickup,
     WaterPickup,
     GraveMarker,
+    RetirementMarker,
     SleepSpot,
     WeaponPickup,
     BandagePickup,

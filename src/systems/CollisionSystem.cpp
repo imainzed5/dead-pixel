@@ -2,6 +2,7 @@
 
 #include <glm/common.hpp>
 
+#include "components/PlayerInput.h"
 #include "components/Structure.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
@@ -11,15 +12,20 @@ void CollisionSystem::update(World& world, const TileMap& tileMap, float dtSecon
     world.forEach<Transform, Velocity>(
         [&](Entity self, Transform& transform, Velocity& velocity)
         {
-            const float minCenterX = kCollisionWidth * 0.5f;
-            const float minCenterY = kCollisionHeight * 0.5f;
-            const float maxCenterX = tileMap.pixelSize().x - kCollisionWidth * 0.5f;
-            const float maxCenterY = tileMap.pixelSize().y - kCollisionHeight * 0.5f;
+            const bool isPlayer = world.hasComponent<PlayerInput>(self);
+            const float collisionWidth = isPlayer ? kPlayerCollisionWidth : kCollisionWidth;
+            const float collisionHeight = isPlayer ? kPlayerCollisionHeight : kCollisionHeight;
+            const float collisionCenterYOffset = isPlayer ? kPlayerCollisionCenterYOffset : kCollisionCenterYOffset;
+
+            const float minCenterX = collisionWidth * 0.5f;
+            const float minCenterY = collisionHeight * 0.5f;
+            const float maxCenterX = tileMap.pixelSize().x - collisionWidth * 0.5f;
+            const float maxCenterY = tileMap.pixelSize().y - collisionHeight * 0.5f;
 
             auto isBlocked = [&](float proposedX, float proposedY)
             {
                 const float centerX = proposedX + kSpriteSize * 0.5f;
-                const float centerY = proposedY + kCollisionCenterYOffset;
+                const float centerY = proposedY + collisionCenterYOffset;
 
                 // Reject positions whose collision center is outside the map
                 if (centerX < minCenterX || centerX > maxCenterX ||
@@ -28,12 +34,16 @@ void CollisionSystem::update(World& world, const TileMap& tileMap, float dtSecon
                     return true;
                 }
 
-                const float left = centerX - kCollisionWidth * 0.5f;
-                const float right = centerX + kCollisionWidth * 0.5f;
-                const float top = centerY - kCollisionHeight * 0.5f;
-                const float bottom = centerY + kCollisionHeight * 0.5f;
+                const float left = centerX - collisionWidth * 0.5f;
+                const float right = centerX + collisionWidth * 0.5f;
+                const float top = centerY - collisionHeight * 0.5f;
+                const float bottom = centerY + collisionHeight * 0.5f;
 
-                if (tileMap.isSolidAtWorldRect(left, top, right, bottom))
+                if (tileMap.isSolidAtWorldDiamond(
+                    centerX,
+                    centerY,
+                    collisionWidth * 0.5f,
+                    collisionHeight * 0.5f))
                 {
                     return true;
                 }

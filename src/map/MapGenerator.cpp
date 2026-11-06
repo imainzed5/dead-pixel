@@ -23,6 +23,8 @@ LayoutData MapGenerator::generateLayout(std::uint32_t layoutSeed, int width, int
     carveRoads();
     placeBuildings();
     addInteriorWalls();
+    assignRoomFloors();
+    paveSidewalks();
     scatterDecor();
     assignDistricts();
 
@@ -76,12 +78,12 @@ void MapGenerator::applyToTileMap(TileMap& outMap) const
 
     TilesetInfo tileset{};
     tileset.firstGid = 1;
-    tileset.tileCount = 16;
-    tileset.columns = 4;
+    tileset.tileCount = TileGid::kPerRow * TileGid::kVariants;
+    tileset.columns = TileGid::kPerRow;
     tileset.tileWidth = 64;
     tileset.tileHeight = 32;
-    tileset.imageWidth = 256;
-    tileset.imageHeight = 128;
+    tileset.imageWidth = 64 * TileGid::kPerRow;
+    tileset.imageHeight = 32 * TileGid::kVariants;
     tileset.imagePath = "../sprites/placeholder.png";
     outMap.setTileset(tileset);
 
@@ -89,13 +91,32 @@ void MapGenerator::applyToTileMap(TileMap& outMap) const
     outMap.setCollisionLayer(mLayout.collision);
     outMap.setSurfaceLayer(mLayout.surface);
     outMap.setDistrictLayer(mLayout.district);
+
+    // Building footprints, derived from the saved layout so older saves get them
+    // too. Notched corners were carved back to grass, so skip grass tiles.
+    std::vector<int> buildingLayer(static_cast<std::size_t>(mLayout.width) * static_cast<std::size_t>(mLayout.height), 0);
+    for (std::size_t i = 0; i < mLayout.buildings.size(); ++i)
+    {
+        const auto& b = mLayout.buildings[i];
+        for (int ty = b.y; ty < b.y + b.h; ++ty)
+        {
+            for (int tx = b.x; tx < b.x + b.w; ++tx)
+            {
+                if (tx < 0 || ty < 0 || tx >= mLayout.width || ty >= mLayout.height) continue;
+                const auto idx = static_cast<std::size_t>(ty * mLayout.width + tx);
+                const int gid = idx < mLayout.ground.size() ? mLayout.ground[idx] : 0;
+                if (gid == kGidGrass || gid == kGidGrass2) continue;
+                buildingLayer[idx] = static_cast<int>(i) + 1;
+            }
+        }
+    }
+    outMap.setBuildingLayer(std::move(buildingLayer));
 }
 
 void MapGenerator::generateSpawns(SpawnData& outSpawns, std::uint32_t runSeed)
 {
     mRng.seed(runSeed);
     selectSpawns(outSpawns);
-    outSpawns.playerStart = mLayout.playerStart;
 }
 
 void MapGenerator::packLayout()
@@ -300,7 +321,7 @@ void MapGenerator::carveRoads()
                 if (y >= 1 && y < mHeight - 1)
                 {
                     const int idx = index(x, y);
-                    mGround[idx] = kGidGravel;
+                    mGround[idx] = kGidAsphalt;
                     mCollision[idx] = 0;
                     mSurface[idx] = kSurfGravel;
                 }
@@ -325,7 +346,7 @@ void MapGenerator::carveRoads()
                 if (x >= 1 && x < mWidth - 1)
                 {
                     const int idx = index(x, y);
-                    mGround[idx] = kGidGravel;
+                    mGround[idx] = kGidAsphalt;
                     mCollision[idx] = 0;
                     mSurface[idx] = kSurfGravel;
                 }
@@ -408,26 +429,7 @@ void MapGenerator::placeBuildings()
             const int bx = usedX;
             const int by = block.y + 1;
 
-            enum class BuildingArchetype
-            {
-                Residential,
-                Commercial,
-                Industrial
-            };
-
-            BuildingArchetype archetype = BuildingArchetype::Residential;
-            if (bw <= 9)
-            {
-                archetype = BuildingArchetype::Residential;
-            }
-            else if (bw <= 11)
-            {
-                archetype = BuildingArchetype::Commercial;
-            }
-            else
-            {
-                archetype = BuildingArchetype::Industrial;
-            }
+            const BuildingArchetype archetype = archetypeForWidth(bw);
 
             const int wallTile = (archetype == BuildingArchetype::Industrial) ? kGidMetal : kGidWall;
 
@@ -535,15 +537,54 @@ void MapGenerator::placeBuildings()
                         mSurface[idx] = kSurfGrass;
                     }
                 }
+
+                // Wall off the new edge so the notch does not open the interior.
+                for (int ty = startY - 1; ty <= startY + notchH; ++ty)
+                {
+                    for (int tx = startX - 1; tx <= startX + notchW; ++tx)
+                    {
+                        if (!inBounds(tx, ty)) continue;
+                        if (tx < bx || tx >= bx + bw || ty < by || ty >= by + bh) continue;
+                        const bool inNotch = tx >= startX && tx < startX + notchW && ty >= startY && ty < startY + notchH;
+                        if (inNotch) continue;
+                        const int idx = index(tx, ty);
+                        mGround[idx] = wallTile;
+                        mCollision[idx] = 1;
+                        mSurface[idx] = (archetype == BuildingArchetype::Industrial) ? kSurfMetal : kSurfDefault;
+                    }
+                }
             }
 
             // Doorways: one on bottom wall, one on side wall if building is large
+            auto isInteriorFloor = [&](int x, int y)
+            {
+                return inBounds(x, y) && mCollision[index(x, y)] == 0 &&
+                    mGround[index(x, y)] != kGidGrass && mGround[index(x, y)] != kGidGrass2 &&
+                    x > bx && x < bx + bw - 1 && y > by && y < by + bh - 1;
+            };
+            auto isWallAt = [&](int x, int y)
+            {
+                return inBounds(x, y) && mCollision[index(x, y)] != 0;
+            };
+
             int primaryDoorX = bx + bw / 2;
             int primaryDoorY = by + bh - 1;
             {
                 std::uniform_int_distribution<int> doorXDist(bx + 2, bx + bw - 3);
                 primaryDoorX = doorXDist(mRng);
-                if (inBounds(primaryDoorX, primaryDoorY))
+                // A notch can eat part of the bottom wall; slide the door to a wall
+                // tile that has floor behind it.
+                for (int attempt = 0; attempt < bw; ++attempt)
+                {
+                    const int x = bx + 2 + (primaryDoorX - (bx + 2) + attempt) % std::max(1, bw - 4);
+                    if (isWallAt(x, primaryDoorY) && isInteriorFloor(x, primaryDoorY - 1))
+                    {
+                        primaryDoorX = x;
+                        break;
+                    }
+                }
+                if (inBounds(primaryDoorX, primaryDoorY) && isWallAt(primaryDoorX, primaryDoorY) &&
+                    isInteriorFloor(primaryDoorX, primaryDoorY - 1))
                 {
                     mGround[index(primaryDoorX, primaryDoorY)] = kGidFloor;
                     mCollision[index(primaryDoorX, primaryDoorY)] = 0;
@@ -563,7 +604,7 @@ void MapGenerator::placeBuildings()
                 std::uniform_int_distribution<int> doorYDist(by + 2, by + bh - 3);
                 const int doorY2 = doorYDist(mRng);
                 const int doorX2 = bx + bw - 1;
-                if (inBounds(doorX2, doorY2))
+                if (inBounds(doorX2, doorY2) && isWallAt(doorX2, doorY2) && isInteriorFloor(doorX2 - 1, doorY2))
                 {
                     mGround[index(doorX2, doorY2)] = kGidFloor;
                     mCollision[index(doorX2, doorY2)] = 0;
@@ -590,9 +631,9 @@ void MapGenerator::placeBuildings()
             }
             else if (archetype == BuildingArchetype::Commercial)
             {
-                paintExteriorTile(primaryDoorX, primaryDoorY + 1, kGidGravel, kSurfGravel);
-                paintExteriorTile(primaryDoorX - 1, primaryDoorY + 1, kGidGravel, kSurfGravel);
-                paintExteriorTile(primaryDoorX + 1, primaryDoorY + 1, kGidGravel, kSurfGravel);
+                paintExteriorTile(primaryDoorX, primaryDoorY + 1, kGidSidewalk, kSurfDefault);
+                paintExteriorTile(primaryDoorX - 1, primaryDoorY + 1, kGidSidewalk, kSurfDefault);
+                paintExteriorTile(primaryDoorX + 1, primaryDoorY + 1, kGidSidewalk, kSurfDefault);
             }
             else
             {
@@ -639,6 +680,7 @@ void MapGenerator::addInteriorWalls()
             {
                 if (y == gapY) continue;
                 if (!inBounds(wallX, y)) continue;
+                if (isNextToDoor(wallX, y)) continue;
                 const int idx = index(wallX, y);
                 mGround[idx] = kGidWall;
                 mCollision[idx] = 1;
@@ -663,6 +705,7 @@ void MapGenerator::addInteriorWalls()
                     {
                         if (x == gapX) continue;
                         if (!inBounds(x, wallY)) continue;
+                        if (isNextToDoor(x, wallY)) continue;
                         const int idx = index(x, wallY);
                         mGround[idx] = kGidWall;
                         mCollision[idx] = 1;
@@ -684,6 +727,7 @@ void MapGenerator::addInteriorWalls()
             {
                 if (x == gapX) continue;
                 if (!inBounds(x, wallY)) continue;
+                if (isNextToDoor(x, wallY)) continue;
                 const int idx = index(x, wallY);
                 mGround[idx] = kGidWall;
                 mCollision[idx] = 1;
@@ -708,6 +752,7 @@ void MapGenerator::addInteriorWalls()
                     {
                         if (y == gapY) continue;
                         if (!inBounds(wallX, y)) continue;
+                        if (isNextToDoor(wallX, y)) continue;
                         const int idx = index(wallX, y);
                         mGround[idx] = kGidWall;
                         mCollision[idx] = 1;
@@ -722,7 +767,31 @@ void MapGenerator::addInteriorWalls()
 
 void MapGenerator::scatterDecor()
 {
-    std::uniform_int_distribution<int> chance(0, 99);
+    // Natural ground variation in small clusters (worn dirt, the odd pond,
+    // darker grass). Lone odd tiles read as squares on the seamless ground.
+    std::uniform_int_distribution<int> chance(0, 999);
+    std::uniform_int_distribution<int> sizeDist(3, 7);
+    std::uniform_int_distribution<int> dirDist(0, 3);
+    constexpr int kDirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+    auto grow = [&](int x, int y, int gid, int surface, int collision, int count)
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            if (x < 2 || y < 2 || x >= mWidth - 2 || y >= mHeight - 2) break;
+            const int idx = index(x, y);
+            if (mGround[idx] == kGidGrass || mGround[idx] == kGidGrass2 || mGround[idx] == gid)
+            {
+                mGround[idx] = gid;
+                mSurface[idx] = surface;
+                mCollision[idx] = collision;
+            }
+            const auto& d = kDirs[dirDist(mRng)];
+            x += d[0];
+            y += d[1];
+        }
+    };
+
     for (int y = 2; y < mHeight - 2; ++y)
     {
         for (int x = 2; x < mWidth - 2; ++x)
@@ -731,30 +800,17 @@ void MapGenerator::scatterDecor()
             if (mGround[idx] != kGidGrass) continue;
 
             const int roll = chance(mRng);
-            if (roll < 2)
+            if (roll < 6)
             {
-                // Gravel patch
-                mGround[idx] = kGidGravel;
-                mSurface[idx] = kSurfGravel;
-            }
-            else if (roll < 3)
-            {
-                // Water accent (impassable)
-                mGround[idx] = kGidWater;
-                mCollision[idx] = 1;
-                mSurface[idx] = kSurfDefault;
+                grow(x, y, kGidDirt, kSurfDefault, 0, sizeDist(mRng));
             }
             else if (roll < 8)
             {
-                // Dark grass variant
-                mGround[idx] = kGidGrass2;
-                // Surface stays grass
+                grow(x, y, kGidWater, kSurfDefault, 1, sizeDist(mRng)); // pond (impassable)
             }
-            else if (roll < 11)
+            else if (roll < 60)
             {
-                // Dirt patch
-                mGround[idx] = kGidDirt;
-                mSurface[idx] = kSurfDefault;
+                mGround[idx] = kGidGrass2; // surface stays grass
             }
         }
     }
@@ -764,7 +820,126 @@ bool MapGenerator::isFloorTile(int x, int y) const
 {
     if (!inBounds(x, y)) return false;
     const int gid = mGround[index(x, y)];
-    return (gid == kGidFloor || gid == kGidCarpet) && mCollision[index(x, y)] == 0;
+    const bool floorGid = gid == kGidFloor || gid == kGidCarpet || gid == kGidWood ||
+        gid == kGidTileFloor || gid == kGidMetal;
+    return floorGid && mCollision[index(x, y)] == 0 && buildingIndexAt(x, y) >= 0;
+}
+
+int MapGenerator::buildingIndexAt(int x, int y) const
+{
+    for (std::size_t i = 0; i < mBuildings.size(); ++i)
+    {
+        const Rect& b = mBuildings[i];
+        if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)
+        {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+bool MapGenerator::isNextToDoor(int x, int y) const
+{
+    return isDoorTile(x - 1, y) || isDoorTile(x + 1, y) || isDoorTile(x, y - 1) || isDoorTile(x, y + 1);
+}
+
+void MapGenerator::assignRoomFloors()
+{
+    // One floor per room: rooms are the floor regions between walls and doorways.
+    std::vector<int> visited(mGround.size(), 0);
+    std::uniform_int_distribution<int> roll(0, 99);
+
+    auto isRoomTile = [&](int x, int y)
+    {
+        if (!inBounds(x, y)) return false;
+        const int idx = index(x, y);
+        return mCollision[idx] == 0 && !isDoorTile(x, y) &&
+            mGround[idx] != kGidGrass && mGround[idx] != kGidGrass2;
+    };
+
+    for (const Rect& b : mBuildings)
+    {
+        const BuildingArchetype archetype = archetypeForWidth(b.w);
+        static constexpr int kHomeFloors[] = {kGidWood, kGidCarpet, kGidTileFloor, kGidWood, kGidCarpet};
+        const int homeOffset = roll(mRng) % 5;
+        int roomIndex = 0;
+
+        for (int y = b.y + 1; y < b.y + b.h - 1; ++y)
+        {
+            for (int x = b.x + 1; x < b.x + b.w - 1; ++x)
+            {
+                if (visited[index(x, y)] || !isRoomTile(x, y)) continue;
+
+                int gid = kGidFloor;
+                int surface = kSurfDefault;
+                switch (archetype)
+                {
+                case BuildingArchetype::Residential:
+                    gid = kHomeFloors[(homeOffset + roomIndex) % 5];
+                    break;
+                case BuildingArchetype::Commercial:
+                    gid = (roomIndex == 0 || roll(mRng) < 70) ? kGidTileFloor : kGidFloor;
+                    break;
+                case BuildingArchetype::Industrial:
+                    gid = (roomIndex == 0 || roll(mRng) < 50) ? kGidFloor : kGidMetal;
+                    break;
+                }
+                if (gid == kGidCarpet) surface = kSurfCarpet;
+                if (gid == kGidMetal) surface = kSurfMetal;
+
+                std::vector<glm::ivec2> stack{{x, y}};
+                visited[index(x, y)] = 1;
+                while (!stack.empty())
+                {
+                    const glm::ivec2 t = stack.back();
+                    stack.pop_back();
+                    mGround[index(t.x, t.y)] = gid;
+                    mSurface[index(t.x, t.y)] = surface;
+                    constexpr int kDirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                    for (const auto& d : kDirs)
+                    {
+                        const int nx = t.x + d[0];
+                        const int ny = t.y + d[1];
+                        if (nx <= b.x || nx >= b.x + b.w - 1 || ny <= b.y || ny >= b.y + b.h - 1) continue;
+                        if (visited[index(nx, ny)] || !isRoomTile(nx, ny)) continue;
+                        visited[index(nx, ny)] = 1;
+                        stack.push_back({nx, ny});
+                    }
+                }
+                ++roomIndex;
+            }
+        }
+    }
+}
+
+void MapGenerator::paveSidewalks()
+{
+    // A one-tile sidewalk along both sides of every road.
+    std::vector<int> pave;
+    for (int y = 1; y < mHeight - 1; ++y)
+    {
+        for (int x = 1; x < mWidth - 1; ++x)
+        {
+            if (mGround[index(x, y)] != kGidAsphalt) continue;
+            constexpr int kDirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+            for (const auto& d : kDirs)
+            {
+                const int nx = x + d[0];
+                const int ny = y + d[1];
+                if (!inBounds(nx, ny)) continue;
+                const int idx = index(nx, ny);
+                if (mCollision[idx] == 0 && (mGround[idx] == kGidGrass || mGround[idx] == kGidGrass2))
+                {
+                    pave.push_back(idx);
+                }
+            }
+        }
+    }
+    for (const int idx : pave)
+    {
+        mGround[static_cast<std::size_t>(idx)] = kGidSidewalk;
+        mSurface[static_cast<std::size_t>(idx)] = kSurfDefault;
+    }
 }
 
 bool MapGenerator::isDoorTile(int x, int y) const
@@ -874,10 +1049,44 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             return da < db;
         });
 
-    if (!buildingsByDist.empty())
+    // Each run starts in a different home: one of the houses nearest the
+    // centre, picked by the run seed (falls back to any building).
+    constexpr std::size_t kStartCandidates = 6;
+    std::vector<std::size_t> startCandidates;
+    for (const std::size_t i : buildingsByDist)
     {
-        const auto& bf = buildingFloors[buildingsByDist[0]];
+        const auto& b = mBuildings[static_cast<std::size_t>(buildingFloors[i].buildingIdx)];
+        if (archetypeForWidth(b.w) == BuildingArchetype::Residential && !buildingFloors[i].tiles.empty())
+        {
+            startCandidates.push_back(i);
+            if (startCandidates.size() >= kStartCandidates) break;
+        }
+    }
+    if (startCandidates.empty() && !buildingsByDist.empty())
+    {
+        startCandidates.push_back(buildingsByDist[0]);
+    }
+
+    if (!startCandidates.empty())
+    {
+        const auto& bf = buildingFloors[startCandidates[mRng() % startCandidates.size()]];
+        const auto& b = mBuildings[static_cast<std::size_t>(bf.buildingIdx)];
+        // The floor tile nearest the middle of the house, away from doors.
+        const glm::vec2 middle(static_cast<float>(b.x) + static_cast<float>(b.w) * 0.5f,
+                               static_cast<float>(b.y) + static_cast<float>(b.h) * 0.5f);
+        float best = 1e9f;
         outSpawns.playerStart = bf.tiles[0];
+        for (const glm::ivec2& t : bf.tiles)
+        {
+            if (isDoorTile(t.x, t.y) || isNextToDoor(t.x, t.y)) continue;
+            const float dx = static_cast<float>(t.x) + 0.5f - middle.x;
+            const float dy = static_cast<float>(t.y) + 0.5f - middle.y;
+            if (dx * dx + dy * dy < best)
+            {
+                best = dx * dx + dy * dy;
+                outSpawns.playerStart = t;
+            }
+        }
         playerBuildingIdx = bf.buildingIdx;
     }
     else
@@ -925,7 +1134,7 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
     {
         for (int x = 2; x < mWidth - 2; x += 3)
         {
-            if (mCollision[index(x, y)] == 0 && mGround[index(x, y)] != kGidFloor)
+            if (mCollision[index(x, y)] == 0 && buildingIndexAt(x, y) < 0)
             {
                 outdoorTiles.emplace_back(x, y);
             }
@@ -1165,6 +1374,29 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
             if (placed >= outdoorDecorCount) break;
             if (distFromPlayer(t) < 10.0f) continue;
             outSpawns.decorOutdoorSpawns.push_back(t);
+            ++placed;
+        }
+    }
+
+    // Vehicle anchors: sparse outdoor sedan spots (M8 narrow slice).
+    {
+        const int vehicleCount = std::max(2, static_cast<int>(std::uniform_int_distribution<int>(2, 4)(mRng) * areaScale));
+        int placed = 0;
+        for (const auto& t : outdoorTiles)
+        {
+            if (placed >= vehicleCount) break;
+            if (distFromPlayer(t) < 20.0f) continue;
+            if (isReservedTile(t)) continue;
+
+            // Prefer harder surfaces for sedan parking spots.
+            const int surf = mSurface[static_cast<std::size_t>(index(t.x, t.y))];
+            if (surf != kSurfGravel && surf != kSurfMetal && surf != kSurfDefault)
+            {
+                continue;
+            }
+
+            outSpawns.vehicleSpawns.push_back(t);
+            reserveTile(t);
             ++placed;
         }
     }

@@ -29,7 +29,7 @@ float urgency(float need, float threshold)
 }
 
 void SurvivorAISystem::update(World& world, const TileMap& tileMap, const NoiseModel& /*noiseModel*/,
-                               Entity playerEntity, float dtSeconds, double /*gameHours*/, int /*currentDay*/) const
+                               Entity /*playerEntity*/, float dtSeconds, double /*gameHours*/, int /*currentDay*/) const
 {
     world.forEach<SurvivorAI, Transform, Velocity, Health>(
         [&](Entity entity, SurvivorAI& ai, Transform& transform, Velocity& vel, Health& health)
@@ -193,13 +193,14 @@ void SurvivorAISystem::update(World& world, const TileMap& tileMap, const NoiseM
                     {
                         // Attack nearest zombie
                         world.forEach<ZombieAI, Transform, Health>(
-                            [&](Entity, ZombieAI&, Transform& zt, Health& zh)
+                            [&](Entity, ZombieAI& zai, Transform& zt, Health& zh)
                             {
                                 if (zh.current <= 0.0f) return;
                                 const glm::vec2 zc = entityCenter(zt);
                                 if (glm::distance(myCenter, zc) < kAttackRange * 1.5f)
                                 {
                                     zh.current -= kAttackDamage;
+                                    zai.lastDamagedBy = entity;
                                     ai.attackCooldown = kAttackCooldown;
                                 }
                             });

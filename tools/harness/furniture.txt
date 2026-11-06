@@ -1,0 +1,45 @@
+# Furniture: houses, shops and workshops are furnished; cupboards can be
+# searched and beds slept in.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/furniture.txt --hidden --world-seed 1234 --shots shots/furniture
+
+newrun
+god on
+waits 1
+enter 4
+slay 12
+waits 0.6
+shot 01_house
+goto furniture any stocked
+slay 12
+waits 0.3
+shot 02_at_cupboard
+tap E
+waits 0.3
+shot 03_cupboard_open
+tap Escape
+waits 0.2
+goto furniture bed
+slay 12
+set fatigue 90
+set sleepdebt 40
+waits 0.3
+shot 04_at_bed
+tap E
+waits 1.5
+shot 05_sleeping_in_bed
+waits 4
+enter 6
+slay 12
+waits 0.6
+shot 06_shop
+goto furniture checkout
+waits 0.3
+shot 07_at_register
+enter 0
+waits 0.6
+goto furniture workbench
+waits 0.3
+shot 08_workbench
+expect alive
+quit

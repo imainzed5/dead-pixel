@@ -3,6 +3,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,16 @@ enum class SurfaceType
     Gravel,
     Grass,
     Metal
+};
+
+// A doorway's door. A closed door is solid like a wall, except that a path
+// may still lead through it (to be opened, or battered down).
+enum class DoorState : std::uint8_t
+{
+    None = 0, // not a doorway
+    Open,
+    Closed,
+    Broken
 };
 
 struct TilesetInfo
@@ -37,13 +48,35 @@ public:
     void setCollisionLayer(std::vector<int> layerData);
     void setSurfaceLayer(std::vector<int> layerData);
     void setDistrictLayer(std::vector<int> layerData);
+    // Per-tile building id (index + 1) for building footprints, 0 outside.
+    // Covers interior floors, walls and doorways.
+    void setBuildingLayer(std::vector<int> layerData);
 
     [[nodiscard]] bool gidToUvRect(int gid, glm::vec4& outUvRect) const;
     [[nodiscard]] int groundGid(int tileX, int tileY) const;
+    // Blocks movement: walls, closed doors and furniture.
     [[nodiscard]] bool isSolid(int tileX, int tileY) const;
+    // Blocks sight and thrown things: walls and closed doors, not furniture.
+    [[nodiscard]] bool blocksSight(int tileX, int tileY) const;
     [[nodiscard]] bool isSolidAtWorldRect(float left, float top, float right, float bottom) const;
+    [[nodiscard]] bool isSolidAtWorldDiamond(float centerX, float centerY, float radiusX, float radiusY) const;
     [[nodiscard]] SurfaceType getSurfaceType(int tileX, int tileY) const;
     [[nodiscard]] int getDistrictId(int tileX, int tileY) const;
+    [[nodiscard]] int getBuildingId(int tileX, int tileY) const;
+    [[nodiscard]] bool isIndoors(int tileX, int tileY) const { return getBuildingId(tileX, tileY) > 0; }
+    [[nodiscard]] bool isIndoorsAtWorld(float worldX, float worldY) const;
+
+    void setDoorState(int tileX, int tileY, DoorState state);
+    [[nodiscard]] DoorState doorState(int tileX, int tileY) const;
+    [[nodiscard]] bool isClosedDoor(int tileX, int tileY) const { return doorState(tileX, tileY) == DoorState::Closed; }
+    // Boards nailed across a closed door (0 = none).
+    void setDoorBoards(int tileX, int tileY, int boards);
+    [[nodiscard]] int doorBoards(int tileX, int tileY) const;
+
+    // Furniture stands on a whole tile and blocks movement through it.
+    void setFurniture(int tileX, int tileY, bool present);
+    [[nodiscard]] bool hasFurniture(int tileX, int tileY) const;
+    void clearFurniture();
 
     [[nodiscard]] int width() const { return mWidth; }
     [[nodiscard]] int height() const { return mHeight; }
@@ -51,9 +84,9 @@ public:
     [[nodiscard]] int tileHeight() const { return mTileHeight; }
     [[nodiscard]] glm::vec2 pixelSize() const;
     [[nodiscard]] const TilesetInfo& tileset() const { return mTileset; }
+    [[nodiscard]] bool inBounds(int tileX, int tileY) const;
 
 private:
-    [[nodiscard]] bool inBounds(int tileX, int tileY) const;
     [[nodiscard]] int tileIndex(int tileX, int tileY) const;
 
     int mWidth = 0;
@@ -66,4 +99,8 @@ private:
     std::vector<int> mCollisionLayer;
     std::vector<int> mSurfaceLayer;
     std::vector<int> mDistrictLayer;
+    std::vector<int> mBuildingLayer;
+    std::vector<DoorState> mDoorLayer;
+    std::vector<std::uint8_t> mDoorBoards;
+    std::vector<std::uint8_t> mFurnitureLayer;
 };

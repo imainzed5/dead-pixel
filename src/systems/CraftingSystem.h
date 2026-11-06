@@ -17,6 +17,9 @@ struct CraftingRecipe
     int craftTimeSeconds = 60;
     std::string category = "ALL";
     std::string notes;
+    // Clues to each ingredient, shown when you hold only the other one.
+    std::string hintA;
+    std::string hintB;
     bool startsKnown = false;
     bool requiresWorkbench = false;
 };
