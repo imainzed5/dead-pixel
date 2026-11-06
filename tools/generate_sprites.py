@@ -2144,6 +2144,18 @@ def draw_item_icon(name):
         ic.rect(12, 15, 21, 20, (228, 234, 240))
         ic.rect(12, 17, 21, 18, (60, 120, 200))
         ic.light(30, -26)
+    elif name == "item_empty_bottle":
+        # The same bottle, clear plastic with nothing in it: a pale shell,
+        # a dark inside, a thin rim of water left at the bottom.
+        ic.rect(12, 10, 21, 27, (196, 214, 226))
+        ic.rect(13, 7, 20, 10, (196, 214, 226))
+        ic.rect(14, 5, 19, 7, (214, 226, 234))
+        ic.rect(14, 3, 19, 5, (44, 92, 172))
+        ic.rect(13, 11, 20, 26, (92, 104, 116))
+        ic.rect(13, 25, 20, 26, (112, 170, 226))
+        ic.rect(12, 15, 21, 20, (228, 234, 240))
+        ic.rect(12, 17, 21, 18, (60, 120, 200))
+        ic.light(30, -26)
         ic.line(13, 11, 13, 14, (196, 226, 248), 1)
     elif name == "item_bandage":
         icon_bandage_roll(ic, (234, 228, 216), (200, 50, 44))
@@ -2332,7 +2344,7 @@ ITEM_ICONS_NEW = [
     "item_antibiotics", "item_painkillers", "item_hammer", "item_flashlight",
     "item_matches", "item_jacket", "item_rat_meat", "item_notebook",
     "item_bandage_clean", "item_rag", "item_molotov", "item_bat_spiked",
-    "item_spear",
+    "item_spear", "item_empty_bottle",
 ]
 
 

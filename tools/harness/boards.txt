@@ -42,7 +42,7 @@ zombie 6 0
 zombie -6 0
 zombie 0 6
 zombie 0 -6
-waits 8
+waits 20
 doors
 shot 03_splintering
 kill boards test

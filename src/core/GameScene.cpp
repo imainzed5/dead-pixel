@@ -157,24 +157,16 @@ void Game::setupScene()
         mWorld.addComponent<Inventory>(mPlayerEntity, playerInv);
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
-        int startBandages = 2;
-        int startFood = 3;
-        int startWater = 2;
-        switch (saveThreatModeFromIndex(mTitleModeIndex))
+        // What the character carries. The rest of their things are at home
+        // (see placeHomeKit).
+        int startBandages = 1;
+        int startFood = 1;
+        int startWater = 1;
+        if (saveThreatModeFromIndex(mTitleModeIndex) == SaveThreatMode::Stalker)
         {
-        case SaveThreatMode::Stalker:
-            startBandages = 3;
-            startFood = 4;
-            startWater = 3;
-            break;
-        case SaveThreatMode::OverwhelmingSwarm:
-        case SaveThreatMode::Hybrid:
-            startBandages = 1;
+            startBandages = 2;
             startFood = 2;
-            startWater = 1;
-            break;
-        default:
-            break;
+            startWater = 2;
         }
 
         InventorySystem::addItem(inv, mItemDatabase, 5, 1);  // knife
@@ -1050,6 +1042,7 @@ void Game::setupScene()
 
     spawnLegacy();
     resetDoors();
+    setupHome();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(

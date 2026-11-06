@@ -123,6 +123,7 @@ void ZombieAISystem::update(
             }
 
             zombieAI.stateTimer += dtSeconds;
+            zombieAI.boredTimer = std::max(0.0f, zombieAI.boredTimer - dtSeconds);
             zombieAI.pathRepathTimer += dtSeconds;
             zombieAI.attackCooldown = std::max(0.0f, zombieAI.attackCooldown - dtSeconds);
 
@@ -196,7 +197,8 @@ void ZombieAISystem::update(
                 // Lost sight: go to the last known position.
                 sendTo(zombieAI, zombieAI.targetWorld, false);
             }
-            else if (canHearNoise && (zombieAI.state == ZombieState::Wander || zombieAI.state == ZombieState::Investigate))
+            else if (canHearNoise && zombieAI.boredTimer <= 0.0f &&
+                     (zombieAI.state == ZombieState::Wander || zombieAI.state == ZombieState::Investigate))
             {
                 const NoiseEvent* bestEvent = nullptr;
                 float bestDistanceSq = 0.0f;
@@ -214,9 +216,12 @@ void ZombieAISystem::update(
                 }
 
                 // Re-target only when the noise is meaningfully somewhere else.
+                // A night caller keeps to its errand: the din at the door
+                // does not turn it, so it gives up in time.
                 if (bestEvent != nullptr &&
                     (zombieAI.state == ZombieState::Wander ||
-                     glm::length(bestEvent->worldPosition - zombieAI.targetWorld) > tileSize * 2.0f))
+                     (!zombieAI.nightCaller &&
+                      glm::length(bestEvent->worldPosition - zombieAI.targetWorld) > tileSize * 2.0f)))
                 {
                     sendTo(zombieAI, bestEvent->worldPosition, false);
                 }
@@ -352,13 +357,17 @@ void ZombieAISystem::update(
                     setVelocityToward(zombieVelocity, zombieCenter, zombieAI.targetWorld, speed);
                 }
 
-                // Give up on goals that take far too long (blocked by structures, etc.).
-                if (zombieAI.stateTimer > 90.0f)
+                // Give up on goals that take far too long (a boarded door, a
+                // wall of structures). Its own banging must not call it
+                // straight back, so it stays deaf to noise for a while.
+                if (zombieAI.stateTimer > kGiveUpSeconds)
                 {
                     zombieAI.state = ZombieState::Wander;
                     zombieAI.migrating = false;
+                    zombieAI.nightCaller = false;
                     zombieAI.path.clear();
                     zombieAI.stateTimer = 0.0f;
+                    zombieAI.boredTimer = kBoredSeconds;
                 }
                 break;
             }

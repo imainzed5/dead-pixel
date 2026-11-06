@@ -340,6 +340,46 @@ void DevHarness::execute(Game& game, const Command& command)
             ZombieAISystem::sendTo(game.mWorld.getComponent<ZombieAI>(zombie), playerCentre, false);
         }
     }
+    else if (op == "plan")
+    {
+        // plan: the first days' plan as the objective panel shows it, the
+        // taps, and the night's callers still about.
+        const firstdays::Plan plan = firstdays::planFor(game.mCurrentDay, game.mGameHours, game.firstDaysFacts());
+        int callers = 0;
+        game.mWorld.forEach<ZombieAI>([&](Entity, ZombieAI& ai) { if (ai.nightCaller) ++callers; });
+        std::cout << "[harness] tick " << mTick << ": plan day " << game.mCurrentDay << " hour " << game.mGameHours
+                  << " '" << plan.title << "' " << firstdays::clockLine(game.mGameHours)
+                  << " taps=" << (firstdays::tapsRunning(game.mCurrentDay, game.mGameHours) ? "on" : "off")
+                  << " callers=" << callers << " home=" << game.mFirstDays.homeBuilding
+                  << " atHome=" << (game.playerAtHome() ? 1 : 0) << '\n';
+        for (const firstdays::Step& step : plan.steps)
+        {
+            std::cout << "[harness]   [" << (step.done ? 'x' : ' ') << "] " << step.text << '\n';
+        }
+        std::cout << "[harness]   home doors:";
+        for (const glm::ivec2& tile : game.mFirstDays.homeDoors)
+        {
+            const Doors::Door* door = game.mDoors.find(tile);
+            const DoorState state = game.mTileMap.doorState(tile.x, tile.y);
+            std::cout << " (" << tile.x << "," << tile.y << ") "
+                      << (state == DoorState::Closed ? "closed" : state == DoorState::Open ? "open" : "broken")
+                      << " boards=" << game.mDoors.boards(tile) << " boardHp=" << (door != nullptr ? door->boardHp : 0.0f)
+                      << " hp=" << (door != nullptr ? door->hp : 0.0f);
+        }
+        // Each caller: state (0 wander, 1 investigate, 2 chase, 3 attack),
+        // tiles from home, seconds in that state.
+        std::cout << "\n[harness]   callers:";
+        const glm::vec2 home = (glm::vec2(game.mSpawnData.playerStart) + glm::vec2(0.5f)) * 32.0f;
+        game.mWorld.forEach<ZombieAI, Transform>(
+            [&](Entity, ZombieAI& ai, Transform& t)
+            {
+                if (!ai.nightCaller) return;
+                const float d = glm::length(glm::vec2(t.x + 16.0f, t.y + 16.0f) - home) / 32.0f;
+                std::cout << " [" << static_cast<int>(ai.state) << " " << static_cast<int>(d) << "t "
+                          << static_cast<int>(ai.stateTimer) << "s]";
+            });
+        std::cout << '\n';
+    }
     else if (op == "doors")
     {
         std::cout << "[harness] tick " << mTick << ": doors closed=" << game.mDoors.count(game.mTileMap, DoorState::Closed)
@@ -447,6 +487,13 @@ void DevHarness::execute(Game& game, const Command& command)
             fail(command, "no free tile beside the nearest piece");
             return;
         }
+        if (kind == "home")
+        {
+            // goto home: where the run started.
+            execute(game, Command{command.line, {"teleport", std::to_string(game.mSpawnData.playerStart.x),
+                                                 std::to_string(game.mSpawnData.playerStart.y)}});
+            return;
+        }
         if (kind == "door")
         {
             if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
@@ -527,6 +574,10 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "hours")
     {
         if (need(1)) game.mGameHours = std::clamp(std::stod(a[1]), 0.0, 23.99);
+    }
+    else if (op == "day")
+    {
+        if (need(1)) game.mCurrentDay = std::max(1, std::stoi(a[1]));
     }
     else if (op == "enter")
     {

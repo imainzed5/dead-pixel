@@ -85,6 +85,18 @@ struct CorpseRecord
     bool flipX = false;
 };
 
+// Where a run stands in its first three days (see world/FirstDays.h).
+struct FirstDaysRecord
+{
+    std::vector<std::pair<int, int>> searched; // home containers opened
+    std::vector<std::pair<int, int>> taken;    // home containers taken from: the home kit stays gone
+    bool usedTap = false;
+    int sleptNight = 0;  // the last night slept at home
+    int night = 0;       // the night whose callers are under way
+    int groupsSent = 0;
+    int cardDay = 1;     // the last day whose dawn card has shown
+};
+
 struct FireTileRecord
 {
     int tileX = 0;
@@ -221,6 +233,8 @@ struct RunCheckpoint
     bool zombiesSaved = false;
     std::vector<ZombieRecord> zombies;
     std::vector<CorpseRecord> corpses;
+    bool firstDaysSaved = false;
+    FirstDaysRecord firstDays;
 };
 
 class SaveManager

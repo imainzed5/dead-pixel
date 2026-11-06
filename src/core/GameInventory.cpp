@@ -496,6 +496,8 @@ void Game::updateInventoryInput(bool drivingVehicle)
                             mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
                             ++mRunStats.itemsLooted;
 
+                            noteContainerSearched(mOpenContainerEntity, true);
+
                             // Track looted position for world memory
                             if (mWorld.hasComponent<Transform>(mOpenContainerEntity))
                             {
@@ -631,8 +633,16 @@ void Game::updateInventoryInput(bool drivingVehicle)
                     {
                         Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
                         needs.thirst = std::min(needs.maxThirst, needs.thirst + item->thirstRestore);
-                        InventorySystem::removeItem(inv, slot.itemId, 1);
+                        const int drunkId = slot.itemId;
+                        InventorySystem::removeItem(inv, drunkId, 1);
                         mInteractionMessage = "Drank " + item->name + ".";
+                        // Keep the bottle: a tap can fill it again.
+                        constexpr int kWaterBottleItem = 3;
+                        constexpr int kEmptyBottleItem = 29;
+                        if (drunkId == kWaterBottleItem)
+                        {
+                            InventorySystem::addItem(inv, mItemDatabase, kEmptyBottleItem, 1);
+                        }
                         mInteractionMessageTimer = 3.0f;
                         mAudioManager.playSound(SoundId::FoodEat, 0.4f);
                     }

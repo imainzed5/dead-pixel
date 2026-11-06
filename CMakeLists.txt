@@ -42,6 +42,7 @@ add_library(dead_pixel_core STATIC
     src/core/GameLegacy.cpp
     src/core/GameDoors.cpp
     src/core/GameFurniture.cpp
+    src/core/GameFirstDays.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
     src/ecs/EntityManager.cpp
@@ -74,6 +75,7 @@ add_library(dead_pixel_core STATIC
     src/world/EntityFactory.cpp
     src/world/Doors.cpp
     src/world/Furniture.cpp
+    src/world/FirstDays.cpp
     src/items/ItemDatabase.cpp
     src/rendering/Camera.cpp
     src/rendering/Shader.cpp
@@ -135,6 +137,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_tone.cpp
         tests/test_doors.cpp
         tests/test_furniture.cpp
+        tests/test_firstdays.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

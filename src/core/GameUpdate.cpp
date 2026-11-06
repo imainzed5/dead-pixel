@@ -286,6 +286,7 @@ void Game::update(float dtSeconds)
     }
 
     updateSleep(dtSeconds);
+    updateFirstDays(dtSeconds);
 
     // Sleep debt collapse: force sleep when exhaustion maxes out
     if (mPlayerEntity != kInvalidEntity &&
@@ -371,6 +372,10 @@ void Game::update(float dtSeconds)
 
         // A door within reach takes E before anything else nearby.
         bool interceptedContainer = handleDoorInteraction(prompt);
+        if (!interceptedContainer && doorInReach(prompt) == nullptr)
+        {
+            interceptedContainer = handleTapInteraction(prompt);
+        }
         if (!interceptedContainer && mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
             mWorld.hasComponent<Interactable>(prompt.entity))
         {
@@ -380,6 +385,7 @@ void Game::update(float dtSeconds)
                 mContainerOpen = true;
                 mOpenContainerEntity = prompt.entity;
                 mContainerCursor = 0;
+                noteContainerSearched(prompt.entity, false);
                 mProximityPrompt.clear();
                 interceptedContainer = true;
             }

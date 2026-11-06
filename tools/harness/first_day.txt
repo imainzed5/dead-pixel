@@ -1,0 +1,145 @@
+# The first day: search the house, use the tap, board up the doors and sleep.
+# Night 1's callers come to the door and wake you; dawn brings the day 2 card.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/first_day.txt --hidden --world-seed 1234 --shots shots/first_day
+
+newrun
+waits 2
+plan
+shot 01_day1_start
+# The home's cupboards hold this character's things.
+goto furniture any stocked
+waits 0.3
+tap E
+waits 0.3
+shot 02_cupboard
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.5
+goto furniture any stocked
+waits 0.3
+tap E
+waits 0.3
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.5
+goto furniture any stocked
+waits 0.3
+tap E
+waits 0.3
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.5
+goto furniture any stocked
+waits 0.3
+tap E
+waits 0.3
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.2
+tap E
+waits 0.5
+plan
+# Drink a bottle (it leaves an empty one), then fill up at the tap.
+set thirst 60
+tap 4
+waits 0.2
+tap F
+waits 0.3
+tap 1
+waits 0.2
+goto home
+waits 0.3
+goto furniture counter
+waits 0.3
+shot 03_tap_prompt
+tap R
+waits 0.3
+plan
+shot 04_tap_used
+# Board up the nearest door: hammer and planks from the kit.
+goto home
+waits 0.3
+goto door
+waits 0.3
+tap R
+waits 0.3
+tap R
+waits 0.3
+tap R
+waits 0.3
+doors
+plan
+shot 05_boarded
+# Dusk: the night's plan.
+hours 19.97
+waits 3
+plan
+shot 06_night_plan
+# To bed (tired, as twelve hours awake would make you). Night 1's first
+# caller sets out at 21:30.
+god on
+set sleepdebt 45
+goto furniture bed
+waits 0.3
+tap E
+waits 1
+plan
+waits 30
+zombies
+doors
+plan
+shot 07_night_callers
+waits 30
+zombies
+doors
+plan
+shot 08_night_later
+# Dawn: the callers drift off, and the day 2 card shows.
+day 2
+hours 5.95
+waits 6
+plan
+shot 09_day2_card
+zombies
+# The taps die in the small hours of day 3.
+day 3
+hours 2.9
+waits 8
+plan
+goto furniture counter
+waits 0.3
+tap R
+waits 0.3
+shot 10_taps_dry
+hours 7
+waits 2
+plan
+shot 11_day3
+quit

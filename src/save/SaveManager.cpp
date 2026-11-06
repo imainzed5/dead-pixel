@@ -1219,6 +1219,16 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     {
         json["corpses"].push_back({{"x", c.x}, {"y", c.y}, {"flip", c.flipX}});
     }
+    {
+        const FirstDaysRecord& fd = cp.firstDays;
+        nlohmann::json searched = nlohmann::json::array();
+        for (const auto& [x, y] : fd.searched) searched.push_back({x, y});
+        nlohmann::json taken = nlohmann::json::array();
+        for (const auto& [x, y] : fd.taken) taken.push_back({x, y});
+        json["firstDays"] = {{"searched", searched}, {"taken", taken}, {"tap", fd.usedTap},
+                             {"slept", fd.sleptNight}, {"night", fd.night}, {"sent", fd.groupsSent},
+                             {"card", fd.cardDay}};
+    }
 
     const std::string tempPath = mCheckpointPath + ".tmp";
     {
@@ -1375,6 +1385,27 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             c.flipX = cj.value("flip", false);
             cp.corpses.push_back(c);
         }
+    }
+    if (json.contains("firstDays") && json["firstDays"].is_object())
+    {
+        const auto& fj = json["firstDays"];
+        FirstDaysRecord& fd = cp.firstDays;
+        const auto readTiles = [&](const char* key, std::vector<std::pair<int, int>>& out)
+        {
+            if (!fj.contains(key) || !fj[key].is_array()) return;
+            for (const auto& tile : fj[key])
+            {
+                if (tile.is_array() && tile.size() == 2) out.emplace_back(tile[0].get<int>(), tile[1].get<int>());
+            }
+        };
+        readTiles("searched", fd.searched);
+        readTiles("taken", fd.taken);
+        fd.usedTap = fj.value("tap", false);
+        fd.sleptNight = fj.value("slept", 0);
+        fd.night = fj.value("night", 0);
+        fd.groupsSent = fj.value("sent", 0);
+        fd.cardDay = std::max(1, fj.value("card", 1));
+        cp.firstDaysSaved = true;
     }
 
     return cp;

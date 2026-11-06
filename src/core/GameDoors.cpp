@@ -17,6 +17,8 @@ glm::vec2 doorCentre(const TileMap& map, const glm::ivec2& tile)
 // Bangs are heard across the street, louder the closer you are.
 constexpr float kBangHearingTiles = 18.0f;
 constexpr float kBreakMessageTiles = 14.0f;
+// Asleep within this, the banging wakes you.
+constexpr float kWakeTiles = 12.0f;
 
 // Boarding up takes a plank per board and something to drive the nails with.
 constexpr int kPlankItem = 9;
@@ -67,6 +69,12 @@ void Game::updateDoors(float dtSeconds)
         const glm::vec2 centre = doorCentre(mTileMap, tile);
         const float tiles = glm::length(centre - player) / tileSize;
         const float volume = std::clamp(1.0f - tiles / kBangHearingTiles, 0.0f, 1.0f);
+        if (tiles <= kWakeTiles && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Sleeping>(mPlayerEntity))
+        {
+            mWorld.removeComponent<Sleeping>(mPlayerEntity);
+            mInteractionMessage = "Banging at the door woke you!";
+            mInteractionMessageTimer = 3.5f;
+        }
         mParticleSystem.spawnDust(centre, blow == Doors::Blow::Bang ? 3 : (blow == Doors::Blow::Splinters ? 6 : 10));
         if (blow == Doors::Blow::Splinters)
         {
@@ -113,26 +121,39 @@ void Game::updateDoors(float dtSeconds)
         });
 }
 
-bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
+const Doors::Door* Game::doorInReach(const ProximityPrompt& entityPrompt) const
 {
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     const glm::vec2 here = playerWorldCenter();
     const Doors::Door* door = mDoors.nearest(mTileMap, here, tileSize);
     if (door == nullptr)
     {
-        return false;
+        return nullptr;
     }
     const DoorState state = mTileMap.doorState(door->tile.x, door->tile.y);
     if (state != DoorState::Open && state != DoorState::Closed)
     {
-        return false;
+        return nullptr;
     }
     // Something else to use right here wins, unless you stand at the door.
-    const glm::vec2 centre = doorCentre(mTileMap, door->tile);
-    if (entityPrompt.entity != kInvalidEntity && glm::length(centre - here) > tileSize * 0.6f)
+    if (entityPrompt.entity != kInvalidEntity &&
+        glm::length(doorCentre(mTileMap, door->tile) - here) > tileSize * 0.6f)
+    {
+        return nullptr;
+    }
+    return door;
+}
+
+bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
+{
+    const Doors::Door* door = doorInReach(entityPrompt);
+    if (door == nullptr)
     {
         return false;
     }
+    const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
+    const DoorState state = mTileMap.doorState(door->tile.x, door->tile.y);
+    const glm::vec2 centre = doorCentre(mTileMap, door->tile);
 
     const int boards = mDoors.boards(door->tile);
     if (state == DoorState::Open)

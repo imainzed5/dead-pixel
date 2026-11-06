@@ -322,6 +322,14 @@
       "weaponCategory": 1,
       "rangeScale": 1.6,
       "damageScale": 0.85
+    },
+    {
+      "id": 29,
+      "name": "Empty Bottle",
+      "category": "material",
+      "weight": 0.05,
+      "maxStack": 5,
+      "sprite": "item_empty_bottle"
     }
   ]
 }

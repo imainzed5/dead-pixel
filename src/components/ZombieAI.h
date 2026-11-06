@@ -53,6 +53,8 @@ struct ZombieAI
     std::size_t pathIndex = 0;
     glm::vec2 pathGoal{0.0f, 0.0f};
     bool migrating = false; // sent toward the player's area by the threat director
+    bool nightCaller = false; // sent to the player's door after dark; drifts off at dawn
+    float boredTimer = 0.0f;  // > 0: just gave up on a goal, and noise does not turn it back
 
     // Who dealt the most recent damage (player, projectile shooter, fire,
     // survivor, vehicle). Kills are credited from this.

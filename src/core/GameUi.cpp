@@ -131,6 +131,21 @@ void Game::buildHudState()
             color = glm::vec4(0.95f, 0.42f, 0.38f, 1.0f);
         }
 
+        // The first days: the plan for this day or night, which urgent needs
+        // still override.
+        const firstdays::Plan plan = firstdays::planFor(mCurrentDay, mGameHours, firstDaysFacts());
+        if (!plan.title.empty())
+        {
+            title = plan.title;
+            detail = firstdays::clockLine(mGameHours);
+            color = firstdays::nightIndex(mCurrentDay, mGameHours) > 0 ? glm::vec4(0.70f, 0.66f, 0.95f, 1.0f)
+                                                                       : glm::vec4(0.92f, 0.80f, 0.34f, 1.0f);
+            for (const firstdays::Step& step : plan.steps)
+            {
+                hud.objectiveSteps.push_back(HudStep{step.text, step.done});
+            }
+        }
+
         const glm::vec4 medicalColor(0.95f, 0.50f, 0.45f, 1.0f);
         if (hud.health < hud.healthMax * 0.85f)
         {
@@ -161,7 +176,7 @@ void Game::buildHudState()
             detail = "Indoors, away from the dead";
             color = glm::vec4(0.70f, 0.66f, 0.95f, 1.0f);
         }
-        else if (mRunStats.itemsLooted < 6)
+        else if (plan.title.empty() && mRunStats.itemsLooted < 6)
         {
             title = "Search nearby buildings";
             detail = "Look for food, water and medicine before dusk";
@@ -255,6 +270,16 @@ void Game::buildHudState()
         hud.districtToast = mDistrictToastText;
         hud.districtToastAlpha = std::min(1.0f, mDistrictToastTimer / 0.6f);
         hud.districtDanger = mDistrictToastDanger;
+    }
+
+    // The dawn card fades in, holds, and fades out.
+    if (mFirstDays.cardTimer > 0.0f)
+    {
+        const firstdays::DayCard card = firstdays::dayCard(mCurrentDay);
+        hud.dayCardTitle = card.title;
+        hud.dayCardLine = card.line;
+        const float shown = 6.0f - mFirstDays.cardTimer;
+        hud.dayCardAlpha = std::clamp(std::min(shown / 0.8f, mFirstDays.cardTimer / 1.2f), 0.0f, 1.0f);
     }
 }
 

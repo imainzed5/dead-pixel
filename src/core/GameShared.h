@@ -505,7 +505,7 @@ constexpr std::array<ControlBinding, 25> kControlBindings = {{
     {"LClick", "Attack"},
     {"RClick", "Grab"},
     {"E", "Interact"},
-    {"R", "Board up door"},
+    {"R", "Board up / tap"},
     {"F", "Use item"},
     {"Q", "Flashlight"},
     {"1-8", "Hotbar slot"},

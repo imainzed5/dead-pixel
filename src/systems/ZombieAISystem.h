@@ -57,6 +57,10 @@ private:
     // Wandering
     static constexpr float kWanderSpeedFactor = 0.45f;
     static constexpr float kMigrateSpeedFactor = 0.6f;
+    // An investigation that gets nowhere is dropped after this long, and the
+    // zombie ignores noise for a while after.
+    static constexpr float kGiveUpSeconds = 90.0f;
+    static constexpr float kBoredSeconds = 30.0f;
     static constexpr float kInvestigateSpeedFactor = 0.8f;
     static constexpr float kWanderStuckSeconds = 4.0f;
 

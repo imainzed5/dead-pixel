@@ -22,6 +22,7 @@
 #include "items/ItemDatabase.h"
 #include "legacy/LegacyRules.h"
 #include "world/Doors.h"
+#include "world/FirstDays.h"
 #include "world/Furniture.h"
 #include "map/MapGenerator.h"
 #include "map/TileMap.h"
@@ -148,6 +149,9 @@ private:
     void syncEquippedWeapon();
     // Moves run spawns that landed on furniture to a free tile beside it.
     void nudgeSpawnsOffFurniture();
+    // The door E and R act on, if any: the nearest open or closed door within
+    // a tile, unless something else to use is nearer and you are not at it.
+    [[nodiscard]] const Doors::Door* doorInReach(const ProximityPrompt& entityPrompt) const;
     // E at a door: opens or closes it. False when no door is in reach.
     bool handleDoorInteraction(const ProximityPrompt& entityPrompt);
     void spawnLegacy();
@@ -222,6 +226,23 @@ private:
     [[nodiscard]] std::vector<BoardedDoorRecord> boardedDoorRecords() const;
     // A body on the floor where a zombie fell (sprite top-left, mirrored or not).
     void spawnCorpse(const glm::vec2& topLeft, bool flipX, const glm::vec4& tint);
+
+    // The first three days (GameFirstDays.cpp): home, the taps, the day plan
+    // and the night's callers.
+    void setupHome();
+    void restoreFirstDays(const FirstDaysRecord& record);
+    [[nodiscard]] FirstDaysRecord firstDaysRecord() const;
+    // This character's things, in the home's cupboards (not those taken from
+    // before a resume).
+    void placeHomeKit();
+    void updateFirstDays(float dtSeconds);
+    // R at a kitchen counter or a bathroom sink: drink, fill empty bottles.
+    bool handleTapInteraction(const ProximityPrompt& entityPrompt);
+    // A container was opened, or something was taken from it.
+    void noteContainerSearched(Entity container, bool took);
+    [[nodiscard]] firstdays::Facts firstDaysFacts();
+    [[nodiscard]] bool playerAtHome() const;
+    void sendNightCallers(int count);
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
 
     LaunchOptions mLaunchOptions;
@@ -386,6 +407,18 @@ private:
     std::vector<std::pair<int, int>> mBurnedTiles;
     Doors mDoors;
     std::vector<glm::ivec2> mDoorBlows; // this tick's zombie blows on closed doors
+
+    struct FirstDaysState
+    {
+        int homeBuilding = 0;                       // where the run started
+        std::vector<glm::ivec2> homeDoors;
+        std::vector<std::pair<int, int>> homeContainers;
+        FirstDaysRecord record;
+        float cardTimer = 0.0f;
+        bool tapsDryNoted = false;                  // tried a dead tap
+        bool waterOffAnnounced = false;
+    };
+    FirstDaysState mFirstDays;
 
     // This run's view of the grave records; written back by syncLegacyToSave.
     std::vector<GraveRecord> mLegacyGraves;

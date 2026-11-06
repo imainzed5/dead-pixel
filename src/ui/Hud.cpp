@@ -200,6 +200,25 @@ Layout computeLayout(const HudState& state, const glm::vec2& viewport)
     return layout;
 }
 
+// The objective panel: title, detail line, then the plan's steps.
+constexpr float kStepRow = 20.0f;
+constexpr float kStepBox = 10.0f;
+constexpr float kStepGap = 8.0f; // between a box and its text
+constexpr std::size_t kStepChars = 30;
+
+float objectiveStepsTop(const HudState& state)
+{
+    return state.objectiveDetail.empty() ? 26.0f : 40.0f;
+}
+
+float objectiveHeight(const HudState& state)
+{
+    const float steps = static_cast<float>(state.objectiveSteps.size());
+    return objectiveStepsTop(state) + steps * kStepRow + (state.objectiveSteps.empty() ? 2.0f : 4.0f);
+}
+
+constexpr float kDayCardTitleScale = 4.0f;
+
 void drawTextStrip(SpriteBatch& batch, const glm::vec4& uv, float centerX, float y, float width, float height,
                    float alpha)
 {
@@ -500,12 +519,47 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
     {
         const float titleW = font.measureText(truncateText(state.objectiveTitle, 40), kLabelScale).x;
         const float detailW = font.measureText(truncateText(state.objectiveDetail, 60), kSmallScale).x;
-        const float w = std::max(titleW, detailW) + 20.0f;
-        const float h = state.objectiveDetail.empty() ? 28.0f : 42.0f;
+        float stepsW = 0.0f;
+        for (const HudStep& step : state.objectiveSteps)
+        {
+            stepsW = std::max(stepsW, font.measureText(truncateText(step.text, kStepChars), kLabelScale).x +
+                                          kStepBox + kStepGap);
+        }
+        const float w = std::max({titleW, detailW, stepsW}) + 20.0f;
+        const float h = objectiveHeight(state);
         batch.draw(glm::vec2(viewport.x - Hud::kMargin - w, layout.objectiveY), glm::vec2(w, h), white,
                    glm::vec4(0.02f, 0.03f, 0.04f, 0.55f));
         batch.draw(glm::vec2(viewport.x - Hud::kMargin - 3.0f, layout.objectiveY), glm::vec2(3.0f, h), white,
                    state.objectiveColor);
+
+        // A box before each step: hollow until done, then filled.
+        const float rightX = viewport.x - Hud::kMargin - 10.0f;
+        for (std::size_t i = 0; i < state.objectiveSteps.size(); ++i)
+        {
+            const HudStep& step = state.objectiveSteps[i];
+            const float textW = font.measureText(truncateText(step.text, kStepChars), kLabelScale).x;
+            const glm::vec2 box(std::round(rightX - textW - kStepGap - kStepBox),
+                                layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(i) * kStepRow + 2.0f);
+            const glm::vec4 edge = step.done ? glm::vec4(0.58f, 0.88f, 0.56f, 0.95f) : glm::vec4(0.86f, 0.84f, 0.78f, 0.9f);
+            batch.draw(box, glm::vec2(kStepBox, 2.0f), white, edge);
+            batch.draw(box + glm::vec2(0.0f, kStepBox - 2.0f), glm::vec2(kStepBox, 2.0f), white, edge);
+            batch.draw(box, glm::vec2(2.0f, kStepBox), white, edge);
+            batch.draw(box + glm::vec2(kStepBox - 2.0f, 0.0f), glm::vec2(2.0f, kStepBox), white, edge);
+            if (step.done)
+            {
+                batch.draw(box + glm::vec2(3.0f), glm::vec2(kStepBox - 6.0f), white, edge);
+            }
+        }
+    }
+
+    // Day card backing.
+    if (!state.dayCardTitle.empty() && state.dayCardAlpha > 0.01f)
+    {
+        const float titleW = font.measureText(state.dayCardTitle, kDayCardTitleScale).x;
+        const float lineW = font.measureText(state.dayCardLine, kLabelScale).x;
+        const float y = std::round(viewport.y * 0.22f);
+        drawTextStrip(batch, white, viewport.x * 0.5f, y, std::max(titleW, lineW) + 24.0f,
+                      state.dayCardLine.empty() ? 28.0f : 54.0f, state.dayCardAlpha);
     }
 
     // District toast backing.
@@ -659,6 +713,30 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
         {
             font.drawText(batch, glm::vec2(rightX, layout.objectiveY + 28.0f),
                           truncateText(state.objectiveDetail, 60), kDimTextColor, kSmallScale, TextAlign::Right);
+        }
+        for (std::size_t i = 0; i < state.objectiveSteps.size(); ++i)
+        {
+            const HudStep& step = state.objectiveSteps[i];
+            font.drawText(batch,
+                          glm::vec2(rightX, layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(i) * kStepRow),
+                          truncateText(step.text, kStepChars),
+                          step.done ? kDimTextColor : glm::vec4(0.93f, 0.91f, 0.86f, 1.0f), kLabelScale,
+                          TextAlign::Right);
+        }
+    }
+
+    // Day card.
+    if (!state.dayCardTitle.empty() && state.dayCardAlpha > 0.01f)
+    {
+        const float y = std::round(viewport.y * 0.22f);
+        font.drawText(batch, glm::vec2(viewport.x * 0.5f, y), state.dayCardTitle,
+                      withAlpha(glm::vec4(0.96f, 0.90f, 0.70f, 1.0f), state.dayCardAlpha), kDayCardTitleScale,
+                      TextAlign::Center);
+        if (!state.dayCardLine.empty())
+        {
+            font.drawText(batch, glm::vec2(viewport.x * 0.5f, y + 36.0f), state.dayCardLine,
+                          withAlpha(glm::vec4(0.86f, 0.84f, 0.78f, 1.0f), state.dayCardAlpha), kLabelScale,
+                          TextAlign::Center);
         }
     }
 

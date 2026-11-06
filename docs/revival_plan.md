@@ -44,7 +44,8 @@ The GDD (`dead_pixel_survival_gdd_v0.3.md`) is still the destination.
 | 8 | Wave 2: make the legacy hook visible | done |
 | 9 | Wave 3: extras polish, tone presets with real effects | done |
 | 10 | Docs, README and audit sync | done |
-| 11 | Final verification and handoff | |
+| 11 | Final verification and handoff | done |
+| 12 | Wave 4: the first three days | in progress |
 
 `Game.cpp` is split continuously: each wave moves the code it touches out
 (e.g. the HUD rework extracts the HUD renderer).
@@ -389,6 +390,102 @@ something the next one can find and act on:
   `doors` prints boarded doors, `goto door outside`; script:
   `tools/harness/boards.txt`.
 
+## Wave 4: the first three days (2026-11-06)
+
+The user steers again from here. Their brief: the first ~15 minutes are
+not fun yet, so give a run a beginning, a middle and a turn.
+
+### How a run starts today
+
+- A run starts at 08:00 on day 1, and dark falls at 20:00. One game hour
+  is one real minute, so day 1 lasts 12 minutes, and "the first 15
+  minutes" means day 1 plus the start of night 1.
+- The starting kit (knife, 3 cans, 2 bottles of water, 2 bandages) covers
+  two days of water and three of food. Nothing on day 1 needs doing.
+- The objective panel says "Search nearby buildings" until six items are
+  looted, then shows the mode's objective. Nothing marks the days.
+- Boarding up needs a hammer, and hammers only turn up on workbenches. A
+  new character can almost never board a door on day 1.
+- Nights only raise the number of zombies drawn toward the area: 3, 4 and
+  5 for nights 1 to 3, aimed 6 to 14 tiles from you rather than at you.
+  Nobody comes knocking.
+- One zombie gets through a door with three boards in under a minute.
+- Water only runs out: bottles are used up, and the rain collector (build
+  mode, 2 scrap metal) is the only source that refills.
+
+### The design
+
+Give each day a job, give each night a test, and turn on day 3.
+
+**Home.** The house a run starts in is home. It holds this character's
+things, even when an earlier life emptied its cupboards:
+
+- a hammer and 4 planks;
+- food for two or three days;
+- empty bottles;
+- a bandage and painkillers.
+
+The character carries only a knife, one bottle of water, one can and one
+bandage. Searching the house is the first thing to do: it is safe and it
+pays off.
+
+**Taps.** Kitchen counters and bathroom sinks have running water at first.
+
+- R at one drinks your fill and fills every empty bottle you carry.
+- A drunk bottle leaves an empty one (new item: Empty Bottle).
+- On day 2 the pressure drops, and the game says so.
+- At 03:00 on day 3 the taps die.
+
+The bottles you filled are your buffer. After that, water means a rain
+collector or bottles found out in the world.
+
+**A plan for each day and night.** The objective panel shows the plan
+under its title: up to three steps with check boxes, and the time until
+dark or dawn. Urgent needs (bleeding, thirst and so on) still take the
+title. From the morning of day 4, the mode's objective returns. Day 2 asks
+for more than the home holds, so it means going out.
+
+| When | Plan | Steps |
+|---|---|---|
+| Day 1 | Secure the house | Search the house (n/m). Fill bottles at the tap. Board up the doors (n/m). |
+| Each night | Hold out | Sleep in your bed. Keep doors boarded (n/m). |
+| Day 2 | Stock up | Fill bottles (n/5). Find planks (n/4). Find food (n/6). |
+| Day 3 | The taps are dry | Find water (n/3), or build a rain collector. Find food (n/6). Fully board doors (n/m). |
+
+A broken door cannot take boards, so it drops out of the count.
+
+**Nights get worse.** Each night sends callers: 2, then 4, then 6, then one
+more each night after that. They come in up to three groups spread across
+the night: the first at 21:30, the last at 02:30. Each group walks to you,
+through your door if you are at home, and batters it on the way in.
+
+- Night 1 sends them one at a time, the same in every mode. From night 2,
+  the threat mode and tone scale the count.
+- Boards are much tougher: 450 hp each.
+- A zombie gives up on a goal it cannot reach after 90 seconds. Then it
+  stays deaf to noise for 30 seconds, so its own banging cannot call it
+  straight back (before this, one zombie at a door never stopped). Night
+  callers are not turned by the din at the door either.
+- Banging still draws other zombies nearby, and they join in.
+- Banging within 12 tiles wakes you.
+- At first light, the callers that have not got in drift away.
+- At dawn a day card shows ("Day 2" and a line about the day).
+
+Measured with `night_siege`: one caller, and the wanderers its banging
+drew in, split about two of three boards before giving up. The second
+caller got through unless the spare plank went up. Night 1 asks you to act
+once. Night 2 needs the planks day 2 asks for. Night 3 means a fight.
+
+**Day 3 turns.** The taps are dry, the house is picked clean and nothing
+restocks. The plan sends you out for water, food and planks: the town and
+the legacy layer take over from here.
+
+**Not in this wave:**
+
+- storing items in containers (containers are take-only);
+- breaking furniture up for planks;
+- day plans for days after 3.
+
 ## Next, after the handoff
 
 Candidates for the next stretch, roughly in order. None is started.
@@ -497,3 +594,7 @@ Candidates for the next stretch, roughly in order. None is started.
 - 2026-11-06: Bodies stay where zombies fall and persist in checkpoints;
   melee kills counted (`1e55dd5`).
 - 2026-11-06: Boarding up doors, remembered across checkpoints and lives.
+- 2026-11-06: Merged the revival into `main` (PR #1, `715922c`). Wave 4
+  begins on `wave4-first-days`: home kit, taps and empty bottles, a plan for
+  each day and night, night callers, tougher boards, zombies that give up
+  for good, a dawn day card.

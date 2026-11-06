@@ -59,6 +59,12 @@ struct HudConditionInputs
     bool sleeping = false;
 };
 
+struct HudStep
+{
+    std::string text;
+    bool done = false;
+};
+
 struct HudSlot
 {
     bool empty = true;
@@ -92,6 +98,13 @@ struct HudState
     std::string objectiveTitle;
     std::string objectiveDetail;
     glm::vec4 objectiveColor{0.9f, 0.8f, 0.3f, 1.0f};
+    // The day's plan under the objective, each step with a check box.
+    std::vector<HudStep> objectiveSteps;
+
+    // A card at the top of the screen at dawn ("Day 2" and a line).
+    std::string dayCardTitle;
+    std::string dayCardLine;
+    float dayCardAlpha = 0.0f;
 
     std::array<HudSlot, 8> hotbar{};
     int activeSlot = 0;

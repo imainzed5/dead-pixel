@@ -406,6 +406,8 @@ RunCheckpoint Game::buildRunCheckpoint()
     mWorld.forEach<Corpse, Transform, Sprite>(
         [&](Entity, Corpse&, Transform& transform, Sprite& sprite)
         { cp.corpses.push_back(CorpseRecord{transform.x, transform.y, sprite.flipX}); });
+    cp.firstDaysSaved = true;
+    cp.firstDays = firstDaysRecord();
     return cp;
 }
 
@@ -738,6 +740,10 @@ void Game::startNewRun()
         mRunStats.structuresBuilt = cp.structuresBuilt;
         mRunStats.distanceWalked = cp.distanceWalked;
         restoreTownFromCheckpoint(cp);
+        if (cp.firstDaysSaved)
+        {
+            restoreFirstDays(cp.firstDays);
+        }
 
         mInteractionMessage = "Resumed " + mCurrentCharacterName + "'s run.";
         mInteractionMessageTimer = 3.0f;
@@ -747,6 +753,7 @@ void Game::startNewRun()
     {
         mSaveManager.deleteCheckpoint();
     }
+    placeHomeKit();
 
     if (!restoredCheckpoint)
     {

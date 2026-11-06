@@ -21,9 +21,10 @@ public:
     static constexpr float kZombieDamagePerSecond = 7.0f;
     // Seconds between audible bangs on one door, however many are at it.
     static constexpr float kBangInterval = 0.9f;
-    // Up to three boards, each soaking about as much as the door itself.
+    // Up to three boards. One zombie on its own gives up (after 90 s) having
+    // split about one; the two or three its banging draws in take the rest.
     static constexpr int kMaxBoards = 3;
-    static constexpr float kBoardHp = 90.0f;
+    static constexpr float kBoardHp = 450.0f;
 
     struct Door
     {

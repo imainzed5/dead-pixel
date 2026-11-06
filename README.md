@@ -21,6 +21,9 @@ done, what is next, and known issues.
   roads, houses, shops and workshops. Rooms are furnished, and the furniture
   can be searched. Walls cut away around you, and roofs lift when you go
   inside.
+- **The first three days:** each run starts at home, with a plan for each
+  day and night. Search the house and board it up before dark; the taps run
+  until day 3; every night more of the dead come knocking.
 - **Staying alive:** hunger, thirst, fatigue and sleep debt, temperature,
   illness, wounds, bleeding and infection. Panic, depression and
   desensitisation also play a part.
@@ -48,6 +51,7 @@ done, what is next, and known issues.
 | Mouse, left click, right click | Aim, attack, grab |
 | E | Interact: open and close doors, search containers, sleep in a bed |
 | R / X at a closed door | Board it up (hammer and a plank) / pry a board off |
+| R at a kitchen counter or sink | Drink from the tap and fill empty bottles (until day 3) |
 | F | Use the selected item, or take a weapon in hand |
 | Q | Flashlight |
 | 1-8 | Hotbar slot |
@@ -127,16 +131,19 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 - **Input:**
   - `tap KEY`, `hold KEY TICKS`, `key KEY down|up`;
   - `mouse X Y`, `click left|right`, `button left|right down|up`.
-- **Time:** `wait TICKS`, `waits SECONDS`, `hours H` (set the clock).
+- **Time:** `wait TICKS`, `waits SECONDS`, `hours H` (set the clock),
+  `day N`.
 - **Runs:** `newrun`, `save`, `resume`, `kill [cause]`, `retire`, `quit`.
 - **Moving and setup:**
   - `teleport X Y`, `enter N` (a building);
-  - `goto risen|pack|grave|door [outside]|furniture [KIND|any] [stocked]`;
+  - `goto home|risen|pack|grave|door [outside]|furniture [KIND|any] [stocked]`;
   - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE`, `zoom Z`.
 - **The dead:** `zombie DX DY`, `slay RADIUS`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
+  - `plan` prints the day's plan, the home's doors and boards, and the
+    night's callers;
   - `expect alive|dead`, `shot NAME`, `metrics INTERVAL` (game seconds),
     `log TEXT`.
 
@@ -145,6 +152,8 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | Script | What it checks |
 |---|---|
 | `baseline_tour` | A first look around a fresh run |
+| `first_day` | Day 1's plan: search the house, the tap, boarding up, sleep, night 1, the day 2 card, the taps dying |
+| `night_siege` | Night callers at a boarded door, giving up, drifting off at dawn; night 3 |
 | `hud_states` | HUD for a fresh character, one in trouble, and night |
 | `soak_idle` | Two idle game days with metrics, so needs and zombie pressure can be read |
 | `interiors` | Walls, cut-away and roofs inside buildings |
