@@ -22,11 +22,13 @@ public:
 
     void update(World& world, const Input& input, const TileMap& tileMap, NoiseModel& noiseModel, float dtSeconds);
 
-private:
-    static constexpr float kSpriteSize = 32.0f;
+    // The three parts of a swing; the attack animation follows them.
     static constexpr float kWindupSeconds = 0.20f;
     static constexpr float kActiveSeconds = 0.10f;
     static constexpr float kRecoverySeconds = 0.30f;
+
+private:
+    static constexpr float kSpriteSize = 32.0f;
     static constexpr float kRecoveryDelayAfterAttackSeconds = 1.00f;
     static constexpr float kExhaustedMissChance = 0.35f;
     static constexpr float kExhaustedThreshold = 0.20f;

@@ -75,6 +75,8 @@ add_library(dead_pixel_core STATIC
     src/world/EntityFactory.cpp
     src/world/Doors.cpp
     src/world/Furniture.cpp
+    src/world/Scenery.cpp
+    src/systems/Atmosphere.cpp
     src/world/FirstDays.cpp
     src/items/ItemDatabase.cpp
     src/rendering/Camera.cpp
@@ -85,6 +87,7 @@ add_library(dead_pixel_core STATIC
     src/rendering/SpriteSheet.cpp
     src/rendering/StructureView.cpp
     src/rendering/FurnitureView.cpp
+    src/rendering/SceneryView.cpp
     src/legacy/LegacyRules.cpp
     src/ui/Hud.cpp
     src/systems/AnimationSystem.cpp
@@ -138,6 +141,9 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_doors.cpp
         tests/test_furniture.cpp
         tests/test_firstdays.cpp
+        tests/test_feel.cpp
+        tests/test_scenery.cpp
+        tests/test_atmosphere.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

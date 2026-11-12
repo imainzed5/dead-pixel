@@ -9,6 +9,13 @@ void Game::render()
     glClearColor(0.08f, 0.11f, 0.14f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    // Screen shake: trauma squared, so small knocks barely show.
+    {
+        const float amount = mShakeTrauma * mShakeTrauma * 7.0f;
+        mCamera.setShake(glm::vec2(std::sin(mShakeClock * 71.0f) * amount,
+                                   std::cos(mShakeClock * 53.0f) * amount));
+    }
+
     mShader.use();
     mShader.setMat4("uProjection", mProjection);
     mShader.setInt("uTexture", 0);
@@ -29,14 +36,30 @@ void Game::render()
     mStaticSprites.clear();
     mStructureView.collect(mCamera, playerTile(), mStructureSprites, mStaticSprites, &mTileMap);
     mFurnitureView.collect(mCamera, mStructureView, playerTile(), mSpriteSheet, mStaticSprites);
+    mSceneryView.collect(mCamera, playerTile(), mSpriteSheet, mStaticSprites);
     RenderExtras extras;
     extras.statics = &mStaticSprites;
     extras.isHiddenAt = [this](int tileX, int tileY) { return mStructureView.isHiddenAt(tileX, tileY); };
+    // Marks on the ground (dried blood) lie under everything that stands.
+    const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
+    mSceneryView.drawFlat(mSpriteBatch, mCamera, mSpriteSheet);
+    mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv, true);
+
     mRenderSystem.render(mWorld, mSpriteBatch, mCamera, mInterpolationAlpha, &extras);
 
+    // Cloud shadows slide over the town by day.
+    const glm::vec4 cloudUv = mSpriteSheet.uvRect("fx_cloud");
+    mAtmosphere.renderCloudShadows(mSpriteBatch, mCamera, cloudUv, 1.0f - nightFactor());
+
     // Particles (rendered in world space, affected by lighting)
-    const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
     mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv);
+
+    // Fog and rain, in front of the world.
+    {
+        const glm::vec2 centre = playerWorldCenter();
+        mAtmosphere.renderFog(mSpriteBatch, mCamera, cloudUv, solidWhiteUv);
+        mAtmosphere.renderRain(mSpriteBatch, mCamera, solidWhiteUv, mTileMap.isIndoorsAtWorld(centre.x, centre.y));
+    }
 
     // Build mode ghost preview
     if (mBuildSystem.isBuildMode())
@@ -663,9 +686,17 @@ void Game::setupLightingUniforms()
         ambientColor = glm::mix(nightColor, dayColor, 1.0f - night); // cool dawn, no orange
     }
 
-    mShader.setFloat("uAmbientLight", ambientLevel);
+    // Weather: cloud takes the edge off the daylight and cools it, and
+    // lightning throws the whole scene white for an instant.
+    const float skyDim = mAtmosphere.skyDim();
+    const float flash = mAtmosphere.flash();
+    ambientColor = glm::mix(ambientColor, glm::vec3(0.80f, 0.86f, 0.96f), std::min(1.0f, skyDim * 1.6f));
+    ambientColor = glm::mix(ambientColor, glm::vec3(0.92f, 0.95f, 1.0f), flash);
+    const float weatherLevel = std::min(1.0f, ambientLevel * (1.0f - skyDim) + flash * 0.9f);
+
+    mShader.setFloat("uAmbientLight", weatherLevel);
     mShader.setVec3("uAmbientColor", ambientColor);
-    mShader.setFloat("uSaturation", tone.saturation);
+    mShader.setFloat("uSaturation", tone.saturation * (1.0f - skyDim * 0.5f));
 
     // A world radius in pixels becomes this many screen pixels on the
     // (un-squashed) iso ground at the current zoom.
@@ -726,6 +757,49 @@ void Game::setupLightingUniforms()
             addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
                      glm::vec3(1.0f, 0.55f, 0.22f) * strength, 3.0f + fire.intensity * 1.5f);
         });
+
+    // A shot lights up whoever fired it.
+    if (mMuzzleFlash > 0.0f)
+    {
+        addLight(mMuzzleWorld, glm::vec3(1.0f, 0.86f, 0.55f) * (0.5f + 0.5f * (1.0f - night)), 3.5f);
+    }
+
+    // Street lamps: some still burn, and some of those are on their way out.
+    if (night > 0.05f)
+    {
+        std::vector<glm::vec2> lamps;
+        const glm::vec2 centre = mCamera.screenToWorld(mCamera.viewportSize() * 0.5f);
+        mSceneryView.lampsNear(centre, 16.0f * tilePx, lamps);
+        std::sort(lamps.begin(), lamps.end(), [&](const glm::vec2& a, const glm::vec2& b)
+        {
+            return glm::dot(a - centre, a - centre) < glm::dot(b - centre, b - centre);
+        });
+        int lit = 0;
+        const float clock = static_cast<float>(SDL_GetTicks()) * 0.001f;
+        for (const glm::vec2& lamp : lamps)
+        {
+            const int state = SceneryView::lampState(lamp);
+            if (state == 0)
+            {
+                continue; // dead
+            }
+            const auto h = static_cast<std::uint32_t>(lamp.x * 7.0f + lamp.y * 13.0f);
+            float strength = 0.85f;
+            if (state == 2)
+            {
+                // Failing: it stutters, and now and then goes out for a moment.
+                const float buzz = std::sin(clock * 31.0f + static_cast<float>(h % 97u));
+                const float fade = std::sin(clock * 0.9f + static_cast<float>(h % 13u));
+                strength *= fade < -0.7f ? 0.1f : (buzz > 0.2f ? 1.0f : 0.55f);
+            }
+            // The lamp hangs out over the road from the top of its post.
+            addLight(lamp + glm::vec2(9.0f, -9.0f), glm::vec3(1.0f, 0.80f, 0.48f) * (strength * night), 4.5f);
+            if (++lit >= 6)
+            {
+                break;
+            }
+        }
+    }
 
     mShader.setInt("uLightCount", lightCount);
     if (lightCount > 0)
@@ -905,11 +979,18 @@ void Game::renderMap()
                 continue;
             }
 
+            // A thin wall stands on the ground of whatever is beside it.
+            if (const int under = mStructureView.groundUnder(col, row); under > 0)
+            {
+                gid = under;
+            }
+
             // Pick one of the tileset's variants from the tile position.
+            const int base = gid;
+            std::uint32_t h = static_cast<std::uint32_t>(col) * 73856093u ^ static_cast<std::uint32_t>(row) * 19349663u;
+            h ^= h >> 13;
             if (gid >= 1 && gid <= TileGid::kPerRow)
             {
-                std::uint32_t h = static_cast<std::uint32_t>(col) * 73856093u ^ static_cast<std::uint32_t>(row) * 19349663u;
-                h ^= h >> 13;
                 gid += TileGid::kPerRow * static_cast<int>(h % static_cast<std::uint32_t>(TileGid::kVariants));
             }
 
@@ -943,6 +1024,65 @@ void Game::renderMap()
                 glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f),
                 uvRect,
                 glm::vec4(1.0f));
+
+            // Edge overlays: grass creeping over its neighbours, the banks
+            // of ponds, and the shadow at the foot of a wall.
+            const auto overlay = [&](int overlayGid)
+            {
+                glm::vec4 overlayUv;
+                if (mTileMap.gidToUvRect(overlayGid, overlayUv))
+                {
+                    mSpriteBatch.draw(
+                        glm::vec2(std::round(screenCenter.x - scaledTileW * 0.5f),
+                                  std::round(screenCenter.y - scaledTileH * 0.5f)),
+                        glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f), overlayUv, glm::vec4(1.0f));
+                }
+            };
+            constexpr int kEdges[4][2] = {{-1, 0}, {0, -1}, {1, 0}, {0, 1}};
+            const bool walled = mTileMap.blocksSight(col, row);
+            const bool indoors = mTileMap.isIndoors(col, row);
+            for (int edge = 0; edge < 4; ++edge)
+            {
+                const int nx = col + kEdges[edge][0];
+                const int ny = row + kEdges[edge][1];
+                if (!mTileMap.inBounds(nx, ny))
+                {
+                    continue;
+                }
+                const int next = mTileMap.groundGid(nx, ny);
+                const int variant = static_cast<int>((h >> (4 + edge * 2)) % static_cast<std::uint32_t>(TileGid::kEdgeVariants));
+                if (base == TileGid::kWater)
+                {
+                    if (next != TileGid::kWater)
+                    {
+                        overlay(TileGid::shoreGid(edge, variant));
+                    }
+                }
+                else if (!walled && !indoors && !TileGid::isGrass(base) && TileGid::isGrass(next) &&
+                         !mTileMap.blocksSight(nx, ny) && !mTileMap.isIndoors(nx, ny))
+                {
+                    overlay(TileGid::fringeGid(edge, variant));
+                }
+            }
+            if (base != TileGid::kWater)
+            {
+                if (mStructureView.wallAtEdge(col, row, 0))
+                {
+                    overlay(TileGid::shadowInsetGid(0));
+                }
+                else if (mStructureView.wallAtEdge(col - 1, row, 2))
+                {
+                    overlay(TileGid::shadowGid(0, false));
+                }
+                if (mStructureView.wallAtEdge(col, row, 1))
+                {
+                    overlay(TileGid::shadowInsetGid(1));
+                }
+                else if (mStructureView.wallAtEdge(col, row - 1, 3))
+                {
+                    overlay(TileGid::shadowGid(1, true));
+                }
+            }
         }
     }
 }

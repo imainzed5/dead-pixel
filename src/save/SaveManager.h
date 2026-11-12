@@ -83,6 +83,8 @@ struct CorpseRecord
     float x = 0.0f; // Transform position (sprite top-left)
     float y = 0.0f;
     bool flipX = false;
+    int look = 0; // zombie look
+    int dir = 1;  // facing as it fell (Animation::dir)
 };
 
 // Where a run stands in its first three days (see world/FirstDays.h).

@@ -1,5 +1,7 @@
 #include "systems/AnimationSystem.h"
 
+#include <algorithm>
+
 #include "components/Animation.h"
 #include "components/Sprite.h"
 
@@ -17,6 +19,13 @@ void AnimationSystem::update(World& world, const SpriteSheet& sheet, float dtSec
             if (totalFrames <= 1)
             {
                 sprite.uvRect = sheet.uvRect(anim.currentAnim);
+                return;
+            }
+
+            if (anim.driven)
+            {
+                anim.currentFrame = std::clamp(anim.currentFrame, 0, totalFrames - 1);
+                sprite.uvRect = sheet.frameUv(anim.currentAnim, anim.currentFrame);
                 return;
             }
 

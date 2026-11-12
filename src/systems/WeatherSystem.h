@@ -6,6 +6,12 @@ class WeatherSystem
 {
 public:
     void update(WeatherState& weather, float dtSeconds, double gameHours, int currentDay);
+    // Set the weather and keep it for `seconds` (dev harness and tests).
+    void hold(WeatherState& weather, WeatherCondition condition, float seconds)
+    {
+        weather.condition = condition;
+        mConditionTimer = seconds;
+    }
 
 private:
     // Season base temperatures (Celsius)

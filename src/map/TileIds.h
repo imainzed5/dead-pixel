@@ -25,6 +25,34 @@ inline constexpr int kSidewalk = 14;
 inline constexpr int kPerRow = 16;
 inline constexpr int kVariants = 4;
 
+// After the variants come rows of edge overlays, drawn over a ground tile
+// along one edge (see tools/generate_sprites.py). Edge 0 is shared with the
+// tile at (x-1, y), 1 with (x, y-1), 2 with (x+1, y), 3 with (x, y+1).
+inline constexpr int kOverlayRows = 3;
+inline constexpr int kEdgeVariants = 4;
+
+// Grass growing in over a neighbouring tile's edge.
+[[nodiscard]] inline constexpr int fringeGid(int edge, int variant)
+{
+    return 1 + kVariants * kPerRow + edge * kEdgeVariants + variant;
+}
+// The bank where water meets land, drawn on the water tile.
+[[nodiscard]] inline constexpr int shoreGid(int edge, int variant)
+{
+    return 1 + (kVariants + 1) * kPerRow + edge * kEdgeVariants + variant;
+}
+// The shadow at the foot of a thin wall standing along that edge of the tile
+// itself (edges 0 and 1 only: shadows fall toward the camera).
+[[nodiscard]] inline constexpr int shadowInsetGid(int edge)
+{
+    return 1 + (kVariants + 2) * kPerRow + 8 + edge;
+}
+// The shadow at the foot of a wall.
+[[nodiscard]] inline constexpr int shadowGid(int edge, bool faint)
+{
+    return 1 + (kVariants + 2) * kPerRow + edge + (faint ? 4 : 0);
+}
+
 [[nodiscard]] inline constexpr bool isGrass(int gid)
 {
     return gid == kGrass || gid == kGrass2;

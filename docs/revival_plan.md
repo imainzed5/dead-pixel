@@ -486,6 +486,152 @@ the legacy layer take over from here.
 - breaking furniture up for planks;
 - day plans for days after 3.
 
+## Art and feel, pass 1: characters and combat (2026-11-13)
+
+Asked for by the user ahead of Wave 5: better art, animation and physics,
+kept code-drawn and at the same pixel scale. Three passes; this is the
+first. Branch `art-and-feel`.
+
+**Characters.** `tools/charrig.py` is a small rig: a pose places the joints
+of one 3D skeleton, and the rig draws it for five facings as shaded capsules
+with a depth buffer (the game mirrors three of them, so eight facings in
+all). One description of a walk therefore gives every facing and every
+frame. The atlas grew to 4096x2048; the original 1024 px block is untouched
+and the characters fill the block to its right (950 frames).
+
+- Player: idle, walk (8 frames), run, crouch, crouch-walk and hurt, each in
+  four loadouts (empty hands, club, blade, gun) so the weapon in hand shows;
+  swing, stab, punch and shoot, driven frame by frame from the combat
+  phases; a six-frame fall.
+- Zombies: three looks (clothes, hair, skin), a dragging shamble that keeps
+  time with their speed, a lunge whose coil is the telegraph, a stagger and
+  a fall.
+
+**Combat weight.**
+
+- A blow throws a zombie back as real movement (it stops at walls), leaves
+  it reeling and **breaks off a lunge it was winding up**. That last part
+  changes the fight: timing a hit now saves you from one.
+- A landed blow holds the world for a few frames, shakes the view and
+  flashes the zombie; blood arcs along the swing, lands and stains the
+  ground for a while.
+- The dead go over backward along the blow, slide and settle. The strike of
+  a lunge carries the zombie forward; a hit on the player shoves them.
+
+**Movement.** The player gathers and sheds speed over a few frames. Zombies
+no longer stand inside the player.
+
+Checked with `tools/harness/combat_feel.txt` and `tests/test_feel.cpp`.
+
+Still to do in later passes: (2) the world: tiles, walls, roofs, furniture,
+props; (3) objects that move and atmosphere: thrown and dropped items,
+debris, furniture with momentum, shadows, sway, rain splashes, drifting
+smoke, footprints. Survivors still wear the player's frames with a tint.
+
+## Art and feel, pass 2: the world (2026-11-13)
+
+Still code-drawn, same pixel scale. Compare `docs/shots/pass2_before.png`
+with `docs/shots/pass2_after.png`; `tools/harness/world_tour.txt` takes the
+same twelve views again.
+
+**Ground.** The outdoor textures in `tools/generate_sprites.py` are redrawn
+around a muted moss palette: drifts, tufts and marks rather than per-pixel
+noise. Dirt has pebbles, asphalt has worn patches and cracks, pavement slabs
+differ in tone, water has bands and glints. The tileset gains three rows of
+edge overlays after the four variant rows (`TileGid::fringeGid`, `shoreGid`,
+`shadowGid`): grass creeping over whatever lies beside it, banks where water
+meets land, and a shadow at the foot of every wall. `Game::renderMap` draws
+them over the tile they belong to.
+
+**Buildings.** Siding stands on a concrete footing with board joints, rain
+streaks and trim; every brick has its own tone; sheet metal has rivets and
+rust runs; windows have sills, curtains and graded glass; shingles vary, slip
+and gather moss. Walls darken toward the ground and under the eaves.
+
+**Scenery.** `tools/scenery.py` draws five trees, bushes, rocks, a stump,
+grass tufts, flowers, a lamp post, hydrant and bin, and flat litter (paper,
+cans, leaves, puddles, manholes, weeds, cracks). `scenery::plant`
+(`src/world/Scenery.cpp`) places them from the tile map alone, by position
+hash, so a town always grows the same scenery and nothing is saved. Trees
+gather in groves. `SceneryView` sorts standing pieces with walls and
+characters, lays flat ones under everything, and fades a tree that stands in
+front of the player.
+
+Trees, lamp posts, hydrants and bins fill their tile (`TileMap::setScenery`,
+part of `isSolid`, not of `blocksSight`). One may only stand where all eight
+tiles round it are open ground outdoors with no other blocker, so scenery
+can never close a path. `Game::plantScenery` runs again once a run's people
+and things are placed and leaves their tiles clear.
+
+Not done here: furniture is unchanged, and the map generator still puts the
+odd pond against a pavement.
+
+## Buildings: thin walls and pitched roofs (2026-11-13)
+
+Buildings no longer read as rows of blocks. The tile grid, collision, map
+generator and saves are untouched: a wall still fills its tile for movement.
+What changed is how `StructureView` draws it. See
+`docs/shots/buildings_after.png` and `docs/shots/buildings_inside.png`.
+
+**Walls.** A building's walls are pieces 8 px thick (`wallp_*`, drawn by
+`make_wall_piece` in `tools/generate_sprites.py`). An outside wall stands on
+the edge of its tile nearest the rooms (`WallPlace::EdgeN` and so on), a
+corner is a post, and a wall between rooms runs down the middle of its tile
+in half pieces that reach toward neighbouring walls. Textures repeat every
+tile, so runs join without seams. Faces seen from the street carry the
+building's material; faces seen from the rooms are painted plaster with a
+skirting board. Each house gets a paint tint and a wallpaper tint from its
+id. The ground under an outside wall is whatever lies outside it; under an
+inside wall, the room's floor (`StructureTile::underGid`).
+
+**Roofs.** A hip roof covers the whole footprint, walls included, so the
+eaves overhang. Height over a tile is the least of up to four planes, one
+rising from each side; `StructureTile::roofLevel` and `roofMask` pick one of
+sixteen pieces per roof kind (`roofp_<kind>_<mask>`). Roofs rise four steps
+and then flatten, so big sheds get a deck. A fascia board shows along the
+eaves. A roof the player walks behind thins to 30 %.
+
+**Shadows.** Wall shadows follow the thin walls (`wallAtEdge`,
+`TileGid::shadowInsetGid`).
+
+Walls that belong to no building (the brick wall round the map) are thin
+too, down the middle of their tiles. Because a wall tile is still solid, there is a strip about 24 px wide
+outside each house wall that cannot be walked on.
+
+## Art and feel, pass 3: things that move, and weather you can see (2026-11-13)
+
+`tools/harness/atmosphere.txt` shows all of it; see
+`docs/shots/pass3_storm.png` and `docs/shots/pass3_lamp.png`.
+
+**Weather.** `WeatherSystem` already decided the weather; nothing showed it.
+`Atmosphere` (`src/systems/Atmosphere.cpp`) now does: rain streaks that slant
+with the wind and thin out when you are under a roof, splashes on open
+ground, a haze in heavy rain, fog with drifting banks, cloud shadows sliding
+over the town by day, and lightning in storms (a flash, often a second
+flicker, and a small shake). Cloud takes the edge off the daylight, cools it
+and drains a little colour. Weather comes on and clears over a few seconds.
+
+**Wind.** There is always a breath of wind and it gusts. Trees lean from the
+trunk up, further in a gale (`SceneryView::lean`); bushes stir. Leaves come
+off the oaks, three times as freely off the autumn ones, drift downwind and
+lie where they land for a while.
+
+**Things that move.** Bushes, tufts and flowers shake and shed a leaf or two
+when anyone, living or dead, pushes through them. Cans and paper are kicked
+along by passing feet, roll to a stop and bounce off walls; paper is carried
+by a strong wind. A gunshot throws a spent case out to the side, which lies
+where it falls, and lights the shooter for an instant.
+
+**Lamp light.** Two street lamps in three still burn at night, and some of
+those stutter and drop out (`SceneryView::lampState`). The six nearest are
+lit, within the shader's sixteen lights.
+
+None of this is saved, and none of it changes the rules: weather effects on
+warmth, fire and noise are as they were.
+
+Not done: doors still change state at a cut rather than swinging, there is
+no weather sound, and snow is drawn as rain.
+
 ## Next, after the handoff
 
 Candidates for the next stretch, roughly in order. None is started.
@@ -598,3 +744,13 @@ Candidates for the next stretch, roughly in order. None is started.
   begins on `wave4-first-days`: home kit, taps and empty bottles, a plan for
   each day and night, night callers, tougher boards, zombies that give up
   for good, a dawn day card.
+- 2026-11-13: Art and feel, pass 1 on `art-and-feel`: characters drawn from a
+  rig in eight facings with full animation sets, and combat weight
+  (knockback, stagger, hit-stop, shake, blood that lands).
+- 2026-11-13: Art and feel, pass 2: ground redrawn with edge overlays, wall,
+  window and roof detail, and outdoor scenery (trees block, the rest is
+  dressing).
+- 2026-11-13: Buildings redrawn: thin walls with inside and outside faces,
+  hip roofs with eaves, per-house paint.
+- 2026-11-13: The town wall made thin. Art and feel, pass 3: visible weather,
+  wind in the trees, kicked litter, spent cases, street lamps.

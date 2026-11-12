@@ -78,12 +78,12 @@ void MapGenerator::applyToTileMap(TileMap& outMap) const
 
     TilesetInfo tileset{};
     tileset.firstGid = 1;
-    tileset.tileCount = TileGid::kPerRow * TileGid::kVariants;
+    tileset.tileCount = TileGid::kPerRow * (TileGid::kVariants + TileGid::kOverlayRows);
     tileset.columns = TileGid::kPerRow;
     tileset.tileWidth = 64;
     tileset.tileHeight = 32;
     tileset.imageWidth = 64 * TileGid::kPerRow;
-    tileset.imageHeight = 32 * TileGid::kVariants;
+    tileset.imageHeight = 32 * (TileGid::kVariants + TileGid::kOverlayRows);
     tileset.imagePath = "../sprites/placeholder.png";
     outMap.setTileset(tileset);
 

@@ -45,6 +45,7 @@ bool SpriteSheet::loadFromFiles(const std::string& pngPath, const std::string& j
         const float pw = static_cast<float>(value.value("w", 32));
         const float ph = static_cast<float>(value.value("h", 32));
         region.uvRect = glm::vec4(px / imgW, py / imgH, pw / imgW, ph / imgH);
+        region.pixelSize = glm::vec2(pw, ph);
 
         if (value.contains("frames") && value["frames"].is_array())
         {
@@ -68,6 +69,12 @@ const SpriteRegion* SpriteSheet::find(const std::string& name) const
 {
     const auto it = mSprites.find(name);
     return it != mSprites.end() ? &it->second : nullptr;
+}
+
+glm::vec2 SpriteSheet::pixelSize(const std::string& name) const
+{
+    const SpriteRegion* region = find(name);
+    return region ? region->pixelSize : glm::vec2(0.0f);
 }
 
 glm::vec4 SpriteSheet::uvRect(const std::string& name) const

@@ -28,7 +28,7 @@ done, what is next, and known issues.
   illness, wounds, bleeding and infection. Panic, depression and
   desensitisation also play a part.
 - **The dead:** they hunt by sight and noise, and a threat director decides
-  how hard the town pushes back. Their lunges are telegraphed. They batter
+  how hard the town pushes back. Their lunges are telegraphed, and a well-timed blow breaks one off. They batter
   closed doors down, and the bodies stay where they fall.
 - **Fighting back:**
   - melee weapons that wear out, plus firearms, grabs and molotovs;
@@ -175,6 +175,8 @@ and the image scripts also need Pillow.
 | Script | Writes |
 |---|---|
 | `tools/generate_sprites.py` | Sprite atlas and tileset: `assets/sprites/spritesheet.png` and `.json`, `placeholder.png` |
+| `tools/charrig.py` | The character rig `generate_sprites.py` draws the player and the dead from: poses, facings, animation tables. `python tools/charrig.py out.png` writes a preview sheet |
+| `tools/scenery.py` | Outdoor scenery `generate_sprites.py` packs into the atlas: trees, bushes, rocks, street furniture and ground litter. `python tools/scenery.py out.png` writes a preview sheet |
 | `tools/generate_font_atlas.py` | The pixel font in `assets/fonts/` |
 | `tools/generate_sounds.py` | Placeholder sound effects in `assets/sounds/` |
 

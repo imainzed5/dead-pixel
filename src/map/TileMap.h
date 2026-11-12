@@ -54,7 +54,7 @@ public:
 
     [[nodiscard]] bool gidToUvRect(int gid, glm::vec4& outUvRect) const;
     [[nodiscard]] int groundGid(int tileX, int tileY) const;
-    // Blocks movement: walls, closed doors and furniture.
+    // Blocks movement: walls, closed doors, furniture and standing scenery.
     [[nodiscard]] bool isSolid(int tileX, int tileY) const;
     // Blocks sight and thrown things: walls and closed doors, not furniture.
     [[nodiscard]] bool blocksSight(int tileX, int tileY) const;
@@ -77,6 +77,11 @@ public:
     void setFurniture(int tileX, int tileY, bool present);
     [[nodiscard]] bool hasFurniture(int tileX, int tileY) const;
     void clearFurniture();
+
+    // Scenery that fills a tile (a tree, a lamp post) blocks movement too.
+    void setScenery(int tileX, int tileY, bool present);
+    [[nodiscard]] bool hasScenery(int tileX, int tileY) const;
+    void clearScenery();
 
     [[nodiscard]] int width() const { return mWidth; }
     [[nodiscard]] int height() const { return mHeight; }
@@ -103,4 +108,5 @@ private:
     std::vector<DoorState> mDoorLayer;
     std::vector<std::uint8_t> mDoorBoards;
     std::vector<std::uint8_t> mFurnitureLayer;
+    std::vector<std::uint8_t> mSceneryLayer;
 };

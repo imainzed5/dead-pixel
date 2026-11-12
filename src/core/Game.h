@@ -24,6 +24,7 @@
 #include "world/Doors.h"
 #include "world/FirstDays.h"
 #include "world/Furniture.h"
+#include "world/Scenery.h"
 #include "map/MapGenerator.h"
 #include "map/TileMap.h"
 #include "map/TiledLoader.h"
@@ -34,6 +35,7 @@
 #include "rendering/BitmapFont.h"
 #include "rendering/SpriteSheet.h"
 #include "rendering/FurnitureView.h"
+#include "rendering/SceneryView.h"
 #include "rendering/StructureView.h"
 #include "rendering/Texture.h"
 #include "save/SaveManager.h"
@@ -57,6 +59,7 @@
 #include "systems/SurvivorAISystem.h"
 #include "systems/SurvivorInteractionSystem.h"
 #include "systems/WeatherSystem.h"
+#include "systems/Atmosphere.h"
 #include "systems/DistrictInfectionSystem.h"
 #include "systems/ThreatDirectorSystem.h"
 #include "components/Weather.h"
@@ -139,6 +142,8 @@ private:
     // Furnishes the town from the layout; furniture is part of the world,
     // the same every run.
     void furnishWorld();
+    // Plants the outdoor scenery, leaving clear any tile something already stands on.
+    void plantScenery();
     // The weapon in hand is an inventory item. Its wear is kept in the item's
     // condition, so putting it away and taking it out again does not mend it.
     void equipWeaponFromSlot(int slotIndex);
@@ -224,8 +229,13 @@ private:
     void boardUpDoor(const glm::ivec2& tile);
     // Every door with boards on it, for saving.
     [[nodiscard]] std::vector<BoardedDoorRecord> boardedDoorRecords() const;
-    // A body on the floor where a zombie fell (sprite top-left, mirrored or not).
-    void spawnCorpse(const glm::vec2& topLeft, bool flipX, const glm::vec4& tint);
+    // A body where a zombie fell (sprite top-left). It wears the zombie's
+    // look, falls facing `dir` (Animation::dir) and slides on what is left of
+    // the blow; `settled` skips the fall (bodies restored from a save).
+    void spawnCorpse(const glm::vec2& topLeft, int look, int dir, const glm::vec4& tint,
+                     const glm::vec2& slide, bool settled);
+    // Blood, a held frame and a shaken screen when a blow lands on a zombie.
+    void updateBlowFeedback(float dtSeconds);
 
     // The first three days (GameFirstDays.cpp): home, the taps, the day plan
     // and the night's callers.
@@ -287,6 +297,22 @@ private:
     WoundSystem mWoundSystem;
     RenderSystem mRenderSystem;
     ParticleSystem mParticleSystem;
+    Atmosphere mAtmosphere;
+    // Wind in the trees, feet in the bushes, leaves coming down, lamp light.
+    void updateAtmosphere(float dtSeconds);
+    std::vector<SceneryMover> mSceneryMovers;
+    std::vector<glm::vec2> mRustled;
+    std::vector<SceneryCanopy> mCanopies;
+    float mLeafDebt = 0.0f;
+    float mMuzzleFlash = 0.0f; // seconds of muzzle light left
+    glm::vec2 mMuzzleWorld{0.0f};
+    // Combat weight: a landed blow slows time for a few frames (mHitStop,
+    // real seconds left) and shakes the view (mShakeTrauma, 0..1).
+    float mHitStop = 0.0f;
+    float mShakeTrauma = 0.0f;
+    float mShakeClock = 0.0f;
+    float mPlayerHurtTimer = 0.0f;
+    std::vector<glm::vec2> mPlayerHits; // directions of blows the player took this tick
     SurvivorAISystem mSurvivorAISystem;
     SurvivorInteractionSystem mSurvivorInteractionSystem;
     WeatherSystem mWeatherSystem;
@@ -362,6 +388,7 @@ private:
     StructureView mStructureView;
     std::vector<FurniturePiece> mFurniture;
     FurnitureView mFurnitureView;
+    SceneryView mSceneryView;
     StructureSprites mStructureSprites;
     std::vector<StaticSprite> mStaticSprites;
     float mHudClock = 0.0f;

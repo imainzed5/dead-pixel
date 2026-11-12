@@ -11,7 +11,7 @@
 #include "components/Transform.h"
 #include "components/Velocity.h"
 
-void InputSystem::update(World& world, const Input& input, const glm::vec2& mouseWorld) const
+void InputSystem::update(World& world, const Input& input, const glm::vec2& mouseWorld, float dtSeconds) const
 {
     world.forEach<PlayerInput, Velocity, Facing, Transform>(
         [&](Entity entity, PlayerInput&, Velocity& velocity, Facing& facing, Transform& transform)
@@ -92,8 +92,14 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
                 }
             }
 
-            velocity.dx = moveInput.x * (kBaseSpeed * speedMultiplier);
-            velocity.dy = moveInput.y * (kBaseSpeed * speedMultiplier);
+            const glm::vec2 wanted = moveInput * (kBaseSpeed * speedMultiplier);
+            const glm::vec2 current(velocity.dx, velocity.dy);
+            const glm::vec2 change = wanted - current;
+            const float changeLength = glm::length(change);
+            const float step = (glm::dot(wanted, wanted) > 0.0f ? kAcceleration : kDeceleration) * dtSeconds;
+            const glm::vec2 next = changeLength <= step ? wanted : current + change / changeLength * step;
+            velocity.dx = next.x;
+            velocity.dy = next.y;
 
             const glm::vec2 playerCenter(
                 transform.x + kSpriteSize * 0.5f,

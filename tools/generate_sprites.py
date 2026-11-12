@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Isometric sprite generator for Dead Pixel Survival.
 Generates all game sprites as isometric pixel art using Pillow.
@@ -15,8 +15,12 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 # Atlas dimensions
+# The original atlas: tiles, items, structures and furniture are laid out in it.
 ATLAS_W = 1024
 ATLAS_H = 1024
+# The whole sheet; the characters fill the block to the right of the atlas.
+SHEET_W = 4096
+SHEET_H = 2048
 
 # Tile sizes
 ISO_TILE_W = 64
@@ -222,528 +226,56 @@ def gen_tile_fence(img, ox, oy):
 
 # --- Character Generation ---
 #
-# Characters are 64x64 frames whose feet rest on row 49 (the renderer pins the
-# bottom of that row to the ground point). Each is drawn in two views, both
-# turned to the viewer's right: "front" faces down-right on screen and "back"
-# faces up-right. The game mirrors them for the two left-hand directions.
-#
-# Flat-shaded pixel art (highlight, base, shadow) with a dark outline, so the
-# figures read against any floor, and a soft shadow on the ground.
+# Characters come from the rig in charrig.py: one skeleton, posed and drawn
+# for five facings (the game mirrors three of them). They fill the block to
+# the right of the original 1024 px atlas, 64x64 per frame.
 
-CHAR_FEET = 49
-CHAR_OUTLINE = (30, 24, 26, 255)
-CHAR_SHADOW = (0, 0, 0, 72)
-BLOOD = ((150, 40, 34), (122, 28, 26), (86, 18, 18))
-
-PLAYER_PAL = {
-    "skin": ((232, 200, 168), (214, 178, 144), (178, 142, 112)),
-    "hair": ((96, 70, 50), (66, 48, 34), (44, 32, 24)),
-    "top": ((104, 124, 140), (80, 98, 114), (58, 72, 86)),
-    "legs": ((76, 86, 112), (58, 66, 90), (42, 48, 68)),
-    "shoes": ((74, 60, 48), (54, 42, 34), (36, 28, 22)),
-    "pack": ((140, 118, 80), (112, 94, 62), (84, 70, 46)),
-    "detail": (44, 54, 64),
-    "eye": (36, 30, 28),
-}
-
-ZOMBIE_PAL = {
-    "skin": ((156, 172, 130), (128, 148, 110), (96, 114, 86)),
-    "hair": ((70, 68, 58), (52, 50, 44), (38, 36, 32)),
-    "top": ((128, 114, 96), (104, 92, 80), (78, 68, 60)),
-    "legs": ((82, 80, 92), (66, 64, 76), (50, 48, 58)),
-    "shoes": ((66, 60, 54), (48, 44, 40), (34, 30, 28)),
-    "detail": (60, 52, 46),
-    "eye": (232, 220, 150),
-    "mouth": (52, 18, 22),
-}
+CHAR_BLOCK_X = 1024
+CHAR_BLOCK_COLS = (SHEET_W - CHAR_BLOCK_X) // ENTITY_SIZE
 
 
-class CharCanvas:
-    """A 64x64 RGBA frame with the few primitives the characters need."""
-
-    def __init__(self):
-        self.img = Image.new("RGBA", (ENTITY_SIZE, ENTITY_SIZE), (0, 0, 0, 0))
-        self.under = Image.new("RGBA", (ENTITY_SIZE, ENTITY_SIZE), (0, 0, 0, 0))
-
-    def set(self, x, y, c, layer=None):
-        target = self.img if layer is None else layer
-        x, y = int(round(x)), int(round(y))
-        if 0 <= x < ENTITY_SIZE and 0 <= y < ENTITY_SIZE:
-            target.putpixel((x, y), tuple(c[:3]) + ((c[3],) if len(c) > 3 else (255,)))
-
-    def opaque(self, x, y):
-        return 0 <= x < ENTITY_SIZE and 0 <= y < ENTITY_SIZE and self.img.getpixel((x, y))[3] > 0
-
-    def rect(self, x0, y0, x1, y1, c):
-        for y in range(int(y0), int(y1) + 1):
-            for x in range(int(x0), int(x1) + 1):
-                self.set(x, y, c)
-
-    def ellipse(self, x0, y0, x1, y1, c, layer=None):
-        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
-        rx, ry = (x1 - x0) / 2.0 + 0.5, (y1 - y0) / 2.0 + 0.5
-        for y in range(int(y0), int(y1) + 1):
-            for x in range(int(x0), int(x1) + 1):
-                if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0:
-                    self.set(x, y, c, layer)
-
-    def limb(self, x0, y0, x1, y1, c, width=2, outline=True, colors=None):
-        """A thick line from (x0, y0) to (x1, y1), outlined so it reads over the body.
-        colors, when given, is a function t -> colour along the limb."""
-        n = max(abs(x1 - x0), abs(y1 - y0), 1)
-        points = []
-        for i in range(n + 1):
-            t = i / n
-            points.append((round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t), t))
-        if outline:
-            for x, y, _ in points:
-                for dy in range(-1, width + 1):
-                    for dx in range(-1, width + 1):
-                        if (dx in (-1, width)) and (dy in (-1, width)):
-                            continue
-                        self.set(x + dx, y + dy, CHAR_OUTLINE)
-        for x, y, t in points:
-            col = colors(t) if colors else c
-            for dy in range(width):
-                for dx in range(width):
-                    self.set(x + dx, y + dy, col)
-
-    def finish(self):
-        """Outline the figure, lay it over its shadow and return the frame."""
-        src = self.img
-        out = self.under.copy()
-        outline = Image.new("RGBA", src.size, (0, 0, 0, 0))
-        for y in range(ENTITY_SIZE):
-            for x in range(ENTITY_SIZE):
-                if src.getpixel((x, y))[3]:
-                    continue
-                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                    if 0 <= nx < ENTITY_SIZE and 0 <= ny < ENTITY_SIZE and src.getpixel((nx, ny))[3]:
-                        outline.putpixel((x, y), CHAR_OUTLINE)
-                        break
-        out.alpha_composite(outline)
-        out.alpha_composite(src)
-        return out
-
-
-def _leg(cv, pal, x, hip_y, fdx, fdy, tone, toe, knee=0):
-    """A trouser leg from the hip down to its shoe. fdx/fdy move the foot
-    (positive fdy lowers it); toe is +1 when the toes point right, 0 for heels;
-    knee pushes the middle of the leg out to the right (a bent knee)."""
-    legs, shoes = pal["legs"], pal["shoes"]
-    shoe_top = CHAR_FEET + fdy - 2
-    span = max(1, shoe_top - hip_y)
-    for y in range(hip_y, shoe_top):
-        t = (y - hip_y) / span
-        xo = x + round(fdx * t + knee * (1.0 - abs(2.0 * t - 1.0)))
-        cv.rect(xo, y, xo + 3, y, legs[tone])
-        cv.set(xo, y, legs[max(0, tone - 1)] if tone == 1 else legs[tone])
-        cv.set(xo + 3, y, legs[2])
-    sx = x + fdx
-    cv.rect(sx, shoe_top, sx + 3, shoe_top + 2, shoes[1])
-    cv.rect(sx, shoe_top + 2, sx + 3 + (1 if toe > 0 else 0), shoe_top + 2, shoes[2])
-    if toe > 0:
-        cv.set(sx + 4, shoe_top + 1, shoes[1])
-    cv.set(sx, shoe_top, shoes[0])
-
-
-def _torso(cv, pal, view, top, ox, zombie, player_pack):
-    """Jacket or shirt from the shoulders (row top) to the belt (top + 13)."""
-    t = pal["top"]
-    mid = tuple((a + b) // 2 for a, b in zip(t[1], t[2]))
-    for i in range(14):
-        if i == 0:
-            x0, x1 = 28, 36
-        elif i == 1:
-            x0, x1 = 27, 37
-        elif i <= 8:
-            x0, x1 = 26, 38
-        else:
-            x0, x1 = 27, 37
-        y = top + i
-        for x in range(x0, x1 + 1):
-            if zombie and i == 13 and (x % 3 == 0):
-                continue  # a ragged hem
-            if x <= x0 + 1:
-                c = mid  # the flank turned away from the viewer
-            elif x == x1:
-                c = t[2]
-            elif i <= 1 and x < 32:
-                c = t[0]
-            else:
-                c = t[1]
-            cv.set(x + ox, y, c)
-        if not zombie and i == 13:
-            for x in range(x0 + 2, x1):
-                cv.set(x + ox, y, t[2])
-
-    if zombie:
-        skin, blood = pal["skin"], BLOOD
-        if view == "front":
-            for (x, y) in ((29, 7), (30, 7), (30, 8), (35, 3), (36, 4)):
-                cv.set(x + ox, top + y, skin[1])
-            cv.rect(31 + ox, top + 1, 34 + ox, top + 2, blood[1])
-            cv.set(33 + ox, top + 3, blood[2])
-            cv.rect(34 + ox, top + 3, 34 + ox, top + 6, blood[1])
-            cv.rect(28 + ox, top + 10, 30 + ox, top + 11, blood[2])
-        else:
-            for i in range(5):
-                cv.set(29 + i + ox, top + 4 + i, blood[1])
-                cv.set(30 + i + ox, top + 4 + i, blood[2])
-            cv.set(35 + ox, top + 10, skin[1])
-            cv.set(36 + ox, top + 10, skin[2])
-        return
-
-    d = pal["detail"]
-    if view == "front":
-        cv.set(31 + ox, top, pal["skin"][2])
-        cv.set(32 + ox, top, pal["skin"][2])
-        cv.rect(33 + ox, top, 33 + ox, top + 12, d)  # zip, turned toward the right
-        cv.set(30 + ox, top + 10, d)
-        cv.set(36 + ox, top + 10, d)
-        if player_pack:
-            p = pal["pack"]
-            cv.rect(29 + ox, top + 1, 29 + ox, top + 8, p[2])
-            cv.rect(36 + ox, top + 1, 36 + ox, top + 7, p[2])
-    elif player_pack:
-        p = pal["pack"]
-        cv.rect(28 + ox, top + 1, 37 + ox, top + 11, p[1])
-        cv.rect(28 + ox, top + 1, 37 + ox, top + 3, p[0])
-        cv.rect(28 + ox, top + 4, 37 + ox, top + 4, p[2])
-        cv.rect(37 + ox, top + 1, 37 + ox, top + 11, p[2])
-        cv.rect(28 + ox, top + 11, 37 + ox, top + 11, p[2])
-        cv.rect(30 + ox, top + 6, 35 + ox, top + 6, p[2])
-        cv.rect(30 + ox, top + 6, 30 + ox, top + 9, p[2])
-        cv.rect(35 + ox, top + 6, 35 + ox, top + 9, p[2])
-        cv.set(32 + ox, top + 4, d)
-        cv.set(33 + ox, top + 4, d)
-    else:
-        cv.rect(32 + ox, top + 2, 32 + ox, top + 12, t[2])
-
-
-def _head(cv, pal, view, hx, hy, zombie, mouth_open=False):
-    """A 9x10 head with its top-left at (hx, hy)."""
-    skin, hair = pal["skin"], pal["hair"]
-    cx, cy, rx, ry = hx + 4, hy + 4.5, 4.5, 5.0
-
-    def inside(x, y):
-        return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0
-
-    def put(x, y, c):
-        if inside(x, y):
-            cv.set(x, y, c)
-
-    for y in range(hy, hy + 10):
-        for x in range(hx, hx + 9):
-            if not inside(x, y):
-                continue
-            if zombie or view == "front":
-                c = skin[2] if x >= hx + 7 else skin[1]
-                if x <= hx + 3 and y <= hy + 3:
-                    c = skin[0]
-            else:
-                c = hair[2] if (x >= hx + 7 or y >= hy + 8) else hair[1]
-                if hx + 2 <= x <= hx + 4 and hy + 1 <= y <= hy + 2:
-                    c = hair[0]
-            cv.set(x, y, c)
-
-    if view == "front":
-        if zombie:
-            for (x, y) in ((2, 0), (3, 0), (4, 0), (5, 1), (1, 2), (1, 3), (2, 1)):
-                put(hx + x, hy + y, hair[1])
-            put(hx + 4, hy + 4, skin[2])
-            put(hx + 7, hy + 4, skin[2])
-            put(hx + 4, hy + 5, pal["eye"])
-            put(hx + 7, hy + 5, pal["eye"])
-            put(hx + 5, hy + 7, pal["mouth"])
-            put(hx + 6, hy + 7, pal["mouth"])
-            if mouth_open:
-                for (x, y) in ((5, 8), (6, 8), (7, 8), (6, 9)):
-                    put(hx + x, hy + y, pal["mouth"])
-            put(hx + 6, hy + 9, BLOOD[1])
-        else:
-            for y in range(hy, hy + 3):
-                for x in range(hx, hx + 9):
-                    put(x, y, hair[1] if y > hy else hair[0])
-            for x in range(hx, hx + 6):
-                put(x, hy + 3, hair[1])
-            for y in range(hy + 3, hy + 7):
-                for x in range(hx, hx + 3):
-                    put(x, y, hair[2] if x == hx else hair[1])
-            put(hx + 3, hy + 6, skin[2])  # ear
-            put(hx + 4, hy + 5, pal["eye"])
-            put(hx + 7, hy + 5, pal["eye"])
-            put(hx + 6, hy + 6, skin[2])  # nose
-            put(hx + 5, hy + 8, skin[2])
-            put(hx + 6, hy + 8, skin[2])
-    else:
-        if zombie:
-            for (x, y) in ((1, 1), (2, 1), (3, 1), (2, 2), (3, 2), (4, 2), (1, 3), (5, 4), (6, 4)):
-                put(hx + x, hy + y, hair[1])
-            put(hx + 6, hy + 2, BLOOD[1])
-            put(hx + 7, hy + 3, BLOOD[2])
-        else:
-            put(hx + 8, hy + 5, skin[2])  # the cheek turned away
-            put(hx + 8, hy + 6, skin[2])
-            put(hx + 7, hy + 5, skin[1])  # ear
-            for x in range(hx + 3, hx + 6):
-                put(x, hy + 9, skin[2])  # nape
-
-
-def _arm(cv, pal, shoulder, hand, zombie, tone=1):
-    """An arm from the shoulder to the hand, with the hand in skin."""
-    sx, sy = shoulder
-    hx, hy = hand
-    skin, top = pal["skin"], pal["top"]
-    if zombie:
-        cv.limb(sx, sy, hx, hy, None, colors=lambda t: top[tone] if t < 0.35 else skin[tone])
-    else:
-        cv.limb(sx, sy, hx, hy, None, colors=lambda t: top[tone] if t < 0.85 else skin[1])
-    cv.set(hx, hy + 1, skin[1])
-    cv.set(hx + 1, hy + 1, skin[2])
-
-
-def draw_character(pal, view, zombie=False, pose="idle", frame=0):
-    """One 64x64 character frame. view: "front" (faces down-right) or "back"
-    (faces up-right). pose: idle, walk, crouch, crouchwalk, attack, dead."""
-    cv = CharCanvas()
-    front = view == "front"
-
-    if pose == "dead":
-        _draw_dead(cv, pal, zombie)
-        return cv.finish()
-
-    cv.ellipse(23, 47, 41, 51, CHAR_SHADOW, layer=cv.under)
-
-    # Pose: feet offsets (dx, dy) for the near (left) and far (right) leg,
-    # body bob, forward lean, and hand offsets for the swinging arms.
-    near, far = (0, 0), (0, 0)
-    bob, lean = 0, 0
-    swing_near, swing_far = (0, 0), (0, 0)
-    hip_y = 36
-
-    crouched = pose in ("crouch", "crouchwalk")
-    knee = 0
-    if crouched:
-        hip_y = 40
-        bob, lean = 6, 2
-        knee = 3 if front else 1
-
-    if pose in ("walk", "crouchwalk"):
-        f = frame % 4
-        if zombie:
-            # A shamble: the right leg drags and the body sags on each step.
-            steps_front = [((1, 1), (0, -1), 0, 0), ((0, 0), (0, 0), 1, 1),
-                           ((0, -1), (1, 0), 0, 1), ((0, 0), (-1, 0), 1, 0)]
-            steps_back = [((1, -1), (0, 0), 0, 0), ((0, 0), (0, -1), 1, 1),
-                          ((0, 0), (1, -1), 0, 1), ((-1, 0), (0, 0), 1, 0)]
-            near, far, sag, tilt = (steps_front if front else steps_back)[f]
-            bob += sag
-            lean += tilt
-        else:
-            if front:
-                steps = [((1, 1), (-1, -2)), ((0, 0), (0, -1)), ((-1, -2), (1, 1)), ((0, -1), (0, 0))]
-            else:
-                steps = [((1, -2), (-1, 0)), ((0, 0), (0, -1)), ((-1, 0), (1, -2)), ((0, -1), (0, 0))]
-            near, far = steps[f]
-            if crouched:
-                near = (near[0], min(0, near[1]))
-                far = (far[0], min(0, far[1]))
-            if f in (1, 3):
-                bob -= 1
-            fwd = (2, -1) if front else (2, -2)
-            bwd = (-2, -1) if front else (-2, 0)
-            swing_near, swing_far = [(bwd, fwd), ((0, 0), (0, 0)), (fwd, bwd), ((0, 0), (0, 0))][f]
-    elif pose == "attack":
-        lean = 3 if zombie else 1
-        bob = 1 if zombie else 0
-        if not zombie:
-            near, far = ((1, 1), (-1, 0)) if front else ((1, -2), (-1, 0))
-
-    toe = 1 if front else 0
-    top = 23 + bob
-    head_x, head_y = 28 + lean, 13 + bob
-    if zombie:
-        head_x += 1
-        head_y += 2 if front else 1
-
-    # Shoulders and resting hands.
-    sh_near, sh_far = (24 + lean, top + 2), (39 + lean, top + 2)
-    hand_near = (24 + lean + swing_near[0], top + 10 + swing_near[1])
-    hand_far = (39 + lean + swing_far[0], top + 10 + swing_far[1])
-    if crouched:
-        hand_near = (hand_near[0] + 1, hand_near[1] - 1)
-        hand_far = (hand_far[0] + 1, hand_far[1] - 1)
-
-    # Arms reaching out ahead (zombies) or swinging (the player's attack).
-    reach_front = reach_back = None
-    if zombie:
-        bump = [0, 1, 1, 0][frame % 4] if pose == "walk" else 0
-        # Both arms held out ahead: toward the right in either view, the near
-        # one lower (front) or hidden behind the body (back).
-        out = 3 if pose == "attack" else 0
-        if front:
-            reach_front = (((28 + lean, top + 3), (41 + lean + out, top + 8 + bump)),
-                           ((37 + lean, top + 2), (46 + lean + out, top + 4 - bump)))
-        else:
-            reach_back = (((28 + lean, top + 3), (41 + lean + out, top + 1 + bump)),
-                          ((37 + lean, top + 2), (46 + lean + out, top - 1 - bump)))
-    elif pose == "attack":
-        if front:
-            hand_far = (45 + lean, top + 6)
-            hand_near = (27 + lean, top + 8)
-        else:
-            hand_far = (44 + lean, top - 4)
-
-    pack = not zombie
-
-    if front:
-        _leg(cv, pal, 33, hip_y, far[0], far[1], 2, toe, knee)
-        _leg(cv, pal, 28, hip_y, near[0], near[1], 1, toe, knee)
-        _torso(cv, pal, view, top, lean, zombie, pack)
-        _head(cv, pal, view, head_x, head_y, zombie, mouth_open=pose == "attack")
-        if reach_front:
-            (s1, h1), (s2, h2) = reach_front
-            _arm(cv, pal, s2, h2, zombie, tone=2)
-            _arm(cv, pal, s1, h1, zombie, tone=1)
-        else:
-            _arm(cv, pal, sh_far, hand_far, zombie, tone=2)
-            _arm(cv, pal, sh_near, hand_near, zombie, tone=1)
-    else:
-        if reach_back:
-            (s1, h1), _ = reach_back
-            _arm(cv, pal, s1, h1, zombie, tone=2)
-        _leg(cv, pal, 33, hip_y, far[0], far[1], 2, toe, knee)
-        _leg(cv, pal, 28, hip_y, near[0], near[1], 1, toe, knee)
-        _torso(cv, pal, view, top, lean, zombie, pack)
-        _head(cv, pal, view, head_x, head_y, zombie)
-        if reach_back:
-            _, (s2, h2) = reach_back
-            _arm(cv, pal, s2, h2, zombie, tone=1)
-        else:
-            _arm(cv, pal, sh_far, hand_far, zombie, tone=2)
-            _arm(cv, pal, sh_near, hand_near, zombie, tone=1)
-
-    return cv.finish()
-
-
-def _draw_dead(cv, pal, zombie):
-    """Lying on the back, head to the left, in a pool of blood."""
-    cv.ellipse(15, 44, 47, 52, BLOOD[2] + (210,), layer=cv.under)
-    cv.ellipse(19, 45, 40, 50, BLOOD[1] + (220,), layer=cv.under)
-    t, legs, shoes, skin, hair = pal["top"], pal["legs"], pal["shoes"], pal["skin"], pal["hair"]
-    # Far arm flung up and out.
-    cv.limb(27, 41, 31, 36, None, colors=lambda s: t[2] if s < 0.7 else skin[1])
-    # Legs, then shoes.
-    cv.rect(36, 41, 46, 43, legs[2])
-    cv.rect(36, 44, 46, 46, legs[1])
-    cv.rect(36, 44, 46, 44, legs[0])
-    cv.rect(47, 40, 49, 43, shoes[1])
-    cv.rect(47, 44, 49, 47, shoes[1])
-    # Torso.
-    cv.rect(22, 40, 36, 47, t[1])
-    cv.rect(22, 40, 36, 41, t[0])
-    cv.rect(22, 47, 36, 47, t[2])
-    if zombie:
-        cv.rect(27, 42, 31, 44, BLOOD[1])
-        cv.set(30, 45, BLOOD[2])
-    elif "pack" in pal:
-        cv.rect(23, 47, 33, 48, pal["pack"][2])
-    # Near arm along the body.
-    cv.limb(24, 47, 33, 47, None, colors=lambda s: t[2] if s < 0.7 else skin[1])
-    # Head.
-    cv.ellipse(13, 39, 21, 48, skin[1])
-    if zombie:
-        for (x, y) in ((14, 41), (15, 40), (14, 43), (16, 42)):
-            cv.set(x, y, hair[1])
-        cv.set(18, 45, pal["mouth"])
-        cv.set(19, 45, pal["mouth"])
-    else:
-        for y in range(39, 49):
-            for x in range(13, 16):
-                if cv.opaque(x, y):
-                    cv.set(x, y, hair[1])
-        cv.set(18, 42, pal["eye"])
-        cv.set(18, 45, pal["eye"])
-
-
-def _char_strip(img, atlas_sprites, name, row_y, slot, frames_drawn):
-    """Paste frames into consecutive 64 px slots and register them."""
-    frames = []
-    for i, frame in enumerate(frames_drawn):
-        x = (slot + i) * ENTITY_SIZE
-        img.alpha_composite(frame, (x, row_y))
-        frames.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-    entry = dict(frames[0])
-    if len(frames) > 1:
-        entry["frames"] = frames
-    atlas_sprites[name] = entry
-    return slot + len(frames_drawn)
-
-
-def gen_player_sprites(img, atlas_sprites, row_y, extra_row_y):
-    pal = PLAYER_PAL
-    slot = 0
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_walk_{view}", row_y, slot,
-                           [draw_character(pal, view, pose="walk", frame=f) for f in range(4)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_idle_{view}", row_y, slot, [draw_character(pal, view)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_crouch_{view}", row_y, slot,
-                           [draw_character(pal, view, pose="crouch")])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_attack_{view}", row_y, slot,
-                           [draw_character(pal, view, pose="attack")])
-    slot = _char_strip(img, atlas_sprites, "player_hurt", row_y, slot,
-                       [_tint_frame(draw_character(pal, "front"), (210, 40, 36), 0.45)])
-    slot = _char_strip(img, atlas_sprites, "player_dead", row_y, slot, [draw_character(pal, "front", pose="dead")])
+def add_character_sprites(img, sprites):
+    import charrig
 
     slot = 0
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_crouchwalk_{view}", extra_row_y, slot,
-                           [draw_character(pal, view, pose="crouchwalk", frame=f) for f in range(4)])
-
-    # The old one-view names, for anything still asking for them.
-    atlas_sprites["player_idle"] = dict(atlas_sprites["player_idle_front"])
-    atlas_sprites["player_crouch"] = dict(atlas_sprites["player_crouch_front"])
-    atlas_sprites["player_walk_right"] = dict(atlas_sprites["player_walk_front"])
-    atlas_sprites["player_walk_down"] = dict(atlas_sprites["player_walk_front"])
-    atlas_sprites["player_walk_up"] = dict(atlas_sprites["player_walk_back"])
-
-
-def gen_zombie_sprites(img, atlas_sprites, row_y):
-    pal = ZOMBIE_PAL
-    slot = 0
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"zombie_walk_{view}", row_y, slot,
-                           [draw_character(pal, view, zombie=True, pose="walk", frame=f) for f in range(4)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"zombie_idle_{view}", row_y, slot,
-                           [draw_character(pal, view, zombie=True)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"zombie_attack_{view}", row_y, slot,
-                           [draw_character(pal, view, zombie=True, pose="attack")])
-    slot = _char_strip(img, atlas_sprites, "zombie_dead", row_y, slot,
-                       [draw_character(pal, "front", zombie=True, pose="dead")])
-
-    atlas_sprites["zombie_idle"] = dict(atlas_sprites["zombie_idle_front"])
-    atlas_sprites["zombie_attack"] = dict(atlas_sprites["zombie_attack_front"])
-    atlas_sprites["zombie_walk_right"] = dict(atlas_sprites["zombie_walk_front"])
-    atlas_sprites["zombie_walk_down"] = dict(atlas_sprites["zombie_walk_front"])
-    atlas_sprites["zombie_walk_up"] = dict(atlas_sprites["zombie_walk_back"])
+    for name, frames in charrig.character_frames():
+        # Keep an animation on one row so its frames stay together.
+        if slot % CHAR_BLOCK_COLS + len(frames) > CHAR_BLOCK_COLS:
+            slot += CHAR_BLOCK_COLS - slot % CHAR_BLOCK_COLS
+        rects = []
+        for frame in frames:
+            x = CHAR_BLOCK_X + (slot % CHAR_BLOCK_COLS) * ENTITY_SIZE
+            y = (slot // CHAR_BLOCK_COLS) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("character block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
 
 
-def _tint_frame(frame, colour, amount):
-    out = frame.copy()
-    tr, tg, tb = colour
-    for y in range(ENTITY_SIZE):
-        for x in range(ENTITY_SIZE):
-            r, g, b, a = out.getpixel((x, y))
-            if a == 255:
-                out.putpixel((x, y), (int(r + (tr - r) * amount), int(g + (tg - g) * amount),
-                                      int(b + (tb - b) * amount), a))
-    return out
+SCENERY_X = 1024
+SCENERY_Y = 1344
+
+
+def add_scenery_sprites(img, sprites):
+    """Trees, bushes, street furniture and ground litter (scenery.py), packed
+    in rows under the characters."""
+    import scenery
+
+    x, y, row_h = SCENERY_X, SCENERY_Y, 0
+    for name, cell in scenery.scenery_sprites().items():
+        if x + cell.width + 2 > SHEET_W:
+            x, y, row_h = SCENERY_X, y + row_h + 2, 0
+        if y + cell.height > SHEET_H:
+            raise RuntimeError("scenery block is full")
+        img.alpha_composite(cell, (x, y))
+        sprites[name] = {"x": x, "y": y, "w": cell.width, "h": cell.height}
+        x += cell.width + 2
+        row_h = max(row_h, cell.height)
 
 
 # --- Item Generation ---
@@ -1068,7 +600,7 @@ def gen_solid(img, ox, oy, color):
 # --- Main Atlas Assembly ---
 
 def generate_atlas():
-    img = Image.new("RGBA", (ATLAS_W, ATLAS_H), (0, 0, 0, 0))
+    img = Image.new("RGBA", (SHEET_W, SHEET_H), (0, 0, 0, 0))
     sprites = {}
 
     # Row 0: Tiles (y=0, h=32, each 64x32)
@@ -1096,11 +628,8 @@ def generate_atlas():
         func(img, x, 0)
         sprites[name] = {"x": x, "y": 0, "w": ISO_TILE_W, "h": ISO_TILE_H}
 
-    # Row 1: Player (y=32, h=64); crouch-walk frames overflow to y=848
-    gen_player_sprites(img, sprites, 32, 848)
-
-    # Row 2: Zombies (y=96, h=64)
-    gen_zombie_sprites(img, sprites, 96)
+    # Rows 1-2 (y=32..159) held the old hand-placed characters; they now
+    # live in the character block (add_character_sprites).
 
     # Row 3: Items (y=160, h=32)
     items_row = [
@@ -1187,6 +716,9 @@ def generate_atlas():
     add_legacy_props(img, sprites)
     add_item_icons(img, sprites)
     add_furniture_sprites(img, sprites)
+    add_character_sprites(img, sprites)
+    add_scenery_sprites(img, sprites)
+    add_building_sprites(img, sprites)
 
     return img, sprites
 
@@ -1201,6 +733,8 @@ def generate_atlas():
 WALL_H = 56       # full wall height in pixels at zoom 1 (a little taller than a person)
 WALL_LOW_H = 8    # cut-away stub drawn when a wall would hide the player
 TILE_VARIANTS = 4 # rows of variants per ground tile in the tileset
+SLAB_T = 8
+OVERLAY_ROWS = 3  # fringe, shore, shadow: rows of edge overlays after the variants
 
 
 def diamond_span(y):
@@ -1254,98 +788,164 @@ def for_diamond(fn):
 # Each takes (img, ox, oy, rng) and paints one 64x32 diamond. Patterns are laid
 # out in tile-local world coordinates so they continue across tile borders.
 
-def tex_grass(img, ox, oy, rng, base=(64, 112, 48)):
+# Outdoor palette: moss rather than lawn green, and little per-pixel noise.
+# Texture comes from clumps, patches and marks, which read at game scale.
+GRASS = ((112, 130, 80), (86, 108, 66), (70, 92, 58), (58, 78, 52))  # tips, base, shade, deep
+
+
+def in_tile(px, py):
+    if not 0 <= py < 32:
+        return False
+    x0, x1 = diamond_span(py)
+    return x0 <= px <= x1
+
+
+def dput(img, ox, oy, px, py, rgb, a=255):
+    """Put a pixel if it falls inside the diamond."""
+    px, py = int(px), int(py)
+    if in_tile(px, py):
+        put(img, ox + px, oy + py, rgb, a)
+
+
+def patch(img, ox, oy, rng, cx, cy, rx, ry, rgb, ragged=0.3, jitter=3):
+    """A soft-edged blotch of colour, clipped to the diamond."""
+    for py in range(int(cy - ry), int(cy + ry) + 1):
+        for px in range(int(cx - rx), int(cx + rx) + 1):
+            d = ((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2
+            if d <= 1.0 and not (d > 0.55 and rng.random() < ragged):
+                dput(img, ox, oy, px, py, shade(rgb, rng.randint(-jitter, jitter)))
+
+
+def rand_point(rng, margin=1):
+    py = rng.randint(margin, 31 - margin)
+    x0, x1 = diamond_span(py)
+    return rng.randint(x0, x1), py
+
+
+def tex_grass(img, ox, oy, rng, base=GRASS[1], dark=GRASS[2]):
     def px_fn(px, py):
-        n = rng.randint(-10, 10)
-        put(img, ox + px, oy + py, shade(base, n))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-3, 3)))
     for_diamond(px_fn)
-    # Blades: short vertical strokes, lighter on top.
-    for _ in range(70):
-        py = rng.randint(2, 29)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        light = rng.random() < 0.55
-        col = shade(base, 22 if light else -18)
-        put(img, ox + px, oy + py, col)
-        if py > 0:
-            a0, a1 = diamond_span(py - 1)
-            if a0 <= px <= a1:
-                put(img, ox + px, oy + py - 1, shade(col, 10 if light else -6))
-    # A few flowers/weeds.
-    for _ in range(rng.randint(0, 2)):
-        py = rng.randint(4, 27)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0 + 2, x1 - 2) if x1 - x0 > 4 else x0
-        put(img, ox + px, oy + py, rng.choice([(196, 188, 92), (180, 150, 190), (210, 210, 200)]))
+    # Mottling: darker and lighter drifts.
+    for _ in range(5):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(4, 9), rng.randint(2, 4), dark, 0.45)
+    for _ in range(3):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 7), rng.randint(1, 3), mix(base, GRASS[0], 0.4), 0.5)
+    # Tufts: a dark root with a light tip above it.
+    for _ in range(13):
+        px, py = rand_point(rng, 2)
+        dput(img, ox, oy, px, py, GRASS[3])
+        dput(img, ox, oy, px + 1, py, dark)
+        dput(img, ox, oy, px, py - 1, GRASS[0])
+        if rng.random() < 0.4:
+            dput(img, ox, oy, px + 1, py - 2, GRASS[0])
+    if rng.random() < 0.3:
+        px, py = rand_point(rng, 4)
+        dput(img, ox, oy, px, py, rng.choice([(196, 186, 118), (176, 158, 186), (204, 200, 186)]))
 
 
 def tex_grass_dark(img, ox, oy, rng):
-    tex_grass(img, ox, oy, rng, base=(58, 104, 45))
+    tex_grass(img, ox, oy, rng, base=mix(GRASS[1], GRASS[2], 0.22), dark=mix(GRASS[2], GRASS[3], 0.4))
 
 
 def tex_dirt(img, ox, oy, rng):
-    base = (116, 88, 62)
+    base = (112, 94, 74)
     def px_fn(px, py):
-        put(img, ox + px, oy + py, shade(base, rng.randint(-9, 9)))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-3, 3)))
     for_diamond(px_fn)
-    for _ in range(26):
-        py = rng.randint(1, 30)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        put(img, ox + px, oy + py, shade(base, rng.choice([-24, -16, 14])))
+    for _ in range(4):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(4, 9), rng.randint(2, 4), (96, 80, 64), 0.45)
+    for _ in range(2):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 6), rng.randint(1, 3), (126, 108, 86), 0.5)
+    # Pebbles, each with a shadow under it.
+    for _ in range(7):
+        px, py = rand_point(rng, 2)
+        dput(img, ox, oy, px, py, (150, 140, 124))
+        dput(img, ox, oy, px, py + 1, (78, 64, 52))
+    if rng.random() < 0.5:
+        px, py = rand_point(rng, 3)
+        dput(img, ox, oy, px, py, GRASS[2])
+        dput(img, ox, oy, px, py - 1, GRASS[1])
 
 
 def tex_gravel(img, ox, oy, rng):
-    base = (122, 116, 104)
+    base = (122, 118, 110)
     def px_fn(px, py):
-        put(img, ox + px, oy + py, shade(base, rng.randint(-14, 14)))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-5, 5)))
     for_diamond(px_fn)
-    for _ in range(40):
-        py = rng.randint(1, 30)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        v = rng.randint(-34, 26)
-        put(img, ox + px, oy + py, shade(base, v))
+    for _ in range(46):
+        px, py = rand_point(rng)
+        light = rng.random() < 0.5
+        dput(img, ox, oy, px, py, (152, 148, 140) if light else (92, 88, 84))
+        if light:
+            dput(img, ox, oy, px, py + 1, (96, 92, 88))
 
 
 def tex_asphalt(img, ox, oy, rng):
-    base = (70, 72, 76)
+    base = (66, 68, 74)
     def px_fn(px, py):
-        put(img, ox + px, oy + py, shade(base, rng.randint(-6, 6)))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-2, 2)))
     for_diamond(px_fn)
+    # Worn lighter where the wheels run, darker where oil has dripped.
+    for _ in range(2):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(6, 12), rng.randint(2, 4), (72, 74, 80), 0.5, 2)
+    if rng.random() < 0.3:
+        px, py = rand_point(rng, 4)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 5), 2, (54, 54, 60), 0.4, 2)
+    # Aggregate showing through.
     for _ in range(22):
-        py = rng.randint(1, 30)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        put(img, ox + px, oy + py, shade(base, rng.choice([-12, 10, 16])))
-    # Occasional crack.
-    if rng.random() < 0.35:
-        py = rng.randint(6, 24)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0 + 4, max(x0 + 4, x1 - 10))
-        for step in range(rng.randint(5, 11)):
-            cx = px + step
-            cy = py + (step // 3) * rng.choice([-1, 0, 1])
-            if 0 <= cy < 32:
-                a0, a1 = diamond_span(cy)
-                if a0 <= cx <= a1:
-                    put(img, ox + cx, oy + cy, shade(base, -22))
+        px, py = rand_point(rng)
+        dput(img, ox, oy, px, py, (86, 88, 92) if rng.random() < 0.6 else (50, 52, 58))
+    # Cracks wander across the tile.
+    if rng.random() < 0.45:
+        px, py = rand_point(rng, 5)
+        x, y = float(px), float(py)
+        dx = rng.choice([-1.0, 1.0])
+        for _ in range(rng.randint(7, 16)):
+            dput(img, ox, oy, x, y, (40, 42, 46))
+            if rng.random() < 0.3:
+                dput(img, ox, oy, x, y - 1, (82, 84, 88))
+            x += dx
+            y += rng.choice([-0.5, 0.0, 0.5, 0.5])
 
 
 def tex_sidewalk(img, ox, oy, rng):
-    base = (152, 150, 142)
+    base = (148, 146, 140)
     slab = 16.0
+    tones = [[rng.randint(-6, 6) for _ in range(3)] for _ in range(3)]
     def px_fn(px, py):
         wx, wy = tile_world(px, py)
-        c = shade(base, rng.randint(-5, 5))
+        t = tones[min(2, int(wx // slab))][min(2, int(wy // slab))]
+        c = shade(base, t + rng.randint(-2, 2))
         fx = wx % slab
         fy = wy % slab
         if fx < 0.75 or fy < 0.75:
-            c = shade(base, -26)
-        elif fx < 1.5 or fy < 1.5:
-            c = shade(base, 8)
+            c = shade(base, -30)
+        elif fx < 1.6 or fy < 1.6:
+            c = shade(base, 10)
         put(img, ox + px, oy + py, c)
     for_diamond(px_fn)
+    # Stains, a crack, and weeds in the joints.
+    if rng.random() < 0.5:
+        px, py = rand_point(rng, 4)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 6), rng.randint(1, 3), (130, 128, 122), 0.5, 2)
+    if rng.random() < 0.35:
+        px, py = rand_point(rng, 5)
+        x, y = float(px), float(py)
+        for _ in range(rng.randint(5, 10)):
+            dput(img, ox, oy, x, y, (104, 102, 98))
+            x += 1.0
+            y += rng.choice([-0.5, 0.0, 0.5])
+    if rng.random() < 0.4:
+        px, py = rand_point(rng, 3)
+        dput(img, ox, oy, px, py, GRASS[2])
+        dput(img, ox, oy, px, py - 1, GRASS[1])
+        dput(img, ox, oy, px + 1, py, GRASS[3])
 
 
 def tex_concrete(img, ox, oy, rng):
@@ -1425,21 +1025,87 @@ def tex_metal_floor(img, ox, oy, rng):
 
 
 def tex_water(img, ox, oy, rng):
-    base = (40, 84, 128)
+    base = (50, 80, 96)
     phase = rng.uniform(0, 6.28)
     def px_fn(px, py):
         wx, wy = tile_world(px, py)
-        wave = math.sin((wx + wy) * 0.55 + phase) + 0.5 * math.sin(wx * 0.9 - phase)
-        c = shade(base, int(wave * 7) + rng.randint(-3, 3))
+        wave = math.sin((wx + wy) * 0.42 + phase) + 0.6 * math.sin(wx * 0.8 - wy * 0.3 - phase)
+        band = 6 if wave > 0.9 else (0 if wave > -0.6 else -7)
+        put(img, ox + px, oy + py, shade(base, band + rng.randint(-1, 1)))
+    for_diamond(px_fn)
+    for _ in range(2):
+        px, py = rand_point(rng, 3)
+        patch(img, ox, oy, rng, px, py, rng.randint(5, 9), rng.randint(2, 3), (40, 66, 84), 0.5, 1)
+    for _ in range(4):
+        px, py = rand_point(rng, 4)
+        for d in range(rng.randint(2, 4)):
+            dput(img, ox, oy, px + d, py, (128, 164, 172))
+
+
+# --- Ground overlays ---------------------------------------------------------
+# Drawn over a ground tile along one of its four edges, where it meets a
+# different neighbour. Edge 0 is the one shared with the tile at (x-1, y)
+# (up-left on screen), 1 with (x, y-1) (up-right), 2 with (x+1, y)
+# (down-right), 3 with (x, y+1) (down-left).
+
+def edge_coords(px, py, edge):
+    """(distance in from the edge, position along it) in tile-local world px."""
+    wx, wy = tile_world(px, py)
+    return ((wx, wy), (wy, wx), (32.0 - wx, wy), (32.0 - wy, wx))[edge]
+
+
+def ragged_profile(rng, lo, hi):
+    prof = [rng.uniform(lo, hi) for _ in range(36)]
+    return [(prof[max(0, i - 1)] + prof[i] * 2 + prof[min(35, i + 1)]) / 4.0 for i in range(36)]
+
+
+def overlay_fringe(img, ox, oy, rng, edge):
+    """Grass growing over the edge of whatever lies next to it."""
+    prof = ragged_profile(rng, 1.5, 6.5)
+    def px_fn(px, py):
+        d, along = edge_coords(px, py, edge)
+        w = prof[min(35, max(0, int(along)))]
+        if d >= w:
+            return
+        if d > w - 1.6:
+            if rng.random() < 0.35:
+                return
+            c = GRASS[0] if rng.random() < 0.5 else GRASS[2]
+        else:
+            c = shade(GRASS[1] if rng.random() < 0.7 else GRASS[2], rng.randint(-3, 3))
         put(img, ox + px, oy + py, c)
     for_diamond(px_fn)
-    for _ in range(6):
-        py = rng.randint(4, 27)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0 + 2, max(x0 + 2, x1 - 4))
-        for d in range(rng.randint(2, 4)):
-            if px + d <= x1:
-                put(img, ox + px + d, oy + py, (120, 168, 200))
+
+
+def overlay_shore(img, ox, oy, rng, edge):
+    """The bank of a pond: wet earth, a line of foam, then shallows."""
+    prof = ragged_profile(rng, 1.0, 3.2)
+    def px_fn(px, py):
+        d, along = edge_coords(px, py, edge)
+        w = prof[min(35, max(0, int(along)))]
+        if d < w:
+            put(img, ox + px, oy + py, shade((92, 82, 66), rng.randint(-5, 5)))
+        elif d < w + 1.2:
+            if rng.random() < 0.75:
+                put(img, ox + px, oy + py, (156, 186, 190), 215)
+        elif d < w + 4.5:
+            put(img, ox + px, oy + py, (88, 124, 132), 120)
+    for_diamond(px_fn)
+
+
+def overlay_shadow(img, ox, oy, rng, edge, bands, inset=0.0):
+    """A wall's shadow on the ground beside it. bands: ((distance, alpha), ...).
+    inset: the shadow starts this far in, at the foot of a wall on this tile."""
+    def px_fn(px, py):
+        d, _ = edge_coords(px, py, edge)
+        d -= inset
+        if d < 0.0:
+            return
+        for dist, alpha in bands:
+            if d < dist:
+                put(img, ox + px, oy + py, (10, 12, 24), alpha)
+                return
+    for_diamond(px_fn)
 
 
 def tex_wall_base(img, ox, oy, rng):
@@ -1485,11 +1151,33 @@ def generate_tileset():
     The renderer picks a variant per tile from a hash of its position.
     """
     cols = 16
-    img = Image.new("RGBA", (cols * ISO_TILE_W, TILE_VARIANTS * ISO_TILE_H), (0, 0, 0, 0))
+    rows = TILE_VARIANTS + OVERLAY_ROWS
+    img = Image.new("RGBA", (cols * ISO_TILE_W, rows * ISO_TILE_H), (0, 0, 0, 0))
     for gid, fn in GROUND_TEXTURES.items():
         for v in range(TILE_VARIANTS):
             rng = random.Random(gid * 1009 + v * 7919)
             fn(img, (gid - 1) * ISO_TILE_W, v * ISO_TILE_H, rng)
+
+    # Overlay rows (see TileGid::kFringeRow and friends): column = edge * 4 +
+    # variant for the fringe and the shore; the shadow row holds one tile per
+    # edge, strong in columns 0-3 and faint in 4-7.
+    for edge in range(4):
+        for v in range(4):
+            col = edge * 4 + v
+            overlay_fringe(img, col * ISO_TILE_W, TILE_VARIANTS * ISO_TILE_H,
+                           random.Random(9001 + col), edge)
+            overlay_shore(img, col * ISO_TILE_W, (TILE_VARIANTS + 1) * ISO_TILE_H,
+                          random.Random(9101 + col), edge)
+        overlay_shadow(img, edge * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, edge,
+                       ((3.0, 112), (7.0, 78), (11.0, 46), (15.0, 22)))
+        overlay_shadow(img, (4 + edge) * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, edge,
+                       ((2.0, 70), (5.0, 40), (8.0, 18)))
+    # Columns 8 and 9: the same two shadows for a thin wall along that edge
+    # of the tile itself.
+    overlay_shadow(img, 8 * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, 0,
+                   ((3.0, 112), (7.0, 78), (11.0, 46), (15.0, 22)), SLAB_T)
+    overlay_shadow(img, 9 * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, 1,
+                   ((2.0, 70), (5.0, 40), (8.0, 18)), SLAB_T)
     return img
 
 
@@ -1509,41 +1197,109 @@ ROOF_COLORS = {
 }
 
 
+def _h2(a, b):
+    """A small repeatable hash for wall detail: 0..255."""
+    v = (a * 374761393 + b * 668265263) & 0xFFFFFFFF
+    v = ((v ^ (v >> 13)) * 1274126177) & 0xFFFFFFFF
+    return (v >> 8) & 0xFF
+
+
 def face_color(material, left, u, h, height, rng):
     """Color of a wall face pixel. u runs along the face (0..31), h is the
     height above the ground (0 at the bottom)."""
     lc, rc, cap, accent = WALL_MATERIALS[material]
     c = lc if left else rc
-    c = shade(c, rng.randint(-3, 3))
+    c = shade(c, rng.randint(-2, 2))
+    tall = height >= 40
+    # Grime climbs a little way up from the ground, and the eaves shade the top.
+    grime = -int((12 - h) * 1.3) if tall and h < 12 else 0
+    eave = -9 if tall and height - 8 <= h < height - 2 else 0
     if material == "plaster":
-        # Horizontal siding boards with a dark baseboard and light top trim.
-        if h < 3:
+        # Siding boards on a concrete footing, with a light trim under the eaves.
+        if tall and h < 4:
+            foot = (126, 122, 114) if left else (98, 94, 90)
+            return shade(foot, 10 if h == 3 else -h * 3 + 2)
+        if h < 2:
             return shade(c, -34)
         if h >= height - 2:
             return shade(c, 16)
+        board = h // 7
         if h % 7 == 0:
-            return shade(c, -16)
+            return shade(c, -20 + grime)
         if h % 7 == 1:
-            return shade(c, 6)
-        return c
+            return shade(c, 7 + grime + eave)
+        # Where two boards butt together, and the odd weathered board.
+        if u == (board * 13 + 5) % 32:
+            return shade(c, -14 + grime)
+        tone = (_h2(board, 7) % 9) - 4
+        # Rain streaks running down from the trim.
+        if _h2(u, 3) % 13 == 0 and h > height - 10 - _h2(u, 5) % 22:
+            tone -= 7
+        return shade(c, tone + grime + eave)
     if material == "brick":
+        mortar = (148, 136, 120) if left else (112, 102, 92)
         course = h // 4
         if h < 2:
-            return shade(c, -30)
+            return shade(c, -34)
         if h % 4 == 0:
-            return accent if left else shade(accent, -26)
+            return shade(mortar, grime + eave)
         offset = 4 if course % 2 else 0
         if (u + offset) % 8 == 0:
-            return accent if left else shade(accent, -26)
-        return shade(c, (course * 7 % 5) - 2)
-    # metal: vertical corrugation
+            return shade(mortar, grime + eave)
+        brick = (u + offset) // 8
+        k = _h2(brick, course)
+        tone = (k % 15) - 7
+        if k % 23 == 0:
+            tone -= 16   # an over-fired brick
+        elif k % 19 == 0:
+            tone += 12
+        # The top edge of each brick catches a little light.
+        if h % 4 == 3:
+            tone += 5
+        return shade(c, tone + grime + eave)
+    # metal: corrugated sheet with rivets along the top and rust runs.
     if h < 2:
-        return shade(c, -30)
+        return shade(c, -32)
+    tone = 0
     if u % 4 == 0:
-        return shade(c, 16)
-    if u % 4 == 2:
-        return shade(c, -14)
-    return c
+        tone = 16
+    elif u % 4 == 2:
+        tone = -14
+    if tall and h == height - 6 and u % 8 == 3:
+        return shade(c, 34)
+    if tall and h == height - 7 and u % 8 == 3:
+        return shade(c, -30)
+    if _h2(u // 2, 11) % 9 == 0:
+        run = 10 + _h2(u // 2, 13) % 30
+        start = height - 8 - _h2(u // 2, 17) % 12
+        if start - run < h <= start:
+            return mix(shade(c, tone), (126, 84, 58) if left else (98, 64, 46), 0.55)
+    return shade(c, tone + grime + eave)
+
+
+def window_color(material, left, u, h):
+    """A window in a wall face: frame, sill, curtains and glass (u 8..23, h 17..43)."""
+    frame = (214, 208, 194) if material != "metal" else (172, 178, 182)
+    if not left:
+        frame = shade(frame, -30)
+    if h == 19 and 8 <= u <= 23:
+        return shade(frame, 8)                      # the sill
+    if h == 18 and 8 <= u <= 23:
+        return shade(frame, -60)                    # and its shadow
+    if not (9 <= u <= 22 and 20 <= h <= 42):
+        return None
+    if u in (9, 22) or h in (20, 42) or u == 15 or h == 31:
+        return frame
+    glass = (62, 80, 96) if left else (48, 62, 76)
+    glass = shade(glass, -(h - 21) // 3 + 4)        # darker toward the top
+    if (u - h // 2) % 11 in (0, 1):
+        glass = shade(glass, 26)
+    if material != "metal" and (u <= 11 or u >= 20) and h >= 24:
+        cloth = (156, 138, 124) if left else (122, 108, 98)
+        return shade(cloth, -10 if (u + h // 5) % 2 else 4)   # curtains, drawn back
+    if material != "metal" and h >= 40:
+        return (146, 130, 118) if left else (114, 102, 94)     # the pelmet
+    return glass
 
 
 DOOR_WOOD = (122, 84, 50)
@@ -1645,15 +1401,10 @@ def make_block(material, height, feature=None, seed=0):
             alpha = 255
             if feature is not None and feature.endswith("_l" if left else "_r"):
                 if feature.startswith("window"):
-                    if 9 <= u <= 22 and 20 <= h <= 42 and height >= 40:
-                        if u in (9, 22) or h in (20, 42) or u == 15 or h == 31:
-                            c = (210, 204, 190) if material != "metal" else (170, 176, 180)
-                        else:
-                            glass = (58, 76, 92) if left else (46, 60, 74)
-                            # Simple reflection streak.
-                            if (u - h // 2) % 9 in (0, 1):
-                                glass = shade(glass, 30)
-                            c = glass
+                    if height >= 40:
+                        wc = window_color(material, left, u, h)
+                        if wc is not None:
+                            c = wc
                 elif feature.startswith("door"):
                     if 9 <= u <= 22 and h <= 44:
                         if u in (9, 22) or h == 44:
@@ -1690,12 +1441,18 @@ def make_roof(kind, seed=0):
             if kind == "residential":
                 # Shingle rows along world x, staggered tabs.
                 row = int(wy // 4)
+                tab = int(wx + (row % 2) * 3) // 6
+                k = _h2(tab + seed * 31, row)
                 if wy % 4 < 0.8:
-                    c = shade(base, -18)
+                    c = shade(base, -22)
                 elif (int(wx + (row % 2) * 3) % 6) == 0:
-                    c = shade(base, -10)
+                    c = shade(base, -12)
+                elif k % 17 == 0:
+                    c = shade(base, -16)                       # a slipped shingle
+                elif k % 29 == 0:
+                    c = mix(base, (86, 96, 66), 0.5)           # moss
                 else:
-                    c = shade(c, (row % 3) * 3 - 3)
+                    c = shade(c, (k % 11) - 5 + (4 if wy % 4 > 3.0 else 0))
             elif kind == "commercial":
                 if rng.random() < 0.08:
                     c = shade(base, rng.choice([-16, 14]))
@@ -1706,6 +1463,8 @@ def make_roof(kind, seed=0):
                     c = shade(base, 14)
                 elif int(wy) % 4 == 2:
                     c = shade(base, -12)
+                if _h2(int(wy) // 4 + seed, int(wx) // 3) % 13 == 0:
+                    c = mix(c, (122, 82, 58), 0.45)            # rust
             put(img, px, py, c)
     return img
 
@@ -1765,6 +1524,302 @@ def add_structure_sprites(img, sprites):
         img.paste(overlay, (x, y_boards), overlay)
         sprites["door_boardslow_%s" % face] = {"x": x, "y": y_boards, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_LOW_H}
         x += ISO_TILE_W
+
+
+# --- Thin walls and pitched roofs ---------------------------------------------
+# Buildings are put together from wall pieces a quarter of a tile thick and a
+# roof that rises from the eaves. Every piece is drawn centred on its tile; the
+# game slides it to the edge of the tile it belongs on (see StructureView).
+#
+# Piece coordinates are tile-local world pixels: x runs down-right on screen,
+# y down-left, z up. A piece along x shows its long face to the south (the
+# "left" face of the old blocks); one along y shows it to the east.
+
+# SLAB_T (wall thickness) is defined with the tileset constants.
+SLAB_LO = 16 - SLAB_T // 2    # a centred slab spans SLAB_LO..SLAB_HI across
+SLAB_HI = 16 + SLAB_T // 2
+DOOR_U0, DOOR_U1 = 10, 22     # the doorway along the wall
+DOOR_TOP = 45
+INTERIOR_WALL = ((200, 192, 174), (162, 155, 142))
+INTERIOR_CAP = (112, 106, 100)
+SKIRTING = (106, 80, 58)
+FINISHES = ("plaster", "brick", "metal", "interior")
+
+
+def finish_color(finish, left, u, h, height, rng):
+    """A wall face pixel: the outside materials, or painted plaster indoors."""
+    if finish != "interior":
+        return face_color(finish, left, u, h, height, rng)
+    c = INTERIOR_WALL[0] if left else INTERIOR_WALL[1]
+    c = shade(c, rng.randint(-1, 1))
+    if height < 40:
+        return shade(c, -24) if h < 1 else c
+    if h < 4:
+        return shade(SKIRTING, 10 if left else -12)
+    if h == 4:
+        return shade(SKIRTING, 30 if left else 6)
+    if h == 5:
+        return shade(c, -16)
+    if u % 8 == 3:
+        c = shade(c, -5)          # a faint stripe in the paper
+    if h >= height - 4:
+        c = shade(c, -9)          # dimmer up by the ceiling
+    return c
+
+
+def finish_frame(finish):
+    if finish == "brick":
+        return (92, 86, 80)
+    if finish == "interior":
+        return (226, 220, 206)
+    return shade(WALL_MATERIALS[finish][3], -10)
+
+
+def finish_cap(finish):
+    return INTERIOR_CAP if finish == "interior" else WALL_MATERIALS[finish][2]
+
+
+class WallPiece:
+    def __init__(self, height):
+        self.height = height
+        self.img = Image.new("RGBA", (ISO_TILE_W, ISO_TILE_H + height), (0, 0, 0, 0))
+
+    def box(self, x0, x1, y0, y1, z0, z1, south, east, top):
+        """A box seen from the usual corner. south(u, z) and east(v, z) give the
+        colours of the two faces the camera sees (None leaves a hole)."""
+        base = self.height
+        for sx in range(x0 * 2, x1 * 2):
+            for sy in range(y0 * 2, y1 * 2):
+                x, y = sx / 2.0, sy / 2.0
+                put(self.img, 32 + int(math.floor(x - y)), base + int(math.floor((x + y) / 2.0)) - z1, top)
+        for u in range(x0, x1):
+            for z in range(z0, z1):
+                c = south(u, z)
+                if c is not None:
+                    put(self.img, 32 + u - y1, base + (u + y1) // 2 - 1 - z, c)
+        for v in range(y0, y1):
+            for z in range(z0, z1):
+                c = east(v, z)
+                if c is not None:
+                    put(self.img, 32 + x1 - v - 1, base + (x1 + v) // 2 - 1 - z, c)
+
+
+def make_wall_piece(finish, along_x, kind, height, seed=0):
+    """One wall piece. kind: "full", "half", "post", "window", "door",
+    "doorclosed", "doorbroken"."""
+    rng = random.Random(seed)
+    piece = WallPiece(height)
+    material = "plaster" if finish == "interior" else finish
+    frame = finish_frame(finish)
+    cap = finish_cap(finish)
+
+    def face(left):
+        def fn(u, z):
+            if kind == "window" and left == along_x and height >= 40:
+                wc = window_color(material, left, u, z)
+                if wc is not None:
+                    return wc
+            return finish_color(finish, left, u, z, height, rng)
+        return fn
+
+    def slab(a0, a1, z0=0, z1=None, south=None, east=None, top=None, b0=SLAB_LO, b1=SLAB_HI):
+        z1 = height if z1 is None else z1
+        south = south or face(True)
+        east = east or face(False)
+        top = top or cap
+        if along_x:
+            piece.box(a0, a1, b0, b1, z0, z1, south, east, top)
+        else:
+            piece.box(b0, b1, a0, a1, z0, z1, south, east, top)
+
+    if kind == "post":
+        slab(SLAB_LO, SLAB_HI)
+    elif kind == "half":
+        slab(8, 24)
+    elif kind in ("full", "window"):
+        slab(0, 32)
+    else:
+        top_of_door = min(DOOR_TOP, height)
+
+        def trimmed(left, edge):
+            # The long face of a pier, with the door frame down its inner edge.
+            def fn(u, z):
+                if left == along_x and u == edge and z < top_of_door:
+                    return frame if left else shade(frame, -18)
+                return finish_color(finish, left, u, z, height, rng)
+            return fn
+
+        def jamb(left):
+            return lambda u, z: (shade(frame, -26) if not left else shade(frame, -8)) if z < top_of_door else \
+                finish_color(finish, left, u, z, height, rng)
+
+        def leaf(left):
+            def fn(u, z):
+                if kind == "doorclosed":
+                    return door_panel(u, z, left)
+                return door_remains(u, z, left)
+            return fn
+
+        # Far pier, the door itself, the wall over the door, near pier.
+        if along_x:
+            slab(0, DOOR_U0, south=trimmed(True, DOOR_U0 - 1), east=jamb(False))
+        else:
+            slab(0, DOOR_U0, south=jamb(True), east=trimmed(False, DOOR_U0 - 1))
+        if kind in ("doorclosed", "doorbroken") and height >= 40:
+            blank = lambda u, z: None
+            slab(DOOR_U0, DOOR_U1, 0, top_of_door, south=leaf(True) if along_x else blank,
+                 east=blank if along_x else leaf(False), top=(0, 0, 0, 0) if False else shade(DOOR_WOOD, -30),
+                 b0=16, b1=18)
+        if height > DOOR_TOP:
+            def lintel(left):
+                def fn(u, z):
+                    if z == DOOR_TOP and left == along_x:
+                        return frame if left else shade(frame, -18)
+                    return finish_color(finish, left, u, z, height, rng)
+                return fn
+            slab(DOOR_U0, DOOR_U1, DOOR_TOP, height, south=lintel(True), east=lintel(False))
+        slab(DOOR_U1, 32, south=trimmed(True, DOOR_U1), east=trimmed(False, DOOR_U1))
+    return piece.img
+
+
+# Roofs. A hipped roof's height over a tile is the least of up to four planes,
+# one rising from each side of the building: a piece is named by which of
+# them shape it (bit 1 rises from the west edge, 2 east, 4 north, 8 south;
+# 0 is the flat deck in the middle of a big roof).
+ROOF_RISE = {"residential": 12, "commercial": 5, "industrial": 8}
+ROOF_FASCIA = 3
+ROOF_FACE_TONE = {"s": 12, "e": -10, "w": 2, "n": -20, "flat": 4}
+ROOF_TRIM = {"residential": (206, 198, 182), "commercial": (70, 70, 74), "industrial": (92, 98, 104)}
+
+
+def roof_texture(kind, face, d, along, ridge, salt):
+    base = ROOF_COLORS[kind]
+    tone = ROOF_FACE_TONE[face]
+    if ridge:
+        return shade(base, tone + (30 if kind != "commercial" else 16))
+    if kind == "residential":
+        row = int(d // 4)
+        step = int(along + (row % 2) * 3)
+        k = _h2(step // 6 + salt * 31, row)
+        if d % 4 < 1.0:
+            return shade(base, tone - 24)
+        if step % 6 == 0:
+            return shade(base, tone - 12)
+        if k % 17 == 0:
+            return shade(base, tone - 16)
+        if k % 29 == 0:
+            return shade(mix(base, (86, 96, 66), 0.5), tone)
+        return shade(base, tone + (k % 9) - 4 + (4 if d % 4 > 3.0 else 0))
+    if kind == "commercial":
+        k = _h2(int(along) + salt * 17, int(d))
+        c = shade(base, tone + (k % 7) - 3)
+        if k % 37 == 0:
+            c = shade(c, -14)
+        if along % 16 < 0.7 or d % 16 < 0.7:
+            c = shade(base, tone - 12)
+        return c
+    # industrial: corrugated sheet, the ribs running down the slope.
+    rib = int(along) % 4
+    c = shade(base, tone + (14 if rib == 0 else (-12 if rib == 2 else 0)))
+    if d % 16 < 0.8:
+        c = shade(base, tone - 18)      # where one sheet laps the next
+    if _h2(int(along) // 3 + salt, int(d) // 5) % 11 == 0:
+        c = mix(c, (122, 82, 58), 0.45)
+    return c
+
+
+def make_roof_piece(kind, mask):
+    rise = ROOF_RISE[kind]
+    img = Image.new("RGBA", (ISO_TILE_W, ISO_TILE_H + rise + ROOF_FASCIA), (0, 0, 0, 0))
+    planes = ((1, "w"), (2, "e"), (4, "n"), (8, "s"))
+
+    def surface(x, y):
+        vals = []
+        for bit, name in planes:
+            if mask & bit:
+                vals.append(({"w": x, "e": 32.0 - x, "n": y, "s": 32.0 - y}[name], name))
+        if not vals:
+            return 0.0, "flat", False
+        vals.sort()
+        ridge = len(vals) > 1 and vals[1][0] - vals[0][0] < 1.2
+        return vals[0][0], vals[0][1], ridge
+
+    best = {}
+    for sy in range(128):
+        for sx in range(128):
+            x, y = (sx + 0.5) / 4.0, (sy + 0.5) / 4.0
+            d, face, ridge = surface(x, y)
+            z = d * rise / 32.0
+            px = int(math.floor(32 + x - y))
+            py = int(math.floor(rise + (x + y) / 2.0 - z))
+            if best.get((px, py), -1.0) < x + y:
+                best[(px, py)] = x + y
+                along = y if face in ("w", "e") else x
+                if face == "flat":
+                    c = roof_texture(kind, "flat", y, x, False, mask)
+                else:
+                    c = roof_texture(kind, face, d, along, ridge, mask)
+                put(img, px, py, c)
+
+    # The eaves: a fascia board and its shadow under the two near edges. Inside
+    # a roof the next piece forward covers them.
+    trim = ROOF_TRIM[kind]
+    for i in range(128):
+        t = (i + 0.5) / 4.0
+        for (x, y, lit) in ((t, 31.9, True), (31.9, t, False)):
+            d, _, _ = surface(x, y)
+            px = int(math.floor(32 + x - y))
+            py = int(math.floor(rise + (x + y) / 2.0 - d * rise / 32.0))
+            for k in range(1, ROOF_FASCIA + 1):
+                if (px, py + k) in best or not 0 <= px < ISO_TILE_W:
+                    continue
+                if k < ROOF_FASCIA:
+                    put(img, px, py + k, shade(trim, (0 if lit else -34) - (k - 1) * 14))
+                else:
+                    put(img, px, py + k, (12, 12, 20), 110)
+    return img
+
+
+BUILDING_X = 1024
+BUILDING_Y = 1480
+WALL_KINDS = (("", "full"), ("_window", "window"), ("_door", "door"), ("_doorclosed", "doorclosed"),
+              ("_doorbroken", "doorbroken"))
+
+
+def add_building_sprites(img, sprites):
+    """Thin wall pieces (wallp_<finish>_<x|y>...) and roof pieces
+    (roofp_<kind>_<mask>), packed in rows under the scenery."""
+    cells = []
+    seed = 500
+    for finish in FINISHES:
+        for axis in ("x", "y"):
+            along_x = axis == "x"
+            base = "wallp_%s_%s" % (finish, axis)
+            for suffix, kind in WALL_KINDS:
+                cells.append((base + suffix, make_wall_piece(finish, along_x, kind, WALL_H, seed)))
+                seed += 1
+            cells.append((base + "_half", make_wall_piece(finish, along_x, "half", WALL_H, seed)))
+            cells.append((base + "_low", make_wall_piece(finish, along_x, "full", WALL_LOW_H, seed)))
+            cells.append((base + "_half_low", make_wall_piece(finish, along_x, "half", WALL_LOW_H, seed)))
+            cells.append((base + "_door_low", make_wall_piece(finish, along_x, "door", WALL_LOW_H, seed)))
+            seed += 1
+        cells.append(("wallp_%s_post" % finish, make_wall_piece(finish, True, "post", WALL_H, seed)))
+        cells.append(("wallp_%s_post_low" % finish, make_wall_piece(finish, True, "post", WALL_LOW_H, seed)))
+    for kind in ("residential", "commercial", "industrial"):
+        for mask in range(16):
+            cells.append(("roofp_%s_%d" % (kind, mask), make_roof_piece(kind, mask)))
+
+    cells.sort(key=lambda c: -c[1].height)
+    x, y, row_h = BUILDING_X, BUILDING_Y, 0
+    for name, cell in cells:
+        if x + cell.width > SHEET_W:
+            x, y, row_h = BUILDING_X, y + row_h, 0
+        if y + cell.height > SHEET_H:
+            raise RuntimeError("building block is full")
+        img.alpha_composite(cell, (x, y))
+        sprites[name] = {"x": x, "y": y, "w": cell.width, "h": cell.height}
+        x += cell.width
+        row_h = max(row_h, cell.height)
 
 
 # --- Legacy props ------------------------------------------------------------
@@ -2676,8 +2731,8 @@ def main():
     print(f"  Saved {png_path} ({img.size[0]}x{img.size[1]})")
 
     atlas_meta = {
-        "imageWidth": ATLAS_W,
-        "imageHeight": ATLAS_H,
+        "imageWidth": SHEET_W,
+        "imageHeight": SHEET_H,
         "sprites": sprites,
     }
 

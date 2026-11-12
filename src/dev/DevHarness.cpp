@@ -637,6 +637,50 @@ void DevHarness::execute(Game& game, const Command& command)
         game.mCamera.snapTo(glm::vec2(t.x + kSpriteSizeForHarness * 0.5f, t.y + kSpriteSizeForHarness * 0.5f));
         game.mCamera.clampToBounds(game.mTileMap.pixelSize());
     }
+    else if (op == "lamp")
+    {
+        // lamp: stand beside the nearest street lamp that still burns.
+        if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+        {
+            fail(command, "no player");
+            return;
+        }
+        Transform& t = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+        const glm::vec2 here(t.x + 16.0f, t.y + 16.0f);
+        std::vector<glm::vec2> lamps;
+        game.mSceneryView.lampsNear(here, 1.0e9f, lamps);
+        const glm::vec2* best = nullptr;
+        for (const glm::vec2& lamp : lamps)
+        {
+            if (SceneryView::lampState(lamp) != 1) continue;
+            if (best == nullptr || glm::dot(lamp - here, lamp - here) < glm::dot(*best - here, *best - here)) best = &lamp;
+        }
+        if (best == nullptr)
+        {
+            fail(command, "no lit lamps");
+            return;
+        }
+        t.x = best->x - 16.0f;
+        t.y = best->y + 32.0f - 16.0f;
+        t.prevX = t.x;
+        t.prevY = t.y;
+        game.mCamera.snapTo(glm::vec2(t.x + 16.0f, t.y + 16.0f));
+        game.mCamera.clampToBounds(game.mTileMap.pixelSize());
+    }
+    else if (op == "weather")
+    {
+        if (need(1))
+        {
+            const std::string kind = lower(a[1]);
+            WeatherCondition condition = WeatherCondition::Clear;
+            if (kind == "cloudy") condition = WeatherCondition::Cloudy;
+            else if (kind == "rain") condition = WeatherCondition::Rain;
+            else if (kind == "heavyrain") condition = WeatherCondition::HeavyRain;
+            else if (kind == "storm") condition = WeatherCondition::Thunderstorm;
+            else if (kind == "fog") condition = WeatherCondition::Fog;
+            game.mWeatherSystem.hold(game.mWeatherState, condition, 100000.0f);
+        }
+    }
     else if (op == "zoom")
     {
         if (need(1)) game.mCamera.setZoom(std::stof(a[1]));

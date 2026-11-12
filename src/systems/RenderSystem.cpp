@@ -137,7 +137,7 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
         const DrawCommand& command = drawCommands[static_cast<std::size_t>(item.index)];
         const float scaledSize = command.size * zoom;
         glm::vec4 uvRect = command.uvRect;
-        const glm::vec4 color = command.color;
+        glm::vec4 color = command.color;
         if (command.flipX)
         {
             uvRect.x = command.uvRect.x + command.uvRect.z;
@@ -154,6 +154,19 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
             world.hasComponent<ZombieAI>(command.entity) ||
             world.hasComponent<SurvivorAI>(command.entity) ||
             world.hasComponent<Corpse>(command.entity);
+
+        // A zombie that has just been hit is drawn bright for a moment.
+        if (world.hasComponent<ZombieAI>(command.entity))
+        {
+            const float flash = world.getComponent<ZombieAI>(command.entity).hitFlash;
+            if (flash > 0.0f)
+            {
+                const float k = 1.0f + 0.8f * std::min(1.0f, flash / ZombieBlow::kFlashSeconds);
+                color.r *= k;
+                color.g *= k;
+                color.b *= k;
+            }
+        }
 
         const float visualYOffset = isHumanoid ? (kHumanoidFootPadding * scaledSize) : 0.0f;
 

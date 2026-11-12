@@ -298,6 +298,7 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
     mStructureView.build(mTileMap, mMapGenerator.layoutData());
     resetDoors(); // after build: closed doors are solid
     furnishWorld();
+    plantScenery();
     mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     mActiveSaveSlot = slotName;
     syncPresentationSettingsFromSave();
@@ -404,8 +405,8 @@ RunCheckpoint Game::buildRunCheckpoint()
             cp.zombies.push_back(record);
         });
     mWorld.forEach<Corpse, Transform, Sprite>(
-        [&](Entity, Corpse&, Transform& transform, Sprite& sprite)
-        { cp.corpses.push_back(CorpseRecord{transform.x, transform.y, sprite.flipX}); });
+        [&](Entity, Corpse& corpse, Transform& transform, Sprite& sprite)
+        { cp.corpses.push_back(CorpseRecord{transform.x, transform.y, sprite.flipX, corpse.look, corpse.dir}); });
     cp.firstDaysSaved = true;
     cp.firstDays = firstDaysRecord();
     return cp;
@@ -754,6 +755,7 @@ void Game::startNewRun()
         mSaveManager.deleteCheckpoint();
     }
     placeHomeKit();
+    plantScenery(); // again, now that the run's people and things are in place
 
     if (!restoredCheckpoint)
     {

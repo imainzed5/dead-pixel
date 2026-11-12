@@ -1217,7 +1217,8 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["corpses"] = nlohmann::json::array();
     for (const CorpseRecord& c : cp.corpses)
     {
-        json["corpses"].push_back({{"x", c.x}, {"y", c.y}, {"flip", c.flipX}});
+        json["corpses"].push_back({{"x", c.x}, {"y", c.y}, {"flip", c.flipX},
+                                   {"look", c.look}, {"dir", c.dir}});
     }
     {
         const FirstDaysRecord& fd = cp.firstDays;
@@ -1383,6 +1384,8 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             c.x = cj.value("x", 0.0f);
             c.y = cj.value("y", 0.0f);
             c.flipX = cj.value("flip", false);
+            c.look = cj.value("look", 0);
+            c.dir = cj.value("dir", c.flipX ? 3 : 1);
             cp.corpses.push_back(c);
         }
     }

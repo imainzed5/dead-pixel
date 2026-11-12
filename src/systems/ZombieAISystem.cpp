@@ -83,7 +83,8 @@ void ZombieAISystem::update(
     double gameHours,
     int currentDay,
     const DistrictInfectionSystem* infectionSystem,
-    std::vector<glm::ivec2>* doorBlows) const
+    std::vector<glm::ivec2>* doorBlows,
+    std::vector<glm::vec2>* playerHits) const
 {
     const bool isNight = (gameHours >= 20.0 || gameHours < 5.0);
     const float visionMultiplier = isNight ? (mPlayerLit ? kNightVisionLit : kNightVisionDark) : 1.0f;
@@ -121,6 +122,18 @@ void ZombieAISystem::update(
                 zombieVelocity.dy = 0.0f;
                 return;
             }
+
+            // Reeling from a blow: carried by the knockback, unable to act.
+            if (zombieAI.stagger > 0.0f)
+            {
+                zombieAI.stagger -= dtSeconds;
+                zombieVelocity.dx = zombieAI.knock.x;
+                zombieVelocity.dy = zombieAI.knock.y;
+                zombieAI.knock *= std::max(0.0f, 1.0f - ZombieBlow::kKnockDecay * dtSeconds);
+                return;
+            }
+            zombieAI.knock = glm::vec2(0.0f);
+            zombieAI.strikeTimer = std::max(0.0f, zombieAI.strikeTimer - dtSeconds);
 
             zombieAI.stateTimer += dtSeconds;
             zombieAI.boredTimer = std::max(0.0f, zombieAI.boredTimer - dtSeconds);
@@ -404,6 +417,12 @@ void ZombieAISystem::update(
             {
                 zombieVelocity.dx = 0.0f;
                 zombieVelocity.dy = 0.0f;
+                // The first half of a strike throws the body forward.
+                if (zombieAI.strikeTimer > kZombieStrikeSeconds * 0.5f)
+                {
+                    zombieVelocity.dx = zombieAI.strikeDir.x * kZombieStrikeSpeed;
+                    zombieVelocity.dy = zombieAI.strikeDir.y * kZombieStrikeSpeed;
+                }
 
                 // Mid-lunge the zombie commits; otherwise it follows a retreating player.
                 if (zombieAI.attackWindup <= 0.0f && (!playerValid || !isInAttackRange))
@@ -431,6 +450,12 @@ void ZombieAISystem::update(
 
                 // Resolve the lunge.
                 zombieAI.attackWindup = 0.0f;
+                zombieAI.strikeTimer = kZombieStrikeSeconds;
+                {
+                    const glm::vec2 toPrey = (playerValid ? playerCenter : zombieAI.targetWorld) - zombieCenter;
+                    const float d = glm::length(toPrey);
+                    zombieAI.strikeDir = d > 0.01f ? toPrey / d : glm::vec2(0.0f);
+                }
                 zombieAI.attackCooldown = kZombieAttackCooldownSeconds * (0.85f + nextRandom(zombieAI, zombieEntity) * 0.3f);
                 const bool stillInReach = playerValid && distanceToPlayer <= kZombieAttackRange * kZombieAttackReachScale;
                 if (!stillInReach || playerHealth == nullptr || nextRandom(zombieAI, zombieEntity) >= kZombieHitChance)
@@ -439,6 +464,10 @@ void ZombieAISystem::update(
                 }
 
                 playerHealth->current = std::max(0.0f, playerHealth->current - kZombieAttackDamage * damageMultiplier);
+                if (playerHits != nullptr)
+                {
+                    playerHits->push_back(zombieAI.strikeDir);
+                }
 
                 if (world.hasComponent<Wounds>(playerEntity) && nextRandom(zombieAI, zombieEntity) < kZombieWoundChance)
                 {
@@ -499,6 +528,19 @@ void ZombieAISystem::update(
             }
             zombieVelocity.dx += push.x * 4.0f;
             zombieVelocity.dy += push.y * 4.0f;
+
+            // And from standing inside the player.
+            if (playerValid)
+            {
+                const glm::vec2 away = zombieCenter - playerCenter;
+                const float d2 = glm::dot(away, away);
+                if (d2 > 0.01f && d2 < kPlayerBodyRadius * kPlayerBodyRadius)
+                {
+                    const float d = std::sqrt(d2);
+                    zombieVelocity.dx += (away.x / d) * (kPlayerBodyRadius - d) * 10.0f;
+                    zombieVelocity.dy += (away.y / d) * (kPlayerBodyRadius - d) * 10.0f;
+                }
+            }
         });
 }
 

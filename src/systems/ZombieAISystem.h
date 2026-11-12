@@ -21,7 +21,8 @@ public:
         double gameHours = 12.0,
         int currentDay = 1,
         const DistrictInfectionSystem* infectionSystem = nullptr,
-        std::vector<glm::ivec2>* doorBlows = nullptr) const;
+        std::vector<glm::ivec2>* doorBlows = nullptr,
+        std::vector<glm::vec2>* playerHits = nullptr) const;
 
     // Night vision depends on the player's light: darkness hides you, a lit
     // flashlight makes you visible from further away than in daylight.
@@ -38,6 +39,12 @@ public:
 
     [[nodiscard]] static bool hasLineOfSight(const TileMap& tileMap, const glm::vec2& worldStart, const glm::vec2& worldEnd);
 
+    // The lunge: a wind-up the player can read, then a strike that throws the
+    // body forward. The animation follows both.
+    static constexpr float kZombieAttackWindupSeconds = 0.55f;
+    static constexpr float kZombieStrikeSeconds = 0.36f;
+    static constexpr float kZombieStrikeSpeed = 80.0f;
+
 private:
     static constexpr float kSpriteSize = 32.0f;
     static constexpr float kZombieAttackRange = 28.0f;
@@ -45,7 +52,6 @@ private:
     // the player is still within reach, and only some of the time.
     static constexpr float kZombieAttackDamage = 7.0f;
     static constexpr float kZombieAttackCooldownSeconds = 1.5f;
-    static constexpr float kZombieAttackWindupSeconds = 0.55f;
     static constexpr float kZombieAttackReachScale = 1.25f; // reach at resolve, relative to attack range
     static constexpr float kZombieHitChance = 0.6f;
     static constexpr float kZombieWoundChance = 0.35f;     // per landed hit
@@ -69,6 +75,7 @@ private:
 
     // Zombies closer than this (world px) push apart.
     static constexpr float kSeparationRadius = 14.0f;
+    static constexpr float kPlayerBodyRadius = 13.0f;
 
     [[nodiscard]] static glm::vec2 tileCenterWorld(const TileMap& tileMap, const glm::ivec2& tile);
 

@@ -28,13 +28,13 @@ Entity spawnZombie(World& world, const SpriteSheet& spriteSheet, const ZombiePar
 
     Sprite sprite{};
     sprite.textureId = spriteSheet.textureId();
-    sprite.uvRect = spriteSheet.uvRect("zombie_idle_front");
+    sprite.uvRect = spriteSheet.uvRect("zombie0_idle_se");
     sprite.color = glm::vec4(1.0f);
     sprite.layer = kZombieSpriteLayer;
     sprite.drawSize = SpriteSizes::kHumanoid;
 
     Animation animation{};
-    animation.currentAnim = "zombie_idle_front";
+    animation.currentAnim = "zombie0_idle_se";
     animation.frameDuration = 0.18f;
 
     ZombieAI ai{};
@@ -42,6 +42,10 @@ Entity spawnZombie(World& world, const SpriteSheet& spriteSheet, const ZombiePar
     ai.baseMoveSpeed = params.baseMoveSpeed;
     ai.moveSpeed = params.baseMoveSpeed;
     ai.spawnDay = params.spawnDay;
+    // The look comes from where it spawned, so a saved zombie keeps its clothes.
+    const unsigned hash = static_cast<unsigned>(static_cast<int>(transform.x)) * 73856093u ^
+                          static_cast<unsigned>(static_cast<int>(transform.y)) * 19349663u;
+    ai.look = static_cast<int>((hash >> 4) % 3u);
 
     world.addComponent<Transform>(zombie, transform);
     world.addComponent<Sprite>(zombie, sprite);

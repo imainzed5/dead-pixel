@@ -113,7 +113,7 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
     }
     for (const CorpseRecord& record : cp.corpses)
     {
-        spawnCorpse(glm::vec2(record.x, record.y), record.flipX, glm::vec4(1.0f));
+        spawnCorpse(glm::vec2(record.x, record.y), record.look, record.dir, glm::vec4(1.0f), glm::vec2(0.0f), true);
     }
 }
 
@@ -130,13 +130,13 @@ void Game::setupScene()
 
     Sprite playerSprite{};
     playerSprite.textureId = sheetTex;
-    playerSprite.uvRect = mSpriteSheet.uvRect("player_idle_front");
+    playerSprite.uvRect = mSpriteSheet.uvRect("player_none_idle_se");
     playerSprite.color = glm::vec4(1.0f);
     playerSprite.layer = 10;
     playerSprite.drawSize = SpriteSizes::kHumanoid;
 
     Animation playerAnim{};
-    playerAnim.currentAnim = "player_idle_front";
+    playerAnim.currentAnim = "player_none_idle_se";
     playerAnim.frameDuration = 0.15f;
 
     mWorld.addComponent<Transform>(mPlayerEntity, playerTransform);
@@ -230,8 +230,8 @@ void Game::setupScene()
                 if (!sr.alive) continue;
                 Entity npc = mWorld.createEntity();
                 Transform nt{}; nt.x = sr.x; nt.y = sr.y;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle_front"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
-                Animation na{}; na.currentAnim = "player_idle_front"; na.frameDuration = 0.2f;
+                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_none_idle_se"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
+                Animation na{}; na.currentAnim = "player_none_idle_se"; na.frameDuration = 0.2f;
                 SurvivorAI sai{};
                 sai.name = sr.name;
                 sai.spawnDay = sr.spawnDay;
@@ -296,8 +296,8 @@ void Game::setupScene()
 
                 Entity npc = mWorld.createEntity();
                 Transform nt{}; nt.x = spawnX; nt.y = spawnY;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle_front"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
-                Animation na{}; na.currentAnim = "player_idle_front"; na.frameDuration = 0.2f;
+                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_none_idle_se"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
+                Animation na{}; na.currentAnim = "player_none_idle_se"; na.frameDuration = 0.2f;
 
                 SurvivorAI sai{};
                 sai.name = kSurvivorNames[(runRng() % kNameCount)];

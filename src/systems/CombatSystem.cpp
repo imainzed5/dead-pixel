@@ -451,25 +451,10 @@ void CombatSystem::resolveSwing(
                 pushDirection = glm::vec2(1.0f, 0.0f);
             }
 
-            const glm::vec2 pushedCenter = zombieCenter + pushDirection * knockback;
-            const float proposedX = pushedCenter.x - kSpriteSize * 0.5f;
-            const float proposedY = pushedCenter.y - kSpriteSize * 0.5f;
-
-            const float collisionCenterX = proposedX + kSpriteSize * 0.5f;
-            const float collisionCenterY = proposedY + kCollisionCenterYOffset;
-
-            const float left = collisionCenterX - kCollisionWidth * 0.5f;
-            const float right = collisionCenterX + kCollisionWidth * 0.5f;
-            const float top = collisionCenterY - kCollisionHeight * 0.5f;
-            const float bottom = collisionCenterY + kCollisionHeight * 0.5f;
-
-            if (!tileMap.isSolidAtWorldRect(left, top, right, bottom))
-            {
-                zombieTransform.x = proposedX;
-                zombieTransform.y = proposedY;
-            }
-
-            zombieVelocity.dx = pushDirection.x * 120.0f;
-            zombieVelocity.dy = pushDirection.y * 120.0f;
+            // The blow throws the zombie back and leaves it reeling; the AI
+            // carries the knockback through its own movement and collision.
+            ZombieBlow::land(zombieAI, pushDirection, knockback);
+            zombieVelocity.dx = zombieAI.knock.x;
+            zombieVelocity.dy = zombieAI.knock.y;
         });
 }

@@ -6,6 +6,8 @@
 
 #include <glm/vec2.hpp>
 
+#include <algorithm>
+
 #include "ecs/Types.h"
 
 enum class ZombieState
@@ -32,6 +34,17 @@ struct ZombieAI
     float pathRepathTimer = 0.0f;
     float attackCooldown = 0.0f;
     float attackWindup = 0.0f; // > 0: lunging; the hit resolves when it reaches 0
+    float strikeTimer = 0.0f;  // > 0: just struck; the body is still thrown forward
+    glm::vec2 strikeDir{0.0f, 0.0f};
+
+    // Taking a blow: the zombie reels for `stagger` seconds, carried by
+    // `knock` (world px/s, dying away), and cannot act until it recovers.
+    float stagger = 0.0f;
+    glm::vec2 knock{0.0f, 0.0f};
+    float hitFlash = 0.0f;     // > 0: drawn bright for a moment after a hit
+
+    // Which of the zombie looks (clothes, hair) this one wears.
+    int look = 0;
 
     // Per-zombie base speed (rolled at spawn); threat tuning scales it into moveSpeed.
     float baseMoveSpeed = 112.0f;
@@ -66,3 +79,25 @@ struct ZombieAI
     glm::vec2 leashHome{0.0f, 0.0f};
     float leashTiles = 0.0f;
 };
+
+namespace ZombieBlow
+{
+// Knockback dies away at this rate (1/s), so a blow of N pixels carries the
+// body about N pixels in all.
+inline constexpr float kKnockDecay = 9.0f;
+// hitFlash is set to this by a blow; the game sees it once, reacts (blood,
+// shake, a held frame) and starts the flash proper.
+inline constexpr float kFreshHit = 1.0f;
+inline constexpr float kFlashSeconds = 0.12f;
+
+// Land a blow on a zombie: it is thrown along `direction` (unit, world space)
+// and reels, and whatever lunge it was winding up is broken off.
+inline void land(ZombieAI& zombie, const glm::vec2& direction, float knockbackPixels)
+{
+    zombie.knock = direction * (knockbackPixels * kKnockDecay);
+    zombie.stagger = std::clamp(0.14f + knockbackPixels * 0.006f, 0.18f, 0.45f);
+    zombie.hitFlash = kFreshHit;
+    zombie.attackWindup = 0.0f;
+    zombie.strikeTimer = 0.0f;
+}
+} // namespace ZombieBlow

@@ -1,0 +1,81 @@
+# Combat feel: the eight facings, the swing frame by frame, a zombie reeling
+# from a blow, the body going over backward, and blood left on the ground.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/combat_feel.txt --hidden --world-seed 1234 --shots shots/combat_feel
+
+newrun
+god on
+waits 1
+
+# A fight: one of the dead, knife in hand.
+zoom 2.5
+mouse 640 440
+zombie 2 2
+waits 0.5
+shot 08_coming
+click left
+wait 6
+shot 09_windup
+wait 8
+shot 10_strike
+wait 4
+shot 11_hit
+waits 0.5
+click left
+waits 0.35
+shot 12_second
+waits 0.4
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+shot 13_later
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 0.5
+click left
+waits 1.2
+zombies
+shot 14_bodies
+
+# The facings: aim round the compass.
+zoom 3
+mouse 940 360
+waits 0.3
+shot 01_face_e
+mouse 900 560
+waits 0.3
+shot 02_face_se
+mouse 640 640
+waits 0.3
+shot 03_face_s
+mouse 340 360
+waits 0.3
+shot 04_face_w
+mouse 640 100
+waits 0.3
+shot 05_face_n
+
+# Walking and running toward the viewer.
+hold S 30
+waits 0.2
+shot 06_walk
+key LShift down
+hold S 30
+waits 0.2
+shot 07_run
+key LShift up
+waits 0.4
+expect alive
+quit

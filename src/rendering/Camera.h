@@ -22,6 +22,9 @@ public:
     void zoomToward(float newZoom, const glm::vec2& screenPivot);
     [[nodiscard]] float zoom() const { return mZoom; }
 
+    // A screen-pixel offset laid over the view (screen shake).
+    void setShake(const glm::vec2& screenOffset) { mShake = screenOffset; }
+
     [[nodiscard]] const glm::vec2& position() const { return mPosition; }
     [[nodiscard]] const glm::vec2& viewportSize() const { return mViewportSize; }
 
@@ -34,4 +37,5 @@ private:
     glm::vec2 mPosition{0.0f, 0.0f}; // Camera center in iso-space
     glm::vec2 mViewportSize{1280.0f, 720.0f};
     float mZoom = kDefaultZoom;
+    glm::vec2 mShake{0.0f, 0.0f};
 };

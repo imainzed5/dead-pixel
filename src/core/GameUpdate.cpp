@@ -7,6 +7,17 @@ void Game::update(float dtSeconds)
 {
     handleEscapeKey();
 
+    // Combat weight runs on real time: the shake dies away, and a landed
+    // blow holds the world almost still for a few frames.
+    mShakeClock += dtSeconds;
+    mShakeTrauma = std::max(0.0f, mShakeTrauma - dtSeconds * 2.6f);
+    mPlayerHurtTimer = std::max(0.0f, mPlayerHurtTimer - dtSeconds);
+    if (mHitStop > 0.0f && mRunState == RunState::Playing)
+    {
+        mHitStop -= dtSeconds;
+        dtSeconds *= 0.06f;
+    }
+
     mMouseWorld =screenToWorld(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
 
     mInteractionMessageTimer = std::max(0.0f, mInteractionMessageTimer - dtSeconds);
@@ -87,6 +98,8 @@ void Game::update(float dtSeconds)
     if (mRunState == RunState::Dead || mRunState == RunState::Retired)
     {
         mDeathStateTimer += static_cast<double>(dtSeconds);
+        updateAnimations(dtSeconds);
+        mParticleSystem.update(dtSeconds);
 
         const bool restartRequested =
             mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
@@ -119,7 +132,7 @@ void Game::update(float dtSeconds)
 
     if (playerAlive && !mShowCrafting)
     {
-        mInputSystem.update(mWorld, mInput, mMouseWorld);
+        mInputSystem.update(mWorld, mInput, mMouseWorld, dtSeconds);
     }
     else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
     {
@@ -158,6 +171,7 @@ void Game::update(float dtSeconds)
 
     // Weather system
     mWeatherSystem.update(mWeatherState, dtSeconds, mGameHours, mCurrentDay);
+    updateAtmosphere(dtSeconds);
 
     // Flashlight toggle (Q). Needs a flashlight in the pack.
     if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
@@ -489,8 +503,23 @@ void Game::update(float dtSeconds)
 
     if (!mShowCrafting && !drivingVehicle)
     {
+        int shotsBefore = 0;
+        mWorld.forEach<Projectile>([&](Entity, Projectile&) { ++shotsBefore; });
         mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, dtSeconds);
         syncEquippedWeapon();
+
+        // A shot: a flash at the muzzle and a spent case thrown out to the side.
+        int shotsAfter = 0;
+        mWorld.forEach<Projectile>([&](Entity, Projectile&) { ++shotsAfter; });
+        if (shotsAfter > shotsBefore && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Facing>(mPlayerEntity))
+        {
+            const float angle = mWorld.getComponent<Facing>(mPlayerEntity).angleRadians;
+            const glm::vec2 aim(std::cos(angle), std::sin(angle));
+            const glm::vec2 centre = playerWorldCenter();
+            mMuzzleFlash = 0.07f;
+            mMuzzleWorld = centre + aim * 16.0f;
+            mParticleSystem.spawnCasing(centre + aim * 6.0f, glm::vec2(-aim.y, aim.x));
+        }
     }
     else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Combat>(mPlayerEntity))
     {
@@ -503,6 +532,8 @@ void Game::update(float dtSeconds)
         combat.grabTarget = kInvalidEntity;
         combat.grabTimer = 0.0f;
     }
+
+    updateBlowFeedback(dtSeconds);
 
     // Desensitisation gain: check for zombie deaths after combat
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<MentalState>(mPlayerEntity))
@@ -549,11 +580,27 @@ void Game::update(float dtSeconds)
             {
                 const Transform& t = mWorld.getComponent<Transform>(fallen.zombie);
                 const Sprite& s = mWorld.getComponent<Sprite>(fallen.zombie);
+                const ZombieAI& ai = mWorld.getComponent<ZombieAI>(fallen.zombie);
                 const glm::vec2 topLeft(t.x, t.y);
-                const bool flipX = s.flipX;
                 const glm::vec4 tint = s.color;
+                const int look = ai.look;
+                const glm::vec2 slide = ai.knock * 0.7f;
+                int dir = mWorld.hasComponent<Animation>(fallen.zombie)
+                    ? mWorld.getComponent<Animation>(fallen.zombie).dir
+                    : 1;
+                // Knocked down, it goes over backward along the blow.
+                if (glm::dot(slide, slide) > 1.0f)
+                {
+                    dir = facingDir(-slide, dir);
+                }
+                // A body lying straight toward or away from the viewer is
+                // foreshortened to a lump; turn it to the nearest diagonal.
+                if (dir == 2 || dir == 6)
+                {
+                    dir = (dir + ((look + static_cast<int>(topLeft.x)) % 2 == 0 ? 1 : 7)) & 7;
+                }
                 mWorld.destroyEntity(fallen.zombie);
-                spawnCorpse(topLeft, flipX, tint);
+                spawnCorpse(topLeft, look, dir, tint, slide, false);
             }
             else
             {
@@ -568,6 +615,30 @@ void Game::update(float dtSeconds)
             {
                 c.age += dtSeconds;
                 bodies.emplace_back(c.age, corpse);
+
+                // The body slides on what is left of the blow, and stops at walls.
+                if ((c.slideX != 0.0f || c.slideY != 0.0f) && mWorld.hasComponent<Transform>(corpse))
+                {
+                    Transform& t = mWorld.getComponent<Transform>(corpse);
+                    const auto blocked = [&](float x, float y)
+                    {
+                        const float cx = x + kSpriteSize * 0.5f;
+                        const float cy = y + kSpriteSize * 0.5f + 6.0f;
+                        return mTileMap.isSolidAtWorldDiamond(cx, cy, 9.0f, 9.0f);
+                    };
+                    const float nx = t.x + c.slideX * dtSeconds;
+                    if (!blocked(nx, t.y)) t.x = nx; else c.slideX = 0.0f;
+                    const float ny = t.y + c.slideY * dtSeconds;
+                    if (!blocked(t.x, ny)) t.y = ny; else c.slideY = 0.0f;
+                    const float keep = std::max(0.0f, 1.0f - 7.0f * dtSeconds);
+                    c.slideX *= keep;
+                    c.slideY *= keep;
+                    if (c.slideX * c.slideX + c.slideY * c.slideY < 4.0f)
+                    {
+                        c.slideX = 0.0f;
+                        c.slideY = 0.0f;
+                    }
+                }
             });
         if (bodies.size() > kMaxCorpses)
         {
@@ -637,8 +708,28 @@ void Game::update(float dtSeconds)
         mGameHours,
         mCurrentDay,
         &mDistrictInfectionSystem,
-        &mDoorBlows);
+        &mDoorBlows,
+        &mPlayerHits);
     updateDoors(dtSeconds);
+
+    // A blow that lands on the player shoves them, shakes the view and
+    // throws blood the way the blow went.
+    if (!mPlayerHits.empty() && mPlayerEntity != kInvalidEntity &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity) && mWorld.hasComponent<Transform>(mPlayerEntity))
+    {
+        Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+        for (const glm::vec2& direction : mPlayerHits)
+        {
+            vel.dx += direction.x * 230.0f;
+            vel.dy += direction.y * 230.0f;
+            mParticleSystem.spawnBloodSpray(
+                glm::vec2(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f), direction, 9);
+        }
+        mPlayerHurtTimer = 0.24f;
+        mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.5f);
+    }
+    mPlayerHits.clear();
 
     // Zombie audio: growls from chasing zombies, attack sounds
     mZombieGrowlTimer = std::max(0.0f, mZombieGrowlTimer - dtSeconds);
@@ -875,33 +966,32 @@ void Game::updateSleep(float dtSeconds)
 
 namespace
 {
-// Which way a character faces on screen, from a direction in world space. The
-// iso view puts world (x, y) at screen (x - y, (x + y) / 2). Frames are drawn
-// facing right: away picks the back view, flip mirrors them to face left.
-// Near straight up or down the flip is kept, and near straight left or right
-// the view is kept, so a character walking a screen axis does not flicker.
-void faceToward(const glm::vec2& worldDir, bool& away, bool& flip)
+// The five drawn views, by facing (Animation::dir): the three right-hand ones
+// are mirrored for the left.
+const char* viewSuffix(int dir)
 {
-    const float sx = worldDir.x - worldDir.y;
-    const float sy = (worldDir.x + worldDir.y) * 0.5f;
-    if (sx * sx + sy * sy < 1e-6f)
-    {
-        return;
-    }
-    if (std::abs(sy) > 0.2f * std::abs(sx))
-    {
-        away = sy < 0.0f;
-    }
-    if (std::abs(sx) > 0.2f * std::abs(sy))
-    {
-        flip = sx < 0.0f;
-    }
+    static const char* const kViews[8] = {"_e", "_se", "_s", "_se", "_e", "_ne", "_n", "_ne"};
+    return kViews[dir & 7];
 }
 
-// Switch animation. Turning mid-stride (walk_front to walk_back) keeps the
-// step; anything else starts the new cycle from its first frame.
-void playAnimation(Animation& anim, const std::string& desired)
+bool viewFlipped(int dir)
 {
+    return dir >= 3 && dir <= 5;
+}
+
+void face(Animation& anim, Sprite& sprite, const glm::vec2& worldDir)
+{
+    anim.dir = facingDir(worldDir, anim.dir);
+    sprite.flipX = viewFlipped(anim.dir);
+}
+
+// Switch animation. Turning mid-stride (walk_se to walk_e) keeps the step;
+// anything else starts the new cycle from its first frame.
+void playAnimation(Animation& anim, const std::string& desired, float frameDuration, bool looping = true)
+{
+    anim.driven = false;
+    anim.frameDuration = frameDuration;
+    anim.looping = looping;
     if (anim.currentAnim == desired)
     {
         return;
@@ -913,32 +1003,134 @@ void playAnimation(Animation& anim, const std::string& desired)
     {
         anim.currentFrame = 0;
         anim.frameTimer = 0.0f;
+        anim.finished = false;
     }
-    anim.finished = false;
 }
 
-const char* viewSuffix(bool away)
+// Show one chosen frame of an animation (attacks follow their timers).
+void showFrame(Animation& anim, const std::string& name, int frame)
 {
-    return away ? "_back" : "_front";
+    anim.currentAnim = name;
+    anim.driven = true;
+    anim.finished = false;
+    anim.currentFrame = frame;
+}
+
+// Frame within one part of an attack: `count` frames spread over a timer
+// that runs from `total` down to zero.
+int partFrame(float timer, float total, int count)
+{
+    const float progress = 1.0f - std::clamp(timer / total, 0.0f, 1.0f);
+    return std::min(count - 1, static_cast<int>(progress * static_cast<float>(count)));
+}
+
+// What the player carries decides which set of frames they wear.
+const char* loadoutName(const Combat& combat)
+{
+    if (combat.weapon.itemId < 0)
+    {
+        return "none";
+    }
+    switch (combat.weapon.category)
+    {
+    case WeaponCategory::Unarmed: return "none";
+    case WeaponCategory::Bladed: return "blade";
+    case WeaponCategory::Ranged: return "gun";
+    default: return "club";
+    }
+}
+
+struct AttackFrames
+{
+    const char* name;
+    int windup;
+    int active;
+    int recovery;
+};
+
+AttackFrames attackFrames(const Combat& combat)
+{
+    if (combat.weapon.itemId < 0)
+    {
+        return {"player_punch", 2, 1, 2};
+    }
+    switch (combat.weapon.category)
+    {
+    case WeaponCategory::Unarmed: return {"player_punch", 2, 1, 2};
+    case WeaponCategory::Bladed: return {"player_stab", 2, 1, 2};
+    case WeaponCategory::Ranged: return {"player_shoot", 1, 1, 1};
+    default: return {"player_swing", 2, 2, 2};
+    }
 }
 } // namespace
 
-void Game::spawnCorpse(const glm::vec2& topLeft, bool flipX, const glm::vec4& tint)
+void Game::spawnCorpse(const glm::vec2& topLeft, int look, int dir, const glm::vec4& tint,
+                       const glm::vec2& slide, bool settled)
 {
     Transform body{};
     body.x = body.prevX = topLeft.x;
     body.y = body.prevY = topLeft.y;
+
+    Animation fall{};
+    fall.currentAnim = "zombie" + std::to_string(((look % 3) + 3) % 3) + "_death" + viewSuffix(dir);
+    fall.dir = dir & 7;
+    fall.frameDuration = 0.075f;
+    fall.looping = false;
+    const int frames = std::max(1, mSpriteSheet.frameCount(fall.currentAnim));
+    if (settled)
+    {
+        fall.currentFrame = frames - 1;
+        fall.finished = true;
+    }
+
     Sprite sprite{};
     sprite.textureId = mSpriteSheet.textureId();
-    sprite.uvRect = mSpriteSheet.uvRect("zombie_dead");
+    sprite.uvRect = mSpriteSheet.frameUv(fall.currentAnim, fall.currentFrame);
     sprite.color = tint;
     sprite.layer = 3; // on the floor, under anything standing
     sprite.drawSize = SpriteSizes::kHumanoid;
-    sprite.flipX = flipX;
-    const Entity corpse = mWorld.createEntity();
-    mWorld.addComponent<Transform>(corpse, body);
-    mWorld.addComponent<Sprite>(corpse, sprite);
-    mWorld.addComponent<Corpse>(corpse, Corpse{});
+    sprite.flipX = viewFlipped(dir);
+
+    Corpse corpse{};
+    corpse.slideX = slide.x;
+    corpse.slideY = slide.y;
+    corpse.look = look;
+    corpse.dir = dir & 7;
+
+    const Entity entity = mWorld.createEntity();
+    mWorld.addComponent<Transform>(entity, body);
+    mWorld.addComponent<Sprite>(entity, sprite);
+    mWorld.addComponent<Animation>(entity, fall);
+    mWorld.addComponent<Corpse>(entity, corpse);
+}
+
+// A blow that has just landed on a zombie: blood along the swing, and, for
+// the player's own blows, a held frame and a shaken view.
+void Game::updateBlowFeedback(float dtSeconds)
+{
+    mWorld.forEach<ZombieAI, Transform, Health>(
+        [&](Entity, ZombieAI& zombie, Transform& transform, Health& health)
+        {
+            if (zombie.hitFlash < ZombieBlow::kFreshHit)
+            {
+                zombie.hitFlash = std::max(0.0f, zombie.hitFlash - dtSeconds);
+                return;
+            }
+            zombie.hitFlash = ZombieBlow::kFlashSeconds;
+
+            const bool killed = health.current <= 0.0f;
+            const glm::vec2 centre(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f);
+            const float speed = glm::length(zombie.knock);
+            const glm::vec2 direction = speed > 1.0f ? zombie.knock / speed : glm::vec2(0.0f);
+            mParticleSystem.spawnBloodSpray(centre, direction, killed ? 22 : 10, killed ? 1.25f : 1.0f);
+
+            if (zombie.lastDamagedBy == mPlayerEntity)
+            {
+                mHitStop = std::max(mHitStop, killed ? 0.085f : 0.05f);
+                mShakeTrauma = std::min(1.0f, mShakeTrauma + (killed ? 0.45f : 0.3f));
+                mAudioManager.playSound(SoundId::WeaponHit, killed ? 0.75f : 0.55f);
+            }
+        });
 }
 
 // Character animation: which pose, which way they face on screen.
@@ -957,59 +1149,115 @@ void Game::updateAnimations(float dtSeconds)
         const Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
         const Facing& fac = mWorld.getComponent<Facing>(mPlayerEntity);
 
-        faceToward(glm::vec2(std::cos(fac.angleRadians), std::sin(fac.angleRadians)), anim.facingAway, sprite.flipX);
-
-        const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 4.0f;
         const bool dead = mWorld.hasComponent<Health>(mPlayerEntity) &&
                           mWorld.getComponent<Health>(mPlayerEntity).current <= 0.0f;
-        bool swinging = false;
-        if (mWorld.hasComponent<Combat>(mPlayerEntity))
+        if (!dead)
         {
-            const AttackPhase phase = mWorld.getComponent<Combat>(mPlayerEntity).phase;
-            swinging = phase == AttackPhase::Windup || phase == AttackPhase::Active;
+            face(anim, sprite, glm::vec2(std::cos(fac.angleRadians), std::sin(fac.angleRadians)));
         }
+        const std::string view = viewSuffix(anim.dir);
 
-        std::string desired;
+        const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 16.0f;
+        const Combat* combat = mWorld.hasComponent<Combat>(mPlayerEntity)
+            ? &mWorld.getComponent<Combat>(mPlayerEntity)
+            : nullptr;
+        const std::string set = std::string("player_") + (combat != nullptr ? loadoutName(*combat) : "none");
+
         if (dead)
         {
-            desired = "player_dead";
+            playAnimation(anim, "player_death" + view, 0.085f, false);
         }
-        else
+        else if (combat != nullptr && combat->phase != AttackPhase::Idle)
         {
-            if (swinging)
+            // The swing follows the combat phases frame for frame.
+            const AttackFrames frames = attackFrames(*combat);
+            int frame = 0;
+            if (combat->phase == AttackPhase::Windup)
             {
-                desired = "player_attack";
+                frame = partFrame(combat->phaseTimer, CombatSystem::kWindupSeconds, frames.windup);
             }
-            else if (moving)
+            else if (combat->phase == AttackPhase::Active)
             {
-                desired = fac.crouching ? "player_crouchwalk" : "player_walk";
+                frame = frames.windup + partFrame(combat->phaseTimer, CombatSystem::kActiveSeconds, frames.active);
             }
             else
             {
-                desired = fac.crouching ? "player_crouch" : "player_idle";
+                frame = frames.windup + frames.active +
+                        partFrame(combat->phaseTimer, CombatSystem::kRecoverySeconds, frames.recovery);
             }
-            desired += viewSuffix(anim.facingAway);
+            showFrame(anim, frames.name + view, frame);
         }
-        playAnimation(anim, desired);
+        else if (mPlayerHurtTimer > 0.0f)
+        {
+            playAnimation(anim, set + "_hurt" + view, 0.2f);
+        }
+        else if (moving)
+        {
+            if (fac.crouching)
+            {
+                playAnimation(anim, set + "_crouchwalk" + view, 0.11f);
+            }
+            else if (fac.running)
+            {
+                playAnimation(anim, set + "_run" + view, 0.062f);
+            }
+            else
+            {
+                playAnimation(anim, set + "_walk" + view, 0.075f);
+            }
+        }
+        else
+        {
+            playAnimation(anim, set + (fac.crouching ? "_crouch" : "_idle") + view, 0.55f);
+        }
     }
 
     // Zombies face where they shamble, and turn to their prey for a lunge.
     mWorld.forEach<ZombieAI, Animation, Velocity, Sprite, Transform>(
         [&](Entity, ZombieAI& ai, Animation& anim, Velocity& vel, Sprite& sprite, Transform& transform)
         {
-            const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 1.0f;
-            const bool lunging = ai.attackWindup > 0.0f;
+            const std::string set = "zombie" + std::to_string(((ai.look % 3) + 3) % 3);
+            const float speed2 = vel.dx * vel.dx + vel.dy * vel.dy;
+            const bool lunging = ai.attackWindup > 0.0f || ai.strikeTimer > 0.0f;
+
+            if (ai.stagger > 0.0f)
+            {
+                // Thrown back: it keeps facing whoever hit it.
+                showFrame(anim, set + "_stagger" + viewSuffix(anim.dir), ai.stagger > 0.11f ? 0 : 1);
+                return;
+            }
             if (lunging || ai.state == ZombieState::Attack)
             {
                 const glm::vec2 centre(transform.x + 16.0f, transform.y + 16.0f);
-                faceToward(ai.targetWorld - centre, anim.facingAway, sprite.flipX);
+                face(anim, sprite, ai.targetWorld - centre);
             }
-            else if (moving)
+            else if (speed2 > 1.0f)
             {
-                faceToward(glm::vec2(vel.dx, vel.dy), anim.facingAway, sprite.flipX);
+                face(anim, sprite, glm::vec2(vel.dx, vel.dy));
             }
-            const char* pose = lunging ? "zombie_attack" : (moving ? "zombie_walk" : "zombie_idle");
-            playAnimation(anim, std::string(pose) + viewSuffix(anim.facingAway));
+            const std::string view = viewSuffix(anim.dir);
+
+            if (ai.attackWindup > 0.0f)
+            {
+                // Coiling back is the warning; the strike follows.
+                showFrame(anim, set + "_lunge" + view,
+                          partFrame(ai.attackWindup, ZombieAISystem::kZombieAttackWindupSeconds, 2));
+            }
+            else if (ai.strikeTimer > 0.0f)
+            {
+                showFrame(anim, set + "_lunge" + view,
+                          2 + partFrame(ai.strikeTimer, ZombieAISystem::kZombieStrikeSeconds, 3));
+            }
+            else if (speed2 > 1.0f)
+            {
+                // The shamble keeps time with how fast it is going.
+                const float speed = std::sqrt(speed2);
+                playAnimation(anim, set + "_walk" + view, std::clamp(8.0f / speed, 0.07f, 0.2f));
+            }
+            else
+            {
+                playAnimation(anim, set + "_idle" + view, 0.6f);
+            }
         });
 
     // Survivors walk like the player and face where they go.
@@ -1018,18 +1266,85 @@ void Game::updateAnimations(float dtSeconds)
         {
             if (ai.state == SurvivorState::Dead)
             {
-                playAnimation(anim, "player_dead");
+                playAnimation(anim, std::string("player_death") + viewSuffix(anim.dir), 0.085f, false);
                 return;
             }
             const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 4.0f;
             if (moving)
             {
-                faceToward(glm::vec2(vel.dx, vel.dy), anim.facingAway, sprite.flipX);
+                face(anim, sprite, glm::vec2(vel.dx, vel.dy));
             }
-            playAnimation(anim, std::string(moving ? "player_walk" : "player_idle") + viewSuffix(anim.facingAway));
+            playAnimation(anim, std::string(moving ? "player_none_walk" : "player_none_idle") + viewSuffix(anim.dir),
+                          moving ? 0.085f : 0.55f);
         });
 
     mAnimationSystem.update(mWorld, mSpriteSheet, dtSeconds);
+}
+
+void Game::updateAtmosphere(float dtSeconds)
+{
+    mMuzzleFlash = std::max(0.0f, mMuzzleFlash - dtSeconds);
+    mAtmosphere.update(dtSeconds, mWeatherState, mCamera, mTileMap, mParticleSystem);
+    if (mAtmosphere.takeThunder())
+    {
+        mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.18f);
+    }
+
+    // Everyone on their feet stirs the undergrowth and kicks what lies about.
+    mSceneryMovers.clear();
+    if (dtSeconds > 0.0f)
+    {
+        const auto add = [&](const Transform& transform)
+        {
+            mSceneryMovers.push_back(SceneryMover{
+                glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
+                glm::vec2(transform.x - transform.prevX, transform.y - transform.prevY) / dtSeconds});
+        };
+        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
+        {
+            add(mWorld.getComponent<Transform>(mPlayerEntity));
+        }
+        mWorld.forEach<ZombieAI, Transform>([&](Entity, ZombieAI&, Transform& transform) { add(transform); });
+    }
+    mRustled.clear();
+    mSceneryView.update(dtSeconds, mAtmosphere.wind(), mAtmosphere.gust(), mSceneryMovers, mTileMap, &mRustled);
+    for (const glm::vec2& at : mRustled)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            mParticleSystem.spawnLeaf(at, 8.0f, mAtmosphere.wind() * 0.2f, glm::vec4(0.36f, 0.48f, 0.28f, 1.0f));
+        }
+    }
+
+    // Leaves come off the trees, a few in still air and a stream in a gale.
+    const float gust = mAtmosphere.gust();
+    mLeafDebt += (0.25f + gust * gust * 9.0f) * dtSeconds;
+    if (mLeafDebt >= 1.0f)
+    {
+        mCanopies.clear();
+        const glm::vec2 centre = mCamera.screenToWorld(mCamera.viewportSize() * 0.5f);
+        mSceneryView.canopiesNear(centre, 520.0f, mCanopies);
+        while (mLeafDebt >= 1.0f)
+        {
+            mLeafDebt -= 1.0f;
+            if (mCanopies.empty())
+            {
+                continue;
+            }
+            // Autumn trees shed three times as freely.
+            static std::uint32_t pick = 12345u;
+            pick = pick * 1664525u + 1013904223u;
+            const SceneryCanopy& tree = mCanopies[(pick >> 8) % mCanopies.size()];
+            if (!tree.autumn && ((pick >> 20) % 3u) != 0u)
+            {
+                continue;
+            }
+            const glm::vec4 color = tree.autumn ? glm::vec4(0.80f, 0.46f, 0.18f, 1.0f)
+                                                : glm::vec4(0.42f, 0.54f, 0.30f, 1.0f);
+            mParticleSystem.spawnLeaf(tree.position, 38.0f + static_cast<float>((pick >> 12) % 24u),
+                                      mAtmosphere.wind() * 0.55f, color);
+        }
+    }
 }
 
 // Particle update and spawning (blood, dust, embers).

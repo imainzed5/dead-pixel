@@ -20,6 +20,7 @@ void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
     mDoorLayer.assign(size, DoorState::None);
     mDoorBoards.assign(size, 0);
     mFurnitureLayer.assign(size, 0);
+    mSceneryLayer.assign(size, 0);
 }
 
 void TileMap::setTileset(const TilesetInfo& tileset)
@@ -96,7 +97,8 @@ bool TileMap::isSolid(int tileX, int tileY) const
     }
 
     const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
-    return blocksSight(tileX, tileY) || (index < mFurnitureLayer.size() && mFurnitureLayer[index] != 0);
+    return blocksSight(tileX, tileY) || (index < mFurnitureLayer.size() && mFurnitureLayer[index] != 0) ||
+           (index < mSceneryLayer.size() && mSceneryLayer[index] != 0);
 }
 
 bool TileMap::blocksSight(int tileX, int tileY) const
@@ -133,6 +135,31 @@ bool TileMap::hasFurniture(int tileX, int tileY) const
 void TileMap::clearFurniture()
 {
     std::fill(mFurnitureLayer.begin(), mFurnitureLayer.end(), std::uint8_t{0});
+}
+
+void TileMap::setScenery(int tileX, int tileY, bool present)
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return;
+    }
+    mSceneryLayer.resize(static_cast<std::size_t>(mWidth * mHeight), 0);
+    mSceneryLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))] = present ? 1 : 0;
+}
+
+bool TileMap::hasScenery(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY))
+    {
+        return false;
+    }
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return index < mSceneryLayer.size() && mSceneryLayer[index] != 0;
+}
+
+void TileMap::clearScenery()
+{
+    std::fill(mSceneryLayer.begin(), mSceneryLayer.end(), std::uint8_t{0});
 }
 
 void TileMap::setDoorState(int tileX, int tileY, DoorState state)
