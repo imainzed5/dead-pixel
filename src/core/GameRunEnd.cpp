@@ -186,32 +186,11 @@ void Game::addRunEndMemoryEvent(WorldMemoryEventType type, int runIndex)
 // checkpoint is deleted (death is permanent; retirement ends the run).
 void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
 {
-    {
-        std::vector<StructureRecord> structRecords;
-        mWorld.forEach<Structure, Transform>(
-            [&](Entity e, Structure& s, Transform& t)
-            {
-                StructureRecord rec;
-                rec.type = static_cast<int>(s.type);
-                rec.x = t.x;
-                rec.y = t.y;
-                rec.condition = static_cast<int>(s.condition);
-                rec.hpRatio = s.maxHp > 0.0f ? s.hp / s.maxHp : 0.0f;
-                if (s.type == StructureType::SupplyCache && mWorld.hasComponent<Inventory>(e))
-                {
-                    const Inventory& inv = mWorld.getComponent<Inventory>(e);
-                    for (const auto& slot : inv.slots)
-                    {
-                        if (slot.itemId >= 0 && slot.count > 0)
-                        {
-                            rec.items.emplace_back(slot.itemId, slot.count);
-                        }
-                    }
-                }
-                structRecords.push_back(rec);
-            });
-        mSaveManager.saveStructures(structRecords);
-    }
+    // What was built and set down lasts, a stage worse; windows stay as they
+    // were left; and the house this life held is remembered.
+    mSaveManager.saveStructures(structureRecords(true));
+    mSaveManager.setWindows(windowRecords());
+    recordBase(mRunState == RunState::Dead);
 
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
 

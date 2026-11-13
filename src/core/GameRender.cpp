@@ -61,24 +61,20 @@ void Game::render()
         mAtmosphere.renderRain(mSpriteBatch, mCamera, solidWhiteUv, mTileMap.isIndoorsAtWorld(centre.x, centre.y));
     }
 
-    // Build mode ghost preview
-    if (mBuildSystem.isBuildMode())
+    // The station chosen on the build wheel, where it would stand.
+    if (mBuildChoice >= 0 && !mBuildWheelOpen && mBaseAction.kind == BaseAction::Kind::None)
     {
-        const int recipeIdx = mBuildSystem.selectedRecipe();
-        if (recipeIdx >= 0 && recipeIdx < BuildSystem::kRecipeCount)
-        {
-            const auto& recipe = BuildSystem::kRecipes[recipeIdx];
-            const glm::vec4 ghostUv = mSpriteSheet.uvRect(recipe.sprite);
-            const glm::vec2 ghostWorld = mBuildSystem.ghostPosition() + glm::vec2(kSpriteSize * 0.5f);
-            const glm::vec2 ghostScreen = mCamera.worldToScreen(ghostWorld);
-            const glm::vec4 ghostColor = mBuildSystem.ghostValid()
-                ? glm::vec4(0.2f, 0.9f, 0.3f, 0.55f)
-                : glm::vec4(0.9f, 0.2f, 0.2f, 0.55f);
-            const float ghostSize = 32.0f * mCamera.zoom();
-            mSpriteBatch.draw(
-                glm::vec2(ghostScreen.x - ghostSize * 0.5f, ghostScreen.y - ghostSize * 0.5f),
-                glm::vec2(ghostSize, ghostSize), ghostUv, ghostColor);
-        }
+        const StationRecipe& recipe = BuildSystem::kRecipes[static_cast<std::size_t>(mBuildChoice)];
+        const glm::vec4 ghostUv = mSpriteSheet.uvRect(structureInfo(recipe.type).sprite);
+        const glm::vec2 ghostWorld((static_cast<float>(mBuildGhostTile.x) + 0.5f) * 32.0f,
+                                   (static_cast<float>(mBuildGhostTile.y) + 0.5f) * 32.0f);
+        const glm::vec2 ghostScreen = mCamera.worldToScreen(ghostWorld);
+        const glm::vec4 ghostColor = mBuildGhostValid ? glm::vec4(0.75f, 1.0f, 0.75f, 0.6f)
+                                                      : glm::vec4(1.0f, 0.55f, 0.45f, 0.5f);
+        const float zoom = mCamera.zoom();
+        const float size = 80.0f * zoom;
+        mSpriteBatch.draw(glm::vec2(ghostScreen.x - size * 0.5f, ghostScreen.y - size + 16.0f * zoom),
+                          glm::vec2(size, size), ghostUv, ghostColor);
     }
 
     mSpriteBatch.end();
@@ -127,6 +123,7 @@ void Game::render()
             renderAttackArcOverlay();
             renderNoiseDebugOverlay();
             renderLegacyCardShapes();
+            renderBaseActionBar();
         },
         [&]
         {
@@ -155,7 +152,7 @@ void Game::render()
             {
                 renderTextOverlays();
             }
-            renderBuildModeOverlay();
+            renderBuildWheel();
             if (!mShowCrafting)
             {
                 renderControlsOverlay();
@@ -753,9 +750,17 @@ void Game::setupLightingUniforms()
     mWorld.forEach<Structure, Transform>(
         [&](Entity, Structure& structure, Transform& transform)
         {
-            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
+            if (structure.type != StructureType::Campfire || !structure.lit || structure.hp <= 0.0f) return;
             addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
                      glm::vec3(1.0f, 0.62f, 0.28f) * flicker, 5.0f);
+        });
+    // Candles and can lanterns.
+    mWorld.forEach<Structure, Transform>(
+        [&](Entity, Structure& structure, Transform& transform)
+        {
+            if (structure.type != StructureType::Light || !structure.lit || structure.hp <= 0.0f) return;
+            addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
+                     glm::vec3(1.0f, 0.74f, 0.42f) * flicker, structure.lantern ? 2.0f : 2.5f);
         });
     mWorld.forEach<Fire, Transform>(
         [&](Entity, Fire& fire, Transform& transform)

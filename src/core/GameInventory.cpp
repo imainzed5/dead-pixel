@@ -492,7 +492,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
     }
 
     // Hotbar selection (1-8 keys) when not in build mode
-    if (!mShowCrafting && !mBuildSystem.isBuildMode() && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    if (!mShowCrafting && !mBuildWheelOpen && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
         for (int key = 0; key < 8; ++key)
@@ -508,7 +508,11 @@ void Game::updateInventoryInput(bool drivingVehicle)
         {
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
-            if (slot.itemId >= 0 && slot.count > 0)
+            // Alarms, spike boards and lights are set down, not used up.
+            if (placeItem(useSlot))
+            {
+            }
+            else if (slot.itemId >= 0 && slot.count > 0)
             {
                 const ItemDef* item = mItemDatabase.find(slot.itemId);
                 if (item)

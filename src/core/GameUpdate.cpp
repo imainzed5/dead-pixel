@@ -217,25 +217,6 @@ void Game::update(float dtSeconds)
     // District infection daily update
     mDistrictInfectionSystem.dailyUpdate(mWorld, mMapGenerator.layoutData(), mCurrentDay);
 
-    // Build system
-    if (!drivingVehicle)
-    {
-        int structCountBefore = 0;
-        mWorld.forEach<Structure>([&](Entity, Structure&) { ++structCountBefore; });
-        const std::string buildMsg = mBuildSystem.update(mWorld, mInput, mTileMap, mNoiseModel, mItemDatabase, mSpriteSheet, mPlayerEntity, mMouseWorld, dtSeconds, mGameHours);
-        int structCountAfter = 0;
-        mWorld.forEach<Structure>([&](Entity, Structure&) { ++structCountAfter; });
-        if (structCountAfter > structCountBefore)
-        {
-            mRunStats.structuresBuilt += (structCountAfter - structCountBefore);
-        }
-        if (!buildMsg.empty())
-        {
-            mInteractionMessage = buildMsg;
-            mInteractionMessageTimer = 3.0f;
-        }
-    }
-
     updateCraftingPanel(dtSeconds, drivingVehicle);
 
     updateInventoryInput(drivingVehicle);
@@ -399,11 +380,31 @@ void Game::update(float dtSeconds)
         const ProximityPrompt prompt = mInteractionSystem.getProximityPrompt(mWorld, mPlayerEntity);
         mProximityPrompt = prompt.text;
 
-        // A door within reach takes E before anything else nearby.
-        bool interceptedContainer = handleDoorInteraction(prompt);
+        // A sleep spot says how safe the room is.
+        if (prompt.entity != kInvalidEntity && mWorld.hasComponent<Interactable>(prompt.entity) &&
+            mWorld.getComponent<Interactable>(prompt.entity).type == InteractableType::SleepSpot)
+        {
+            std::string openWay;
+            const glm::ivec2 here = playerTile();
+            const int safety = sleepSafety(mTileMap.getBuildingId(here.x, here.y), &openWay);
+            mProximityPrompt += safety == 0 ? " (out in the open)"
+                              : safety == 1 ? " (" + openWay + ")"
+                              : safety == 3 ? " (the house is shut tight)"
+                                            : "";
+        }
+
+        // A door within reach takes E before anything else nearby, then a
+        // window, then furniture and what was built.
+        bool interceptedContainer = mBaseAction.kind != BaseAction::Kind::None && mBaseAction.kind != BaseAction::Kind::Grab;
+        if (!interceptedContainer) interceptedContainer = handleDoorInteraction(prompt);
         if (!interceptedContainer && doorInReach(prompt) == nullptr)
         {
-            interceptedContainer = handleTapInteraction(prompt);
+            interceptedContainer = handleWindowInteraction(prompt);
+            if (!interceptedContainer && windowInReach(prompt) == nullptr)
+            {
+                interceptedContainer = handleBaseInteraction(prompt);
+                if (!interceptedContainer) interceptedContainer = handleTapInteraction(prompt);
+            }
         }
         if (!interceptedContainer && mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
             mWorld.hasComponent<Interactable>(prompt.entity))
@@ -513,7 +514,8 @@ void Game::update(float dtSeconds)
         ? mWorld.getComponent<Combat>(mPlayerEntity).phase
         : AttackPhase::Idle;
 
-    if (!mShowCrafting && !mContainerOpen && !drivingVehicle)
+    if (!mShowCrafting && !mContainerOpen && !drivingVehicle && !mBuildWheelOpen && mBuildChoice < 0 &&
+        mBaseAction.kind == BaseAction::Kind::None)
     {
         int shotsBefore = 0;
         mWorld.forEach<Projectile>([&](Entity, Projectile&) { ++shotsBefore; });
@@ -723,6 +725,9 @@ void Game::update(float dtSeconds)
         &mDoorBlows,
         &mPlayerHits);
     updateDoors(dtSeconds);
+    updateWindows(dtSeconds);
+    updateStructures(dtSeconds);
+    updateTraps(dtSeconds);
 
     // A blow that lands on the player shoves them, shakes the view and
     // throws blood the way the blow went.
@@ -774,6 +779,7 @@ void Game::update(float dtSeconds)
         vel.dy = 0.0f;
     }
 
+    updateBaseActions(dtSeconds);
     mMovementSystem.update(mWorld, feelDt);
     mProjectileSystem.update(mWorld, mTileMap, mNoiseModel, feelDt);
     mCollisionSystem.update(mWorld, mTileMap, feelDt);
@@ -880,6 +886,22 @@ void Game::updateSleep(float dtSeconds)
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         Sleeping& sleeping = mWorld.getComponent<Sleeping>(mPlayerEntity);
+        // How safe the room is: it sets how well you sleep and what wakes you.
+        if (sleeping.safety < 0)
+        {
+            const glm::ivec2 here = playerTile();
+            const int building = mTileMap.getBuildingId(here.x, here.y);
+            sleeping.safety = mTileMap.isIndoors(here.x, here.y) ? sleepSafety(building, nullptr) : 0;
+            static constexpr float kRoomQuality[4] = {0.4f, 0.6f, 0.8f, 0.95f};
+            bool inBed = false;
+            for (const FurniturePiece& piece : mFurniture)
+            {
+                if (piece.kind == FurnitureKind::Bed && glm::length(glm::vec2(piece.tile - here)) <= 1.5f) inBed = true;
+            }
+            const float room = std::min(1.0f, kRoomQuality[sleeping.safety] + (inBed ? 0.05f : 0.0f));
+            // A sleeping bag or a bedroll is no better than itself; a collapse is a collapse.
+            sleeping.quality = inBed ? room : std::min(room, sleeping.quality);
+        }
         constexpr float kSleepTimeMultiplier = 8.0f;
         constexpr float kSleepWakeRange = 160.0f;
         constexpr float kSleepHealPerHour = 3.0f;
@@ -921,9 +943,13 @@ void Game::updateSleep(float dtSeconds)
             }
         }
 
-        // Check for noise interruption (zombies nearby while sleeping)
+        // Check for noise interruption (zombies nearby while sleeping). Out
+        // in the open, or with a way in standing open, the dead wake you as
+        // they come near; behind shut doors only when they are in the room
+        // (or at the door: see updateDoors and updateWindows).
         bool interrupted = false;
-        float wakeRange = kSleepWakeRange;
+        float wakeRange = sleeping.safety <= 1 ? 12.0f * static_cast<float>(mTileMap.tileWidth())
+                                               : std::min(kSleepWakeRange, 2.0f * static_cast<float>(mTileMap.tileWidth()));
         if (mWorld.hasComponent<Traits>(mPlayerEntity))
         {
             const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
@@ -1410,7 +1436,7 @@ void Game::updateParticles(float dtSeconds, float prevPlayerHp)
             mWorld.forEach<Structure, Transform>(
                 [&](Entity, Structure& structure, Transform& transform)
                 {
-                    if (structure.type != StructureType::Campfire || structure.hp <= 0.0f)
+                    if (structure.type != StructureType::Campfire || !structure.lit || structure.hp <= 0.0f)
                     {
                         return;
                     }

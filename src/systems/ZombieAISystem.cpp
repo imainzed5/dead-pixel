@@ -84,7 +84,7 @@ void ZombieAISystem::update(
     double gameHours,
     int currentDay,
     const DistrictInfectionSystem* infectionSystem,
-    std::vector<glm::ivec2>* doorBlows,
+    std::vector<BarrierBlow>* doorBlows,
     std::vector<glm::vec2>* playerHits) const
 {
     const bool isNight = (gameHours >= 20.0 || gameHours < 5.0);
@@ -506,10 +506,12 @@ void ZombieAISystem::update(
                 {
                     const glm::vec2 ahead = zombieCenter + heading / std::sqrt(speed2) * (tileSize * 0.75f);
                     const glm::ivec2 aheadTile = worldToTile(tileMap, ahead);
-                    if (tileMap.isClosedDoor(aheadTile.x, aheadTile.y) &&
-                        glm::length(tileCenterWorld(tileMap, aheadTile) - zombieCenter) < tileSize * 1.3f)
+                    const bool barrier = tileMap.isClosedDoor(aheadTile.x, aheadTile.y) ||
+                                         tileMap.hasWindow(aheadTile.x, aheadTile.y) ||
+                                         tileMap.doorwayBlocked(aheadTile.x, aheadTile.y);
+                    if (barrier && glm::length(tileCenterWorld(tileMap, aheadTile) - zombieCenter) < tileSize * 1.3f)
                     {
-                        doorBlows->push_back(aheadTile);
+                        doorBlows->push_back(BarrierBlow{aheadTile, zombieEntity});
                     }
                 }
             }
@@ -563,6 +565,7 @@ bool ZombieAISystem::hasLineOfSight(const TileMap& tileMap, const glm::vec2& wor
 
     const float stepSize = static_cast<float>(tileMap.tileWidth()) * 0.4f;
     const int steps = std::max(1, static_cast<int>(distance / stepSize));
+    bool throughWindow = false;
 
     for (int i = 0; i <= steps; ++i)
     {
@@ -572,11 +575,13 @@ bool ZombieAISystem::hasLineOfSight(const TileMap& tileMap, const glm::vec2& wor
         const int tileX = static_cast<int>(std::floor(p.x / static_cast<float>(tileMap.tileWidth())));
         const int tileY = static_cast<int>(std::floor(p.y / static_cast<float>(tileMap.tileHeight())));
 
-        if (tileMap.blocksSight(tileX, tileY))
+        if (tileMap.blocksView(tileX, tileY))
         {
             return false;
         }
+        throughWindow = throughWindow || tileMap.hasWindow(tileX, tileY);
     }
 
-    return true;
+    // Through glass, or an empty frame, sight reaches only so far.
+    return !throughWindow || distance <= kWindowSightTiles * static_cast<float>(tileMap.tileWidth());
 }

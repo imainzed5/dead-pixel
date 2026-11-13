@@ -67,6 +67,11 @@ struct FurniturePiece
     // (sprite "_r").
     bool backNorth = false;
     int building = 0; // building index + 1
+    // The tile the town put it on: its name in world memory, however far it
+    // has been pushed since.
+    glm::ivec2 origin{0};
+    // Blows taken while it blocks a doorway (not saved).
+    float damage = 0.0f;
 };
 
 namespace furniture

@@ -42,6 +42,8 @@ add_library(dead_pixel_core STATIC
     src/core/GameLegacy.cpp
     src/core/GameDoors.cpp
     src/core/GameFurniture.cpp
+    src/core/GameBase.cpp
+    src/core/GameWindows.cpp
     src/core/GameFirstDays.cpp
     src/core/GameContent.cpp
     src/core/GameStorage.cpp
@@ -78,6 +80,8 @@ add_library(dead_pixel_core STATIC
     src/world/EntityFactory.cpp
     src/world/Doors.cpp
     src/world/Furniture.cpp
+    src/world/FurnitureUse.cpp
+    src/world/Windows.cpp
     src/world/Storage.cpp
     src/world/Scenery.cpp
     src/systems/Atmosphere.cpp
@@ -153,6 +157,8 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_content.cpp
         tests/test_weather.cpp
         tests/test_storage.cpp
+        tests/test_base.cpp
+        tests/test_windows.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

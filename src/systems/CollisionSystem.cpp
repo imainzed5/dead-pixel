@@ -3,7 +3,6 @@
 #include <glm/common.hpp>
 
 #include "components/PlayerInput.h"
-#include "components/Structure.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
 
@@ -34,42 +33,13 @@ void CollisionSystem::update(World& world, const TileMap& tileMap, float dtSecon
                     return true;
                 }
 
-                const float left = centerX - collisionWidth * 0.5f;
-                const float right = centerX + collisionWidth * 0.5f;
-                const float top = centerY - collisionHeight * 0.5f;
-                const float bottom = centerY + collisionHeight * 0.5f;
-
-                if (tileMap.isSolidAtWorldDiamond(
+                // Walls, closed doors, windows, furniture and solid built
+                // things (stations set the furniture flag on their tile).
+                return tileMap.isSolidAtWorldDiamond(
                     centerX,
                     centerY,
                     collisionWidth * 0.5f,
-                    collisionHeight * 0.5f))
-                {
-                    return true;
-                }
-
-                // Barricades block movement
-                bool structBlocked = false;
-                world.forEach<Structure, Transform>(
-                    [&](Entity structEntity, Structure& structure, Transform& st)
-                    {
-                        if (structBlocked) return;
-                        if (structEntity == self) return;
-                        if (structure.type != StructureType::Barricade) return;
-                        if (structure.hp <= 0.0f) return;
-
-                        const float sLeft = st.x + (kSpriteSize - kStructureCollisionSize) * 0.5f;
-                        const float sRight = sLeft + kStructureCollisionSize;
-                        const float sTop = st.y + (kSpriteSize - kStructureCollisionSize) * 0.5f;
-                        const float sBottom = sTop + kStructureCollisionSize;
-
-                        if (left < sRight && right > sLeft && top < sBottom && bottom > sTop)
-                        {
-                            structBlocked = true;
-                        }
-                    });
-
-                return structBlocked;
+                    collisionHeight * 0.5f);
             };
 
             const float nextX = transform.x + velocity.dx * dtSeconds;

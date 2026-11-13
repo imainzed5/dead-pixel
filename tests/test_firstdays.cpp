@@ -65,18 +65,18 @@ DP_TEST(firstdays_plans_follow_the_days_and_nights)
     firstdays::Facts facts;
     facts.searchable = 5;
     facts.searched = 2;
-    facts.doors = 2;
-    facts.doorsBoarded = 1;
+    facts.ways = 2;
+    facts.waysClosed = 1;
 
     const firstdays::Plan day1 = firstdays::planFor(1, 9.0, facts);
     DP_CHECK(day1.title.find("Day 1") == 0);
     DP_CHECK_EQ(day1.steps.size(), std::size_t{3});
     DP_CHECK(day1.steps[0].text == "Search the house (2/5)");
     DP_CHECK(!day1.steps[0].done);
-    DP_CHECK(day1.steps[2].text == "Board up the doors (1/2)");
+    DP_CHECK(day1.steps[2].text == "Close up the house (1/2)");
 
     facts.searched = 5;
-    facts.doorsBoarded = 2;
+    facts.waysClosed = 2;
     facts.usedTap = true;
     for (const firstdays::Step& step : firstdays::planFor(1, 9.0, facts).steps)
     {
@@ -95,6 +95,12 @@ DP_TEST(firstdays_plans_follow_the_days_and_nights)
     // A rain collector settles day 3's water.
     facts.rainCollector = true;
     DP_CHECK(firstdays::planFor(3, 10.0, facts).steps[0].done);
+
+    // Day 3 asks for every way in boarded.
+    facts.waysBoarded = 1;
+    DP_CHECK(firstdays::planFor(3, 10.0, facts).steps[2].text == "Board up the house (1/2)");
+    DP_CHECK(!firstdays::planFor(3, 10.0, facts).steps[2].done);
+    DP_CHECK(firstdays::planFor(1, 21.0, facts).steps[1].text == "Keep the house closed (2/2)");
 
     // From the morning of day 4, no plan.
     DP_CHECK(firstdays::planFor(3, 22.0, facts).title.find("Night 3") == 0);

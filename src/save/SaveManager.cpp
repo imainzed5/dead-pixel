@@ -273,6 +273,7 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
     mCheckpointPath = mSaveDir + "/" + mSlotName + "_checkpoint.json";
     mWorldMemoryPath = mSaveDir + "/" + mSlotName + "_memory.json";
     mSurvivorPath = mSaveDir + "/" + mSlotName + "_survivors.json";
+    mFurniturePath = mSaveDir + "/" + mSlotName + "_furniture.json";
 
     std::error_code ec;
     std::filesystem::create_directories(mSaveDir, ec);
@@ -307,6 +308,7 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
     }
 
     loadWorldMemory();
+    loadFurnitureMemory();
 
     if (migrating)
     {
@@ -322,7 +324,7 @@ void SaveManager::backupSlotFiles(int version) const
 {
     const std::string suffix = ".v" + std::to_string(version) + ".backup";
     for (const std::string& path : {mMetaPath, mLegacyPath, mStructurePath, mLayoutPath, mCheckpointPath,
-                                    mWorldMemoryPath, mSurvivorPath})
+                                    mWorldMemoryPath, mSurvivorPath, mFurniturePath})
     {
         std::error_code ec;
         if (std::filesystem::exists(path, ec))
@@ -358,6 +360,10 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     mBurnedTiles.clear();
     mBrokenDoors.clear();
     mBoardedDoors.clear();
+    mWindows.clear();
+    mFurnitureMemory = FurnitureMemoryRecord{};
+    mBase = BaseRecord{};
+    mLastHome = LastHomeRecord{};
     mCharacterHistory.clear();
     mWorldEvents.clear();
 
@@ -371,6 +377,8 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     std::filesystem::remove(mCheckpointPath, ec);
     ec.clear();
     std::filesystem::remove(mSurvivorPath, ec);
+    ec.clear();
+    std::filesystem::remove(mFurniturePath, ec);
     ec.clear();
 
     if (!writeLegacy())
@@ -1063,7 +1071,7 @@ bool SaveManager::loadStructures()
                 rec.condition = sJson.value("condition", 0);
                 rec.hpRatio = std::clamp(sJson.value("hpRatio", 1.0f), 0.0f, 1.0f);
 
-                // Parse cached items (for supply caches)
+                // Parse stored items (storage crates)
                 if (sJson.contains("items") && sJson["items"].is_array())
                 {
                     for (const auto& itemJson : sJson["items"])
@@ -1076,21 +1084,21 @@ bool SaveManager::loadStructures()
                         }
                     }
                 }
+                rec.water = std::max(0.0f, sJson.value("water", 0.0f));
+                rec.burnHours = std::max(0.0f, sJson.value("burnHours", 0.0f));
+                rec.lit = sJson.value("lit", false);
+                rec.lantern = sJson.value("lantern", false);
+                rec.uses = std::max(0, sJson.value("uses", 0));
+                rec.targetX = sJson.value("targetX", -1);
+                rec.targetY = sJson.value("targetY", -1);
+                rec.condition = std::clamp(rec.condition, 0, 2);
 
-                // Degrade between runs: Intact->Damaged, Damaged->Breaking, Breaking->removed
-                if (rec.condition == 0) // Intact
+                // The old barricade (0) and noise trap (1) are gone; the
+                // other old kinds keep their numbers (see Structure.h).
+                // Wear between lives is applied when a run ends.
+                if (rec.type < 2 || rec.type > 9)
                 {
-                    rec.condition = 1; // Damaged
-                    rec.hpRatio = std::min(rec.hpRatio, 0.5f);
-                }
-                else if (rec.condition == 1) // Damaged
-                {
-                    rec.condition = 2; // Breaking
-                    rec.hpRatio = std::min(rec.hpRatio, 0.25f);
-                }
-                else
-                {
-                    continue; // Breaking -> destroyed, skip
+                    continue;
                 }
 
                 mStructures.push_back(rec);
@@ -1135,6 +1143,16 @@ bool SaveManager::writeStructures() const
         sJson["y"] = s.y;
         sJson["condition"] = s.condition;
         sJson["hpRatio"] = s.hpRatio;
+        if (s.water > 0.0f) sJson["water"] = s.water;
+        if (s.burnHours > 0.0f) sJson["burnHours"] = s.burnHours;
+        if (s.lit) sJson["lit"] = true;
+        if (s.lantern) sJson["lantern"] = true;
+        if (s.uses > 0) sJson["uses"] = s.uses;
+        if (s.targetX >= 0)
+        {
+            sJson["targetX"] = s.targetX;
+            sJson["targetY"] = s.targetY;
+        }
         if (!s.items.empty())
         {
             sJson["items"] = nlohmann::json::array();
@@ -1265,6 +1283,27 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
                              {"slept", fd.sleptNight}, {"night", fd.night}, {"sent", fd.groupsSent},
                              {"card", fd.cardDay}};
     }
+    if (cp.windowsSaved)
+    {
+        json["windows"] = nlohmann::json::array();
+        for (const WindowRecord& w : cp.windows)
+        {
+            json["windows"].push_back({{"x", w.x}, {"y", w.y}, {"broken", w.broken}, {"hp", w.boardHp}, {"covered", w.covered}});
+        }
+    }
+    if (cp.structuresSaved)
+    {
+        json["structures"] = nlohmann::json::array();
+        for (const StructureRecord& r : cp.structures)
+        {
+            nlohmann::json items = nlohmann::json::array();
+            for (const auto& [id, count] : r.items) items.push_back({{"id", id}, {"count", count}});
+            json["structures"].push_back({{"type", r.type}, {"x", r.x}, {"y", r.y}, {"condition", r.condition},
+                                          {"hpRatio", r.hpRatio}, {"items", items}, {"water", r.water},
+                                          {"burnHours", r.burnHours}, {"lit", r.lit}, {"lantern", r.lantern},
+                                          {"uses", r.uses}, {"targetX", r.targetX}, {"targetY", r.targetY}});
+        }
+    }
     if (cp.weather.saved)
     {
         json["weather"] = {{"condition", cp.weather.condition}, {"hoursLeft", cp.weather.hoursLeft},
@@ -1383,6 +1422,46 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             if (door.boardHp > 0.0f) cp.boardedDoors.push_back(door);
         }
     }
+    if (json.contains("windows") && json["windows"].is_array())
+    {
+        cp.windowsSaved = true;
+        for (const auto& wj : json["windows"])
+        {
+            cp.windows.push_back(WindowRecord{wj.value("x", 0), wj.value("y", 0), wj.value("broken", false),
+                                              std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false)});
+        }
+    }
+    if (json.contains("structures") && json["structures"].is_array())
+    {
+        cp.structuresSaved = true;
+        for (const auto& sj : json["structures"])
+        {
+            StructureRecord r;
+            r.type = sj.value("type", 0);
+            if (r.type < 2 || r.type > 9) continue;
+            r.x = sj.value("x", 0.0f);
+            r.y = sj.value("y", 0.0f);
+            r.condition = std::clamp(sj.value("condition", 0), 0, 2);
+            r.hpRatio = std::clamp(sj.value("hpRatio", 1.0f), 0.0f, 1.0f);
+            if (sj.contains("items") && sj["items"].is_array())
+            {
+                for (const auto& ij : sj["items"])
+                {
+                    const int id = ij.value("id", -1);
+                    const int count = ij.value("count", 0);
+                    if (id >= 0 && count > 0) r.items.emplace_back(id, count);
+                }
+            }
+            r.water = std::max(0.0f, sj.value("water", 0.0f));
+            r.burnHours = std::max(0.0f, sj.value("burnHours", 0.0f));
+            r.lit = sj.value("lit", false);
+            r.lantern = sj.value("lantern", false);
+            r.uses = std::max(0, sj.value("uses", 0));
+            r.targetX = sj.value("targetX", -1);
+            r.targetY = sj.value("targetY", -1);
+            cp.structures.push_back(r);
+        }
+    }
     cp.burnedTiles = tilesFromJson("burned");
     if (json.contains("fires") && json["fires"].is_array())
     {
@@ -1489,6 +1568,11 @@ void SaveManager::setContainerRecord(const ContainerRecord& record)
         }
     }
     mContainers.push_back(record);
+}
+
+void SaveManager::removeContainerRecord(int tileX, int tileY)
+{
+    std::erase_if(mContainers, [&](const ContainerRecord& r) { return r.tileX == tileX && r.tileY == tileY; });
 }
 
 bool SaveManager::addDiscoveredRecipe(int itemA, int itemB)
@@ -1637,6 +1721,20 @@ bool SaveManager::saveWorldMemory()
         json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}});
     }
 
+    json["windows"] = nlohmann::json::array();
+    for (const WindowRecord& w : mWindows)
+    {
+        json["windows"].push_back({{"x", w.x}, {"y", w.y}, {"broken", w.broken}, {"hp", w.boardHp}, {"covered", w.covered}});
+    }
+    if (mBase.building > 0)
+    {
+        json["base"] = {{"building", mBase.building}, {"x", mBase.x}, {"y", mBase.y}, {"run", mBase.runIndex}};
+    }
+    if (mLastHome.building > 0)
+    {
+        json["lastHome"] = {{"building", mLastHome.building}, {"diedAway", mLastHome.diedAway}};
+    }
+
     json["events"] = nlohmann::json::array();
     for (const WorldMemoryEventRecord& event : mWorldEvents)
     {
@@ -1683,6 +1781,9 @@ bool SaveManager::loadWorldMemory()
     mBurnedTiles.clear();
     mBrokenDoors.clear();
     mBoardedDoors.clear();
+    mWindows.clear();
+    mBase = BaseRecord{};
+    mLastHome = LastHomeRecord{};
     mWorldEvents.clear();
     std::string contents = readFileToString(mWorldMemoryPath);
     if (contents.empty()) return true;
@@ -1826,6 +1927,26 @@ bool SaveManager::loadWorldMemory()
         }
     }
 
+    if (json.contains("windows") && json["windows"].is_array())
+    {
+        for (const auto& wj : json["windows"])
+        {
+            mWindows.push_back(WindowRecord{wj.value("x", 0), wj.value("y", 0), wj.value("broken", false),
+                                            std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false)});
+        }
+    }
+    if (json.contains("base") && json["base"].is_object())
+    {
+        const auto& bj = json["base"];
+        mBase = BaseRecord{std::max(0, bj.value("building", 0)), bj.value("x", 0.0f), bj.value("y", 0.0f),
+                           bj.value("run", 0)};
+    }
+    if (json.contains("lastHome") && json["lastHome"].is_object())
+    {
+        const auto& hj = json["lastHome"];
+        mLastHome = LastHomeRecord{std::max(0, hj.value("building", 0)), hj.value("diedAway", false)};
+    }
+
     if (json.contains("events") && json["events"].is_array())
     {
         for (const auto& ej : json["events"])
@@ -1915,4 +2036,61 @@ std::vector<SurvivorRecord> SaveManager::loadSurvivors() const
 void SaveManager::setSeedOverride(std::uint32_t seed)
 {
     gSeedOverride = seed;
+}
+
+void SaveManager::loadFurnitureMemory()
+{
+    mFurnitureMemory = FurnitureMemoryRecord{};
+    const std::string contents = readFileToString(mFurniturePath);
+    if (contents.empty()) return;
+    const nlohmann::json json = nlohmann::json::parse(contents, nullptr, false);
+    if (json.is_discarded()) return;
+    if (json.contains("moves") && json["moves"].is_array())
+    {
+        for (const auto& mj : json["moves"])
+        {
+            mFurnitureMemory.moves.push_back(
+                FurnitureMoveRecord{mj.value("fromX", 0), mj.value("fromY", 0), mj.value("toX", 0), mj.value("toY", 0)});
+        }
+    }
+    if (json.contains("removed") && json["removed"].is_array())
+    {
+        for (const auto& rj : json["removed"])
+        {
+            mFurnitureMemory.removed.emplace_back(rj.value("x", 0), rj.value("y", 0));
+        }
+    }
+}
+
+bool SaveManager::saveFurnitureMemory() const
+{
+    if (mFurniturePath.empty()) return false;
+    nlohmann::json json;
+    json["version"] = kCurrentSaveVersion;
+    json["moves"] = nlohmann::json::array();
+    for (const FurnitureMoveRecord& move : mFurnitureMemory.moves)
+    {
+        json["moves"].push_back({{"fromX", move.fromX}, {"fromY", move.fromY}, {"toX", move.toX}, {"toY", move.toY}});
+    }
+    json["removed"] = nlohmann::json::array();
+    for (const auto& [x, y] : mFurnitureMemory.removed)
+    {
+        json["removed"].push_back({{"x", x}, {"y", y}});
+    }
+    const std::string tempPath = mFurniturePath + ".tmp";
+    {
+        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+        if (!output) return false;
+        output << json.dump();
+        output.flush();
+        if (!output.good()) return false;
+    }
+    std::error_code ec;
+    if (std::filesystem::exists(mFurniturePath, ec))
+    {
+        std::filesystem::remove(mFurniturePath, ec);
+        ec.clear();
+    }
+    std::filesystem::rename(tempPath, mFurniturePath, ec);
+    return !ec;
 }

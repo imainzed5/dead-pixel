@@ -67,6 +67,10 @@ struct ZombieAI
     glm::vec2 pathGoal{0.0f, 0.0f};
     bool migrating = false; // sent toward the player's area by the threat director
     bool nightCaller = false; // sent to the player's door after dark; drifts off at dawn
+    // A caller near the house has picked its way in (phase 2).
+    bool entryChosen = false;
+    // Seconds left limping off a spike board (half speed).
+    float slowTimer = 0.0f;
     float boredTimer = 0.0f;  // > 0: just gave up on a goal, and noise does not turn it back
 
     // Who dealt the most recent damage (player, projectile shooter, fire,

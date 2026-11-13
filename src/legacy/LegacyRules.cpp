@@ -24,6 +24,7 @@ int kindRank(LeadKind kind)
     case LeadKind::Pack: return 1;
     case LeadKind::Grave: return 2;
     case LeadKind::Survivor: return 3;
+    case LeadKind::Base: return 4;
     }
     return 4;
 }
@@ -117,6 +118,7 @@ std::string describeLead(const Lead& lead, const glm::vec2& playerWorld, float t
     case LeadKind::Pack: what = lead.name + "'s grave, pack still there"; break;
     case LeadKind::Grave: what = lead.name + "'s grave"; break;
     case LeadKind::Survivor: what = lead.name + " lives on, alone"; break;
+    case LeadKind::Base: what = "A house someone held"; break;
     }
     const int metres = metresBetween(playerWorld, lead.world, tileSize);
     if (metres < 2)

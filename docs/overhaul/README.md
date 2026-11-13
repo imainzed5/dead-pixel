@@ -44,7 +44,7 @@ comes before fighting; no engine switch.
 | # | File | What the player gets | Status |
 |---|---|---|---|
 | 1 | `phases/P01_foundations.md` | Bug fixes, content in data files, storage in cupboards, a bot that plays the game for balance runs | done |
-| 2 | `phases/P02_home_base.md` | A home worth defending: furniture as material, windows, traps, stations, a base the next life inherits | not started |
+| 2 | `phases/P02_home_base.md` | A home worth defending: furniture as material, windows, traps, stations, a base the next life inherits | done |
 | 3 | `phases/P03_fighting.md` | Shove, knockdown, grabs by the dead, weapon kinds that differ, throwables, guns that cost you | not started |
 | 4 | `phases/P04_the_dead.md` | Five kinds of dead, senses (sight, sound, blood), hordes, threat modes that really differ | not started |
 | 5 | `phases/P05_body_and_mind.md` | Skills, chosen traits, deeper wounds and illness, sleep debt and a mind that shows | not started |

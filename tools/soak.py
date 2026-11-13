@@ -48,7 +48,7 @@ def run_seed(exe, seed, script, workroot, timeout, keep):
     cmd = [local_exe, "--script", script, "--hidden", "--world-seed", str(seed),
            "--metrics", "metrics.csv", "--shots", "shots"]
     result = {"seed": seed, "status": "ok", "days": 0.0, "cause": "", "kills": 0, "food": 0,
-              "drink": 0, "containers": 0, "work": work}
+              "drink": 0, "containers": 0, "boards": 0, "night1_home": False, "work": work}
     try:
         proc = subprocess.run(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               timeout=timeout, text=True, errors="replace")
@@ -77,6 +77,11 @@ def run_seed(exe, seed, script, workroot, timeout, keep):
         result["food"] = int(float(last.get("food", 0) or 0))
         result["drink"] = int(float(last.get("drink", 0) or 0))
         result["containers"] = int(float(last.get("containers_searched", 0) or 0))
+        result["boards"] = max(int(float(r.get("boards_up", 0) or 0)) for r in rows)
+        # Died on the first night (day 1 18:00 to day 2 08:00) inside the home.
+        clock = float(last["day"]) * 24.0 + float(last["hour"])
+        died = last["state"] == "dead"
+        result["night1_home"] = died and 42.0 <= clock < 56.0 and last.get("at_home", "0") == "1"
     elif result["status"] == "ok":
         result["status"] = "no metrics"
 
@@ -129,19 +134,22 @@ def main():
 
     results.sort(key=lambda r: r["seed"])
     print()
-    print("| Seed | Days | End | Kills | Food | Drink | Searched | Run |")
-    print("|---:|---:|---|---:|---:|---:|---:|---|")
+    print("| Seed | Days | End | Kills | Food | Drink | Searched | Boards | Night 1 at home | Run |")
+    print("|---:|---:|---|---:|---:|---:|---:|---:|---|---|")
     for r in results:
-        print("| %d | %.1f | %s | %d | %d | %d | %d | %s |" % (
-            r["seed"], r["days"], r["cause"], r["kills"], r["food"], r["drink"], r["containers"], r["status"]))
+        print("| %d | %.1f | %s | %d | %d | %d | %d | %d | %s | %s |" % (
+            r["seed"], r["days"], r["cause"], r["kills"], r["food"], r["drink"], r["containers"], r["boards"],
+            "died" if r["night1_home"] else "-", r["status"]))
     ok = [r for r in results if r["status"] == "ok"]
     if results:
         days = sorted(r["days"] for r in results)
         median = days[len(days) // 2] if len(days) % 2 else (days[len(days) // 2 - 1] + days[len(days) // 2]) / 2
         alive = sum(1 for r in results if r["cause"] == "alive")
         print()
-        print("median days %.1f, mean %.1f, alive at the end %d of %d, clean runs %d of %d" % (
-            median, sum(days) / len(days), alive, len(results), len(ok), len(results)))
+        night1 = sum(1 for r in results if r["night1_home"])
+        print("median days %.1f, mean %.1f, alive at the end %d of %d, died at home on night 1 %d of %d, "
+              "clean runs %d of %d" % (median, sum(days) / len(days), alive, len(results), night1, len(results),
+                                       len(ok), len(results)))
     return 0 if len(ok) == len(results) else 1
 
 

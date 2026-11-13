@@ -10,7 +10,8 @@
       "sprite": "item_canned_food",
       "hungerRestore": 30.0,
       "thirstRestore": 0.0,
-      "spoilHours": 72.0
+      "spoilHours": 72.0,
+      "leaves": "tin_can"
     },
     {
       "id": 1,
@@ -103,7 +104,8 @@
       "sprite": "item_axe",
       "weaponCategory": 1,
       "tags": [
-        "tool:hammer"
+        "tool:hammer",
+        "tool:axe"
       ]
     },
     {
@@ -386,6 +388,117 @@
       "weight": 0.05,
       "maxStack": 5,
       "sprite": "item_empty_bottle"
+    },
+    {
+      "id": 30,
+      "key": "nails",
+      "name": "Nails",
+      "category": "material",
+      "weight": 0.02,
+      "maxStack": 50,
+      "sprite": "item_nails"
+    },
+    {
+      "id": 31,
+      "key": "crowbar",
+      "name": "Crowbar",
+      "category": "weapon",
+      "weight": 1.5,
+      "maxStack": 1,
+      "sprite": "item_crowbar",
+      "weaponCategory": 2,
+      "tags": [
+        "tool:pry"
+      ]
+    },
+    {
+      "id": 32,
+      "key": "saw",
+      "name": "Saw",
+      "category": "material",
+      "weight": 0.8,
+      "maxStack": 1,
+      "sprite": "item_saw",
+      "tags": [
+        "tool:saw"
+      ]
+    },
+    {
+      "id": 33,
+      "key": "tin_can",
+      "name": "Tin Can",
+      "category": "material",
+      "weight": 0.05,
+      "maxStack": 10,
+      "sprite": "item_tin_can"
+    },
+    {
+      "id": 34,
+      "key": "wire",
+      "name": "Wire",
+      "category": "material",
+      "weight": 0.1,
+      "maxStack": 10,
+      "sprite": "item_wire"
+    },
+    {
+      "id": 35,
+      "key": "rags",
+      "name": "Rags",
+      "category": "material",
+      "weight": 0.05,
+      "maxStack": 10,
+      "sprite": "item_rags"
+    },
+    {
+      "id": 36,
+      "key": "candle",
+      "name": "Candle",
+      "category": "material",
+      "weight": 0.1,
+      "maxStack": 5,
+      "sprite": "item_candle",
+      "tags": [
+        "placeable",
+        "light"
+      ]
+    },
+    {
+      "id": 81,
+      "key": "can_alarm",
+      "name": "Can Alarm",
+      "category": "material",
+      "weight": 0.3,
+      "maxStack": 3,
+      "sprite": "item_can_alarm",
+      "tags": [
+        "placeable"
+      ]
+    },
+    {
+      "id": 82,
+      "key": "spike_board",
+      "name": "Spike Board",
+      "category": "material",
+      "weight": 1.2,
+      "maxStack": 2,
+      "sprite": "item_spike_board",
+      "tags": [
+        "placeable"
+      ]
+    },
+    {
+      "id": 83,
+      "key": "can_lantern",
+      "name": "Can Lantern",
+      "category": "material",
+      "weight": 0.2,
+      "maxStack": 2,
+      "sprite": "item_can_lantern",
+      "tags": [
+        "placeable",
+        "light"
+      ]
     }
   ]
 }

@@ -31,7 +31,8 @@ enum class LeadKind
     Risen,    // walks again near where they fell, carrying their pack
     Pack,     // grave with their pack still beside it
     Grave,    // grave, nothing left to take
-    Survivor  // retired, stayed on in town as a survivor
+    Survivor, // retired, stayed on in town as a survivor
+    Base      // a house an earlier life held (boarded, or with a station)
 };
 
 struct Lead

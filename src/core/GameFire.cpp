@@ -129,20 +129,13 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle)
                         return;
                     }
 
-                    switch (structure.type)
+                    if (structure.type == StructureType::Campfire)
                     {
-                    case StructureType::Barricade:
-                    case StructureType::NoiseTrap:
-                    case StructureType::SleepingArea:
-                    case StructureType::SupplyCache:
-                        bonus = std::max(bonus, 0.35f);
-                        break;
-                    case StructureType::Campfire:
                         bonus = std::max(bonus, 0.20f);
-                        break;
-                    case StructureType::RainCollector:
-                        bonus = std::max(bonus, 0.02f);
-                        break;
+                    }
+                    else
+                    {
+                        bonus = std::max(bonus, structureInfo(structure.type).wooden ? 0.35f : 0.02f);
                     }
                 });
             return bonus;

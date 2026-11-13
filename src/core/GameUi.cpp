@@ -1271,51 +1271,109 @@ void Game::renderCraftingOverlay()
     drawMessage(actionY - (mCraftQueue.empty() || makingThis ? 10.0f : 32.0f));
 }
 
-void Game::renderBuildModeOverlay()
+glm::vec2 Game::baseActionAnchor() const
 {
-    if (mShowCrafting || !mBuildSystem.isBuildMode() || mRunState != RunState::Playing)
+    const glm::vec2 here = playerWorldCenter();
+    return mCamera.worldToScreen(here) - glm::vec2(0.0f, 78.0f * mCamera.zoom());
+}
+
+void Game::renderBaseActionBar()
+{
+    if (mRunState != RunState::Playing || mBaseAction.kind == BaseAction::Kind::None ||
+        mBaseAction.kind == BaseAction::Kind::Grab || mBaseAction.total <= 0.0f)
+    {
+        return;
+    }
+    // A thin line over the player's head that fills as the work goes on.
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const glm::vec2 anchor = baseActionAnchor();
+    constexpr float kWidth = 72.0f;
+    const float done = std::clamp(mBaseAction.timer / mBaseAction.total, 0.0f, 1.0f);
+    mSpriteBatch.draw(anchor + glm::vec2(-kWidth * 0.5f, 0.0f), glm::vec2(kWidth, 3.0f), uiUv, kPanelTrack);
+    mSpriteBatch.draw(anchor + glm::vec2(-kWidth * 0.5f, 0.0f), glm::vec2(kWidth * done, 3.0f), uiUv, kPanelInk);
+}
+
+glm::vec2 Game::buildWheelEntry(int index) const
+{
+    // An oval, wider than tall, so the names side by side at the bottom
+    // keep apart.
+    const float angle = -1.5707963f + 6.2831853f * static_cast<float>(index) / static_cast<float>(BuildSystem::kRecipeCount);
+    return mBuildWheelCentre + glm::vec2(std::cos(angle) * 190.0f, std::sin(angle) * 110.0f);
+}
+
+void Game::renderBuildWheel()
+{
+    if (mShowCrafting || mRunState != RunState::Playing)
+    {
+        return;
+    }
+    const auto put = [&](const glm::vec2& at, const std::string& text, const glm::vec4& color, float scale, bool centred)
+    {
+        const float width = mFont.measureText(text, scale).x;
+        const glm::vec2 pos = centred ? at - glm::vec2(width * 0.5f, 0.0f) : at;
+        const float offset = scale >= 2.0f ? 2.0f : 1.0f;
+        mFont.drawText(mSpriteBatch, pos + glm::vec2(offset), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.85f * color.a), scale);
+        mFont.drawText(mSpriteBatch, pos, text, color, scale);
+    };
+
+    // The held action's name over the line.
+    if (mBaseAction.kind != BaseAction::Kind::None && mBaseAction.kind != BaseAction::Kind::Grab && !mBaseAction.label.empty())
+    {
+        put(baseActionAnchor() - glm::vec2(0.0f, 14.0f), mBaseAction.label, kPanelInk, 1.0f, true);
+    }
+
+    if (mBuildChoice >= 0 && !mBuildWheelOpen)
+    {
+        const StationRecipe& recipe = BuildSystem::kRecipes[static_cast<std::size_t>(mBuildChoice)];
+        const glm::vec2 mouse(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+        put(mouse + glm::vec2(18.0f, 14.0f), recipe.name, mBuildGhostValid ? kPanelInk : kPanelAmber, 1.0f, false);
+        put(mouse + glm::vec2(18.0f, 28.0f), "Click: build here   Right click: put away", kPanelDim, 1.0f, false);
+    }
+    if (!mBuildWheelOpen)
     {
         return;
     }
 
-    // Top-left, straight on the world like the rest of the HUD (the health
-    // lines have the bottom-left corner).
-    const float panelX = Hud::kEdge;
-    float y = Hud::kEdge + 28.0f;
-    const auto put = [&](const std::string& text, const glm::vec4& color, float scale)
-    {
-        const float offset = scale >= 2.0f ? 2.0f : 1.0f;
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y) + glm::vec2(offset), text,
-                       glm::vec4(0.0f, 0.0f, 0.0f, 0.85f * color.a), scale);
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), text, color, scale);
-    };
-
-    put("BUILD", kPanelAmber, 2.0f);
-    y += 24.0f;
-
+    // Plain words around the point where B was pressed: the one under the
+    // cursor in ink if it can be built, amber if something is missing, with
+    // what it costs beneath it.
+    const glm::vec2 mouse(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+    int hover = -1;
+    float best = 80.0f;
     for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
     {
-        const auto& recipe = BuildSystem::kRecipes[i];
-        const bool selected = (i == mBuildSystem.selectedRecipe());
-
-        bool canAfford = false;
-        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+        const glm::vec2 at = buildWheelEntry(i);
+        const float d = glm::length(mouse - at);
+        if (d < best)
         {
-            const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-            canAfford = InventorySystem::countItem(inv, mItemDatabase.idOf(recipe.materialKey)) >= recipe.materialCost;
+            best = d;
+            hover = i;
         }
-
-        const std::string line = std::to_string(i + 1) + "  " + std::string(recipe.name) + "  (" +
-                                 std::to_string(recipe.materialCost) + ")";
-        // The chosen one in full colour: green if you can pay for it, red if not.
-        const glm::vec4 color = selected ? (canAfford ? kPanelGood : kPanelBad)
-                                         : (canAfford ? kPanelInk : kPanelDim);
-        put(line, color, 2.0f);
-        y += 20.0f;
     }
+    put(mBuildWheelCentre - glm::vec2(0.0f, 6.0f), "BUILD", kPanelDim, 1.0f, true);
+    for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
+    {
+        const StationRecipe& recipe = BuildSystem::kRecipes[static_cast<std::size_t>(i)];
+        const glm::vec2 at = buildWheelEntry(i);
+        const bool affordable = canAffordStation(recipe, nullptr);
+        const glm::vec4 nameColor = i == hover ? (affordable ? kPanelInk : kPanelAmber) : kPanelDim;
+        put(at - glm::vec2(0.0f, 10.0f), recipe.name, nameColor, 2.0f, true);
 
-    y += 4.0f;
-    put("Click place   B or Esc cancel", kPanelDim, 1.0f);
+        std::string cost;
+        const auto part = [&](const char* key, int count)
+        {
+            if (key == nullptr || count <= 0) return;
+            const ItemDef* def = mItemDatabase.findByKey(key);
+            if (!cost.empty()) cost += ", ";
+            cost += std::to_string(count) + " " + (def != nullptr ? def->name : key);
+        };
+        part(recipe.materialKey, recipe.materialCount);
+        part(recipe.secondKey, recipe.secondCount);
+        if (recipe.needsHammer) cost += ", hammer";
+        if (recipe.needsSaw) cost += ", saw";
+        put(at + glm::vec2(0.0f, 10.0f), cost, i == hover ? kPanelDim : glm::vec4(kPanelDim.r, kPanelDim.g, kPanelDim.b, 0.7f),
+            1.0f, true);
+    }
 }
 
 void Game::renderPauseOverlay()

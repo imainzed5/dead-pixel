@@ -16,6 +16,9 @@ struct Sprite
     // Mirror the frame left to right. Characters are drawn facing right and
     // flip to face left.
     bool flipX = false;
+    // World pixels the quad is drawn lower than its foot point: built
+    // things drawn like furniture put their floor diamond's centre there.
+    float sink = 0.0f;
 };
 
 namespace SpriteSizes

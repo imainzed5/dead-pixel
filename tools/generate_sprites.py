@@ -719,6 +719,8 @@ def generate_atlas():
     add_character_sprites(img, sprites)
     add_scenery_sprites(img, sprites)
     add_building_sprites(img, sprites)
+    add_window_sprites(img, sprites)
+    add_base_props(img, sprites)
 
     return img, sprites
 
@@ -1302,6 +1304,57 @@ def window_color(material, left, u, h):
     return glass
 
 
+def window_state_color(material, left, u, h, state):
+    """A window in another state: "broken" (an empty frame with shards),
+    "curtain" (drawn shut), "board1"/"board2" (planks across a dark frame)."""
+    base = window_color(material, left, u, h)
+    if base is None:
+        return None
+    frame = (214, 208, 194) if material != "metal" else (172, 178, 182)
+    if not left:
+        frame = shade(frame, -30)
+    inner = 10 <= u <= 21 and 21 <= h <= 41
+    if state == "curtain":
+        if not inner:
+            return base
+        cloth = (150, 116, 98) if left else (118, 92, 80)
+        fold = (u * 3 + h // 7) % 5
+        return shade(cloth, (-14 if fold == 0 else 4 if fold == 2 else -4) + (h - 30) // 6)
+    # Broken or boarded: the glass is gone and the room behind is dark.
+    if inner:
+        dark = (24, 22, 26) if left else (18, 16, 20)
+        # Shards still stuck in the frame along its edges.
+        edge = min(u - 10, 21 - u, h - 21, 41 - h)
+        if edge <= 1 and (u * 7 + h * 3) % 5 < 3:
+            dark = (88, 112, 132) if left else (70, 90, 106)
+        elif u == 15 and (h * 5) % 7 < 3:
+            dark = frame  # what is left of the glazing bar
+        else:
+            dark = dark
+        if h == 31 and (u * 11) % 6 < 2:
+            dark = frame
+        c = dark
+    else:
+        c = base
+    if state in ("board1", "board2"):
+        planks = ((26, -0.10),) if state == "board1" else ((25, -0.10), (35, 0.12))
+        for centre, slope in planks:
+            mid = centre + round((u - 15.5) * slope)
+            if 7 <= u <= 24 and mid - 1 <= h <= mid + 2:
+                dh = h - mid
+                w = BOARD_WOOD
+                if dh == 2:
+                    w = shade(BOARD_WOOD, 22)
+                elif dh == -1:
+                    w = shade(BOARD_WOOD, -40)
+                elif (u * 5 + centre) % 7 == 0:
+                    w = shade(BOARD_WOOD, -16)
+                if u in (8, 23) and dh in (0, 1):
+                    w = (54, 50, 48) if dh == 0 else (150, 146, 140)
+                return w if left else shade(w, -18)
+    return c
+
+
 DOOR_WOOD = (122, 84, 50)
 
 
@@ -1619,6 +1672,17 @@ def make_wall_piece(finish, along_x, kind, height, seed=0):
                 wc = window_color(material, left, u, z)
                 if wc is not None:
                     return wc
+            if kind.startswith("window") and kind != "window" and left == along_x:
+                if height >= 40:
+                    wc = window_state_color(material, left, u, z, kind[len("window"):])
+                    if wc is not None:
+                        return wc
+                elif z >= height - 2 and 8 <= u <= 23:
+                    # The cut-away stub shows what the window holds.
+                    if kind == "windowbroken" and (u * 5) % 3 == 0:
+                        return (96, 122, 142) if left else (76, 98, 114)
+                    if kind.startswith("windowboard"):
+                        return BOARD_WOOD if left else shade(BOARD_WOOD, -18)
             return finish_color(finish, left, u, z, height, rng)
         return fn
 
@@ -1636,7 +1700,7 @@ def make_wall_piece(finish, along_x, kind, height, seed=0):
         slab(SLAB_LO, SLAB_HI)
     elif kind == "half":
         slab(8, 24)
-    elif kind in ("full", "window"):
+    elif kind == "full" or kind.startswith("window"):
         slab(0, 32)
     else:
         top_of_door = min(DOOR_TOP, height)
@@ -1816,6 +1880,39 @@ def add_building_sprites(img, sprites):
             x, y, row_h = BUILDING_X, y + row_h, 0
         if y + cell.height > SHEET_H:
             raise RuntimeError("building block is full")
+        img.alpha_composite(cell, (x, y))
+        sprites[name] = {"x": x, "y": y, "w": cell.width, "h": cell.height}
+        x += cell.width
+        row_h = max(row_h, cell.height)
+
+
+# Windows in their other states (phase 2): broken, curtained, one and two
+# boards, with cut-away stubs that show broken glass or boards. Packed in a
+# block of their own under the building block, so the older pieces keep
+# their places in the atlas.
+WINDOW_X = 1024
+WINDOW_Y = 1700
+WINDOW_STATES = ("broken", "curtain", "board1", "board2")
+
+
+def add_window_sprites(img, sprites):
+    cells = []
+    seed = 900
+    for finish in FINISHES:
+        for axis in ("x", "y"):
+            along_x = axis == "x"
+            base = "wallp_%s_%s_window" % (finish, axis)
+            for state in WINDOW_STATES:
+                cells.append((base + "_" + state, make_wall_piece(finish, along_x, "window" + state, WALL_H, seed)))
+            cells.append((base + "_low_broken", make_wall_piece(finish, along_x, "windowbroken", WALL_LOW_H, seed)))
+            cells.append((base + "_low_board", make_wall_piece(finish, along_x, "windowboard1", WALL_LOW_H, seed)))
+            seed += 1
+    x, y, row_h = WINDOW_X, WINDOW_Y, 0
+    for name, cell in cells:
+        if x + cell.width > SHEET_W:
+            x, y, row_h = WINDOW_X, y + row_h, 0
+        if y + cell.height > SHEET_H:
+            raise RuntimeError("window block is full")
         img.alpha_composite(cell, (x, y))
         sprites[name] = {"x": x, "y": y, "w": cell.width, "h": cell.height}
         x += cell.width
@@ -2380,6 +2477,88 @@ def draw_item_icon(name):
         ic.light(34, -26)
         for t in (0.0, 1.5):
             ic.line(17 + t, 12 + t, 20 + t, 15 + t, (192, 160, 104), 1)
+    elif name == "item_nails":
+        steel = (172, 176, 184)
+        for x0, y0, x1, y1 in ((7, 22, 18, 9), (11, 25, 23, 13), (16, 26, 26, 17), (6, 15, 13, 26)):
+            ic.line(x0, y0, x1, y1, steel, 1)
+            ic.ellipse(x1 + 0.5, y1 + 0.5, 1.6, 1.6, shade(steel, 20))
+        ic.light(20, -24)
+    elif name == "item_crowbar":
+        iron = (74, 78, 92)
+        ic.line(8, 26, 22, 8, iron, 3)
+        ic.line(22, 8, 26, 6, iron, 2)
+        ic.line(26, 6, 27, 9, iron, 2)
+        ic.line(8, 26, 5, 25, iron, 2)
+        ic.light(34, -20)
+        ic.line(10, 23, 15, 17, (176, 52, 44), 2)       # a strip of red paint
+    elif name == "item_saw":
+        blade = (184, 188, 196)
+        ic.poly([(5, 21), (24, 9), (27, 13), (8, 26)], blade)
+        for i in range(7):
+            x = 7 + i * 2.8
+            y = 25.5 - i * 1.75
+            ic.set(int(x), int(y) + 1, shade(blade, -40))
+        ic.light(26, -30)
+        ic.rect(22, 6, 29, 14, (150, 96, 54))
+        ic.rect(24, 8, 27, 12, (60, 40, 26))
+    elif name == "item_tin_can":
+        tin = (176, 180, 186)
+        ic.rect(11, 10, 21, 26, tin)
+        ic.light(28, -28)
+        ic.ellipse(16, 10, 5.2, 2.0, shade(tin, 16))
+        ic.ellipse(16, 10, 3.8, 1.1, (64, 66, 72))
+        for y in (14, 18, 22):
+            ic.rect(11, y, 21, y + 1, shade(tin, -18))
+        ic.line(19, 9, 24, 5, shade(tin, 10), 1)           # the lid, bent back
+    elif name == "item_wire":
+        copper = (190, 118, 70)
+        for r in (7.5, 6.0, 4.5):
+            for i in range(28):
+                a = i / 28.0 * 6.2831853
+                ic.set(int(16 + math.cos(a) * r), int(17 + math.sin(a) * r * 0.8), copper if r != 6.0 else shade(copper, -24))
+        ic.line(22, 12, 27, 6, copper, 1)
+        ic.light(18, -18)
+    elif name == "item_rags":
+        cloth = (168, 150, 120)
+        ic.poly([(6, 18), (12, 12), (20, 14), (26, 10), (27, 18), (20, 24), (11, 25)], cloth)
+        ic.poly([(9, 19), (15, 16), (22, 18), (19, 22), (12, 23)], shade(cloth, -22))
+        ic.line(8, 21, 13, 18, (120, 70, 60), 1)
+        ic.light(20, -26)
+    elif name == "item_candle":
+        wax = (230, 222, 196)
+        ic.rect(13, 12, 19, 26, wax)
+        ic.light(18, -26)
+        ic.ellipse(16, 12, 3.2, 1.2, shade(wax, 10))
+        ic.line(16, 11, 16, 8, (40, 34, 30), 1)
+        ic.ellipse(16, 6, 1.8, 2.8, (246, 168, 60))
+        ic.ellipse(16, 6.5, 0.9, 1.4, (252, 232, 140))
+        ic.rect(11, 25, 21, 27, (120, 118, 120))
+    elif name == "item_can_alarm":
+        tin = (176, 180, 186)
+        ic.line(4, 6, 28, 8, (150, 120, 80), 1)              # the string
+        for cx, top in ((9, 9), (16, 12), (23, 9)):
+            ic.line(cx, 7, cx, top, (150, 120, 80), 1)
+            ic.rect(cx - 3, top, cx + 3, top + 9, tin)
+            ic.ellipse(cx, top + 9, 3.2, 1.2, shade(tin, -30))
+        ic.light(24, -26)
+    elif name == "item_spike_board":
+        wood = (150, 110, 68)
+        ic.poly([(4, 20), (20, 10), (28, 15), (12, 26)], wood)
+        ic.light(20, -26)
+        for i in range(4):
+            for j in range(2):
+                x = 9 + i * 4 + j * 3
+                y = 19 - i * 2.4 + j * 2.6
+                ic.line(x, y, x, y - 5, (196, 200, 206), 1)
+    elif name == "item_can_lantern":
+        tin = (170, 174, 180)
+        ic.rect(10, 9, 22, 26, tin)
+        ic.light(26, -28)
+        for x in (12, 15, 18):
+            for y in (13, 17, 21):
+                ic.set(x + 1, y, (252, 206, 110))
+        ic.line(10, 9, 16, 4, (90, 92, 98), 1)
+        ic.line(16, 4, 22, 9, (90, 92, 98), 1)
     else:
         ic.rect(9, 9, 23, 23, (150, 150, 150))
     ic.grain(3)
@@ -2401,6 +2580,12 @@ ITEM_ICONS_NEW = [
     "item_bandage_clean", "item_rag", "item_molotov", "item_bat_spiked",
     "item_spear", "item_empty_bottle",
 ]
+# Phase 2: building and the home base, in the free rows of the left block.
+ITEM_ICONS_BASE = [
+    "item_nails", "item_crowbar", "item_saw", "item_tin_can", "item_wire",
+    "item_rags", "item_candle", "item_can_alarm", "item_spike_board", "item_can_lantern",
+]
+BASE_ICON_Y = 944
 
 
 def add_item_icons(img, sprites):
@@ -2411,6 +2596,10 @@ def add_item_icons(img, sprites):
         x = 512 + i * ITEM_SIZE
         draw_item_icon(name).paste(img, x, 160)
         sprites[name] = {"x": x, "y": 160, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    for i, name in enumerate(ITEM_ICONS_BASE):
+        x = i * ITEM_SIZE
+        draw_item_icon(name).paste(img, x, BASE_ICON_Y)
+        sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
 
 
 # ---------------------------------------------------------------------------
@@ -2695,6 +2884,151 @@ FURNITURE = [
     ("workbench", furn_workbench, True),
     ("barrels", furn_barrels, False),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Things the player builds and sets down (phase 2): drawn like furniture, in
+# 80x80 cells (the 64x80 piece centred), the floor diamond's centre 16 px
+# above the cell's bottom (Sprite::sink in the game).
+# ---------------------------------------------------------------------------
+
+PROP_CELL = 80
+PROP_Y = 984
+
+
+def prop_campfire(f, lit):
+    stone = (128, 124, 118)
+    for i in range(10):
+        a = i / 10.0 * 6.2831853
+        x, y = f.P(0.5 + math.cos(a) * 0.30, 0.5 + math.sin(a) * 0.30, 0)
+        f.ellipse_at((x, y - 2), 4, 3, shade(stone, (i % 3) * 8 - 8))
+    ash = (70, 64, 60)
+    cx, cy = f.P(0.5, 0.5, 0)
+    f.ellipse_at((cx, cy), 12, 6, ash)
+    wood = (120, 84, 52)
+    for (u0, v0, u1, v1) in ((0.30, 0.42, 0.70, 0.58), (0.42, 0.30, 0.58, 0.70), (0.34, 0.62, 0.66, 0.38)):
+        f.draw.line([f.P(u0, v0, 3), f.P(u1, v1, 6)], fill=wood + (255,), width=3)
+    if lit:
+        for r, h, col in ((9, 22, (226, 96, 30)), (6, 17, (246, 162, 48)), (3, 11, (252, 226, 120))):
+            f.draw.polygon([(cx - r, cy - 2), (cx, cy - h), (cx + r, cy - 2)], fill=col + (255,))
+
+
+def prop_bedroll(f):
+    cloth = (88, 112, 84)
+    f.box(0.18, 0.12, 0.82, 0.88, 0, 4, cloth)
+    f.box(0.22, 0.14, 0.40, 0.86, 4, 8, shade(cloth, 18))           # rolled end
+    f.box(0.60, 0.20, 0.80, 0.40, 4, 7, (210, 204, 190))             # a folded rag for a pillow
+
+
+def prop_crate(f):
+    wood = (166, 124, 74)
+    f.box(0.10, 0.10, 0.90, 0.90, 0, 26, wood)
+    for z in (8, 17):
+        f.draw.line([f.P(0.10, 0.90, z), f.P(0.90, 0.90, z)], fill=shade(wood, -38) + (255,))
+        f.draw.line([f.P(0.90, 0.10, z), f.P(0.90, 0.90, z)], fill=shade(wood, -54) + (255,))
+    f.draw.line([f.P(0.10, 0.90, 0), f.P(0.90, 0.90, 26)], fill=shade(wood, -30) + (255,))
+    f.box(0.06, 0.06, 0.94, 0.94, 26, 29, shade(wood, 10))           # the lid
+
+
+def prop_collector(f):
+    metal = (120, 128, 136)
+    gx, gy = f.P(0.5, 0.5, 0)
+    tx, ty = f.P(0.5, 0.5, 24)
+    rx, ry = 12, 6
+    f.draw.rectangle([gx - rx, ty, gx + rx, gy], fill=metal + (255,))
+    f.ellipse_at((gx, gy), rx, ry, metal)
+    f.draw.rectangle([gx + 5, ty, gx + rx, gy], fill=shade(metal, -26) + (255,))
+    for z in (6, 16):
+        f.draw.line([(gx - rx, gy - z), (gx + rx, gy - z)], fill=shade(metal, -34) + (255,))
+    f.ellipse_at((tx, ty), rx, ry, shade(metal, 18))
+    f.ellipse_at((tx, ty), rx - 3, ry - 2, (64, 96, 120))            # water
+    # A funnel of planks and tin over it.
+    f.draw.polygon([(tx - 18, ty - 10), (tx + 18, ty - 10), (tx + 6, ty - 2), (tx - 6, ty - 2)],
+                   fill=(176, 180, 186, 255))
+    f.draw.line([(tx - 18, ty - 10), (tx - 18, gy)], fill=(120, 86, 54, 255), width=2)
+    f.draw.line([(tx + 18, ty - 10), (tx + 18, gy)], fill=(120, 86, 54, 255), width=2)
+
+
+def prop_workbench(f):
+    wood = (156, 114, 70)
+    for u, v in ((0.12, 0.12), (0.80, 0.12), (0.12, 0.80), (0.80, 0.80)):
+        f.box(u, v, u + 0.08, v + 0.08, 0, 16, shade(wood, -26))
+    f.box(0.08, 0.08, 0.92, 0.92, 16, 21, wood)
+    f.box(0.20, 0.20, 0.80, 0.80, 6, 8, shade(wood, -14))            # the shelf
+    f.box(0.62, 0.14, 0.82, 0.30, 21, 26, (118, 122, 130))           # a vise
+    f.draw.line([f.P(0.30, 0.55, 22), f.P(0.55, 0.40, 22)], fill=(70, 72, 78, 255), width=2)   # a hammer
+
+
+def prop_canalarm(f):
+    string = (150, 120, 80)
+    tin = (180, 184, 190)
+    f.draw.line([f.P(0.5, 0.05, 30), f.P(0.5, 0.95, 30)], fill=string + (255,))
+    for v in (0.2, 0.5, 0.8):
+        x, y = f.P(0.5, v, 30)
+        f.draw.line([(x, y), (x, y + 6)], fill=string + (255,))
+        f.draw.rectangle([x - 3, y + 6, x + 3, y + 14], fill=tin + (255,))
+        f.draw.rectangle([x + 1, y + 6, x + 3, y + 14], fill=shade(tin, -30) + (255,))
+
+
+def prop_spikeboard(f):
+    wood = (146, 106, 64)
+    f.box(0.16, 0.16, 0.84, 0.84, 0, 3, wood)
+    for i in range(4):
+        for j in range(4):
+            u = 0.24 + i * 0.17
+            v = 0.24 + j * 0.17
+            x, y = f.P(u, v, 3)
+            f.draw.line([(x, y), (x, y - 6)], fill=(200, 204, 210, 255))
+
+
+def prop_candle(f, lit):
+    wax = (232, 224, 198)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.ellipse_at((gx, gy), 6, 3, (120, 118, 120))                    # a saucer
+    f.draw.rectangle([gx - 2, gy - 12, gx + 2, gy - 1], fill=wax + (255,))
+    f.draw.rectangle([gx + 1, gy - 12, gx + 2, gy - 1], fill=shade(wax, -26) + (255,))
+    if lit:
+        f.ellipse_at((gx, gy - 16), 2, 3, (246, 168, 60))
+        f.ellipse_at((gx, gy - 15), 1, 1, (252, 236, 150))
+
+
+def prop_lantern(f, lit):
+    tin = (168, 172, 178)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.draw.rectangle([gx - 6, gy - 16, gx + 6, gy], fill=tin + (255,))
+    f.draw.rectangle([gx + 2, gy - 16, gx + 6, gy], fill=shade(tin, -28) + (255,))
+    f.ellipse_at((gx, gy - 16), 6, 2, shade(tin, 16))
+    glow = (252, 206, 110) if lit else (60, 54, 50)
+    for dx in (-3, 0):
+        for dy in (-12, -7):
+            f.draw.point((gx + dx, gy + dy), fill=glow + (255,))
+    f.draw.arc([gx - 6, gy - 24, gx + 6, gy - 12], 180, 360, fill=(90, 92, 98, 255))
+
+
+PROPS_BASE = [
+    ("prop_campfire", lambda f: prop_campfire(f, False)),
+    ("prop_campfire_lit", lambda f: prop_campfire(f, True)),
+    ("prop_bedroll", prop_bedroll),
+    ("prop_crate", prop_crate),
+    ("prop_collector", prop_collector),
+    ("prop_workbench", prop_workbench),
+    ("prop_canalarm", prop_canalarm),
+    ("prop_spikeboard", prop_spikeboard),
+    ("prop_candle", lambda f: prop_candle(f, False)),
+    ("prop_candle_lit", lambda f: prop_candle(f, True)),
+    ("prop_lantern", lambda f: prop_lantern(f, False)),
+    ("prop_lantern_lit", lambda f: prop_lantern(f, True)),
+]
+
+
+def add_base_props(img, sprites):
+    for i, (name, painter) in enumerate(PROPS_BASE):
+        f = Furn(5000 + i)
+        painter(f)
+        piece = f.finish()
+        x = i * PROP_CELL
+        img.paste(piece, (x + (PROP_CELL - FURN_W) // 2, PROP_Y), piece)
+        sprites[name] = {"x": x, "y": PROP_Y, "w": PROP_CELL, "h": PROP_CELL}
 
 
 def add_furniture_sprites(img, sprites):

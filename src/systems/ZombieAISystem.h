@@ -9,6 +9,15 @@
 
 class DistrictInfectionSystem;
 
+// A zombie pressing into something between it and where it is going: a
+// closed door, a window, furniture across a doorway. The game decides what
+// the blow does (batter, break glass, climb through).
+struct BarrierBlow
+{
+    glm::ivec2 tile{0};
+    Entity zombie = kInvalidEntity;
+};
+
 class ZombieAISystem
 {
 public:
@@ -21,7 +30,7 @@ public:
         double gameHours = 12.0,
         int currentDay = 1,
         const DistrictInfectionSystem* infectionSystem = nullptr,
-        std::vector<glm::ivec2>* doorBlows = nullptr,
+        std::vector<BarrierBlow>* doorBlows = nullptr,
         std::vector<glm::vec2>* playerHits = nullptr) const;
 
     // Night vision depends on the player's light: darkness hides you, a lit
@@ -37,6 +46,8 @@ public:
     // Uniform [0, 1) from the zombie's own RNG stream.
     [[nodiscard]] static float nextRandom(ZombieAI& zombie, Entity entity);
 
+    // Tiles one can see through a window (either way).
+    static constexpr float kWindowSightTiles = 6.0f;
     [[nodiscard]] static bool hasLineOfSight(const TileMap& tileMap, const glm::vec2& worldStart, const glm::vec2& worldEnd);
 
     // The lunge: a wind-up the player can read, then a strike that throws the

@@ -19,8 +19,94 @@ void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
     mBuildingLayer.assign(size, 0);
     mDoorLayer.assign(size, DoorState::None);
     mDoorBoards.assign(size, 0);
+    mWindowLayer.assign(size, WindowState::None);
+    mWindowBoards.assign(size, 0);
+    mWindowCovered.assign(size, 0);
+    mBlockedDoorway.assign(size, 0);
     mFurnitureLayer.assign(size, 0);
     mSceneryLayer.assign(size, 0);
+}
+
+namespace
+{
+template <typename T>
+void setLayer(std::vector<T>& layer, std::size_t size, std::size_t index, T value)
+{
+    if (layer.size() < size) layer.resize(size, T{});
+    layer[index] = value;
+}
+
+template <typename T>
+T getLayer(const std::vector<T>& layer, std::size_t index)
+{
+    return index < layer.size() ? layer[index] : T{};
+}
+} // namespace
+
+void TileMap::setWindowState(int tileX, int tileY, WindowState state)
+{
+    if (!inBounds(tileX, tileY)) return;
+    setLayer(mWindowLayer, static_cast<std::size_t>(mWidth * mHeight), static_cast<std::size_t>(tileIndex(tileX, tileY)), state);
+}
+
+WindowState TileMap::windowState(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY)) return WindowState::None;
+    return getLayer(mWindowLayer, static_cast<std::size_t>(tileIndex(tileX, tileY)));
+}
+
+void TileMap::setWindowBoards(int tileX, int tileY, int boards)
+{
+    if (!inBounds(tileX, tileY)) return;
+    setLayer(mWindowBoards, static_cast<std::size_t>(mWidth * mHeight), static_cast<std::size_t>(tileIndex(tileX, tileY)),
+             static_cast<std::uint8_t>(std::clamp(boards, 0, 255)));
+}
+
+int TileMap::windowBoards(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY)) return 0;
+    return getLayer(mWindowBoards, static_cast<std::size_t>(tileIndex(tileX, tileY)));
+}
+
+void TileMap::setWindowCovered(int tileX, int tileY, bool covered)
+{
+    if (!inBounds(tileX, tileY)) return;
+    setLayer(mWindowCovered, static_cast<std::size_t>(mWidth * mHeight), static_cast<std::size_t>(tileIndex(tileX, tileY)),
+             static_cast<std::uint8_t>(covered ? 1 : 0));
+}
+
+bool TileMap::windowCovered(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY)) return false;
+    return getLayer(mWindowCovered, static_cast<std::size_t>(tileIndex(tileX, tileY))) != 0;
+}
+
+bool TileMap::windowClear(int tileX, int tileY) const
+{
+    return hasWindow(tileX, tileY) && windowBoards(tileX, tileY) == 0 && !windowCovered(tileX, tileY);
+}
+
+bool TileMap::windowOpen(int tileX, int tileY) const
+{
+    return windowState(tileX, tileY) == WindowState::Broken && windowBoards(tileX, tileY) == 0;
+}
+
+bool TileMap::blocksView(int tileX, int tileY) const
+{
+    return blocksSight(tileX, tileY) && !windowClear(tileX, tileY);
+}
+
+void TileMap::setDoorwayBlocked(int tileX, int tileY, bool blocked)
+{
+    if (!inBounds(tileX, tileY)) return;
+    setLayer(mBlockedDoorway, static_cast<std::size_t>(mWidth * mHeight), static_cast<std::size_t>(tileIndex(tileX, tileY)),
+             static_cast<std::uint8_t>(blocked ? 1 : 0));
+}
+
+bool TileMap::doorwayBlocked(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY)) return false;
+    return getLayer(mBlockedDoorway, static_cast<std::size_t>(tileIndex(tileX, tileY))) != 0;
 }
 
 void TileMap::setTileset(const TilesetInfo& tileset)

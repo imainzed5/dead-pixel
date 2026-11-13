@@ -415,6 +415,16 @@ std::vector<legacy::Lead> Game::currentLegacyLeads()
         lead.world += glm::vec2(kSpriteSize * 0.5f);
         out.push_back(lead);
     }
+    // The house an earlier life held, unless this life starts in it.
+    const BaseRecord& base = mSaveManager.baseRecord();
+    if (base.building > 0 && base.building != mFirstDays.homeBuilding)
+    {
+        legacy::Lead lead;
+        lead.kind = legacy::LeadKind::Base;
+        lead.world = glm::vec2(base.x, base.y);
+        lead.runIndex = base.runIndex;
+        out.push_back(lead);
+    }
     return out;
 }
 

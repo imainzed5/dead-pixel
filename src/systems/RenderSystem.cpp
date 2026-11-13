@@ -25,6 +25,7 @@ struct DrawCommand
     int layer = 0;
     float size = 32.0f;
     bool flipX = false;
+    float sink = 0.0f;
 };
 }
 
@@ -64,7 +65,8 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
                     sprite.color,
                     sprite.layer,
                     sprite.drawSize,
-                    sprite.flipX});
+                    sprite.flipX,
+                    sprite.sink});
         });
 
     // Draw order: flat decals first (by layer, then depth); then everything
@@ -174,7 +176,7 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
         // foot-pivot correction so visual feet sit on the physical world anchor.
         const glm::vec2 drawPos(
             screenCenter.x - scaledSize * 0.5f,
-            screenCenter.y - scaledSize + visualYOffset);
+            screenCenter.y - scaledSize + visualYOffset + command.sink * zoom);
 
         // Frustum cull in draw-rect space so offsets are correctly respected.
         if (drawPos.x + scaledSize < 0.0f ||

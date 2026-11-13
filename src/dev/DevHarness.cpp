@@ -11,6 +11,7 @@
 #include <stb/stb_image_write.h>
 
 #include "components/Corpse.h"
+#include "components/Structure.h"
 #include "components/Health.h"
 #include "components/Interactable.h"
 #include "components/Velocity.h"
@@ -24,8 +25,11 @@
 #include "components/Transform.h"
 #include "components/ZombieAI.h"
 #include "core/Game.h"
+#include "core/GameShared.h"
 #include "core/Tuning.h"
 #include "world/Storage.h"
+#include "world/FurnitureUse.h"
+#include "systems/BuildSystem.h"
 #include "systems/InventorySystem.h"
 #include "systems/ZombieAISystem.h"
 #include "world/EntityFactory.h"
@@ -83,6 +87,29 @@ std::string itemArgs(const std::vector<std::string>& a, std::size_t first, int& 
         name += a[i];
     }
     return name;
+}
+
+// A compass word as a tile step: n/s/e/w (north is -y).
+bool parseDirection(const std::string& word, glm::ivec2& dir)
+{
+    if (word == "n" || word == "north" || word == "up") dir = {0, -1};
+    else if (word == "s" || word == "south" || word == "down") dir = {0, 1};
+    else if (word == "e" || word == "east" || word == "right") dir = {1, 0};
+    else if (word == "w" || word == "west" || word == "left") dir = {-1, 0};
+    else return false;
+    return true;
+}
+
+// A station by a word of its name: campfire, workbench, crate, collector, bedroll.
+const StationRecipe* recipeByWord(const std::string& word)
+{
+    for (const StationRecipe& recipe : BuildSystem::kRecipes)
+    {
+        std::string name = recipe.name;
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (name.find(word) != std::string::npos) return &recipe;
+    }
+    return nullptr;
 }
 
 std::string csvSafe(std::string text)
@@ -169,7 +196,7 @@ bool DevHarness::loadScript(std::string& error)
                     "body_temp,illness,stamina,panic,depression,zombies,zombies_near,kills,"
                     "inventory_items,z_investigate,z_chase,z_attack,z_migrating,indoors,pop_target,"
                     "cause,food,drink,medical,weapons,materials,containers_searched,boards_up,"
-                    "callers_tonight,noise_per_hour,bot\n";
+                    "callers_tonight,noise_per_hour,bot,at_home\n";
     }
 
     std::error_code ec;
@@ -369,7 +396,9 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "zombie")
     {
         // zombie DX DY: a zombie DX, DY tiles from the player, heading for them.
-        if (!need(2)) return;
+        // zombie mark [idle]: a zombie on the marked tile. With "idle" it
+        // wanders instead of heading for the player.
+        if (!need(1)) return;
         if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
         {
             fail(command, "no player");
@@ -379,8 +408,16 @@ void DevHarness::execute(Game& game, const Command& command)
         const int tileH = std::max(1, game.mTileMap.tileHeight());
         const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
         const glm::vec2 playerCentre(pt.x + 16.0f, pt.y + 16.0f);
-        const int tx = static_cast<int>(playerCentre.x / static_cast<float>(tileW)) + std::stoi(a[1]);
-        const int ty = static_cast<int>(playerCentre.y / static_cast<float>(tileH)) + std::stoi(a[2]);
+        const bool atMark = lower(a[1]) == "mark";
+        if (atMark && mMark.x < 0)
+        {
+            fail(command, "no mark");
+            return;
+        }
+        if (!atMark && !need(2)) return;
+        const bool idle = lower(a.back()) == "idle";
+        const int tx = atMark ? mMark.x : static_cast<int>(playerCentre.x / static_cast<float>(tileW)) + std::stoi(a[1]);
+        const int ty = atMark ? mMark.y : static_cast<int>(playerCentre.y / static_cast<float>(tileH)) + std::stoi(a[2]);
         if (game.mTileMap.isSolid(tx, ty))
         {
             fail(command, "tile " + std::to_string(tx) + "," + std::to_string(ty) + " is solid");
@@ -392,7 +429,7 @@ void DevHarness::execute(Game& game, const Command& command)
         params.baseMoveSpeed = 112.0f;
         params.spawnDay = game.mCurrentDay;
         const Entity zombie = EntityFactory::spawnZombie(game.mWorld, game.mSpriteSheet, params);
-        if (zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
+        if (!idle && zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
         {
             ZombieAISystem::sendTo(game.mWorld.getComponent<ZombieAI>(zombie), playerCentre, false);
         }
@@ -422,6 +459,14 @@ void DevHarness::execute(Game& game, const Command& command)
                       << (state == DoorState::Closed ? "closed" : state == DoorState::Open ? "open" : "broken")
                       << " boards=" << game.mDoors.boards(tile) << " boardHp=" << (door != nullptr ? door->boardHp : 0.0f)
                       << " hp=" << (door != nullptr ? door->hp : 0.0f);
+        }
+        // Every way into the house: doors and windows, as the plan counts them.
+        std::cout << "\n[harness]   ways in:";
+        for (const Game::WayIn& way : game.waysIn(game.mFirstDays.homeBuilding))
+        {
+            std::cout << " " << (way.window ? "window" : "door") << "(" << way.tile.x << "," << way.tile.y << ") "
+                      << (way.boarded ? "boarded" : way.open ? "open" : way.covered ? "curtained" : "closed")
+                      << " strength=" << static_cast<int>(way.strength);
         }
         // Each caller: state (0 wander, 1 investigate, 2 chase, 3 attack),
         // tiles from home, seconds in that state.
@@ -549,6 +594,96 @@ void DevHarness::execute(Game& game, const Command& command)
                 return;
             }
             fail(command, "no free tile beside the nearest piece");
+            return;
+        }
+        if (kind == "window")
+        {
+            // goto window [home] [front|back] [inside|outside [N]]: the floor
+            // inside the nearest window (of the home; in a wall facing the
+            // camera, or away from it), or the ground outside it, N tiles off.
+            const bool home = std::find(a.begin(), a.end(), "home") != a.end();
+            const bool front = std::find(a.begin(), a.end(), "front") != a.end();
+            const bool back = std::find(a.begin(), a.end(), "back") != a.end();
+            auto sideAt = std::find(a.begin(), a.end(), "outside");
+            const bool outside = sideAt != a.end();
+            if (!outside) sideAt = std::find(a.begin(), a.end(), "inside");
+            const int out = sideAt != a.end() && sideAt + 1 != a.end() ? std::max(1, std::stoi(*(sideAt + 1))) : 1;
+            const glm::vec2 here = game.playerWorldCenter();
+            const Windows::Window* best = nullptr;
+            float bestD = 0.0f;
+            for (const Windows::Window& window : game.mWindows.all())
+            {
+                if (home && window.spot.building != game.mFirstDays.homeBuilding) continue;
+                const glm::ivec2 facing = window.spot.outside - window.spot.tile;
+                const bool facesCamera = facing.x > 0 || facing.y > 0;
+                if ((front && !facesCamera) || (back && facesCamera)) continue;
+                const float d = glm::length(glm::vec2(window.spot.tile) * 32.0f + glm::vec2(16.0f) - here);
+                if (best == nullptr || d < bestD)
+                {
+                    best = &window;
+                    bestD = d;
+                }
+            }
+            if (best == nullptr)
+            {
+                fail(command, home ? "the home has no windows" : "no windows");
+                return;
+            }
+            glm::ivec2 tile = outside ? best->spot.outside : best->spot.inside;
+            const glm::ivec2 step = outside ? best->spot.outside - best->spot.tile : best->spot.inside - best->spot.tile;
+            for (int i = 1; i < out; ++i)
+            {
+                const glm::ivec2 next = tile + step;
+                if (game.mTileMap.isSolid(next.x, next.y)) break;
+                tile = next;
+            }
+            execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
+            return;
+        }
+        if (kind == "base")
+        {
+            // goto base: beside the storage crate of the house the last lives
+            // held, or the floor nearest its middle.
+            const BaseRecord& base = game.mSaveManager.baseRecord();
+            if (base.building <= 0)
+            {
+                fail(command, "no base remembered");
+                return;
+            }
+            glm::ivec2 crate(-1);
+            game.mWorld.forEach<Structure, Transform>(
+                [&](Entity, Structure& s, Transform& t)
+                {
+                    if (s.type != StructureType::StorageCrate) return;
+                    const glm::ivec2 tile = gameshared::worldToTile(game.mTileMap, glm::vec2(t.x + 16.0f, t.y + 16.0f));
+                    if (game.mTileMap.getBuildingId(tile.x, tile.y) == base.building) crate = tile;
+                });
+            const glm::ivec2 centre = crate.x >= 0 ? crate : gameshared::worldToTile(game.mTileMap, glm::vec2(base.x, base.y));
+            const std::vector<glm::ivec2> occupied = game.occupiedTiles();
+            glm::ivec2 bestTile(-1);
+            int bestD = 0;
+            for (int dy = -6; dy <= 6; ++dy)
+            {
+                for (int dx = -6; dx <= 6; ++dx)
+                {
+                    const glm::ivec2 tile = centre + glm::ivec2(dx, dy);
+                    if (tile == centre || game.mTileMap.isSolid(tile.x, tile.y)) continue;
+                    if (game.mTileMap.getBuildingId(tile.x, tile.y) != base.building) continue;
+                    if (std::find(occupied.begin(), occupied.end(), tile) != occupied.end()) continue;
+                    const int d = std::abs(dx) + std::abs(dy);
+                    if (bestTile.x < 0 || d < bestD)
+                    {
+                        bestTile = tile;
+                        bestD = d;
+                    }
+                }
+            }
+            if (bestTile.x < 0)
+            {
+                fail(command, "no floor in the base");
+                return;
+            }
+            execute(game, Command{command.line, {"teleport", std::to_string(bestTile.x), std::to_string(bestTile.y)}});
             return;
         }
         if (kind == "mark")
@@ -1068,6 +1203,117 @@ void DevHarness::execute(Game& game, const Command& command)
             }
             return;
         }
+        if (want == "pack")
+        {
+            // expect pack ITEM NAME COUNT: at least COUNT carried.
+            if (!need(3)) return;
+            int count = 1;
+            const std::string name = itemArgs(a, 2, count);
+            const ItemDef* item = game.mItemDatabase.findByName(name);
+            int have = 0;
+            if (item != nullptr && game.mPlayerEntity != kInvalidEntity && game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+            {
+                have = InventorySystem::countItem(game.mWorld.getComponent<Inventory>(game.mPlayerEntity), item->id);
+            }
+            if (have < count)
+            {
+                fail(command, "expected " + std::to_string(count) + " " + name + " in the pack, found " + std::to_string(have));
+            }
+            else
+            {
+                std::cout << "[harness] tick " << mTick << ": pack holds " << have << " " << name << '\n';
+            }
+            return;
+        }
+        if (want == "blocked")
+        {
+            // expect blocked: a piece of furniture blocks a door of the
+            // building the player stands in (or, outside, the nearest door's).
+            const glm::ivec2 me = game.playerTile();
+            int building = game.mTileMap.getBuildingId(me.x, me.y);
+            if (building <= 0)
+            {
+                if (const Doors::Door* door = game.mDoors.nearest(game.mTileMap, game.playerWorldCenter(), 1.0e9f))
+                {
+                    building = game.mTileMap.getBuildingId(door->tile.x, door->tile.y);
+                }
+            }
+            for (const FurniturePiece& piece : game.mFurniture)
+            {
+                if (piece.building != building || !game.mTileMap.doorwayBlocked(piece.tile.x, piece.tile.y)) continue;
+                const glm::ivec2 door = furnitureuse::blockedDoor(game.mTileMap, piece.tile);
+                std::cout << "[harness] tick " << mTick << ": " << furniture::info(piece.kind).sprite << " at "
+                          << piece.tile.x << "," << piece.tile.y << " blocks door " << door.x << "," << door.y
+                          << " damage " << static_cast<int>(piece.damage) << " of "
+                          << static_cast<int>(furnitureuse::useInfo(piece.kind).barrierHp) << '\n';
+                return;
+            }
+            fail(command, "no furniture blocks a door of building " + std::to_string(building));
+            return;
+        }
+        if (want == "window")
+        {
+            // expect window glass|broken|boarded [N]|curtained|clear: the nearest window.
+            if (!need(2)) return;
+            const Windows::Window* window = game.mWindows.nearest(game.mTileMap, game.playerWorldCenter(), 1.0e9f);
+            if (window == nullptr)
+            {
+                fail(command, "no windows");
+                return;
+            }
+            const glm::ivec2 t = window->spot.tile;
+            const std::string state = lower(a[2]);
+            const int boards = game.mWindows.boards(t);
+            bool ok = false;
+            if (state == "glass") ok = game.mTileMap.windowState(t.x, t.y) == WindowState::Intact;
+            else if (state == "broken") ok = game.mTileMap.windowState(t.x, t.y) == WindowState::Broken;
+            else if (state == "boarded") ok = boards >= (a.size() > 3 ? std::stoi(a[3]) : 1);
+            else if (state == "curtained") ok = game.mTileMap.windowCovered(t.x, t.y);
+            else if (state == "clear") ok = !game.mTileMap.windowCovered(t.x, t.y) && boards == 0;
+            const std::string have =
+                std::string(game.mTileMap.windowState(t.x, t.y) == WindowState::Broken ? "broken" : "glass") +
+                " boards=" + std::to_string(boards) + " boardHp=" + std::to_string(static_cast<int>(window->boardHp)) +
+                (game.mTileMap.windowCovered(t.x, t.y) ? " curtained" : "");
+            if (!ok) fail(command, "window at " + std::to_string(t.x) + "," + std::to_string(t.y) + " is " + have);
+            else std::cout << "[harness] tick " << mTick << ": window " << t.x << "," << t.y << " " << have << '\n';
+            return;
+        }
+        if (want == "zombies")
+        {
+            // expect zombies coming|calm|inside R: within R tiles of the
+            // player, some are after something (investigate, chase, attack),
+            // none are, or some stand in the player's building.
+            if (!need(3)) return;
+            const std::string mood = lower(a[2]);
+            const float range = std::stof(a[3]) * 32.0f;
+            const glm::vec2 here = game.playerWorldCenter();
+            const glm::ivec2 me = game.playerTile();
+            const int building = game.mTileMap.getBuildingId(me.x, me.y);
+            int near = 0;
+            int busy = 0;
+            int inside = 0;
+            game.mWorld.forEach<ZombieAI, Transform, Health>(
+                [&](Entity, ZombieAI& ai, Transform& t, Health& h)
+                {
+                    if (h.current <= 0.0f) return;
+                    const glm::vec2 c(t.x + 16.0f, t.y + 16.0f);
+                    if (glm::length(c - here) > range) return;
+                    ++near;
+                    if (ai.state == ZombieState::Investigate || ai.state == ZombieState::Chase ||
+                        ai.state == ZombieState::Attack)
+                    {
+                        ++busy;
+                    }
+                    const glm::ivec2 zt = gameshared::worldToTile(game.mTileMap, c);
+                    if (building > 0 && game.mTileMap.getBuildingId(zt.x, zt.y) == building) ++inside;
+                });
+            const bool ok = mood == "coming" ? busy > 0 : mood == "calm" ? busy == 0 : mood == "inside" ? inside > 0 : false;
+            const std::string have = std::to_string(near) + " near, " + std::to_string(busy) + " after something, " +
+                                     std::to_string(inside) + " inside";
+            if (!ok) fail(command, "expected zombies " + mood + ": " + have);
+            else std::cout << "[harness] tick " << mTick << ": zombies " << have << '\n';
+            return;
+        }
         if (want == "speed")
         {
             // expect speed V: the player moves no faster than V pixels a second.
@@ -1091,6 +1337,309 @@ void DevHarness::execute(Game& game, const Command& command)
         else if (want == "dead") ok = game.mRunState == Game::RunState::Dead;
         else ok = want == have;
         if (!ok) fail(command, "expected " + want + ", state is " + have);
+    }
+    else if (op == "push")
+    {
+        // push DIR: push the piece beside the player one tile that way (n, s, e, w).
+        glm::ivec2 dir(0);
+        if (!need(1)) return;
+        if (!parseDirection(lower(a[1]), dir))
+        {
+            fail(command, "unknown direction '" + a[1] + "' (n, s, e, w)");
+            return;
+        }
+        const glm::ivec2 tile = game.playerTile() + dir;
+        const std::string why = game.pushFurniture(tile, dir, true);
+        if (!why.empty())
+        {
+            fail(command, why);
+            return;
+        }
+        std::cout << "[harness] tick " << mTick << ": pushed the piece at " << tile.x << "," << tile.y << " to "
+                  << tile.x + dir.x << "," << tile.y + dir.y << '\n';
+    }
+    else if (op == "haul")
+    {
+        // haul KIND|any [KIND...]: push the nearest movable piece (of that kind) of this
+        // house, tile by tile by the pushing rules, onto the floor inside the
+        // door nearest the player, who then waits outside that door.
+        if (!need(1)) return;
+        const glm::vec2 here = game.playerWorldCenter();
+        const Doors::Door* door = game.mDoors.nearest(game.mTileMap, here, 1.0e9f);
+        if (door == nullptr)
+        {
+            fail(command, "no doors");
+            return;
+        }
+        glm::ivec2 inside(-1);
+        glm::ivec2 outside(-1);
+        for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+        {
+            const glm::ivec2 t = door->tile + side;
+            if (game.mTileMap.isSolid(t.x, t.y) && !game.mTileMap.hasFurniture(t.x, t.y)) continue;
+            if (game.mTileMap.getBuildingId(t.x, t.y) > 0) inside = t;
+            else outside = t;
+        }
+        if (inside.x < 0 || outside.x < 0)
+        {
+            fail(command, "the nearest door has no floor inside or ground outside");
+            return;
+        }
+        const glm::ivec2 doorTile = door->tile;
+        execute(game, Command{command.line, {"teleport", std::to_string(outside.x), std::to_string(outside.y)}});
+        const int building = game.mTileMap.getBuildingId(inside.x, inside.y);
+        // haul KIND [KIND...]: the first kind the house has wins; then the nearest.
+        std::vector<glm::ivec2> candidates;
+        for (std::size_t k = 1; k < a.size() && candidates.empty(); ++k)
+        {
+            const std::string want = lower(a[k]) == "any" ? std::string{} : "furn_" + lower(a[k]);
+            for (const FurniturePiece& piece : game.mFurniture)
+            {
+                if (piece.building != building || !furnitureuse::movable(piece.kind)) continue;
+                if (!want.empty() && want != furniture::info(piece.kind).sprite) continue;
+                candidates.push_back(piece.tile);
+            }
+        }
+        std::sort(candidates.begin(), candidates.end(), [&](const glm::ivec2& l, const glm::ivec2& r)
+        {
+            const glm::ivec2 dl = l - inside;
+            const glm::ivec2 dr = r - inside;
+            return std::abs(dl.x) + std::abs(dl.y) < std::abs(dr.x) + std::abs(dr.y);
+        });
+        // The doors inside the house stand open for the move.
+        for (const Doors::Door& inner : game.mDoors.all())
+        {
+            const glm::ivec2 t = inner.tile;
+            if (t == doorTile || game.mTileMap.getBuildingId(t.x, t.y) != building) continue;
+            bool interior = true;
+            for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+            {
+                const glm::ivec2 n = t + side;
+                if (!game.mTileMap.isSolid(n.x, n.y) && game.mTileMap.getBuildingId(n.x, n.y) <= 0) interior = false;
+            }
+            if (interior && game.mTileMap.isClosedDoor(t.x, t.y) && game.mDoors.boards(t) == 0)
+            {
+                game.mDoors.toggle(game.mTileMap, t);
+            }
+        }
+        const std::vector<glm::ivec2> occupied = game.occupiedTiles();
+        const int w = game.mTileMap.width();
+        for (const glm::ivec2& start : candidates)
+        {
+            if (start == inside)
+            {
+                std::cout << "[harness] tick " << mTick << ": the piece already stands at the door\n";
+                return;
+            }
+            // Breadth-first over floor a piece can slide onto.
+            std::vector<int> from(static_cast<std::size_t>(w * game.mTileMap.height()), -1);
+            std::vector<glm::ivec2> queue{start};
+            from[static_cast<std::size_t>(start.y * w + start.x)] = start.y * w + start.x;
+            bool reached = false;
+            for (std::size_t q = 0; q < queue.size() && !reached; ++q)
+            {
+                for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+                {
+                    const glm::ivec2 next = furnitureuse::pushTarget(game.mTileMap, queue[q], side, occupied);
+                    if (next.x < 0 || game.mTileMap.getBuildingId(next.x, next.y) != building) continue;
+                    const auto ni = static_cast<std::size_t>(next.y * w + next.x);
+                    if (from[ni] >= 0) continue;
+                    from[ni] = queue[q].y * w + queue[q].x;
+                    queue.push_back(next);
+                    if (next == inside) reached = true;
+                }
+            }
+            if (!reached) continue;
+            std::vector<glm::ivec2> path{inside};
+            while (path.back() != start)
+            {
+                const int f = from[static_cast<std::size_t>(path.back().y * w + path.back().x)];
+                path.emplace_back(f % w, f / w);
+            }
+            std::reverse(path.begin(), path.end());
+            std::string name = "?";
+            if (const FurniturePiece* piece = game.furnitureAt(start)) name = furniture::info(piece->kind).sprite;
+            for (std::size_t i = 1; i < path.size(); ++i)
+            {
+                const glm::ivec2 d = path[i] - path[i - 1];
+                const glm::ivec2 dir(d.x > 0 ? 1 : d.x < 0 ? -1 : 0, d.y > 0 ? 1 : d.y < 0 ? -1 : 0);
+                const std::string why = game.pushFurniture(path[i - 1], dir, false);
+                if (!why.empty())
+                {
+                    fail(command, why);
+                    return;
+                }
+            }
+            std::cout << "[harness] tick " << mTick << ": hauled " << name << " " << path.size() - 1
+                      << " tile(s) to " << inside.x << "," << inside.y << " blocking door " << doorTile.x << ","
+                      << doorTile.y << '\n';
+            return;
+        }
+        fail(command, std::to_string(candidates.size()) + " movable piece(s) in building " + std::to_string(building) +
+                          ", none can reach " + std::to_string(inside.x) + "," + std::to_string(inside.y));
+    }
+    else if (op == "break")
+    {
+        // break: the nearest piece in reach is broken up at once (as X would, finished).
+        const glm::vec2 here = game.playerWorldCenter();
+        glm::ivec2 best(-1);
+        float bestD = 1.6f * 32.0f;
+        for (const FurniturePiece& piece : game.mFurniture)
+        {
+            const float d = glm::length(glm::vec2(piece.tile) * 32.0f + glm::vec2(16.0f) - here);
+            if (d < bestD)
+            {
+                best = piece.tile;
+                bestD = d;
+            }
+        }
+        if (best.x < 0)
+        {
+            fail(command, "no furniture within reach");
+            return;
+        }
+        game.breakFurniture(best);
+    }
+    else if (op == "build")
+    {
+        // build KIND: start building a station on the nearest free tile in
+        // reach, with the pack's materials and tools, as the wheel would.
+        if (!need(1)) return;
+        const StationRecipe* recipe = recipeByWord(lower(a[1]));
+        if (recipe == nullptr)
+        {
+            fail(command, "unknown station '" + a[1] + "'");
+            return;
+        }
+        std::string missing;
+        if (!game.canAffordStation(*recipe, &missing))
+        {
+            fail(command, missing);
+            return;
+        }
+        const glm::ivec2 me = game.playerTile();
+        const std::vector<glm::ivec2> occupied = game.occupiedTiles();
+        glm::ivec2 best(-1);
+        float bestD = 0.0f;
+        for (int dy = -2; dy <= 2; ++dy)
+        {
+            for (int dx = -2; dx <= 2; ++dx)
+            {
+                const glm::ivec2 tile = me + glm::ivec2(dx, dy);
+                const float d = glm::length(glm::vec2(dx, dy));
+                if (tile == me || d > BuildSystem::kReachTiles) continue;
+                if (!BuildSystem::placeable(game.mTileMap, tile, recipe->type, occupied)) continue;
+                if (best.x < 0 || d < bestD)
+                {
+                    best = tile;
+                    bestD = d;
+                }
+            }
+        }
+        if (best.x < 0)
+        {
+            fail(command, std::string("nowhere in reach for a ") + recipe->name);
+            return;
+        }
+        game.startBuild(*recipe, best);
+        std::cout << "[harness] tick " << mTick << ": building a " << recipe->name << " at " << best.x << "," << best.y
+                  << " (" << recipe->seconds << " s)\n";
+    }
+    else if (op == "light")
+    {
+        // light: the nearest candle, lantern or campfire within 3 tiles is lit.
+        const glm::vec2 here = game.playerWorldCenter();
+        bool lit = false;
+        game.mWorld.forEach<Structure, Transform>(
+            [&](Entity, Structure& s, Transform& t)
+            {
+                if (lit || (s.type != StructureType::Light && s.type != StructureType::Campfire)) return;
+                if (glm::length(glm::vec2(t.x + 16.0f, t.y + 16.0f) - here) > 3.0f * 32.0f) return;
+                s.lit = true;
+                s.burnHours = std::max(s.burnHours, 4.0f);
+                lit = true;
+            });
+        if (!lit) fail(command, "nothing to light within 3 tiles");
+    }
+    else if (op == "windows")
+    {
+        // windows: how the town's windows stand, and the one nearest the player.
+        int broken = 0;
+        int boarded = 0;
+        int covered = 0;
+        const glm::vec2 here = game.playerWorldCenter();
+        const Windows::Window* nearest = nullptr;
+        float nearestD = 0.0f;
+        for (const Windows::Window& window : game.mWindows.all())
+        {
+            const glm::ivec2 t = window.spot.tile;
+            if (game.mTileMap.windowState(t.x, t.y) == WindowState::Broken) ++broken;
+            if (game.mWindows.boards(t) > 0) ++boarded;
+            if (game.mTileMap.windowCovered(t.x, t.y)) ++covered;
+            const float d = glm::length(glm::vec2(t) * 32.0f + glm::vec2(16.0f) - here);
+            if (nearest == nullptr || d < nearestD)
+            {
+                nearest = &window;
+                nearestD = d;
+            }
+        }
+        std::cout << "[harness] tick " << mTick << ": windows " << game.mWindows.all().size() << " broken=" << broken
+                  << " boarded=" << boarded << " curtained=" << covered;
+        if (nearest != nullptr)
+        {
+            const glm::ivec2 t = nearest->spot.tile;
+            std::cout << " | nearest (" << t.x << "," << t.y << ") "
+                      << (game.mTileMap.windowState(t.x, t.y) == WindowState::Broken ? "broken" : "glass")
+                      << " boards=" << game.mWindows.boards(t) << " boardHp=" << static_cast<int>(nearest->boardHp)
+                      << " glassHp=" << static_cast<int>(nearest->glassHp)
+                      << (game.mTileMap.windowCovered(t.x, t.y) ? " curtained" : "");
+        }
+        std::cout << '\n';
+    }
+    else if (op == "window")
+    {
+        // window STATE [all]: set the nearest window (or every window of the
+        // building the player stands in) to intact, broken, boarded1,
+        // boarded (two), curtained or open (curtain back).
+        if (!need(1)) return;
+        const std::string state = lower(a[1]);
+        const bool all = a.size() > 2 && lower(a[2]) == "all";
+        const glm::ivec2 me = game.playerTile();
+        const int building = game.mTileMap.getBuildingId(me.x, me.y);
+        const glm::vec2 here = game.playerWorldCenter();
+        std::vector<glm::ivec2> tiles;
+        const Windows::Window* nearest = nullptr;
+        float nearestD = 0.0f;
+        for (const Windows::Window& window : game.mWindows.all())
+        {
+            if (all && window.spot.building == building) tiles.push_back(window.spot.tile);
+            const float d = glm::length(glm::vec2(window.spot.tile) * 32.0f + glm::vec2(16.0f) - here);
+            if (nearest == nullptr || d < nearestD)
+            {
+                nearest = &window;
+                nearestD = d;
+            }
+        }
+        if (!all && nearest != nullptr) tiles.push_back(nearest->spot.tile);
+        if (tiles.empty())
+        {
+            fail(command, "no window");
+            return;
+        }
+        for (const glm::ivec2& t : tiles)
+        {
+            if (state == "intact") game.mWindows.restore(game.mTileMap, t, false, 0.0f, false);
+            else if (state == "broken") game.mWindows.restore(game.mTileMap, t, true, 0.0f, false);
+            else if (state == "boarded1") game.mWindows.restore(game.mTileMap, t, true, Windows::kBoardHp, false);
+            else if (state == "boarded") game.mWindows.restore(game.mTileMap, t, true, 2.0f * Windows::kBoardHp, false);
+            else if (state == "curtained") game.mTileMap.setWindowCovered(t.x, t.y, true);
+            else if (state == "open") game.mTileMap.setWindowCovered(t.x, t.y, false);
+            else
+            {
+                fail(command, "unknown window state '" + a[1] + "'");
+                return;
+            }
+        }
     }
     else if (op == "zombies")
     {
@@ -1283,10 +1832,21 @@ void DevHarness::writeMetricsRow(Game& game)
             }
         }
     }
+    // Boards up on doors and windows alike.
     int boards = 0;
     for (const auto& door : game.mDoors.all())
     {
         boards += game.mTileMap.doorBoards(door.tile.x, door.tile.y);
+    }
+    for (const auto& window : game.mWindows.all())
+    {
+        boards += game.mWindows.boards(window.spot.tile);
+    }
+    bool atHome = false;
+    if (hasPlayer && game.mFirstDays.homeBuilding > 0)
+    {
+        const glm::ivec2 tile = gameshared::worldToTile(game.mTileMap, playerPos + glm::vec2(16.0f));
+        atHome = game.mTileMap.getBuildingId(tile.x, tile.y) == game.mFirstDays.homeBuilding;
     }
     int callers = 0;
     world.forEach<ZombieAI, Health>([&](Entity, ZombieAI& ai, Health& h) { if (ai.nightCaller && h.current > 0.0f) ++callers; });
@@ -1303,6 +1863,6 @@ void DevHarness::writeMetricsRow(Game& game)
     mMetrics << (ended ? csvSafe(game.mDeathCause) : std::string{}) << ',' << byCategory[0] << ',' << byCategory[1]
              << ',' << byCategory[2] << ',' << byCategory[3] << ',' << byCategory[4] << ','
              << game.mContainersOpened << ',' << boards << ',' << callers << ',' << noisePerHour << ','
-             << (mBot.running() ? mBot.activity() : "") << '\n';
+             << (mBot.running() ? mBot.activity() : "") << ',' << (atHome ? 1 : 0) << '\n';
     mMetrics.flush();
 }

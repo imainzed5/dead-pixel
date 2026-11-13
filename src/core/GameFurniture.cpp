@@ -5,13 +5,20 @@ using namespace gameshared;
 
 void Game::furnishWorld()
 {
-    mTileMap.clearFurniture();
     mFurniture = furniture::furnish(mMapGenerator.layoutData(), static_cast<std::uint32_t>(mSaveManager.worldSeed()));
-    for (const FurniturePiece& piece : mFurniture)
+    // What earlier lives moved and broke up.
+    furnitureuse::Memory memory;
+    for (const FurnitureMoveRecord& move : mSaveManager.furnitureMemory().moves)
     {
-        mTileMap.setFurniture(piece.tile.x, piece.tile.y, true);
+        memory.moves.push_back(furnitureuse::Move{glm::ivec2(move.fromX, move.fromY), glm::ivec2(move.toX, move.toY)});
     }
-    mFurnitureView.build(mFurniture);
+    for (const auto& [x, y] : mSaveManager.furnitureMemory().removed)
+    {
+        memory.removed.emplace_back(x, y);
+    }
+    furnitureuse::apply(mFurniture, memory);
+    mRemovedFurniture = memory.removed;
+    refreshFurnitureLayer();
 }
 
 void Game::plantScenery()

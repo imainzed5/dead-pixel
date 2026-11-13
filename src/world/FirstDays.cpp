@@ -78,7 +78,7 @@ std::vector<CallerGroup> callerSchedule(int callers)
 Plan planFor(int day, double hours, const Facts& facts)
 {
     Plan plan;
-    const std::string doors = facts.doors > 0 ? count(facts.doorsBoarded, facts.doors) : "";
+    const std::string closed = facts.ways > 0 ? count(facts.waysClosed, facts.ways) : "";
     const int night = nightIndex(day, hours);
     if (night > 0)
     {
@@ -90,7 +90,7 @@ Plan planFor(int day, double hours, const Facts& facts)
         };
         plan.title = kTitles[night - 1];
         plan.steps.push_back({"Sleep in your bed", facts.sleptTonight});
-        plan.steps.push_back({"Keep doors boarded" + doors, facts.doorsBoarded >= facts.doors});
+        plan.steps.push_back({"Keep the house closed" + closed, facts.waysClosed >= facts.ways});
         return plan;
     }
 
@@ -102,7 +102,7 @@ Plan planFor(int day, double hours, const Facts& facts)
                                                    : "Search the house",
                               facts.searched >= facts.searchable});
         plan.steps.push_back({"Fill bottles at the tap", facts.usedTap});
-        plan.steps.push_back({"Board up the doors" + doors, facts.doorsBoarded >= facts.doors});
+        plan.steps.push_back({"Close up the house" + closed, facts.waysClosed >= facts.ways});
         break;
     case 2:
         plan.title = "Day 2: stock up";
@@ -116,8 +116,8 @@ Plan planFor(int day, double hours, const Facts& facts)
         plan.steps.push_back({facts.rainCollector ? "Rain collector built" : "Find water" + count(facts.waterBottles, kWaterGoal),
                               facts.rainCollector || facts.waterBottles >= kWaterGoal});
         plan.steps.push_back({"Find food" + count(facts.food, kFoodGoal), facts.food >= kFoodGoal});
-        plan.steps.push_back({"Fully board doors" + (facts.doors > 0 ? count(facts.doorsFull, facts.doors) : ""),
-                              facts.doorsFull >= facts.doors});
+        plan.steps.push_back({"Board up the house" + (facts.ways > 0 ? count(facts.waysBoarded, facts.ways) : ""),
+                              facts.waysBoarded >= facts.ways});
         break;
     default:
         break;

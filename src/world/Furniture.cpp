@@ -486,7 +486,9 @@ glm::ivec2 frontTile(const FurniturePiece& piece)
 
 std::vector<FurniturePiece> furnish(const LayoutData& layout, std::uint32_t seed)
 {
-    return Furnisher(layout, seed).run();
+    std::vector<FurniturePiece> pieces = Furnisher(layout, seed).run();
+    for (FurniturePiece& piece : pieces) piece.origin = piece.tile;
+    return pieces;
 }
 bool kindWithin(const std::vector<FurniturePiece>& pieces, FurnitureKind kind, const glm::ivec2& tile, float radiusTiles)
 {

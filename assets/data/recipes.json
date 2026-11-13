@@ -80,6 +80,71 @@
       "hintA": "a blade",
       "hintB": "a long piece of wood",
       "startsKnown": false
+    },
+    {
+      "name": "Spike Board",
+      "inputA": "wood_planks",
+      "inputB": "nails",
+      "output": "spike_board",
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [
+        "tool:hammer"
+      ],
+      "station": "none",
+      "craftTimeSeconds": 8,
+      "notes": "Nails through a plank. Set it on a floor inside (F): the first three of the dead to cross it are hurt and slowed. Crouch over your own.",
+      "hintA": "a plank",
+      "hintB": "a handful of nails",
+      "startsKnown": true,
+      "countB": 8
+    },
+    {
+      "name": "Can Alarm",
+      "inputA": "tin_can",
+      "inputB": "wire",
+      "output": "can_alarm",
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 5,
+      "notes": "Tins on a wire. Hang it on a door or window (F): anyone else coming through sets it rattling, loud enough to wake you.",
+      "hintA": "empty tins",
+      "hintB": "something thin to string them on",
+      "startsKnown": true,
+      "countA": 3
+    },
+    {
+      "name": "Can Lantern",
+      "inputA": "candle",
+      "inputB": "tin_can",
+      "output": "can_lantern",
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 3,
+      "notes": "A candle in a can. Set it down (F) and light it: a little light the dead outside cannot see.",
+      "hintA": "a small flame",
+      "hintB": "something to keep the wind off",
+      "startsKnown": false
+    },
+    {
+      "name": "Rags",
+      "inputA": "jacket",
+      "output": "rags",
+      "count": 2,
+      "category": "MED",
+      "tools": [
+        "knife"
+      ],
+      "station": "none",
+      "craftTimeSeconds": 4,
+      "notes": "Cut a jacket into rags: for bedrolls, dressings and for laying over broken glass.",
+      "hintA": "",
+      "hintB": "",
+      "startsKnown": true
     }
   ]
 }

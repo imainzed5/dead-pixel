@@ -1,4 +1,5 @@
-# Nights: callers come to the boarded door one at a time on night 1, batter
+# Nights: callers come to the weakest way into the house one at a time on
+# night 1 (here the boarded door: the windows carry two boards each), batter
 # it, and give up; at dawn the rest drift off. Night 3 sends more, at once.
 # "plan" prints the home door's boards and each caller (state, tiles from
 # home, seconds in that state). Run in a fresh directory:
@@ -9,6 +10,7 @@ waits 1
 god on
 give Hammer
 give Wood Planks 4
+give Nails 8
 goto home
 waits 0.3
 goto door
@@ -20,6 +22,7 @@ waits 0.3
 tap R
 waits 0.3
 goto home
+window boarded all
 waits 0.3
 plan
 # Night 1, first caller: sets out at 21:30.

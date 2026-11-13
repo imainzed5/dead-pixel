@@ -49,16 +49,20 @@ done, what is next, and known issues.
 | WASD | Move (screen directions) |
 | Shift / C | Run / crouch |
 | Mouse, left click, right click | Aim, attack, grab |
-| E | Interact: open and close doors, open containers, sleep in a bed |
+| E | Interact: open and close doors, open containers, sleep in a bed or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern |
+| Hold E beside furniture, then walk | Grab and push it (heavy pieces slowly, a tile at a time; through an open doorway; onto the floor inside a door to block it) |
 | In a container: A/D or Left/Right, W/S, E or Enter, Shift+E, Esc | Pick the pack or the container side, move the cursor, move one across, move the whole stack, close (the mouse works too: click moves one, Shift+click the stack) |
-| R / X at a closed door | Board it up (hammer and a plank) / pry a board off |
-| R at a kitchen counter or sink | Drink from the tap and fill empty bottles (until day 3) |
-| F | Use the selected item, or take a weapon in hand |
+| R / X at a closed door or a window (from inside) | Board it up (hammer, a plank and 2 nails) / pry a board off (a crowbar saves the nails) |
+| X at furniture | Break it up for planks and rags (hands, faster with a hammer, axe or crowbar; a saw gives an extra plank) |
+| Click at a window in reach / crouch + F with duct tape | Smash the glass (loud) / break it quietly |
+| R at a kitchen counter or sink, or a rain collector | Drink from the tap and fill empty bottles (taps until day 3) |
+| R at a worn station | Repair it with one of what it is made of |
+| F | Use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern |
 | Q | Flashlight |
 | 1-8 | Hotbar slot |
 | Tab, arrows, Enter | Inventory, cursor, swap to hotbar |
 | N | Crafting |
-| B | Build mode |
+| B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll (click one, then click where it goes; right click puts it away) |
 | L | Fire action |
 | V / Shift+V | Enter or exit a car / refuel |
 | M / J | Town map / notebook |
@@ -138,6 +142,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 - **Moving and setup:**
   - `teleport X Y`, `enter N` (a building), `mark` (remember this tile);
   - `goto home|mark|risen|pack|grave|door [outside]|furniture [KIND|any|container] [stocked]`;
+  - `goto window [home] [front|back] [inside|outside [N]]` (the nearest
+    window, of the home, in a wall facing the camera or away; N tiles off),
+    `goto base` (the house the last lives held, beside its crate);
   - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE` (also
     `set wounds N`), `trait tough`, `zoom Z`;
   - `tune KEY VALUE` overrides a number from `assets/data/tuning.json` for
@@ -151,18 +158,33 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   A bot that stands on one tile for 3 game hours while awake prints `FAIL`
   (resting and holding the house on purpose do not count).
   `botshots TICKS` takes a screenshot every TICKS ticks while it plays.
-- **The dead:** `zombie DX DY`, `slay RADIUS`.
+- **The base:** `push n|s|e|w` (the piece beside the player, one tile, by
+  the pushing rules), `haul KIND [KIND...]|any` (the nearest movable piece of
+  the first kind the house has, pushed tile by tile onto the floor inside the
+  nearest door; the player waits outside it), `break` (the nearest piece in
+  reach broken up at once), `build KIND` (campfire, workbench, crate,
+  collector, bedroll: start building on the nearest free tile in reach, with
+  the pack's materials), `light` (the nearest candle, lantern or campfire),
+  `window intact|broken|boarded1|boarded|curtained|open [all]` (the nearest
+  window, or every window of this building), `windows` (how they stand).
+- **The dead:** `zombie DX DY [idle]`, `zombie mark [idle]` (heading for
+  the player, or wandering), `slay RADIUS`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
-  - `plan` prints the day's plan, the home's doors and boards, and the
-    night's callers;
+  - `plan` prints the day's plan, the home's doors and boards, every way
+    into the house (doors and windows, how they stand, their strength) and
+    the night's callers;
   - `expect alive|dead`, `expect maxhp N`, `expect weather same`,
     `expect container ITEM NAME COUNT`, `expect speed V` (the player moves
-    no faster than V pixels a second);
+    no faster than V pixels a second), `expect pack ITEM NAME COUNT`,
+    `expect blocked` (furniture blocks a door of this house),
+    `expect window glass|broken|boarded [N]|curtained|clear` (the nearest),
+    `expect zombies coming|calm|inside R` (within R tiles);
   - `shot NAME`, `metrics INTERVAL` (ticks), `log TEXT`. Metrics rows add the
     cause of death, items carried by category, containers searched, boards
-    up, tonight's callers, zombies within 10 tiles and noises per game hour.
+    up (doors and windows), tonight's callers, zombies within 10 tiles,
+    noises per game hour, and whether the player is in the home.
 
 **Scripts in `tools/harness/`**
 
@@ -170,7 +192,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 |---|---|
 | `baseline_tour` | A first look around a fresh run |
 | `first_day` | Day 1's plan: search the house, the tap, boarding up, sleep, night 1, the day 2 card, the taps dying |
-| `night_siege` | Night callers at a boarded door, giving up, drifting off at dawn; night 3 |
+| `night_siege` | Night callers at the weakest way in (a boarded door), giving up, drifting off at dawn; night 3 |
+| `base` | A bookshelf pushed into a doorway holds the dead after the door; a table broken up; the build wheel; a crate built; both still there in the next life |
+| `windows` | Every window state in two wall materials, inside and out; the dead see a lit window at night, not a curtained one; break in, climb in; boards hold; all kept |
 | `hud_states` | HUD for a fresh character, one in trouble, and night |
 | `soak_idle` | Two idle game days with metrics, so needs and zombie pressure can be read |
 | `interiors` | Walls, cut-away and roofs inside buildings |
@@ -191,7 +215,8 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 **Soak runs.** `python tools/soak.py --exe build/dead_pixel_survival.exe`
 runs `bot_week` for seeds 1 to 10, each in a fresh directory, and prints a
 table: days survived, how the run ended, kills, food and drink carried,
-containers searched. `--seeds 1-3`, `--jobs N` and `--profile careful` change
+containers searched, the most boards up at once, and whether it died in
+the home on night 1. `--seeds 1-3`, `--jobs N` and `--profile careful` change
 what it runs. Later phases read balance from it.
 
 ## Assets

@@ -886,6 +886,66 @@
       "w": 32,
       "h": 32
     },
+    "item_nails": {
+      "x": 0,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_crowbar": {
+      "x": 32,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_saw": {
+      "x": 64,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_tin_can": {
+      "x": 96,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_wire": {
+      "x": 128,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_rags": {
+      "x": 160,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_candle": {
+      "x": 192,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_can_alarm": {
+      "x": 224,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_spike_board": {
+      "x": 256,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
+    "item_can_lantern": {
+      "x": 288,
+      "y": 944,
+      "w": 32,
+      "h": 32
+    },
     "furn_bed_r": {
       "x": 0,
       "y": 608,
@@ -9147,6 +9207,366 @@
       "y": 1656,
       "w": 64,
       "h": 40
+    },
+    "wallp_plaster_x_window_broken": {
+      "x": 1024,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_x_window_curtain": {
+      "x": 1088,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_x_window_board1": {
+      "x": 1152,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_x_window_board2": {
+      "x": 1216,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_x_window_low_broken": {
+      "x": 1280,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_plaster_x_window_low_board": {
+      "x": 1344,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_plaster_y_window_broken": {
+      "x": 1408,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_y_window_curtain": {
+      "x": 1472,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_y_window_board1": {
+      "x": 1536,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_y_window_board2": {
+      "x": 1600,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_plaster_y_window_low_broken": {
+      "x": 1664,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_plaster_y_window_low_board": {
+      "x": 1728,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_brick_x_window_broken": {
+      "x": 1792,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_x_window_curtain": {
+      "x": 1856,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_x_window_board1": {
+      "x": 1920,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_x_window_board2": {
+      "x": 1984,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_x_window_low_broken": {
+      "x": 2048,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_brick_x_window_low_board": {
+      "x": 2112,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_brick_y_window_broken": {
+      "x": 2176,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_y_window_curtain": {
+      "x": 2240,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_y_window_board1": {
+      "x": 2304,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_y_window_board2": {
+      "x": 2368,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_brick_y_window_low_broken": {
+      "x": 2432,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_brick_y_window_low_board": {
+      "x": 2496,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_metal_x_window_broken": {
+      "x": 2560,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_x_window_curtain": {
+      "x": 2624,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_x_window_board1": {
+      "x": 2688,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_x_window_board2": {
+      "x": 2752,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_x_window_low_broken": {
+      "x": 2816,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_metal_x_window_low_board": {
+      "x": 2880,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_metal_y_window_broken": {
+      "x": 2944,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_y_window_curtain": {
+      "x": 3008,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_y_window_board1": {
+      "x": 3072,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_y_window_board2": {
+      "x": 3136,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_metal_y_window_low_broken": {
+      "x": 3200,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_metal_y_window_low_board": {
+      "x": 3264,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_interior_x_window_broken": {
+      "x": 3328,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_x_window_curtain": {
+      "x": 3392,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_x_window_board1": {
+      "x": 3456,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_x_window_board2": {
+      "x": 3520,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_x_window_low_broken": {
+      "x": 3584,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_interior_x_window_low_board": {
+      "x": 3648,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_interior_y_window_broken": {
+      "x": 3712,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_y_window_curtain": {
+      "x": 3776,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_y_window_board1": {
+      "x": 3840,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_y_window_board2": {
+      "x": 3904,
+      "y": 1700,
+      "w": 64,
+      "h": 88
+    },
+    "wallp_interior_y_window_low_broken": {
+      "x": 3968,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "wallp_interior_y_window_low_board": {
+      "x": 4032,
+      "y": 1700,
+      "w": 64,
+      "h": 40
+    },
+    "prop_campfire": {
+      "x": 0,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_campfire_lit": {
+      "x": 80,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_bedroll": {
+      "x": 160,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_crate": {
+      "x": 240,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_collector": {
+      "x": 320,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_workbench": {
+      "x": 400,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_canalarm": {
+      "x": 480,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_spikeboard": {
+      "x": 560,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_candle": {
+      "x": 640,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_candle_lit": {
+      "x": 720,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_lantern": {
+      "x": 800,
+      "y": 984,
+      "w": 80,
+      "h": 80
+    },
+    "prop_lantern_lit": {
+      "x": 880,
+      "y": 984,
+      "w": 80,
+      "h": 80
     }
   }
 }

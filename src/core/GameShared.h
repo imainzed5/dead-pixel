@@ -178,6 +178,7 @@ inline glm::vec4 legacyLeadColor(legacy::LeadKind kind)
     case legacy::LeadKind::Risen: return glm::vec4(0.94f, 0.34f, 0.28f, 1.0f);
     case legacy::LeadKind::Pack: return glm::vec4(0.96f, 0.72f, 0.30f, 1.0f);
     case legacy::LeadKind::Survivor: return glm::vec4(0.50f, 0.71f, 0.96f, 1.0f);
+    case legacy::LeadKind::Base: return glm::vec4(0.62f, 0.86f, 0.56f, 1.0f);
     case legacy::LeadKind::Grave: break;
     }
     return glm::vec4(0.71f, 0.71f, 0.73f, 1.0f);
@@ -545,23 +546,24 @@ struct ControlBinding
     const char* action;
 };
 
-constexpr std::array<ControlBinding, 25> kControlBindings = {{
+constexpr std::array<ControlBinding, 26> kControlBindings = {{
     {"WASD", "Move"},
     {"Shift", "Run"},
     {"C", "Crouch"},
     {"Mouse", "Aim"},
     {"LClick", "Attack"},
     {"RClick", "Grab"},
-    {"E", "Interact"},
-    {"R", "Board up / tap"},
-    {"F", "Use item"},
+    {"E", "Interact; hold: push"},
+    {"R", "Board door, window / tap"},
+    {"X", "Pry board / break up"},
+    {"F", "Use item / set down"},
     {"Q", "Flashlight"},
     {"1-8", "Hotbar slot"},
     {"Tab", "Inventory"},
     {"Arrows", "Inventory cursor"},
     {"Enter", "Swap to hotbar"},
     {"N", "Crafting"},
-    {"B", "Build"},
+    {"B", "Build wheel"},
     {"L", "Fire action"},
     {"V", "Enter/exit car"},
     {"Shift+V", "Refuel car"},
@@ -1142,11 +1144,34 @@ inline bool craftStationNearby(CraftStation station, const std::vector<Furniture
     case CraftStation::None:
         return true;
     case CraftStation::Workbench:
-        return furniture::kindWithin(furniturePieces, FurnitureKind::Workbench, playerTile, kStationReachTiles);
+    {
+        if (furniture::kindWithin(furniturePieces, FurnitureKind::Workbench, playerTile, kStationReachTiles)) return true;
+        // A workbench someone built.
+        bool built = false;
+        const float tileW = static_cast<float>(std::max(1, tileMap.tileWidth()));
+        world.forEach<Structure, Transform>(
+            [&](Entity, Structure& s, Transform& t)
+            {
+                if (built || s.type != StructureType::Workbench || s.hp <= 0.0f) return;
+                const glm::vec2 d = glm::vec2(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f) / tileW -
+                                    (glm::vec2(playerTile) + glm::vec2(0.5f));
+                built = glm::dot(d, d) <= kStationReachTiles * kStationReachTiles;
+            });
+        return built;
+    }
     case CraftStation::Fire:
     {
         bool found = false;
         const float tileW = static_cast<float>(std::max(1, tileMap.tileWidth()));
+        // A campfire burning.
+        world.forEach<Structure, Transform>(
+            [&](Entity, Structure& s, Transform& t)
+            {
+                if (found || s.type != StructureType::Campfire || !s.lit || s.hp <= 0.0f) return;
+                const glm::vec2 d = glm::vec2(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f) / tileW -
+                                    (glm::vec2(playerTile) + glm::vec2(0.5f));
+                found = glm::dot(d, d) <= kStationReachTiles * kStationReachTiles;
+            });
         world.forEach<Fire, Transform>(
             [&](Entity, Fire& fire, Transform& t)
             {

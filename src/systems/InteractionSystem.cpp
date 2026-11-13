@@ -36,6 +36,7 @@ int interactionPriority(InteractableType type)
     case InteractableType::BandagePickup:
         return 4;
     case InteractableType::Container:
+    case InteractableType::Station:
         return 3;
     case InteractableType::JournalNote:
     case InteractableType::GraveMarker:
@@ -257,7 +258,9 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
     }
 
     case InteractableType::Container:
-        // The game opens the container panel before this system sees the key.
+    case InteractableType::Station:
+        // The game opens the container panel (and works stations) before
+        // this system sees the key.
         return {};
 
     case InteractableType::GraveMarker:

@@ -174,7 +174,7 @@ void Game::placeHomeKit()
     }
 
     using L = FurnitureLoot;
-    place({L::Storage, L::Workshop, L::Bedroom, L::Living}, {{mItems.hammer, 1}, {mItems.woodPlanks, 4}});
+    place({L::Storage, L::Workshop, L::Bedroom, L::Living}, {{mItems.hammer, 1}, {mItems.woodPlanks, 4}, {mItems.nails, 12}});
     place({L::Fridge, L::Kitchen}, {{mItems.cannedFood, cans}, {mItems.bread, 1}});
     place({L::Kitchen, L::Fridge}, {{mItems.waterBottle, water}, {mItems.emptyBottle, empties}});
     place({L::Bathroom, L::Bedroom}, {{mItems.bandage, 1}, {mItems.painkillers, 1}});
@@ -211,14 +211,14 @@ firstdays::Facts Game::firstDaysFacts()
         ++facts.searchable;
         if (hasTile(mFirstDays.record.searched, x, y)) ++facts.searched;
     }
-    // A broken door cannot take boards, so it is not asked for.
-    for (const glm::ivec2& tile : mFirstDays.homeDoors)
+    // Every way in: doors boarded or blocked, windows boarded or at least
+    // curtained (day 1 and the nights); everything boarded or blocked (day 3).
+    // A broken door with nothing across it cannot be closed, but still counts.
+    for (const WayIn& way : waysIn(mFirstDays.homeBuilding))
     {
-        if (mTileMap.doorState(tile.x, tile.y) == DoorState::Broken) continue;
-        ++facts.doors;
-        const int boards = mDoors.boards(tile);
-        if (boards > 0) ++facts.doorsBoarded;
-        if (boards >= Doors::kMaxBoards) ++facts.doorsFull;
+        ++facts.ways;
+        if (way.boarded || (way.window && way.covered && way.closed)) ++facts.waysClosed;
+        if (way.boarded) ++facts.waysBoarded;
     }
     facts.usedTap = mFirstDays.record.usedTap;
     facts.sleptTonight = mFirstDays.record.sleptNight > 0 &&
@@ -391,6 +391,45 @@ void Game::sendNightCallers(int count)
 void Game::updateFirstDays(float dtSeconds)
 {
     if (mPlayerEntity == kInvalidEntity) return;
+
+    // A caller that reaches the house picks the weakest way in near it:
+    // the fewest boards, glass before boards, nothing across it; ties to the
+    // nearest.
+    if (mFirstDays.homeBuilding > 0 && playerAtHome())
+    {
+        std::vector<WayIn> ways;
+        bool waysKnown = false;
+        const float tile = static_cast<float>(std::max(1, mTileMap.tileWidth()));
+        mWorld.forEach<ZombieAI, Transform>(
+            [&](Entity, ZombieAI& ai, Transform& t)
+            {
+                if (!ai.nightCaller || ai.entryChosen || ai.state == ZombieState::Chase || ai.state == ZombieState::Attack) return;
+                const glm::vec2 here = centreOf(t);
+                if (!waysKnown)
+                {
+                    ways = waysIn(mFirstDays.homeBuilding);
+                    waysKnown = true;
+                }
+                const WayIn* best = nullptr;
+                float bestDistance = 0.0f;
+                for (const WayIn& way : ways)
+                {
+                    const glm::vec2 at = (glm::vec2(way.tile) + glm::vec2(0.5f)) * tile;
+                    const float distance = glm::length(at - here) / tile;
+                    if (distance > 12.0f) continue;
+                    if (best == nullptr || way.strength < best->strength - 0.5f ||
+                        (std::abs(way.strength - best->strength) <= 0.5f && distance < bestDistance))
+                    {
+                        best = &way;
+                        bestDistance = distance;
+                    }
+                }
+                if (best == nullptr) return;
+                ai.entryChosen = true;
+                ZombieAISystem::sendTo(ai, (glm::vec2(best->tile) + glm::vec2(0.5f)) * tile, true);
+            });
+    }
+
     FirstDaysRecord& record = mFirstDays.record;
     const bool sleeping = mWorld.hasComponent<Sleeping>(mPlayerEntity);
     const int night = firstdays::nightIndex(mCurrentDay, mGameHours);

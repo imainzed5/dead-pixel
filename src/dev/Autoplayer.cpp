@@ -283,7 +283,7 @@ Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run
 
     if (goal != mPathGoal || mPath.empty())
     {
-        mPath = Pathfinder::findPath(game.mTileMap, here, goal);
+        mPath = Pathfinder::findPath(game.mTileMap, here, goal, Pathfinder::Mover::Living);
         mPathGoal = goal;
         mPathIndex = 0;
         mNoProgressTicks = 0;
@@ -560,7 +560,7 @@ bool Autoplayer::handleDanger(Game& game)
         for (int i = 1; i < samples; ++i)
         {
             const glm::vec2 p = here + step * (static_cast<float>(i) / static_cast<float>(samples));
-            if (game.mTileMap.blocksSight(static_cast<int>(p.x / kTile), static_cast<int>(p.y / kTile))) return false;
+            if (game.mTileMap.blocksView(static_cast<int>(p.x / kTile), static_cast<int>(p.y / kTile))) return false;
         }
         return true;
     };
@@ -737,7 +737,8 @@ bool Autoplayer::wantsFromContainer(Game& game, int itemId) const
     {
         return true;
     }
-    if (itemId == game.mItems.woodPlanks || itemId == game.mItems.emptyBottle || def->hasTag("tool:hammer"))
+    if (itemId == game.mItems.woodPlanks || itemId == game.mItems.nails || itemId == game.mItems.emptyBottle ||
+        def->hasTag("tool:hammer"))
     {
         return true;
     }
@@ -889,47 +890,72 @@ bool Autoplayer::eveningAtHome(Game& game)
     const int home = game.mFirstDays.homeBuilding;
     const bool inside = atHome(game);
 
-    // Board the home's doors while there are planks and a hammer.
+    // Board the home's ways in while there are planks, nails and a hammer:
+    // the weakest first, since that is where the night's callers go.
     if (inside && clock(game) >= mBoardRetryAt && game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
     {
         const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
         const bool canBoard = InventorySystem::countItem(inv, game.mItems.woodPlanks) > 0 &&
+                              InventorySystem::countItem(inv, game.mItems.nails) >= 2 &&
                               InventorySystem::countTagged(inv, game.mItemDatabase, "tool:hammer") > 0;
-        if (canBoard)
+        std::vector<Game::WayIn> ways = game.waysIn(home);
+        std::stable_sort(ways.begin(), ways.end(),
+                         [](const Game::WayIn& a, const Game::WayIn& b) { return a.strength < b.strength; });
+        for (const Game::WayIn& way : ways)
         {
-            for (const glm::ivec2& door : game.mFirstDays.homeDoors)
+            const glm::ivec2 tile = way.tile;
+            glm::ivec2 stand(-1);
+            SDL_Scancode key = SDL_SCANCODE_R;
+            if (way.window)
             {
-                const DoorState state = game.mTileMap.doorState(door.x, door.y);
+                const Windows::Window* window = game.mWindows.find(tile);
+                if (window == nullptr) continue;
+                const bool full = game.mWindows.boards(tile) >= Windows::kMaxBoards;
+                // No boards to spare: at least draw the curtain on whole glass.
+                const bool curtain = !canBoard && game.mWindows.boards(tile) == 0 &&
+                                     game.mTileMap.windowState(tile.x, tile.y) == WindowState::Intact &&
+                                     !game.mTileMap.windowCovered(tile.x, tile.y);
+                if (full || (!canBoard && !curtain)) continue;
+                stand = window->spot.inside;
+                key = canBoard ? SDL_SCANCODE_R : SDL_SCANCODE_E;
+            }
+            else
+            {
+                if (!canBoard) continue;
+                const DoorState state = game.mTileMap.doorState(tile.x, tile.y);
                 if (state == DoorState::Broken || state == DoorState::None) continue;
-                if (game.mTileMap.doorBoards(door.x, door.y) >= Doors::kMaxBoards) continue;
-                glm::ivec2 stand(-1);
+                if (game.mTileMap.doorBoards(tile.x, tile.y) >= Doors::kMaxBoards) continue;
                 for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
                 {
-                    const glm::ivec2 t = door + side;
+                    const glm::ivec2 t = tile + side;
                     if (!game.mTileMap.isSolid(t.x, t.y) && game.mTileMap.getBuildingId(t.x, t.y) == home)
                     {
                         stand = t;
                         break;
                     }
                 }
-                if (stand.x < 0 || mUnreachable.count(Tile{stand.x, stand.y}) != 0) continue;
-                mActivity = "board";
-                const Move move = moveTo(game, stand, false);
-                if (move == Move::Failed) continue;
-                if (move == Move::Arrived)
+                key = state == DoorState::Open ? SDL_SCANCODE_E : SDL_SCANCODE_R;
+            }
+            if (stand.x < 0 || game.mTileMap.isSolid(stand.x, stand.y) || mUnreachable.count(Tile{stand.x, stand.y}) != 0)
+            {
+                continue;
+            }
+            mActivity = way.window ? (canBoard ? "board window" : "curtain") : "board";
+            const Move move = moveTo(game, stand, false);
+            if (move == Move::Failed) continue;
+            if (move == Move::Arrived)
+            {
+                steer(game, tileCentre(tile) - playerCentre(game));
+                if (tap(key))
                 {
-                    steer(game, tileCentre(door) - playerCentre(game));
-                    if (tap(state == DoorState::Open ? SDL_SCANCODE_E : SDL_SCANCODE_R))
+                    if (++mOpenTries > 12)
                     {
-                        if (++mOpenTries > 12)
-                        {
-                            mOpenTries = 0;
-                            mBoardRetryAt = clock(game) + 2.0;
-                        }
+                        mOpenTries = 0;
+                        mBoardRetryAt = clock(game) + 2.0;
                     }
                 }
-                return true;
             }
+            return true;
         }
     }
 

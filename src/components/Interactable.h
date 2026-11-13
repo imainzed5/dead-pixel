@@ -12,7 +12,8 @@ enum class InteractableType
     WeaponPickup,
     BandagePickup,
     Container,
-    JournalNote
+    JournalNote,
+    Station // something built or set down; the game handles it
 };
 
 struct Interactable

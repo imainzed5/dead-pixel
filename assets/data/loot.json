@@ -72,6 +72,18 @@
           "weight": 1,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "tin_can",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "candle",
+          "weight": 1,
+          "min": 1,
+          "max": 1
         }
       ]
     },
@@ -97,6 +109,12 @@
         },
         {
           "item": "antibiotics",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rags",
           "weight": 1,
           "min": 1,
           "max": 1
@@ -140,6 +158,12 @@
           "weight": 1,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "rags",
+          "weight": 1,
+          "min": 1,
+          "max": 1
         }
       ]
     },
@@ -165,6 +189,12 @@
         },
         {
           "item": "flashlight",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "candle",
           "weight": 1,
           "min": 1,
           "max": 1
@@ -288,6 +318,18 @@
           "weight": 1,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "nails",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "tin_can",
+          "weight": 1,
+          "min": 1,
+          "max": 1
         }
       ]
     },
@@ -331,6 +373,30 @@
         },
         {
           "item": "axe",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "nails",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "saw",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "wire",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "crowbar",
           "weight": 1,
           "min": 1,
           "max": 1

@@ -1,0 +1,243 @@
+# Windows: at night a candle inside shows through the glass and the dead
+# outside come to it; a drawn curtain hides it. They break the glass and
+# climb in; boards hold them for a long while; broken and boarded windows
+# are kept by checkpoints and by the next life. First, every window state
+# in two wall materials, from inside (cut away) and outside.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/windows.txt --hidden --world-seed 1234 --shots shots/windows
+
+newrun
+god on
+waits 1
+zoom 3
+# Every state, from inside (a window in a back wall, the near walls cut
+# away) and from outside (a window in a wall facing the camera): the home's
+# siding, then a shop's brick.
+hours 12
+slay 60
+goto home
+goto window home back
+window intact
+window open
+goto window home back inside 2
+waits 0.3
+shot win_house_glass_inside
+goto window home front
+window intact
+window open
+goto window home front outside 2
+waits 0.3
+shot win_house_glass_outside
+goto window home back
+window broken
+window open
+goto window home back inside 2
+waits 0.3
+shot win_house_broken_inside
+goto window home front
+window broken
+window open
+goto window home front outside 2
+waits 0.3
+shot win_house_broken_outside
+goto window home back
+window boarded1
+window open
+goto window home back inside 2
+waits 0.3
+shot win_house_one_board_inside
+goto window home front
+window boarded1
+window open
+goto window home front outside 2
+waits 0.3
+shot win_house_one_board_outside
+goto window home back
+window boarded
+window open
+goto window home back inside 2
+waits 0.3
+shot win_house_boarded_inside
+goto window home front
+window boarded
+window open
+goto window home front outside 2
+waits 0.3
+shot win_house_boarded_outside
+goto window home back
+window intact
+window curtained
+goto window home back inside 2
+waits 0.3
+shot win_house_curtain_inside
+goto window home front
+window intact
+window curtained
+goto window home front outside 2
+waits 0.3
+shot win_house_curtain_outside
+goto window home back
+window intact
+window open
+goto window home front
+window intact
+window open
+enter 6
+slay 60
+goto window back
+window intact
+window open
+goto window back inside 2
+waits 0.3
+shot win_shop_glass_inside
+goto window front
+window intact
+window open
+goto window front outside 2
+waits 0.3
+shot win_shop_glass_outside
+goto window back
+window broken
+window open
+goto window back inside 2
+waits 0.3
+shot win_shop_broken_inside
+goto window front
+window broken
+window open
+goto window front outside 2
+waits 0.3
+shot win_shop_broken_outside
+goto window back
+window boarded1
+window open
+goto window back inside 2
+waits 0.3
+shot win_shop_one_board_inside
+goto window front
+window boarded1
+window open
+goto window front outside 2
+waits 0.3
+shot win_shop_one_board_outside
+goto window back
+window boarded
+window open
+goto window back inside 2
+waits 0.3
+shot win_shop_boarded_inside
+goto window front
+window boarded
+window open
+goto window front outside 2
+waits 0.3
+shot win_shop_boarded_outside
+goto window back
+window intact
+window curtained
+goto window back inside 2
+waits 0.3
+shot win_shop_curtain_inside
+goto window front
+window intact
+window curtained
+goto window front outside 2
+waits 0.3
+shot win_shop_curtain_outside
+goto window back
+window intact
+window open
+goto window front
+window intact
+window open
+goto home
+waits 0.5
+
+hours 22
+slay 60
+goto home
+windows
+# Every other window of the house curtained; this one left clear.
+window curtained all
+goto window home
+window open
+expect window clear
+# A candle lit inside.
+give Candle
+give Matches
+waits 0.2
+tap 5
+tap F
+waits 0.3
+light
+waits 0.3
+# A wanderer outside, five tiles out from the window, minding its own business.
+goto window home outside 6
+mark
+goto window home
+waits 0.3
+zombie mark idle
+waits 6
+expect zombies coming 12
+shot win_seen_through_glass
+slay 30
+waits 0.5
+# The curtain drawn: the light stays in, and so do the dead.
+tap E
+waits 0.3
+expect window curtained
+zombie mark idle
+waits 8
+expect zombies calm 12
+shot win_curtain_hides
+slay 30
+waits 0.5
+# The curtain open again: it comes, breaks the glass and climbs in.
+tap E
+waits 0.3
+expect window clear
+zombie mark
+waits 25
+windows
+expect window broken
+expect zombies inside 12
+shot win_climbed_in
+slay 30
+waits 0.5
+# Two boards across the empty frame hold the next one off for more than 40 s.
+give Hammer
+give Wood Planks 2
+give Nails 4
+tap R
+waits 0.3
+tap R
+waits 0.3
+expect window boarded 2
+zombie mark
+waits 42
+windows
+expect window boarded 1
+shot win_boards_hold
+slay 30
+waits 0.5
+# Kept by a checkpoint.
+save
+waits 0.5
+resume
+waits 1
+goto mark
+goto window
+expect window broken
+expect window boarded 1
+# And by the next life.
+kill window test
+waits 6
+newrun
+waits 1
+goto mark
+goto window
+windows
+expect window broken
+expect window boarded 1
+expect alive
+quit

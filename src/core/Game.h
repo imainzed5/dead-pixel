@@ -25,6 +25,8 @@
 #include "items/LootTables.h"
 #include "legacy/LegacyRules.h"
 #include "world/Doors.h"
+#include "world/FurnitureUse.h"
+#include "world/Windows.h"
 #include "world/FirstDays.h"
 #include "world/Furniture.h"
 #include "world/Scenery.h"
@@ -236,7 +238,13 @@ private:
     // Backing and the PACK / MAKE names shared by the panels docked to the right edge.
     void renderDockedHeader(const glm::vec2& pos, float width, bool crafting);
     void renderCraftingOverlay();
-    void renderBuildModeOverlay();
+    // The build wheel and the label of a held action (text pass), and the
+    // held action's progress line (shape pass).
+    void renderBuildWheel();
+    // Screen position of build wheel entry `index`.
+    [[nodiscard]] glm::vec2 buildWheelEntry(int index) const;
+    void renderBaseActionBar();
+    [[nodiscard]] glm::vec2 baseActionAnchor() const;
     void renderContainerOverlay();
     // Containers (GameStorage.cpp): the two-column panel, world memory, spoilage.
     void openContainer(Entity container);
@@ -289,6 +297,86 @@ private:
     [[nodiscard]] firstdays::Facts firstDaysFacts();
     [[nodiscard]] bool playerAtHome() const;
     void sendNightCallers(int count);
+
+    // Windows (GameWindows.cpp): glass, boards, curtains, climbing through,
+    // the dead at them, and light that shows through them at night.
+    // The town's windows, whole (before StructureView.build).
+    void placeWindows();
+    // Whole again, then as world memory left them (each run).
+    void resetWindows();
+    [[nodiscard]] std::vector<WindowRecord> windowRecords() const;
+    void restoreWindows(const std::vector<WindowRecord>& records);
+    // The window E, R and X act on: the nearest within a tile.
+    [[nodiscard]] const Windows::Window* windowInReach(const ProximityPrompt& entityPrompt) const;
+    bool handleWindowInteraction(const ProximityPrompt& entityPrompt);
+    void boardUpWindow(const glm::ivec2& tile);
+    // A zombie's blow at a window this tick (glass, boards, or a climb).
+    void windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds);
+    void breakWindow(const glm::ivec2& tile, bool loud);
+    void updateWindows(float dtSeconds);
+    // True when (world) is on the inside of the window's wall.
+    [[nodiscard]] bool insideOf(const windows::Spot& spot, const glm::vec2& world) const;
+
+    // The home base (GameBase.cpp): furniture pushed and broken up, the
+    // build wheel and its stations, traps and lights, sleep and safety,
+    // and the house the next life inherits.
+    // Furniture and solid built things set the tile furniture flags.
+    void refreshFurnitureLayer();
+    // Writes the furniture changes to world memory at once.
+    void rememberFurniture();
+    [[nodiscard]] FurniturePiece* furnitureAt(const glm::ivec2& tile);
+    // Slides the piece at `tile` one tile in `dir`, by the push rules.
+    // Returns an empty string on success, else why not.
+    std::string pushFurniture(const glm::ivec2& tile, const glm::ivec2& dir, bool chargeStamina);
+    // Breaks the piece up into the pack (overflow to the floor).
+    void breakFurniture(const glm::ivec2& tile);
+    // The best tool carried for breaking things up.
+    [[nodiscard]] furnitureuse::Tool breakingTool() const;
+    void dropOnFloor(const glm::ivec2& tile, int itemId, int count);
+    // A blow on the piece blocking a doorway.
+    void furnitureBlow(const glm::ivec2& tile, float damage);
+    // E/X/R/F in reach of furniture, stations and things set down.
+    bool handleBaseInteraction(const ProximityPrompt& entityPrompt);
+    // Held actions (push, break, climb, build) and the build wheel.
+    void updateBaseActions(float dtSeconds);
+    void updateStructures(float dtSeconds);
+    void updateTraps(float dtSeconds);
+    // F with a placeable selected. True when it was one.
+    bool placeItem(int slotIndex);
+    Entity spawnStructure(StructureType type, const glm::ivec2& tile, const StructureRecord* record);
+    // Takes the materials and starts building a station on `tile`.
+    void startBuild(const StationRecipe& recipe, const glm::ivec2& tile);
+    void finishBuild();
+    void cancelBuild(const char* why);
+    [[nodiscard]] bool canAffordStation(const StationRecipe& recipe, std::string* missing) const;
+    [[nodiscard]] std::vector<glm::ivec2> occupiedTiles() const;
+    // An alarm hung on this door or window rattles, if any.
+    void rattleAlarm(const glm::ivec2& tile);
+    [[nodiscard]] bool alarmOn(const glm::ivec2& tile) const;
+    // The ways into a building: doors and windows, with how they stand.
+    struct WayIn
+    {
+        glm::ivec2 tile{0};
+        bool window = false;
+        bool open = false;     // open or broken door, empty frame
+        bool closed = false;   // shut (door), whole (window)
+        bool boarded = false;  // boarded, or blocked by furniture
+        bool covered = false;  // a curtain drawn
+        float strength = 0.0f; // what the dead must break
+    };
+    [[nodiscard]] std::vector<WayIn> waysIn(int building) const;
+    // 0 outdoors, 1 a way in open, 2 all closed, 3 all boarded or blocked.
+    [[nodiscard]] int sleepSafety(int building, std::string* openWay) const;
+    void noteAccomplishment();
+    // Wakes the player if asleep somewhere no safer than `wakeAtOrBelow`
+    // (Sleeping::safety) and within `rangeTiles` of `where`.
+    void wakeSleeper(const glm::vec2& where, float rangeTiles, int wakeAtOrBelow, const std::string& message);
+    // At run end: the house held, and where this life lived.
+    void recordBase(bool died);
+    [[nodiscard]] std::vector<StructureRecord> structureRecords(bool runEnd) const;
+    void restoreStructures(const std::vector<StructureRecord>& records);
+    // A light inside the building shows through its uncovered windows at night.
+    [[nodiscard]] bool buildingLit(int building) const;
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
 
     LaunchOptions mLaunchOptions;
@@ -477,7 +565,52 @@ private:
     Entity mActiveVehicleEntity = kInvalidEntity;
     std::vector<std::pair<int, int>> mBurnedTiles;
     Doors mDoors;
-    std::vector<glm::ivec2> mDoorBlows; // this tick's zombie blows on closed doors
+    std::vector<BarrierBlow> mDoorBlows; // this tick's zombie blows on doors, windows, blocked doorways
+    Windows mWindows;
+    std::vector<windows::Spot> mWindowSpots;
+    std::vector<glm::ivec2> mRemovedFurniture; // origins of pieces broken up (world memory)
+
+    // A held action of the player's: pushing, breaking up, climbing, building.
+    struct BaseAction
+    {
+        enum class Kind
+        {
+            None,
+            Grab,     // E held at a movable piece
+            Break,    // X at a piece
+            Climb,    // through a window, over a piece
+            Build,    // a station going up
+            Repair    // mending a weapon at a workbench
+        } kind = Kind::None;
+        glm::ivec2 tile{0};       // the piece, window or build site
+        glm::ivec2 to{0};         // climb: where you come out
+        float timer = 0.0f;
+        float total = 0.0f;
+        float noiseTimer = 0.0f;
+        float holdTimer = 0.0f;   // E held before a grab
+        float pushProgress = 0.0f;
+        bool grabbed = false;
+        StructureType building = StructureType::Campfire;
+        glm::vec2 startPos{0.0f};
+        float startHp = 0.0f;
+        std::string label;
+    };
+    BaseAction mBaseAction;
+    bool mBuildWheelOpen = false;
+    int mBuildChoice = -1;        // chosen station (index into kRecipes), -1 none
+    glm::vec2 mBuildWheelCentre{0.0f};
+    bool mBuildGhostValid = false;
+    glm::ivec2 mBuildGhostTile{0};
+    int mAccomplishedDay = 0;     // last game day an accomplishment counted
+    float mLitWindowTimer = 0.0f;
+    struct WindowClimb
+    {
+        glm::ivec2 tile{0};
+        Entity zombie = kInvalidEntity;
+        float timer = 0.0f;
+        float seen = 0.0f; // seconds since the climber last pressed
+    };
+    std::vector<WindowClimb> mWindowClimbs;
 
     struct FirstDaysState
     {

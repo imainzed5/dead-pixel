@@ -44,7 +44,58 @@ struct StructureRecord
     float y = 0.0f;
     int condition = 0;     // StructureCondition as int
     float hpRatio = 1.0f;  // fraction of max HP remaining
-    std::vector<std::pair<int,int>> items; // {itemId, count} for supply caches
+    std::vector<std::pair<int,int>> items; // {itemId, count} for storage crates
+    // Phase 2 fields (optional in the file).
+    float water = 0.0f;     // rain collector
+    float burnHours = 0.0f; // campfire, light
+    bool lit = false;
+    bool lantern = false;
+    int uses = 0;           // spike board
+    int targetX = -1;       // can alarm: its door or window
+    int targetY = -1;
+};
+
+// A window someone changed: glass broken, boards across it, a curtain drawn.
+struct WindowRecord
+{
+    int x = 0;
+    int y = 0;
+    bool broken = false;
+    float boardHp = 0.0f;
+    bool covered = false;
+};
+
+// Furniture the player moved or broke up, named by the tile the town put it
+// on (see world/FurnitureUse.h). Kept in <slot>_furniture.json.
+struct FurnitureMoveRecord
+{
+    int fromX = 0;
+    int fromY = 0;
+    int toX = 0;
+    int toY = 0;
+};
+
+struct FurnitureMemoryRecord
+{
+    std::vector<FurnitureMoveRecord> moves;
+    std::vector<std::pair<int, int>> removed;
+};
+
+// The last house a character held (three ways in closed, or a station
+// built), and where the last character lived. The next life may start there
+// or hear of it.
+struct BaseRecord
+{
+    int building = 0;   // building id (index + 1), 0 = none
+    float x = 0.0f;     // world centre of the house
+    float y = 0.0f;
+    int runIndex = 0;
+};
+
+struct LastHomeRecord
+{
+    int building = 0;
+    bool diedAway = false; // the character died away from it
 };
 
 struct VehicleRecord
@@ -265,6 +316,12 @@ struct RunCheckpoint
     bool firstDaysSaved = false;
     FirstDaysRecord firstDays;
     WeatherRecord weather;
+    // Phase 2: windows and built things as this run left them. Older
+    // checkpoints leave the flags false and the world memory stands.
+    bool windowsSaved = false;
+    std::vector<WindowRecord> windows;
+    bool structuresSaved = false;
+    std::vector<StructureRecord> structures;
 };
 
 class SaveManager
@@ -294,6 +351,17 @@ public:
     [[nodiscard]] const std::vector<std::pair<int,int>>& brokenDoors() const { return mBrokenDoors; }
     // Doors boarded up in earlier runs stay boarded.
     [[nodiscard]] const std::vector<BoardedDoorRecord>& boardedDoors() const { return mBoardedDoors; }
+    // Windows broken, boarded or curtained in earlier runs.
+    [[nodiscard]] const std::vector<WindowRecord>& windows() const { return mWindows; }
+    void setWindows(std::vector<WindowRecord> windows) { mWindows = std::move(windows); }
+    // Furniture moved or broken up, and the house the last lives held.
+    [[nodiscard]] const FurnitureMemoryRecord& furnitureMemory() const { return mFurnitureMemory; }
+    void setFurnitureMemory(FurnitureMemoryRecord memory) { mFurnitureMemory = std::move(memory); }
+    bool saveFurnitureMemory() const;
+    [[nodiscard]] const BaseRecord& baseRecord() const { return mBase; }
+    void setBaseRecord(const BaseRecord& base) { mBase = base; }
+    [[nodiscard]] const LastHomeRecord& lastHome() const { return mLastHome; }
+    void setLastHome(const LastHomeRecord& home) { mLastHome = home; }
     [[nodiscard]] const std::vector<CharacterHistoryRecord>& characterHistory() const { return mCharacterHistory; }
     [[nodiscard]] const std::vector<WorldMemoryEventRecord>& worldMemoryEvents() const { return mWorldEvents; }
     [[nodiscard]] const RunPresentationSettings& presentationSettings() const { return mPresentationSettings; }
@@ -314,6 +382,8 @@ public:
     // Adds or replaces the record for (record.tileX, record.tileY). Call
     // saveWorldMemory() to write it.
     void setContainerRecord(const ContainerRecord& record);
+    // Forgets the record at a tile (a piece broken up or pushed away).
+    void removeContainerRecord(int tileX, int tileY);
     [[nodiscard]] const std::vector<std::pair<int,int>>& discoveredRecipes() const { return mDiscoveredRecipes; }
     // The version this slot had on disk before it was migrated (0: not migrated).
     [[nodiscard]] int migratedFromVersion() const { return mMigratedFrom; }
@@ -360,6 +430,7 @@ private:
     bool loadMeta();
     bool loadLegacy();
     bool loadStructures();
+    void loadFurnitureMemory();
     bool writeMeta() const;
     bool writeLegacy() const;
     bool writeStructures() const;
@@ -380,6 +451,7 @@ private:
     std::string mCheckpointPath;
     std::string mWorldMemoryPath;
     std::string mSurvivorPath;
+    std::string mFurniturePath;
 
     int mSaveVersion = 0;
     std::uint32_t mWorldSeed = 0;
@@ -398,6 +470,10 @@ private:
     std::vector<std::pair<int,int>> mBurnedTiles;
     std::vector<std::pair<int,int>> mBrokenDoors;
     std::vector<BoardedDoorRecord> mBoardedDoors;
+    std::vector<WindowRecord> mWindows;
+    FurnitureMemoryRecord mFurnitureMemory;
+    BaseRecord mBase;
+    LastHomeRecord mLastHome;
     std::vector<CharacterHistoryRecord> mCharacterHistory;
     std::vector<WorldMemoryEventRecord> mWorldEvents;
     RunPresentationSettings mPresentationSettings{};

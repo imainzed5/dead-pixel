@@ -55,9 +55,10 @@ struct Facts
 {
     int searched = 0;       // home containers opened
     int searchable = 0;
-    int doors = 0;          // the home's doors that can take boards (not broken)
-    int doorsBoarded = 0;   // with at least one board
-    int doorsFull = 0;      // with every board
+    // The home's ways in: its doors and ground-floor windows.
+    int ways = 0;
+    int waysClosed = 0;     // doors boarded or blocked, windows boarded, blocked or curtained
+    int waysBoarded = 0;    // boarded (or blocked by furniture), every one
     bool usedTap = false;
     bool sleptTonight = false;
     int waterBottles = 0;   // full ones carried

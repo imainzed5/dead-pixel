@@ -78,6 +78,13 @@ struct WallPieces
 {
     std::array<glm::vec4, 2> full{};
     std::array<glm::vec4, 2> window{};
+    // A window's other states, and the stubs that show them when cut away.
+    std::array<glm::vec4, 2> windowBroken{};
+    std::array<glm::vec4, 2> windowCurtain{};
+    std::array<glm::vec4, 2> windowBoard1{};
+    std::array<glm::vec4, 2> windowBoard2{};
+    std::array<glm::vec4, 2> windowLowBroken{};
+    std::array<glm::vec4, 2> windowLowBoard{};
     std::array<glm::vec4, 2> door{};
     std::array<glm::vec4, 2> doorClosed{};
     std::array<glm::vec4, 2> doorBroken{};
@@ -137,11 +144,13 @@ public:
     static constexpr int kCutDepth = 5;
     static constexpr int kCutWidth = 2;
 
+    // Windows come from the tile map's window layer (see world/Windows.h).
     void build(const TileMap& map, const LayoutData& layout);
     void update(float dtSeconds, const glm::ivec2& playerTile);
     void snapRoofs(const glm::ivec2& playerTile);
 
-    // `doors` gives each doorway's door state; without it doorways draw open.
+    // `doors` gives each doorway's door state and each window's state;
+    // without it doorways draw open and windows whole.
     void collect(const Camera& camera, const glm::ivec2& playerTile, const StructureSprites& sprites,
                  std::vector<StaticSprite>& out, const TileMap* doors = nullptr) const;
 

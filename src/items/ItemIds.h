@@ -29,7 +29,22 @@ struct ItemIds
     X(firstAidKit, "first_aid_kit")         \
     X(notebook, "notebook")                 \
     X(molotov, "molotov")                   \
-    X(emptyBottle, "empty_bottle")
+    X(emptyBottle, "empty_bottle")          \
+    X(axe, "axe")                           \
+    X(scrapMetal, "scrap_metal")            \
+    X(glassShards, "glass_shards")          \
+    X(matches, "matches")                   \
+    X(jacket, "jacket")                     \
+    X(nails, "nails")                       \
+    X(crowbar, "crowbar")                   \
+    X(saw, "saw")                           \
+    X(tinCan, "tin_can")                    \
+    X(wire, "wire")                         \
+    X(rags, "rags")                         \
+    X(candle, "candle")                     \
+    X(canAlarm, "can_alarm")                \
+    X(spikeBoard, "spike_board")            \
+    X(canLantern, "can_lantern")
 
 #define DEAD_PIXEL_ITEM_FIELD(field, key) int field = -1;
     DEAD_PIXEL_ITEM_IDS(DEAD_PIXEL_ITEM_FIELD)

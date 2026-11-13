@@ -61,6 +61,9 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
             mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp);
     }
 
+    if (cp.windowsSaved) restoreWindows(cp.windows);
+    if (cp.structuresSaved) restoreStructures(cp.structures);
+
     // Scars from earlier runs are already on the ground; add this run's.
     for (const auto& [x, y] : cp.burnedTiles)
     {
@@ -976,46 +979,14 @@ void Game::setupScene()
         }
     }
 
-    // Restore persisted structures (degraded between runs)
-    for (const StructureRecord& rec : mSaveManager.structures())
-    {
-        const int recipeIdx = rec.type;
-        if (recipeIdx < 0 || recipeIdx >= BuildSystem::kRecipeCount) continue;
-        const auto& recipe = BuildSystem::kRecipes[recipeIdx];
-
-        Entity structEntity = mWorld.createEntity();
-        Transform t{}; t.x = rec.x; t.y = rec.y;
-        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(recipe.sprite); s.color = glm::vec4(1.0f); s.layer = 4;
-        Structure structure{}; structure.type = recipe.type; structure.maxHp = recipe.hp;
-        structure.hp = recipe.hp * rec.hpRatio;
-        structure.condition = static_cast<StructureCondition>(rec.condition);
-        mWorld.addComponent<Transform>(structEntity, t);
-        mWorld.addComponent<Sprite>(structEntity, s);
-        mWorld.addComponent<Structure>(structEntity, structure);
-
-        // Restore Supply Cache inventory
-        if (recipe.type == StructureType::SupplyCache && !rec.items.empty())
-        {
-            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Loot cache";
-            mWorld.addComponent<Interactable>(structEntity, inter);
-            Inventory inv{};
-            for (const auto& [itemId, count] : rec.items)
-            {
-                InventorySystem::addItem(inv, mItemDatabase, itemId, count);
-            }
-            mWorld.addComponent<Inventory>(structEntity, inv);
-        }
-        // Rain Collector gets container but no items (regenerates fresh)
-        else if (recipe.type == StructureType::RainCollector)
-        {
-            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Collect water";
-            mWorld.addComponent<Interactable>(structEntity, inter);
-            mWorld.addComponent<Inventory>(structEntity, Inventory{});
-        }
-    }
+    // What earlier lives built and set down (worn at each run's end).
+    restoreStructures(mSaveManager.structures());
 
     spawnLegacy();
     resetDoors();
+    resetWindows();
+    for (FurniturePiece& piece : mFurniture) piece.damage = 0.0f;
+    refreshFurnitureLayer();
     setupHome();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);

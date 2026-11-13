@@ -105,6 +105,48 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
 - 2026-11-13, P01: harness runs make no sound (audio is not opened with
   `--script`).
 
+- 2026-11-14, P02: interior doorways are doors, so a piece could never leave
+  its room. A push now carries a piece through an open (or broken) doorway to
+  the floor beyond it in one step; a piece never comes to rest in a door
+  frame (`furnitureuse::pushTarget`).
+- 2026-11-14, P02: boards raise the path cost for the dead: 30 per board on a
+  door or window (a closed door 25, a window 30, a blocked doorway 40, an
+  empty frame 6). Without it a boarded window stayed the cheapest way in and
+  the dead walked past a weaker door to it. Callers still pick by strength.
+- 2026-11-14, P02: a door's "blocking furniture" is a piece on the floor tile
+  the door opens onto inside the same building, interior doors included (the
+  dead route through an interior doorway blocked this way at cost 40 too).
+  Ways into a house (the day plan, sleep safety, the callers' choice) are
+  only doors with ground outside them, and the house's windows.
+- 2026-11-14, P02: the old `env_*` prop sprites stay in the atlas: the town's
+  scattered scenery (graves, crates, campfires by the road) still uses them.
+  Only build mode's use of them is gone.
+- 2026-11-14, P02: a candle or lantern is set down unlit; Matches light it
+  (E). The harness has `light` for scripts.
+- 2026-11-14, P02: a zombie battering a barricade with nothing in sight gives
+  up like any other (in `base.txt` it broke the door in about 25 s, then gave
+  up on the bookshelf at 103 of 350 after about 35 s). Night callers keep at
+  it until dawn as before.
+- 2026-11-14, P02: the window's "lit" check runs once a game minute (1 real
+  second) and sends wandering or investigating dead outside, within 10 tiles
+  and in sight of the window, to the ground outside it. They then see the
+  player through the glass (6 tiles) or not.
+- 2026-11-14, P02: placing a build is by the wheel and a click on the ghost
+  tile; the harness `build KIND` uses the same start (materials taken, a held
+  build that cancels and refunds) on the nearest free tile in reach.
+- 2026-11-14, P02: the wheel is an oval (190 by 110 px), not a circle: on a
+  circle the two lower names overlapped.
+- 2026-11-14, P02: `base.txt` on seed 1234: the home has no wardrobe, so the
+  script hauls a bookshelf (as heavy, the same 350 health). `haul` takes
+  kinds in order of preference.
+- 2026-11-14, P02: the bot boards the home's ways in weakest first (by the
+  same strength the callers use), windows too, with planks, 2 nails and a
+  hammer; without planks it draws the curtains on whole windows at dusk. It
+  now picks up Nails.
+- 2026-11-14, P02: soak rows gain "Boards" (the most boards up at once,
+  doors and windows) and "Night 1 at home" (died between 18:00 on day 1 and
+  08:00 on day 2, standing in the home); metrics rows gain `at_home`.
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -125,6 +167,12 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   outside at dusk took three of six boards within the hour. Day one is more lethal than "a sensible player
   gets through the first days"; phases 3, 4 and 14 should read
   `docs/revival_plan.md` ("Overhaul phase 1").
+
+- 2026-11-14, P02: night 1 at home. The bar (at most 1 of 10 bot runs dead
+  in the home on night 1) is not met: 2 of 10, both on day 1's evening
+  before any caller, to the ordinary dead round the house. Median 1.0 days
+  (P01 1.2). Not retuned here (day one's lethality is phases 3, 4 and 14's);
+  see `docs/revival_plan.md` ("Overhaul phase 2").
 
 ## Ideas, not built
 

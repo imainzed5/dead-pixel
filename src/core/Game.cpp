@@ -285,6 +285,7 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
     }
 
     mMapGenerator.applyToTileMap(mTileMap);
+    placeWindows(); // before build: the walls are drawn with their windows
     mStructureView.build(mTileMap, mMapGenerator.layoutData());
     resetDoors(); // after build: closed doors are solid
     furnishWorld();
@@ -404,6 +405,10 @@ RunCheckpoint Game::buildRunCheckpoint()
         { cp.corpses.push_back(CorpseRecord{transform.x, transform.y, sprite.flipX, corpse.look, corpse.dir}); });
     cp.firstDaysSaved = true;
     cp.firstDays = firstDaysRecord();
+    cp.windowsSaved = true;
+    cp.windows = windowRecords();
+    cp.structuresSaved = true;
+    cp.structures = structureRecords(false);
     return cp;
 }
 
@@ -596,6 +601,44 @@ void Game::startNewRun()
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
     nudgeSpawnsOffFurniture();
 
+    // The house an earlier life held: the new character starts there three
+    // times in ten, and always when it was the last one's home and they died
+    // away from it.
+    {
+        const BaseRecord& base = mSaveManager.baseRecord();
+        const LastHomeRecord& last = mSaveManager.lastHome();
+        std::mt19937 baseRng(mSaveManager.currentRunSeed() ^ 0xBA5Eu);
+        const bool chance = std::uniform_real_distribution<float>(0.0f, 1.0f)(baseRng) < 0.3f;
+        if (base.building > 0 && ((last.building == base.building && last.diedAway) || chance))
+        {
+            const glm::vec2 centre(base.x / static_cast<float>(mTileMap.tileWidth()),
+                                   base.y / static_cast<float>(mTileMap.tileHeight()));
+            glm::ivec2 best(-1);
+            float bestDistance = 0.0f;
+            for (int y = 0; y < mTileMap.height(); ++y)
+            {
+                for (int x = 0; x < mTileMap.width(); ++x)
+                {
+                    if (mTileMap.getBuildingId(x, y) != base.building || !mTileMap.isIndoors(x, y) || mTileMap.isSolid(x, y))
+                        continue;
+                    const float distance = glm::length(glm::vec2(static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f) - centre);
+                    if (best.x < 0 || distance < bestDistance)
+                    {
+                        best = glm::ivec2(x, y);
+                        bestDistance = distance;
+                    }
+                }
+            }
+            if (best.x >= 0)
+            {
+                mSpawnData.playerStart = best;
+                std::erase_if(mSpawnData.zombieSpawns, [&](const glm::ivec2& tile)
+                              { return mTileMap.getBuildingId(tile.x, tile.y) == base.building; });
+                std::cout << "[World] starting in the house held before (building " << base.building << ")" << std::endl;
+            }
+        }
+    }
+
     // Threat-mode spawn pressure tuning.
     {
         std::mt19937 runRng(mSaveManager.currentRunSeed() ^ 0xA11CEu);
@@ -782,7 +825,10 @@ void Game::returnToTitleScreen()
     mNoiseEmitTimer = 0.0f;
     mMovementNoiseTier = NoiseTier::None;
 
-    mBuildSystem = BuildSystem{};
+    mBaseAction = BaseAction{};
+    mBuildWheelOpen = false;
+    mBuildChoice = -1;
+    mWindowClimbs.clear();
     mParticleSystem = ParticleSystem{};
 
     mRunState = RunState::TitleScreen;
@@ -939,9 +985,10 @@ void Game::handleEscapeKey()
                 mContainerOpen = false;
                 mOpenContainerEntity = kInvalidEntity;
             }
-            else if (mBuildSystem.isBuildMode())
+            else if (mBuildWheelOpen || mBuildChoice >= 0)
             {
-                mBuildSystem.exitBuildMode();
+                mBuildWheelOpen = false;
+                mBuildChoice = -1;
             }
             else if (mShowWorldMap)
             {
@@ -1040,7 +1087,7 @@ NeedsEnvironment Game::buildNeedsEnvironment()
     mWorld.forEach<Structure, Transform>(
         [&](Entity, Structure& structure, Transform& st)
         {
-            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
+            if (structure.type != StructureType::Campfire || !structure.lit || structure.hp <= 0.0f) return;
             environment.heatSources.emplace_back(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
         });
     mWorld.forEach<Fire, Transform>(

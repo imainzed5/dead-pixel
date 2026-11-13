@@ -43,6 +43,13 @@ void Game::recordContainer(Entity container)
     }
     const Transform& t = mWorld.getComponent<Transform>(container);
     const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(t.x, t.y));
+    // Only furniture is remembered by its tile: a crate keeps its things in
+    // the structures file, a pile on the floor lasts this life.
+    if (mWorld.hasComponent<Structure>(container) ||
+        (mWorld.hasComponent<Interactable>(container) && mWorld.getComponent<Interactable>(container).prompt == "Search the pile"))
+    {
+        return;
+    }
     mSaveManager.setContainerRecord(
         storage::toRecord(mWorld.getComponent<Inventory>(container), tile.x, tile.y, mSaveManager.runNumber()));
     mSaveManager.saveWorldMemory();
@@ -54,9 +61,10 @@ void Game::refreshContainerRecords()
     // that went off while you were away stays off). Untouched ones are not
     // written: they roll fresh for the next life.
     mWorld.forEach<Interactable, Inventory, Transform>(
-        [&](Entity, Interactable& inter, Inventory& inv, Transform& t)
+        [&](Entity e, Interactable& inter, Inventory& inv, Transform& t)
         {
-            if (inter.type != InteractableType::Container) return;
+            if (inter.type != InteractableType::Container || mWorld.hasComponent<Structure>(e) ||
+                inter.prompt == "Search the pile") return;
             const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(t.x, t.y));
             const ContainerRecord* existing = mSaveManager.containerRecord(tile.x, tile.y);
             if (existing == nullptr) return;

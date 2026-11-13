@@ -36,14 +36,6 @@ std::size_t mat(StructureMaterial material)
     return static_cast<std::size_t>(material);
 }
 
-std::uint32_t hashTile(int x, int y)
-{
-    std::uint32_t h = static_cast<std::uint32_t>(x) * 73856093u ^ static_cast<std::uint32_t>(y) * 19349663u;
-    h ^= h >> 13;
-    h *= 0x5bd1e995u;
-    h ^= h >> 15;
-    return h;
-}
 } // namespace
 
 StructureSprites StructureSprites::fromSheet(const SpriteSheet& sheet)
@@ -62,6 +54,12 @@ StructureSprites StructureSprites::fromSheet(const SpriteSheet& sheet)
             const std::string base = finish + kAxes[a];
             p.full[a] = sheet.uvRect(base);
             p.window[a] = sheet.uvRect(base + "_window");
+            p.windowBroken[a] = sheet.uvRect(base + "_window_broken");
+            p.windowCurtain[a] = sheet.uvRect(base + "_window_curtain");
+            p.windowBoard1[a] = sheet.uvRect(base + "_window_board1");
+            p.windowBoard2[a] = sheet.uvRect(base + "_window_board2");
+            p.windowLowBroken[a] = sheet.uvRect(base + "_window_low_broken");
+            p.windowLowBoard[a] = sheet.uvRect(base + "_window_low_board");
             p.door[a] = sheet.uvRect(base + "_door");
             p.doorClosed[a] = sheet.uvRect(base + "_doorclosed");
             p.doorBroken[a] = sheet.uvRect(base + "_doorbroken");
@@ -131,10 +129,6 @@ void StructureView::build(const TileMap& map, const LayoutData& layout)
     {
         return inBounds(x, y) && mTiles[index(x, y)].kind != StructureKind::None;
     };
-    auto isDoorway = [&](int x, int y)
-    {
-        return inBounds(x, y) && mTiles[index(x, y)].kind == StructureKind::Doorway;
-    };
 
     // Runs, perimeter and windows.
     for (int y = 0; y < mHeight; ++y)
@@ -177,18 +171,9 @@ void StructureView::build(const TileMap& map, const LayoutData& layout)
                 }
             }
 
-            if (t.kind == StructureKind::Wall && t.perimeter && t.building > 0 &&
-                t.material != StructureMaterial::Metal && t.run != StructureRun::Corner)
-            {
-                const int along = t.run == StructureRun::AlongX ? x : y;
-                const bool nearDoor = t.run == StructureRun::AlongX
-                    ? (isDoorway(x - 1, y) || isDoorway(x + 1, y))
-                    : (isDoorway(x, y - 1) || isDoorway(x, y + 1));
-                const bool flanked = t.run == StructureRun::AlongX
-                    ? (wallLike(x - 1, y) && wallLike(x + 1, y))
-                    : (wallLike(x, y - 1) && wallLike(x, y + 1));
-                t.window = flanked && !nearDoor && along % 3 == 1 && (hashTile(x, y) % 4) != 0;
-            }
+            // Where windows stand is a rule of its own (windows::place), so
+            // drawing and the rules agree.
+            t.window = t.kind == StructureKind::Wall && map.hasWindow(x, y);
         }
     }
 
@@ -495,6 +480,25 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
         {1.0f, 1.0f, 1.0f, 1.0f}, {0.88f, 0.95f, 1.0f, 1.0f}, {0.92f, 1.0f, 0.90f, 1.0f}, {1.0f, 0.94f, 0.86f, 1.0f}};
     const glm::vec4 kDoorWood(0.80f, 0.58f, 0.38f, 1.0f);
 
+    // A wall piece with a window in it, as the window stands now.
+    const auto fullPiece = [&](const WallPieces& p, std::size_t axis, int x, int y, bool window) -> const glm::vec4&
+    {
+        if (!window) return p.full[axis];
+        if (doors == nullptr) return p.window[axis];
+        const int boards = doors->windowBoards(x, y);
+        if (boards >= 2) return p.windowBoard2[axis];
+        if (boards == 1) return p.windowBoard1[axis];
+        if (doors->windowState(x, y) == WindowState::Broken) return p.windowBroken[axis];
+        return doors->windowCovered(x, y) ? p.windowCurtain[axis] : p.window[axis];
+    };
+    const auto lowPiece = [&](const WallPieces& p, std::size_t axis, int x, int y, bool window) -> const glm::vec4&
+    {
+        if (!window || doors == nullptr) return p.low[axis];
+        if (doors->windowBoards(x, y) > 0) return p.windowLowBoard[axis];
+        if (doors->windowState(x, y) == WindowState::Broken) return p.windowLowBroken[axis];
+        return p.low[axis];
+    };
+
     for (int y = 0; y < mHeight; ++y)
     {
         for (int x = 0; x < mWidth; ++x)
@@ -576,7 +580,8 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
                     }
                     else if (t.place != WallPlace::Centre)
                     {
-                        piece(cut ? p.low[axis] : (t.window ? p.window[axis] : p.full[axis]), height, dx, dy, tint);
+                        piece(cut ? lowPiece(p, axis, x, y, t.window) : fullPiece(p, axis, x, y, t.window), height, dx, dy,
+                              tint);
                     }
                     else if (t.arms == 0)
                     {

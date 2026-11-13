@@ -749,6 +749,59 @@ So phase 1's bar (the normal bot lives a median of three days) is not met,
 and was not reached by bending the game: no balance number was changed.
 Phases 3, 4 and 14 read this section (see `docs/overhaul/DECISIONS.md`).
 
+## Overhaul phase 2: the home base (2026-11-14)
+
+A home worth defending. Furniture is material: hold E beside a movable piece
+and walk to push it (heavy pieces slowly, through open doorways), push one
+onto the floor inside a door and the dead must break it after the door; X
+breaks a piece up for planks and rags. Windows are real: the dead see you
+through glass (6 tiles) and through a lit, uncurtained window at night,
+break it (Loud, glass outside) and climb in one at a time; you can climb an
+empty frame, draw a curtain, or board it (R: a plank and 2 nails, up to 2
+boards of 300). Door boards now cost 2 nails too (the home kit has 12). The
+old build mode is gone: B opens a wheel of stations (campfire, workbench,
+storage crate, rain collector, bedroll) built where the ghost shows, and F
+sets down can alarms, spike boards, candles and can lanterns. Sleep is as
+good as the room is safe, and the prompt says what is open. The night's
+callers pick the weakest way in; the day plan asks to "Close up the house".
+What the player did to a house (furniture, windows, stations, a crate's
+contents) carries into the next life, which may start in that house or
+hear of it.
+
+Harness: `base.txt` (a bookshelf in the doorway held the dead after the
+door; a zombie that could not see the player gave up on it), `windows.txt`
+(every window state in siding and brick, inside and out; a candle draws the
+dead, a curtain does not; glass breaks, they climb in; two boards held for
+42 s and more; all kept by a checkpoint and the next life). Every older
+script still passes.
+
+The bot boards the weakest way in first, windows included, and draws the
+curtains when it has no planks. `bot_week`, seeds 1 to 10, next to phase 1:
+
+| Seed | P01: days | P02: days | Kills | Searched | Boards | Died at home, night 1 |
+|---:|---:|---:|---:|---:|---:|---|
+| 1 | 0.3 | 1.2 | 27 | 41 | 2 | - |
+| 2 | 1.5 | 0.5 | 19 | 32 | 3 | yes (19:08) |
+| 3 | 0.7 | 1.0 | 21 | 71 | 3 | - |
+| 4 | 2.2 | 1.1 | 25 | 31 | 6 | - |
+| 5 | 1.1 | 1.2 | 30 | 5 | 3 | - |
+| 6 | 1.3 | 1.7 | 32 | 45 | 0 | - |
+| 7 | 1.5 | 1.1 | 27 | 6 | 0 | - |
+| 8 | 0.7 | 0.5 | 28 | 29 | 0 | - |
+| 9 | 1.3 | 0.5 | 11 | 7 | 4 | yes (20:29) |
+| 10 | 1.0 | 0.4 | 20 | 10 | 0 | - |
+
+Normal bot, median 1.0 days (phase 1: 1.2), mean 0.9, none lives the week,
+every run clean. The phase's bar, at most 1 of 10 dead at home on night 1,
+is **not met: 2 of 10**. Both died in the evening of day 1, before the
+first caller sets out (21:30), with no caller about and 6 to 12 of the
+ordinary dead round the house; seed 2 came home at 46 health and was caught
+boarding a window. That is the day-one pressure phase 1 recorded (a player
+standing at home is dead by about 22:00), now with glass the dead see
+through; day one's lethality is phases 3, 4 and 14's to settle, and phase 2
+did not retune it. Four seeds put up no boards at all (why is not yet
+looked into).
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -815,8 +868,9 @@ Candidates for the next stretch, roughly in order. None is started.
 - ~~Melee kills never counted toward kills or desensitisation~~ (fixed: the
   game counts every death before clearing the body away).
 - Survivors cannot get through a boarded door and may stand at one.
-- The old build mode (B) still places flat 32 px props from before the
-  revival; its barricade overlaps with boarding up doors.
+- ~~The old build mode (B) still places flat 32 px props from before the
+  revival; its barricade overlaps with boarding up doors~~ (fixed: the build
+  wheel's stations; furniture is the barricade).
 - ~~Notebook, world map and minimap text rendered as garbage~~ (fixed: each
   UI layer draws its shapes with the sprite sheet, then all of its text with
   the font atlas).
@@ -888,3 +942,8 @@ Candidates for the next stretch, roughly in order. None is started.
 - 2026-11-13: Overhaul phase 1, the bot: diagnosed its day-one deaths, fixed
   runaway panic drift, taught it weapons, walking, resting, reaching
   cupboards and coming home; median 0.3 -> 1.2 days, three days not met.
+- 2026-11-14: Overhaul phase 2, the home base: furniture pushed, broken up
+  and blocking doors; real windows (glass, curtains, boards, climbing);
+  nails; the build wheel's stations; alarms, spike boards and lights; sleep
+  by safety; callers at the weakest way in; the base kept for the next
+  life. Bot boards windows; night 1 at home 2 of 10 (bar 1, not met).
