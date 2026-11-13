@@ -1,5 +1,8 @@
+// The dead: what each one does this tick. Senses, movement and blows live
+// in ZombieSenses.cpp, ZombieMove.cpp and ZombieAttack.cpp; this file runs
+// them in order and keeps the shared state (the spatial grid, the flow field
+// toward the player, and the queue of paths).
 #include "systems/ZombieAISystem.h"
-#include "core/Tuning.h"
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -8,21 +11,20 @@
 #include <cmath>
 #include <vector>
 
-#include "ai/Pathfinder.h"
 #include "components/Combat.h"
+#include "components/Corpse.h"
 #include "components/Facing.h"
 #include "components/Health.h"
+#include "components/LegacyLink.h"
 #include "components/Stamina.h"
+#include "components/SurvivorAI.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
-#include "components/Wounds.h"
 #include "systems/DistrictInfectionSystem.h"
 #include "world/CombatRules.h"
 
 namespace
 {
-constexpr float kTwoPi = 6.2831853f;
-
 glm::vec2 entityCenter(const Transform& transform)
 {
     return glm::vec2(transform.x + 16.0f, transform.y + 16.0f);
@@ -33,21 +35,6 @@ glm::ivec2 worldToTile(const TileMap& tileMap, const glm::vec2& world)
     return glm::ivec2(
         static_cast<int>(std::floor(world.x / static_cast<float>(tileMap.tileWidth()))),
         static_cast<int>(std::floor(world.y / static_cast<float>(tileMap.tileHeight()))));
-}
-
-void setVelocityToward(Velocity& velocity, const glm::vec2& from, const glm::vec2& to, float speed)
-{
-    const glm::vec2 delta = to - from;
-    const float len2 = glm::dot(delta, delta);
-    if (len2 < 1.0f)
-    {
-        velocity.dx = 0.0f;
-        velocity.dy = 0.0f;
-        return;
-    }
-    const glm::vec2 dir = delta / std::sqrt(len2);
-    velocity.dx = dir.x * speed;
-    velocity.dy = dir.y * speed;
 }
 } // namespace
 
@@ -75,610 +62,288 @@ void ZombieAISystem::sendTo(ZombieAI& zombie, const glm::vec2& targetWorld, bool
     zombie.idleTimer = 0.0f;
     zombie.migrating = migrating;
     zombie.attackWindup = 0.0f;
+    zombie.lookAroundTimer = 0.0f;
+    zombie.lingerTimer = 0.0f;
+    zombie.followingTrail = false;
     zombie.path.clear();
     zombie.pathIndex = 0;
 }
 
-void ZombieAISystem::update(
-    World& world,
-    const TileMap& tileMap,
-    const NoiseModel& noiseModel,
-    Entity playerEntity,
-    float dtSeconds,
-    double gameHours,
-    int currentDay,
-    const DistrictInfectionSystem* infectionSystem,
-    std::vector<BarrierBlow>* doorBlows,
-    std::vector<glm::vec2>* playerHits) const
+void ZombieAISystem::reset()
 {
-    const bool isNight = (gameHours >= 20.0 || gameHours < 5.0);
-    const float visionMultiplier = isNight ? (mPlayerLit ? kNightVisionLit : kNightVisionDark) : 1.0f;
-    const float tileSize = static_cast<float>(tileMap.tileWidth());
+    mFlow.clear();
+    mPathQueue.clear();
+    mTick = 0;
+}
 
-    const bool playerValid =
-        playerEntity != kInvalidEntity &&
-        world.hasComponent<Transform>(playerEntity) &&
-        world.hasComponent<Health>(playerEntity);
+void ZombieAISystem::update(World& world, const ZombieTick& tick)
+{
+    ++mTick;
+    if (tick.tileMap == nullptr) return;
+    const TileMap& tileMap = *tick.tileMap;
 
-    Health* playerHealth = nullptr;
-    glm::vec2 playerCenter(0.0f, 0.0f);
-
-    // What a lunge that reaches needs to know of the player: which way they
-    // face, whether their back is to a wall, their breath, and whether they
-    // have just shaken the dead off.
-    glm::vec2 playerFacing(0.0f);
-    bool playerExhausted = false;
-    bool playerImmune = false;
-    bool playerHeld = false;
-    if (playerValid)
+    Ctx c;
+    c.world = &world;
+    c.tick = &tick;
+    c.tileSize = static_cast<float>(tileMap.tileWidth());
+    c.night = tick.hours >= 20.0 || tick.hours < 5.0;
+    c.playerValid = tick.player != kInvalidEntity && world.hasComponent<Transform>(tick.player) &&
+                    world.hasComponent<Health>(tick.player) && world.getComponent<Health>(tick.player).current > 0.0f;
+    if (c.playerValid)
     {
-        playerHealth = &world.getComponent<Health>(playerEntity);
-        playerCenter = entityCenter(world.getComponent<Transform>(playerEntity));
-        if (world.hasComponent<Facing>(playerEntity))
+        c.playerCenter = entityCenter(world.getComponent<Transform>(tick.player));
+        if (world.hasComponent<Facing>(tick.player))
         {
-            const float a = world.getComponent<Facing>(playerEntity).angleRadians;
-            playerFacing = glm::vec2(std::cos(a), std::sin(a));
+            const float a = world.getComponent<Facing>(tick.player).angleRadians;
+            c.playerFacing = glm::vec2(std::cos(a), std::sin(a));
         }
-        if (world.hasComponent<Stamina>(playerEntity))
+        if (world.hasComponent<Stamina>(tick.player))
         {
-            const Stamina& st = world.getComponent<Stamina>(playerEntity);
-            playerExhausted = combatrules::exhausted(st.current, st.maximum);
+            const Stamina& st = world.getComponent<Stamina>(tick.player);
+            c.playerExhausted = combatrules::exhausted(st.current, st.maximum);
         }
-        if (world.hasComponent<Combat>(playerEntity))
+        if (world.hasComponent<Combat>(tick.player))
         {
-            const Combat& pc = world.getComponent<Combat>(playerEntity);
-            playerImmune = pc.grabImmunity > 0.0f;
-            playerHeld = pc.holders > 0;
+            const Combat& pc = world.getComponent<Combat>(tick.player);
+            c.playerImmune = pc.grabImmunity > 0.0f;
+            c.playerHeld = pc.holders > 0;
         }
     }
-    // The player's back against a wall: nothing comes at it.
-    const auto backCovered = [&]()
-    {
-        if (glm::dot(playerFacing, playerFacing) < 0.5f) return false;
-        for (float t = 10.0f; t <= tileSize; t += 6.0f)
-        {
-            const glm::ivec2 behind = worldToTile(tileMap, playerCenter - playerFacing * t);
-            if (tileMap.isSolid(behind.x, behind.y)) return true;
-        }
-        return false;
-    };
 
-    // Snapshot living zombie positions for separation.
-    std::vector<std::pair<Entity, glm::vec2>> zombieCenters;
+    // Who is where, for every "near here" question this tick.
+    mGrid.reset(static_cast<float>(tileMap.width()) * c.tileSize, static_cast<float>(tileMap.height()) * c.tileSize,
+                4.0f * c.tileSize);
     world.forEach<ZombieAI, Transform>(
         [&](Entity e, ZombieAI&, Transform& t)
         {
             if (world.hasComponent<Health>(e) && world.getComponent<Health>(e).current <= 0.0f) return;
-            zombieCenters.emplace_back(e, entityCenter(t));
+            mGrid.insert(e, entityCenter(t), SpatialGrid::Zombie);
         });
+    world.forEach<SurvivorAI, Transform>(
+        [&](Entity e, SurvivorAI& s, Transform& t)
+        {
+            if (s.state == SurvivorState::Dead) return;
+            if (world.hasComponent<Health>(e) && world.getComponent<Health>(e).current <= 0.0f) return;
+            mGrid.insert(e, entityCenter(t), SpatialGrid::Survivor);
+        });
+    world.forEach<Corpse, Transform>(
+        [&](Entity e, Corpse&, Transform& t) { mGrid.insert(e, entityCenter(t), SpatialGrid::Corpse); });
+    mGrid.finish();
+
+    // One field toward the player for every chase.
+    if (c.playerValid)
+    {
+        const glm::ivec2 playerTile = worldToTile(tileMap, c.playerCenter);
+        if (!mFlow.valid() || mTick % kFlowEveryTicks == 0 || glm::length(glm::vec2(playerTile - mFlow.goal())) > 6.0f)
+        {
+            mFlow.build(tileMap, playerTile);
+        }
+    }
+    else
+    {
+        mFlow.clear();
+    }
+    runPathQueue(world, tileMap);
 
     world.forEach<ZombieAI, Transform, Velocity>(
-        [&](Entity zombieEntity, ZombieAI& zombieAI, Transform& zombieTransform, Velocity& zombieVelocity)
+        [&](Entity zombieEntity, ZombieAI& ai, Transform& zombieTransform, Velocity& velocity)
         {
             if (world.hasComponent<Health>(zombieEntity) && world.getComponent<Health>(zombieEntity).current <= 0.0f)
             {
-                zombieVelocity.dx = 0.0f;
-                zombieVelocity.dy = 0.0f;
+                velocity.dx = 0.0f;
+                velocity.dy = 0.0f;
                 return;
             }
 
+            One z;
+            z.entity = zombieEntity;
+            z.ai = &ai;
+            z.center = entityCenter(zombieTransform);
+            z.tile = worldToTile(tileMap, z.center);
+            z.dt = tick.dt;
+
+            // The far dead think less often (and with the time they missed),
+            // unless they are going somewhere on purpose.
+            const float playerDistanceTiles =
+                c.playerValid ? glm::length(c.playerCenter - z.center) / c.tileSize : 1.0e6f;
+            z.sleeping = playerDistanceTiles > kSleepTiles && !ai.migrating && ai.horde == 0 && !ai.nightCaller &&
+                         !ai.follower && ai.state != ZombieState::Chase && ai.state != ZombieState::Attack &&
+                         !ZombieBlow::isDown(ai) && ai.stagger <= 0.0f && !ai.holding;
+            if (z.sleeping)
+            {
+                if ((mTick + static_cast<std::uint64_t>(zombieEntity)) % kSleepEveryTicks != 0) return;
+                z.dt = tick.dt * static_cast<float>(kSleepEveryTicks);
+            }
+            const float dt = z.dt;
+
             // On the floor: it slides on what is left of the blow, lies a
             // while, then takes its time getting up. It can do nothing else.
-            if (ZombieBlow::isDown(zombieAI))
+            if (ZombieBlow::isDown(ai))
             {
-                zombieAI.holding = false;
-                zombieAI.attackWindup = 0.0f;
-                zombieAI.stagger = 0.0f;
-                zombieVelocity.dx = zombieAI.knock.x;
-                zombieVelocity.dy = zombieAI.knock.y;
-                zombieAI.knock *= std::max(0.0f, 1.0f - ZombieBlow::kKnockDecay * dtSeconds);
-                if (zombieAI.downTimer > 0.0f)
+                ai.holding = false;
+                ai.attackWindup = 0.0f;
+                ai.stagger = 0.0f;
+                velocity.dx = ai.knock.x;
+                velocity.dy = ai.knock.y;
+                ai.knock *= std::max(0.0f, 1.0f - ZombieBlow::kKnockDecay * dt);
+                if (ai.downTimer > 0.0f)
                 {
-                    zombieAI.downTimer -= dtSeconds;
-                    if (zombieAI.downTimer <= 0.0f)
+                    ai.downTimer -= dt;
+                    if (ai.downTimer <= 0.0f)
                     {
-                        zombieAI.downTimer = 0.0f;
-                        zombieAI.riseTimer = combatrules::kRiseSeconds;
+                        ai.downTimer = 0.0f;
+                        ai.riseTimer = combatrules::kRiseSeconds;
                     }
                 }
                 else
                 {
-                    zombieAI.riseTimer = std::max(0.0f, zombieAI.riseTimer - dtSeconds);
+                    ai.riseTimer = std::max(0.0f, ai.riseTimer - dt);
                 }
                 return;
             }
 
             // Reeling from a blow: carried by the knockback, unable to act.
-            if (zombieAI.stagger > 0.0f)
+            if (ai.stagger > 0.0f)
             {
-                zombieAI.holding = false;
-                zombieAI.stagger -= dtSeconds;
-                zombieVelocity.dx = zombieAI.knock.x;
-                zombieVelocity.dy = zombieAI.knock.y;
-                zombieAI.knock *= std::max(0.0f, 1.0f - ZombieBlow::kKnockDecay * dtSeconds);
+                ai.holding = false;
+                ai.stagger -= dt;
+                velocity.dx = ai.knock.x;
+                velocity.dy = ai.knock.y;
+                ai.knock *= std::max(0.0f, 1.0f - ZombieBlow::kKnockDecay * dt);
                 return;
             }
-            zombieAI.knock = glm::vec2(0.0f);
-            zombieAI.strikeTimer = std::max(0.0f, zombieAI.strikeTimer - dtSeconds);
-            zombieAI.lureTimer = std::max(0.0f, zombieAI.lureTimer - dtSeconds);
-
-            // Holding on: it keeps its grip and bites until it is shaken off,
-            // hit, or the player is somehow out of its hands.
-            if (zombieAI.holding)
-            {
-                zombieVelocity.dx = 0.0f;
-                zombieVelocity.dy = 0.0f;
-                const glm::vec2 here = entityCenter(zombieTransform);
-                if (!playerValid || playerHealth == nullptr || playerHealth->current <= 0.0f ||
-                    glm::length(playerCenter - here) > kZombieAttackRange * 1.8f)
-                {
-                    zombieAI.holding = false;
-                    return;
-                }
-                zombieAI.state = ZombieState::Attack;
-                zombieAI.targetWorld = playerCenter;
-                zombieAI.biteTimer -= dtSeconds;
-                if (zombieAI.biteTimer > 0.0f)
-                {
-                    return;
-                }
-                zombieAI.biteTimer = combatrules::kBiteIntervalSeconds;
-                zombieAI.strikeTimer = kZombieStrikeSeconds;
-                zombieAI.strikeDir = glm::length(playerCenter - here) > 0.01f ? glm::normalize(playerCenter - here) : glm::vec2(0.0f);
-                const int age = currentDay - zombieAI.spawnDay;
-                const float stageDamage = age <= 3 ? 1.0f : age <= 10 ? 0.9f : age <= 20 ? 0.6f : 0.35f;
-                playerHealth->current = std::max(0.0f, playerHealth->current - combatrules::kBiteDamage * stageDamage);
-                if (playerHits != nullptr)
-                {
-                    playerHits->push_back(zombieAI.strikeDir);
-                }
-                if (world.hasComponent<Wounds>(playerEntity) && nextRandom(zombieAI, zombieEntity) < combatrules::kBiteWoundChance)
-                {
-                    Wound w{};
-                    w.type = WoundType::Bite;
-                    w.contaminated = nextRandom(zombieAI, zombieEntity) < kBiteContaminationChance;
-                    w.severity = 0.5f + nextRandom(zombieAI, zombieEntity) * 0.5f;
-                    world.getComponent<Wounds>(playerEntity).active.push_back(w);
-                }
-                return;
-            }
-
-            zombieAI.stateTimer += dtSeconds;
-            zombieAI.boredTimer = std::max(0.0f, zombieAI.boredTimer - dtSeconds);
-            zombieAI.pathRepathTimer += dtSeconds;
-            zombieAI.attackCooldown = std::max(0.0f, zombieAI.attackCooldown - dtSeconds);
+            ai.knock = glm::vec2(0.0f);
+            ai.strikeTimer = std::max(0.0f, ai.strikeTimer - dt);
+            ai.lureTimer = std::max(0.0f, ai.lureTimer - dt);
 
             // --- Decomposition stage from age ---
-            const int age = currentDay - zombieAI.spawnDay;
-            if (age <= 3) zombieAI.decomp = DecompStage::Fresh;
-            else if (age <= 10) zombieAI.decomp = DecompStage::Bloated;
-            else if (age <= 20) zombieAI.decomp = DecompStage::Decayed;
-            else zombieAI.decomp = DecompStage::Skeletal;
-
-            float speedMultiplier = 1.0f;
-            float damageMultiplier = 1.0f;
-            switch (zombieAI.decomp)
+            const int age = tick.day - ai.spawnDay;
+            if (age <= 3) ai.decomp = DecompStage::Fresh;
+            else if (age <= 10) ai.decomp = DecompStage::Bloated;
+            else if (age <= 20) ai.decomp = DecompStage::Decayed;
+            else ai.decomp = DecompStage::Skeletal;
+            switch (ai.decomp)
             {
-            case DecompStage::Fresh:    speedMultiplier = 1.0f;  damageMultiplier = 1.0f;  break;
-            case DecompStage::Bloated:  speedMultiplier = 0.75f; damageMultiplier = 0.9f;  break;
-            case DecompStage::Decayed:  speedMultiplier = 0.5f;  damageMultiplier = 0.6f;  break;
-            case DecompStage::Skeletal: speedMultiplier = 0.3f;  damageMultiplier = 0.35f; break;
+            case DecompStage::Fresh:    z.speedMultiplier = 1.0f;  z.damageMultiplier = 1.0f;  break;
+            case DecompStage::Bloated:  z.speedMultiplier = 0.75f; z.damageMultiplier = 0.9f;  break;
+            case DecompStage::Decayed:  z.speedMultiplier = 0.5f;  z.damageMultiplier = 0.6f;  break;
+            case DecompStage::Skeletal: z.speedMultiplier = 0.3f;  z.damageMultiplier = 0.35f; break;
             }
 
-            const glm::vec2 zombieCenter = entityCenter(zombieTransform);
-            const glm::ivec2 zombieTile = worldToTile(tileMap, zombieCenter);
-            const int districtId = tileMap.getDistrictId(zombieTile.x, zombieTile.y);
-
+            // The district: the worse it is, the worse they are.
+            const int districtId = tileMap.getDistrictId(z.tile.x, z.tile.y);
             float localInfection = 0.0f;
-            bool overwhelmedDistrict = false;
-            if (infectionSystem != nullptr && districtId > 0)
+            bool overwhelmed = false;
+            if (tick.infection != nullptr && districtId > 0)
             {
-                localInfection = infectionSystem->getInfection(districtId);
-                overwhelmedDistrict = infectionSystem->isOverwhelmed(districtId);
+                localInfection = tick.infection->getInfection(districtId);
+                overwhelmed = tick.infection->isOverwhelmed(districtId);
             }
-
             const float infectionFactor = glm::clamp(localInfection / 100.0f, 0.0f, 1.0f);
-            speedMultiplier *= overwhelmedDistrict ? (1.0f + infectionFactor * 0.35f) : (1.0f + infectionFactor * 0.20f);
-            damageMultiplier *= overwhelmedDistrict ? (1.0f + infectionFactor * 0.25f) : (1.0f + infectionFactor * 0.12f);
-            const float localVisionMultiplier = visionMultiplier * (overwhelmedDistrict
-                ? (1.0f + infectionFactor * 0.65f)
-                : (1.0f + infectionFactor * 0.35f));
+            z.speedMultiplier *= overwhelmed ? (1.0f + infectionFactor * 0.35f) : (1.0f + infectionFactor * 0.20f);
+            z.damageMultiplier *= overwhelmed ? (1.0f + infectionFactor * 0.25f) : (1.0f + infectionFactor * 0.12f);
+            z.visionMultiplier = overwhelmed ? (1.0f + infectionFactor * 0.65f) : (1.0f + infectionFactor * 0.35f);
 
-            const float sensedNoise = noiseModel.getNoiseAtPosition(zombieCenter);
-            const float investigateThreshold = std::max(0.02f, kZombieNoiseInvestigateThreshold - infectionFactor * 0.04f);
-            const bool canHearNoise = sensedNoise >= investigateThreshold;
+            // The threat mode, and The Unknown's rules.
+            z.speedMultiplier *= tick.speedScale;
+            if (tick.dormantByDay && c.night) z.speedMultiplier *= 1.5f;
+            if (tick.rainCalm && senses::weatherHearingScale(tick.weather) < 1.0f) z.speedMultiplier *= 0.7f;
+            if (tick.frenzyAfterRain) z.speedMultiplier *= 1.5f;
+            ai.moveSpeed = ai.baseMoveSpeed;
 
-            const bool canSeePlayer = [&]()
+            ai.stateTimer += dt;
+            ai.boredTimer = std::max(0.0f, ai.boredTimer - dt);
+            ai.pathRepathTimer += dt;
+            ai.attackCooldown = std::max(0.0f, ai.attackCooldown - dt);
+            ai.screamCooldown = std::max(0.0f, ai.screamCooldown - dt);
+
+            // Holding on: it keeps its grip and bites until it is shaken off.
+            if (ai.holding)
             {
-                if (!playerValid) return false;
-                const float distanceTiles = glm::length(playerCenter - zombieCenter) / tileSize;
-                if (distanceTiles > zombieAI.visionRangeTiles * localVisionMultiplier) return false;
-                return hasLineOfSight(tileMap, zombieCenter, playerCenter);
-            }();
-
-            const float distanceToPlayer = playerValid ? glm::length(playerCenter - zombieCenter) : 999999.0f;
-            const bool isInAttackRange = playerValid && distanceToPlayer <= kZombieAttackRange;
-
-            if (canSeePlayer)
-            {
-                if (zombieAI.state != ZombieState::Chase && zombieAI.state != ZombieState::Attack)
-                {
-                    zombieAI.pathRepathTimer = kZombieRepathSeconds; // repath immediately
-                }
-                // A lunge in progress finishes even if the player steps back.
-                const bool lunging = zombieAI.state == ZombieState::Attack && zombieAI.attackWindup > 0.0f;
-                zombieAI.state = (isInAttackRange || lunging) ? ZombieState::Attack : ZombieState::Chase;
-                zombieAI.targetWorld = playerCenter;
-                zombieAI.stateTimer = 0.0f;
-                zombieAI.migrating = false;
-                zombieAI.idleTimer = 0.0f;
-            }
-            else if (zombieAI.state == ZombieState::Chase)
-            {
-                // Lost sight: go to the last known position.
-                sendTo(zombieAI, zombieAI.targetWorld, false);
-            }
-            else if (canHearNoise && zombieAI.boredTimer <= 0.0f &&
-                     (zombieAI.state == ZombieState::Wander || zombieAI.state == ZombieState::Investigate))
-            {
-                const NoiseEvent* bestEvent = nullptr;
-                float bestDistanceSq = 0.0f;
-                for (const NoiseEvent& event : noiseModel.activeEvents())
-                {
-                    const float radiusWorld = static_cast<float>(event.radiusTiles) * tileSize;
-                    const glm::vec2 toEvent = event.worldPosition - zombieCenter;
-                    const float distSq = glm::dot(toEvent, toEvent);
-                    if (distSq > radiusWorld * radiusWorld) continue;
-                    if (bestEvent == nullptr || distSq < bestDistanceSq)
-                    {
-                        bestEvent = &event;
-                        bestDistanceSq = distSq;
-                    }
-                }
-
-                // Re-target only when the noise is meaningfully somewhere else.
-                // A night caller keeps to its errand: the din at the door
-                // does not turn it, so it gives up in time.
-                if (bestEvent != nullptr &&
-                    (zombieAI.state == ZombieState::Wander ||
-                     (!zombieAI.nightCaller &&
-                      glm::length(bestEvent->worldPosition - zombieAI.targetWorld) > tileSize * 2.0f)))
-                {
-                    sendTo(zombieAI, bestEvent->worldPosition, false);
-                }
+                hold(c, z, velocity);
+                return;
             }
 
-            switch (zombieAI.state)
+            // A Crawler under a bed or a car: still until the living come
+            // close, then a scrape, then it moves.
+            if (ai.dormant)
             {
-            case ZombieState::Wander:
-            {
-                // Drawn to a thrown thing or a flare: it stands there staring
-                // at it until the pull wears off.
-                if (zombieAI.lureTimer > 0.0f)
+                velocity.dx = 0.0f;
+                velocity.dy = 0.0f;
+                if (ai.wakeTimer > 0.0f)
                 {
-                    zombieVelocity.dx = 0.0f;
-                    zombieVelocity.dy = 0.0f;
-                    break;
+                    ai.wakeTimer -= dt;
+                    if (ai.wakeTimer <= 0.0f)
+                    {
+                        ai.dormant = false;
+                        ai.wakeTimer = 0.0f;
+                        ai.awareness = 1.0f;
+                        ai.prey = tick.player;
+                        ai.state = ZombieState::Chase;
+                        ai.targetWorld = c.playerCenter;
+                    }
                 }
-                if (zombieAI.idleTimer > 0.0f)
+                else if (c.playerValid && glm::length(c.playerCenter - z.center) <=
+                                              zombiekinds::kCrawlerWakeTiles * c.tileSize)
                 {
-                    zombieAI.idleTimer -= dtSeconds;
-                    zombieVelocity.dx = 0.0f;
-                    zombieVelocity.dy = 0.0f;
-                    break;
+                    ai.wakeTimer = zombiekinds::kCrawlerScrapeSeconds;
+                    if (tick.events != nullptr)
+                        tick.events->push_back({ZombieEvent::Type::Scrape, zombieEntity, z.center, 0});
                 }
-
-                const glm::vec2 toTarget = zombieAI.targetWorld - zombieCenter;
-                const bool reached = glm::dot(toTarget, toTarget) < 16.0f;
-                const bool stuck = zombieAI.stateTimer >= kWanderStuckSeconds;
-                if (reached || stuck || zombieAI.targetWorld == glm::vec2(0.0f, 0.0f))
-                {
-                    zombieAI.stateTimer = 0.0f;
-
-                    // Sometimes pause, like a shambling body losing interest.
-                    if (reached && nextRandom(zombieAI, zombieEntity) < 0.3f)
-                    {
-                        zombieAI.idleTimer = 1.0f + nextRandom(zombieAI, zombieEntity) * 3.0f;
-                        zombieVelocity.dx = 0.0f;
-                        zombieVelocity.dy = 0.0f;
-                        break;
-                    }
-
-                    // Drift the heading; turn around harder when stuck.
-                    const float turn = stuck ? (1.6f + nextRandom(zombieAI, zombieEntity) * 3.0f)
-                                             : (nextRandom(zombieAI, zombieEntity) - 0.5f) * 1.8f;
-                    zombieAI.heading = std::fmod(zombieAI.heading + turn + kTwoPi, kTwoPi);
-
-                    if (zombieAI.leashTiles > 0.0f)
-                    {
-                        const glm::vec2 toHome = zombieAI.leashHome - zombieCenter;
-                        const float leash = zombieAI.leashTiles * tileSize;
-                        if (glm::dot(toHome, toHome) > leash * leash)
-                        {
-                            zombieAI.heading = std::atan2(toHome.y, toHome.x);
-                        }
-                    }
-
-                    const float stepTiles = 2.0f + nextRandom(zombieAI, zombieEntity) * 3.0f;
-                    const glm::vec2 dir(std::cos(zombieAI.heading), std::sin(zombieAI.heading));
-                    glm::vec2 candidate = zombieCenter + dir * stepTiles * tileSize;
-                    const glm::ivec2 candidateTile = worldToTile(tileMap, candidate);
-
-                    if (!tileMap.inBounds(candidateTile.x, candidateTile.y) || tileMap.isSolid(candidateTile.x, candidateTile.y))
-                    {
-                        // Blocked: reverse next time and stand for a beat.
-                        zombieAI.heading = std::fmod(zombieAI.heading + 3.14159f, kTwoPi);
-                        zombieAI.targetWorld = zombieCenter;
-                        zombieVelocity.dx = 0.0f;
-                        zombieVelocity.dy = 0.0f;
-                        break;
-                    }
-                    zombieAI.targetWorld = tileCenterWorld(tileMap, candidateTile);
-                }
-
-                setVelocityToward(zombieVelocity, zombieCenter, zombieAI.targetWorld,
-                                  zombieAI.moveSpeed * kWanderSpeedFactor * speedMultiplier);
-                break;
+                return;
             }
 
-            case ZombieState::Investigate:
+            // Screaming: it stands, head back, until the scream is done.
+            if (ai.screamTimer > 0.0f)
             {
-                const glm::vec2 toGoal = zombieAI.targetWorld - zombieCenter;
-                if (glm::dot(toGoal, toGoal) < 64.0f)
-                {
-                    zombieAI.state = ZombieState::Wander;
-                    zombieAI.stateTimer = 0.0f;
-                    zombieAI.migrating = false;
-                    zombieAI.path.clear();
-                    zombieAI.idleTimer = 1.0f + nextRandom(zombieAI, zombieEntity) * 2.0f;
-                    zombieVelocity.dx = 0.0f;
-                    zombieVelocity.dy = 0.0f;
-                    break;
-                }
-
-                const float speedFactor = zombieAI.migrating ? kMigrateSpeedFactor : kInvestigateSpeedFactor;
-                const float speed = zombieAI.moveSpeed * speedFactor * speedMultiplier;
-                // Path when the goal is far, or when walls stand between: a
-                // straight line would only press the zombie into them (and a
-                // path through a closed door leads it to batter the door).
-                const bool far = glm::length(toGoal) > kPathfindDistanceTiles * tileSize ||
-                                 !hasLineOfSight(tileMap, zombieCenter, zombieAI.targetWorld);
-
-                if (far)
-                {
-                    const bool needPath = zombieAI.path.empty() ||
-                        glm::length(zombieAI.pathGoal - zombieAI.targetWorld) > tileSize * 0.5f;
-                    if (needPath)
-                    {
-                        zombieAI.path = Pathfinder::findPath(tileMap, zombieTile, worldToTile(tileMap, zombieAI.targetWorld));
-                        zombieAI.pathIndex = zombieAI.path.size() >= 2 ? 1 : 0;
-                        zombieAI.pathGoal = zombieAI.targetWorld;
-                        if (zombieAI.path.empty())
-                        {
-                            // Unreachable: give up and wander.
-                            zombieAI.state = ZombieState::Wander;
-                            zombieAI.migrating = false;
-                            zombieAI.stateTimer = 0.0f;
-                            break;
-                        }
-                    }
-
-                    while (zombieAI.pathIndex < zombieAI.path.size())
-                    {
-                        const glm::vec2 waypoint = tileCenterWorld(tileMap, zombieAI.path[zombieAI.pathIndex]);
-                        const glm::vec2 toWaypoint = waypoint - zombieCenter;
-                        if (glm::dot(toWaypoint, toWaypoint) < 36.0f)
-                        {
-                            ++zombieAI.pathIndex;
-                            continue;
-                        }
-                        setVelocityToward(zombieVelocity, zombieCenter, waypoint, speed);
-                        break;
-                    }
-                    if (zombieAI.pathIndex >= zombieAI.path.size())
-                    {
-                        setVelocityToward(zombieVelocity, zombieCenter, zombieAI.targetWorld, speed);
-                    }
-                }
-                else
-                {
-                    zombieAI.path.clear();
-                    setVelocityToward(zombieVelocity, zombieCenter, zombieAI.targetWorld, speed);
-                }
-
-                // Give up on goals that take far too long (a boarded door, a
-                // wall of structures). Its own banging must not call it
-                // straight back, so it stays deaf to noise for a while.
-                if (zombieAI.stateTimer > kGiveUpSeconds)
-                {
-                    zombieAI.state = ZombieState::Wander;
-                    zombieAI.migrating = false;
-                    zombieAI.nightCaller = false;
-                    zombieAI.path.clear();
-                    zombieAI.stateTimer = 0.0f;
-                    zombieAI.boredTimer = kBoredSeconds;
-                }
-                break;
+                ai.screamTimer -= dt;
+                velocity.dx = 0.0f;
+                velocity.dy = 0.0f;
+                return;
             }
 
+            sense(c, z);
+
+            switch (ai.state)
+            {
+            case ZombieState::Wander: wander(c, z, velocity); break;
+            case ZombieState::Investigate: investigate(c, z, velocity); break;
             case ZombieState::Chase:
-            {
-                zombieVelocity.dx = 0.0f;
-                zombieVelocity.dy = 0.0f;
-                zombieAI.attackWindup = 0.0f;
-
-                if (!playerValid)
-                {
-                    zombieAI.state = ZombieState::Wander;
-                    break;
-                }
-
-                if (zombieAI.pathRepathTimer >= kZombieRepathSeconds)
-                {
-                    zombieAI.pathRepathTimer = 0.0f;
-                    const std::vector<glm::ivec2> path =
-                        Pathfinder::findPath(tileMap, zombieTile, worldToTile(tileMap, playerCenter));
-                    zombieAI.targetWorld = path.size() >= 2 ? tileCenterWorld(tileMap, path[1]) : playerCenter;
-                }
-
-                // With a clear line, close in directly instead of tile-stepping.
-                const glm::vec2 chaseTarget = glm::length(playerCenter - zombieCenter) < tileSize * 1.5f
-                    ? playerCenter
-                    : zombieAI.targetWorld;
-                setVelocityToward(zombieVelocity, zombieCenter, chaseTarget, zombieAI.moveSpeed * speedMultiplier);
+                if (ai.kind == ZombieKind::Screamer) keepAway(c, z, velocity);
+                else chase(c, z, velocity);
                 break;
-            }
-
-            case ZombieState::Attack:
-            {
-                zombieVelocity.dx = 0.0f;
-                zombieVelocity.dy = 0.0f;
-                // The first half of a strike throws the body forward.
-                if (zombieAI.strikeTimer > kZombieStrikeSeconds * 0.5f)
-                {
-                    zombieVelocity.dx = zombieAI.strikeDir.x * kZombieStrikeSpeed;
-                    zombieVelocity.dy = zombieAI.strikeDir.y * kZombieStrikeSpeed;
-                }
-
-                // Mid-lunge the zombie commits; otherwise it follows a retreating player.
-                if (zombieAI.attackWindup <= 0.0f && (!playerValid || !isInAttackRange))
-                {
-                    zombieAI.state = ZombieState::Chase;
-                    zombieAI.pathRepathTimer = kZombieRepathSeconds;
-                    zombieAI.stateTimer = 0.0f;
-                    break;
-                }
-
-                if (zombieAI.attackWindup <= 0.0f)
-                {
-                    if (zombieAI.attackCooldown <= 0.0f)
-                    {
-                        zombieAI.attackWindup = kZombieAttackWindupSeconds;
-                    }
-                    break;
-                }
-
-                zombieAI.attackWindup -= dtSeconds;
-                if (zombieAI.attackWindup > 0.0f)
-                {
-                    break;
-                }
-
-                // Resolve the lunge.
-                zombieAI.attackWindup = 0.0f;
-                zombieAI.strikeTimer = kZombieStrikeSeconds;
-                {
-                    const glm::vec2 toPrey = (playerValid ? playerCenter : zombieAI.targetWorld) - zombieCenter;
-                    const float d = glm::length(toPrey);
-                    zombieAI.strikeDir = d > 0.01f ? toPrey / d : glm::vec2(0.0f);
-                }
-                zombieAI.attackCooldown = kZombieAttackCooldownSeconds * (0.85f + nextRandom(zombieAI, zombieEntity) * 0.3f);
-                const bool stillInReach = playerValid && distanceToPlayer <= kZombieAttackRange * kZombieAttackReachScale;
-                if (!stillInReach || playerHealth == nullptr)
-                {
-                    break; // dodged: feet, a shove or a blow did it
-                }
-
-                // A lunge that reaches lands: a claw, or a grab that holds on.
-                // From behind (back not to a wall), out of breath or already
-                // held, it grabs.
-                const bool fromBehindUncovered =
-                    combatrules::fromBehind(playerFacing, playerCenter - zombieCenter) && !backCovered();
-                combatrules::LungeResult result = combatrules::lungeResult(
-                    nextRandom(zombieAI, zombieEntity), fromBehindUncovered, playerExhausted, playerHeld);
-                if (playerImmune)
-                {
-                    result = combatrules::LungeResult::Claw; // just shaken free: no hold yet
-                }
-                if (result == combatrules::LungeResult::Grab)
-                {
-                    zombieAI.holding = true;
-                    zombieAI.biteTimer = combatrules::kBiteIntervalSeconds;
-                    playerHeld = true;
-                    break;
-                }
-
-                playerHealth->current = std::max(0.0f, playerHealth->current -
-                    combatrules::clawDamage(Tuning::get("zombie.attack.damage", kZombieAttackDamage), fromBehindUncovered) * damageMultiplier);
-                if (playerHits != nullptr)
-                {
-                    playerHits->push_back(zombieAI.strikeDir);
-                }
-
-                if (world.hasComponent<Wounds>(playerEntity) && nextRandom(zombieAI, zombieEntity) < kZombieWoundChance)
-                {
-                    Wounds& wounds = world.getComponent<Wounds>(playerEntity);
-                    Wound w{};
-                    const float roll = nextRandom(zombieAI, zombieEntity);
-                    if (roll < kZombieBiteShare)
-                    {
-                        w.type = WoundType::Bite;
-                        w.contaminated = nextRandom(zombieAI, zombieEntity) < kBiteContaminationChance;
-                    }
-                    else if (roll < kZombieBiteShare + 0.4f)
-                    {
-                        w.type = WoundType::Cut;
-                    }
-                    else
-                    {
-                        w.type = WoundType::Bruise;
-                    }
-                    w.severity = 0.5f + nextRandom(zombieAI, zombieEntity) * 0.5f;
-                    wounds.active.push_back(w);
-                }
-                break;
-            }
+            case ZombieState::Attack: attack(c, z, velocity); break;
             }
 
             // Pressing into a closed door on the way somewhere: batter it.
             // Paths lead through closed doors, so this is where they stop.
-            if (doorBlows != nullptr &&
-                (zombieAI.state == ZombieState::Chase || zombieAI.state == ZombieState::Investigate))
+            // A Crawler cannot reach a door handle or a window.
+            if (tick.blows != nullptr && ai.doorDamage > 0.0f &&
+                (ai.state == ZombieState::Chase || ai.state == ZombieState::Investigate))
             {
-                const glm::vec2 heading(zombieVelocity.dx, zombieVelocity.dy);
+                const glm::vec2 heading(velocity.dx, velocity.dy);
                 const float speed2 = glm::dot(heading, heading);
                 if (speed2 > 1.0f)
                 {
-                    const glm::vec2 ahead = zombieCenter + heading / std::sqrt(speed2) * (tileSize * 0.75f);
+                    const glm::vec2 ahead = z.center + heading / std::sqrt(speed2) * (c.tileSize * 0.75f);
                     const glm::ivec2 aheadTile = worldToTile(tileMap, ahead);
                     const bool barrier = tileMap.isClosedDoor(aheadTile.x, aheadTile.y) ||
                                          tileMap.hasWindow(aheadTile.x, aheadTile.y) ||
                                          tileMap.doorwayBlocked(aheadTile.x, aheadTile.y);
-                    if (barrier && glm::length(tileCenterWorld(tileMap, aheadTile) - zombieCenter) < tileSize * 1.3f)
+                    if (barrier && glm::length(tileCenterWorld(tileMap, aheadTile) - z.center) < c.tileSize * 1.3f)
                     {
-                        doorBlows->push_back(BarrierBlow{aheadTile, zombieEntity});
+                        tick.blows->push_back(BarrierBlow{aheadTile, zombieEntity});
                     }
                 }
             }
 
-            // Separation: keep bodies from stacking into one sprite.
-            glm::vec2 push(0.0f);
-            for (const auto& [other, otherCenter] : zombieCenters)
+            // Where it walks is where it looks.
+            const float moving2 = velocity.dx * velocity.dx + velocity.dy * velocity.dy;
+            if (moving2 > 4.0f)
             {
-                if (other == zombieEntity) continue;
-                const glm::vec2 away = zombieCenter - otherCenter;
-                const float d2 = glm::dot(away, away);
-                if (d2 > 0.01f && d2 < kSeparationRadius * kSeparationRadius)
-                {
-                    const float d = std::sqrt(d2);
-                    push += (away / d) * (kSeparationRadius - d);
-                }
+                ai.facing = glm::vec2(velocity.dx, velocity.dy) / std::sqrt(moving2);
             }
-            zombieVelocity.dx += push.x * 4.0f;
-            zombieVelocity.dy += push.y * 4.0f;
-
-            // And from standing inside the player.
-            if (playerValid)
-            {
-                const glm::vec2 away = zombieCenter - playerCenter;
-                const float d2 = glm::dot(away, away);
-                if (d2 > 0.01f && d2 < kPlayerBodyRadius * kPlayerBodyRadius)
-                {
-                    const float d = std::sqrt(d2);
-                    zombieVelocity.dx += (away.x / d) * (kPlayerBodyRadius - d) * 10.0f;
-                    zombieVelocity.dy += (away.y / d) * (kPlayerBodyRadius - d) * 10.0f;
-                }
-            }
+            if (!z.sleeping) separate(c, z, velocity);
         });
 }
 

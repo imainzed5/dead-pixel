@@ -234,6 +234,76 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   tears free of each grab at once: with nobody struggling a hold bites
   every 1.4 s, which the old "survivable in 10 s" bound did not allow.
 
+- 2026-11-14, P04: the corpse loot class lists battery, keepsake and
+  chocolate, which are not items yet -> left out; the class is rags 4,
+  matches 2, painkillers 2, pistol_ammo 1. Add them with their items.
+- 2026-11-14, P04: P03's `guns.txt` ("every wanderer within 27 tiles comes
+  to a shot") no longer holds under P04's rules: Loud carries 20 % less
+  upwind and a Brute hears at 0.7, so a kind is only sure to hear within
+  16.8 tiles. The script now puts a Shambler 14 tiles off and checks every
+  one within 16 comes; the later kill counts move up by one for it.
+- 2026-11-14, P04: a tier's radius is now where it is heard (P03's
+  question): a noise is heard out to its radius after shells, weather,
+  hearing and wind; no fading threshold.
+- 2026-11-14, P04: asphalt roads are "gravel" ground for footsteps (+1
+  tier), so a walk on the road in heavy rain is Medium and is heard at 5
+  tiles. The acceptance ("a walking player is not heard at 5 tiles") is
+  tested on ordinary pavement: new harness command `goto pavement`.
+- 2026-11-14, P04: districts are numbered only inside their building
+  boxes; the streets are district 0. For ruin overlays and the town map's
+  shading each street tile belongs to the nearest district (one fill per
+  run). Spawn mix and kills still use the tile's own district.
+- 2026-11-14, P04: ruin overlays -> litter (cans, paper) 2.5/5/8 % of open
+  tiles by level, blood smears on 3/8/14 % of tiles beside a wall, bodies
+  (a kind's last death frame) 2/6/12 per district. The phase gives only
+  the 12-body cap; abandoned bags have no sprite yet and are left out.
+- 2026-11-14, P04: the district readout is the word on the entry toast and
+  the town map labels; the F3 debug keeps percentages.
+- 2026-11-14, P04: a Crawler is hidden past 2 tiles when on grass or beside
+  (within one tile of) a piece of furniture. The minimap never drew the
+  dead, so there was nothing to hide there.
+- 2026-11-14, P04: The Unknown's rules are noticed by what the player can
+  see, once a minute at most each: by day one standing still within 6
+  tiles, or at night one hunting within 10 (DormantByDay); one coming to a
+  sound without seeing you within 10 (BlindHearing); one calm within 6 in
+  the rain, or hunting after it stops (RainCalm); wanderers within 20 tiles
+  turned by your flashlight at night (DrawnToLight); one looking past you while you
+  stand still within 8 (IgnoreStill). Three sightings write it down.
+- 2026-11-14, P04: learned rules live in world memory with the district
+  infection, so they reach later lives without a notebook item; the
+  notebook (J) lists them under "What we know".
+- 2026-11-14, P04: the swarm's 0.94 and society's 0.82 speed and each
+  mode's "migration" (how often the director draws wanderers in) are the
+  old runtime mode tuning, moved into `zombies.json` unchanged; the phase
+  table does not mention them.
+- 2026-11-14, P04: The Unknown's "frenzied when the rain stops" lasts 120
+  s (2 game hours); the follower is told where you are once a game hour.
+  The phase gives no numbers for either.
+- 2026-11-14, P04: the atlas grew to 4096 x 4096; the kinds fill a block
+  of their own in the lower half, so every older sprite keeps its place
+  (the upper half is pixel-identical). The Crawler is drawn for two
+  facings (SE, NE) and mirrored.
+- 2026-11-14, P04: W moves the player diagonally in tile space (screen up),
+  so `kinds.txt` puts the dormant Crawler on that diagonal (-2, -2): one
+  straight north at 3 tiles is passed at 2.1 tiles and never wakes.
+
+- 2026-11-14, P04: "Stalker and Swarm must differ in cause" needed a
+  cause that says more than "Killed by zombies" -> a death by the dead now
+  names what did it: "Overrun by the dead" (five or more within 3 tiles),
+  "Hunted down by the zombie that followed" (the Stalker's follower struck
+  last), "Run down by a zombie" (a Runner), "Beaten down by a big zombie"
+  (a Brute), "Bitten by a crawling zombie" (a Crawler), else "Killed by
+  zombies". Each keeps a word the legacy reads as "will rise".
+- 2026-11-14, P04: the HUD's district line under the clock shows the ruin
+  word ("Quiet", "Uneasy", "Turning", "Overrun"), not a percentage.
+- 2026-11-14, P04: the harness's `god on` refilled health only before each
+  tick, so a horde biting in one tick could still kill (`horde.txt` died
+  on night 8). God mode now also holds at the death checks.
+- 2026-11-14, P04: the Crawler's cover check only searches for furniture
+  indoors (furniture stands indoors; the lookup is a scan of every piece),
+  after the 2-tile distance test: the first version cost `perf` 1 ms on
+  average and a 13.6 ms worst tick.
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -253,6 +323,12 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   silent. `guns.txt` checks every wanderer within 27 tiles comes. P04's
   hearing should decide whether a tier's radius is where it is heard.
 
+- 2026-11-14, P04: zombies that play dead among corpses, and a follower
+  in every mode on long runs (the phase's own "Later").
+- 2026-11-14, P04: the horde's warning sounds (distant groaning, birds
+  gone) and each kind's own sound wait for P12, as the phase says; the
+  Crawler's scrape plays a soft footstep for now.
+
 ## Balance: needs a design change
 
 - 2026-11-13, P01: the soak baseline. After the bot's second pass it lives
@@ -270,6 +346,14 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   before any caller, to the ordinary dead round the house. Median 1.0 days
   (P01 1.2). Not retuned here (day one's lethality is phases 3, 4 and 14's);
   see `docs/revival_plan.md` ("Overhaul phase 2").
+
+- 2026-11-14, P04: Stalker and Swarm differ in day of death (bot median 2.5
+  against 1.5 days) but not in cause: in both the bot dies "Overrun by the
+  dead" at home (7 and 8 of 10), and the Stalker's follower never struck
+  last. The bot does not play to a mode (it boards up and holds whatever
+  comes). Not retuned, as the phase's numbers stand; a bot that reads the
+  mode, or a follower that matters more, is phase 14's to weigh. See
+  `docs/revival_plan.md` ("Overhaul phase 4").
 
 ## Ideas, not built
 

@@ -362,6 +362,11 @@ void Game::sendNightCallers(int count)
                      static_cast<std::uint32_t>(mGameHours * 60.0));
     std::uniform_real_distribution<float> unit(0.0f, 1.0f);
     const float health = 50.0f * toneTuning(saveTonePresetFromIndex(mTitleToneIndex)).zombieHealthScale;
+    // Later nights send worse (phase 4): from night 4 one in four that comes
+    // out of the dark is a Runner; from night 6 one is a Brute.
+    const int night = firstdays::nightIndex(mCurrentDay, mGameHours);
+    bool bruteSent = false;
+    mWorld.forEach<ZombieAI>([&](Entity, ZombieAI& ai) { if (ai.nightCaller && ai.kind == ZombieKind::Brute) bruteSent = true; });
     for (int attempt = 0; sent < count && attempt < 200; ++attempt)
     {
         const float angle = unit(rng) * 6.2831853f;
@@ -373,11 +378,20 @@ void Game::sendNightCallers(int count)
         {
             continue;
         }
-        EntityFactory::ZombieParams params;
-        params.topLeftWorld = glm::vec2((static_cast<float>(spawnTile.x) + 0.5f) * tile - kSpriteSize * 0.5f,
-                                        (static_cast<float>(spawnTile.y) + 0.5f) * tile - kSpriteSize * 0.5f);
-        params.health = health;
-        params.spawnDay = mCurrentDay;
+        ZombieKind kind = ZombieKind::Shambler;
+        if (night >= 6 && !bruteSent)
+        {
+            kind = ZombieKind::Brute;
+            bruteSent = true;
+        }
+        else if (night >= 4 && sent % 4 == 3)
+        {
+            kind = ZombieKind::Runner;
+        }
+        const glm::vec2 topLeft((static_cast<float>(spawnTile.x) + 0.5f) * tile - kSpriteSize * 0.5f,
+                                (static_cast<float>(spawnTile.y) + 0.5f) * tile - kSpriteSize * 0.5f);
+        EntityFactory::ZombieParams params = zombieParams(kind, topLeft, rng);
+        if (kind == ZombieKind::Shambler) params.health = health;
         const Entity zombie = EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
         ZombieAI& ai = mWorld.getComponent<ZombieAI>(zombie);
         ZombieAISystem::sendTo(ai, target, true);
@@ -440,8 +454,9 @@ void Game::updateFirstDays(float dtSeconds)
         record.sleptNight = night;
     }
 
-    // The night's callers, group by group.
-    if (night > 0)
+    // The night's callers, group by group. A horde night has none: the
+    // crowd is the night's danger, and quiet is the answer to it.
+    if (night > 0 && !isHordeNight(night))
     {
         if (record.night != night)
         {
@@ -452,7 +467,7 @@ void Game::updateFirstDays(float dtSeconds)
         // every mode; from night 2 the mode and tone set how many come.
         const float scale = night == 1 ? 1.0f
             : std::clamp(toneTuning(saveTonePresetFromIndex(mTitleToneIndex)).zombieCountScale *
-                             threatDirectorTuning(saveThreatModeFromIndex(mTitleModeIndex)).migrationScale,
+                             threatDirectorTuning(modeRules()).migrationScale,
                          0.75f, 1.5f);
         const int callers = std::max(1, static_cast<int>(std::lround(firstdays::nightCallers(night) * scale)));
         const std::vector<firstdays::CallerGroup> schedule = firstdays::callerSchedule(callers);

@@ -19,8 +19,9 @@ from PIL import Image, ImageDraw
 ATLAS_W = 1024
 ATLAS_H = 1024
 # The whole sheet; the characters fill the block to the right of the atlas.
+# Phase 4 doubled its height for the kinds of the dead (the lower half).
 SHEET_W = 4096
-SHEET_H = 2048
+SHEET_H = 4096
 
 # Tile sizes
 ISO_TILE_W = 64
@@ -248,6 +249,34 @@ def add_character_sprites(img, sprites):
             y = (slot // CHAR_BLOCK_COLS) * ENTITY_SIZE
             if y + ENTITY_SIZE > SHEET_H:
                 raise RuntimeError("character block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
+
+
+# The kinds of the dead (phase 4): Runner, Brute, Crawler, Screamer and the
+# Shambler's alert frame, in the lower half of the sheet, full width.
+KIND_BLOCK_Y = 2048
+KIND_BLOCK_COLS = SHEET_W // ENTITY_SIZE
+
+
+def add_kind_sprites(img, sprites):
+    import charrig
+
+    slot = 0
+    for name, frames in charrig.kind_frames():
+        if slot % KIND_BLOCK_COLS + len(frames) > KIND_BLOCK_COLS:
+            slot += KIND_BLOCK_COLS - slot % KIND_BLOCK_COLS
+        rects = []
+        for frame in frames:
+            x = (slot % KIND_BLOCK_COLS) * ENTITY_SIZE
+            y = KIND_BLOCK_Y + (slot // KIND_BLOCK_COLS) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("kind block is full")
             img.alpha_composite(frame, (x, y))
             rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
             slot += 1
@@ -717,6 +746,7 @@ def generate_atlas():
     add_item_icons(img, sprites)
     add_furniture_sprites(img, sprites)
     add_character_sprites(img, sprites)
+    add_kind_sprites(img, sprites)
     add_scenery_sprites(img, sprites)
     add_building_sprites(img, sprites)
     add_window_sprites(img, sprites)

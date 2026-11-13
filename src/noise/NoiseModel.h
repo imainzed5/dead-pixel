@@ -4,6 +4,8 @@
 #include <glm/vec4.hpp>
 
 #include <cstdint>
+#include <functional>
+#include <utility>
 #include <vector>
 
 #include "ecs/Types.h"
@@ -18,6 +20,16 @@ enum class NoiseTier
     Explosive = 5
 };
 
+// Who made a noise. The dead ignore their own kind's noises except a
+// Screamer's scream and the groan of one that is chasing (phase 4).
+enum class NoiseSource
+{
+    World = 0, // the living, things, doors being battered
+    Zombie,
+    Scream,
+    Groan
+};
+
 struct NoiseEvent
 {
     glm::vec2 worldPosition{0.0f, 0.0f};
@@ -26,6 +38,18 @@ struct NoiseEvent
     float totalDurationSeconds = 0.0f;
     Entity sourceEntity = kInvalidEntity;
     NoiseTier tier = NoiseTier::None;
+    NoiseSource source = NoiseSource::World;
+    // Made indoors: the building, and whether all its doors and windows were
+    // shut (then it carries one tier less outside).
+    int building = 0;
+    bool sealed = false;
+};
+
+// A loud noise leaves a place the dead linger at once they reach it.
+struct NoiseAttractor
+{
+    glm::vec2 worldPosition{0.0f, 0.0f};
+    float remainingSeconds = 0.0f;
 };
 
 class NoiseModel
@@ -36,7 +60,20 @@ public:
         const glm::vec2& worldPosition,
         NoiseTier tier,
         float durationSeconds,
-        Entity sourceEntity = kInvalidEntity);
+        Entity sourceEntity = kInvalidEntity,
+        NoiseSource source = NoiseSource::World);
+    void clear();
+
+    // Where a noise at a world position stands: (building id, shell shut).
+    // Set by the game; without it every noise is outdoors.
+    using ShellResolver = std::function<std::pair<int, bool>(const glm::vec2&)>;
+    void setShellResolver(ShellResolver resolver) { mShellResolver = std::move(resolver); }
+
+    [[nodiscard]] const std::vector<NoiseAttractor>& attractors() const { return mAttractors; }
+    // The attractor within `radius` world px of `at`, or nullptr.
+    [[nodiscard]] const NoiseAttractor* attractorNear(const glm::vec2& at, float radius) const;
+    static constexpr float kLoudAttractorSeconds = 60.0f;
+    static constexpr float kExplosiveAttractorSeconds = 180.0f;
 
     [[nodiscard]] float getNoiseAtPosition(const glm::vec2& worldPosition) const;
     [[nodiscard]] const std::vector<NoiseEvent>& activeEvents() const { return mActiveEvents; }
@@ -50,5 +87,7 @@ public:
 
 private:
     std::vector<NoiseEvent> mActiveEvents;
+    std::vector<NoiseAttractor> mAttractors;
+    ShellResolver mShellResolver;
     std::uint64_t mEmittedTotal = 0;
 };

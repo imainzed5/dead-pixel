@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <glm/vec2.hpp>
@@ -55,6 +57,23 @@ public:
     void update(float dtSeconds, const glm::vec2& wind, float gust, const std::vector<SceneryMover>& movers,
                 const TileMap& map, std::vector<glm::vec2>* rustled = nullptr);
     void drawFlat(SpriteBatch& batch, const Camera& camera, const SpriteSheet& sheet);
+
+    // A district's ruin (phase 4): litter, smears and bodies laid on the
+    // ground by the game from each district's ruin level. Drawn flat, under
+    // everything that stands; replaced whole at run start and each dawn.
+    struct RuinMark
+    {
+        glm::vec2 position{0.0f}; // the ground point, world pixels
+        std::string sprite;
+        int frame = 0;
+        glm::vec2 anchor{0.0f};   // sprite pixels from its top left to the ground point
+        float alpha = 1.0f;
+        glm::vec4 uv{0.0f};       // looked up on first draw
+        glm::vec2 size{0.0f};
+    };
+    void setRuin(std::vector<RuinMark> marks) { mRuin = std::move(marks); }
+    [[nodiscard]] const std::vector<RuinMark>& ruin() const { return mRuin; }
+
     void collect(const Camera& camera, const glm::ivec2& playerTile, const SpriteSheet& sheet,
                  std::vector<StaticSprite>& out);
 
@@ -121,4 +140,5 @@ private:
     float mClock = 0.0f;
     float mGust = 0.0f;
     bool mResolved = false; // the sprite sheet loads after the world
+    std::vector<RuinMark> mRuin;
 };

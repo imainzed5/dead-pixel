@@ -25,6 +25,17 @@
 
 namespace
 {
+// The build a blow meets: a Brute is heavy, a Crawler is already low.
+combatrules::Body bodyOf(const ZombieAI& ai)
+{
+    switch (ai.kind)
+    {
+    case ZombieKind::Brute: return combatrules::Body::Brute;
+    case ZombieKind::Crawler: return combatrules::Body::Crawler;
+    default: return combatrules::Body::Ordinary;
+    }
+}
+
 glm::vec2 entityCenter(const Transform& transform)
 {
     return glm::vec2(transform.x + 16.0f, transform.y + 16.0f);
@@ -369,13 +380,13 @@ void CombatSystem::updateHeld(World& world, const Input& input, Entity player, C
                 if (!ai.holding || h.current <= 0.0f) return;
                 const glm::vec2 zc = entityCenter(zt);
                 const combatrules::ShoveOutcome outcome = combatrules::shove(
-                    combatrules::Body::Ordinary, h.maximum > 0.0f ? h.current / h.maximum : 1.0f,
+                    bodyOf(ai), h.maximum > 0.0f ? h.current / h.maximum : 1.0f,
                     combatrules::fromBehind(zombieFacing(world, ze), zc - centre), false);
                 throwBack(ai, vel, unitOr(zc - centre, glm::vec2(1.0f, 0.0f)), outcome.distancePixels);
                 ai.stagger = std::max(ai.stagger, outcome.staggerSeconds);
                 ai.lastBlow = -1;
                 ai.hitFlash = 0.0f; // a shove draws no blood
-                if (outcome.falls) ZombieBlow::knockDown(ai, combatrules::downSeconds(combatrules::Body::Ordinary));
+                if (outcome.falls) ZombieBlow::knockDown(ai, combatrules::downSeconds(bodyOf(ai)));
             });
         combat.struggle = 0.0f;
         combat.holders = 0;
@@ -643,7 +654,7 @@ void CombatSystem::resolveShove(World& world, const TileMap& tileMap, NoiseModel
             }
             const glm::vec2 dir = unitOr(zc - playerCenter, glm::vec2(std::cos(facingRadians), std::sin(facingRadians)));
             const combatrules::ShoveOutcome outcome = combatrules::shove(
-                combatrules::Body::Ordinary, h.maximum > 0.0f ? h.current / h.maximum : 1.0f,
+                bodyOf(ai), h.maximum > 0.0f ? h.current / h.maximum : 1.0f,
                 combatrules::fromBehind(zombieFacing(world, ze), zc - playerCenter), exhausted);
             if (outcome.distancePixels <= 0.0f) return;
             ++combat.lastHitCount;
@@ -674,7 +685,7 @@ void CombatSystem::resolveShove(World& world, const TileMap& tileMap, NoiseModel
             }
             if (outcome.falls)
             {
-                ZombieBlow::knockDown(ai, combatrules::downSeconds(combatrules::Body::Ordinary));
+                ZombieBlow::knockDown(ai, combatrules::downSeconds(bodyOf(ai)));
             }
             pushed.push_back(Pushed{ze, zc, to});
         });
@@ -787,7 +798,7 @@ void CombatSystem::resolveSwing(World& world, const TileMap& tileMap, NoiseModel
                 if (!killed && (wasDown || combatrules::blowKnocksDown(combat.weapon, dealt)))
                 {
                     ZombieBlow::knockDown(zombieAI, wasDown ? std::max(zombieAI.downTimer, 0.6f)
-                                                            : combatrules::downSeconds(combatrules::Body::Ordinary));
+                                                            : combatrules::downSeconds(bodyOf(zombieAI)));
                 }
 
                 if (!stuck && mDist(mRng) < combatrules::stickChance(combat.weapon, dealt, killed))
@@ -944,7 +955,7 @@ void CombatSystem::resolveShot(World& world, const TileMap& tileMap, NoiseModel&
         const float distance = glm::length(entityCenter(world.getComponent<Transform>(zombie)) - playerCenter);
         if (world.getComponent<Health>(zombie).current > 0.0f && combatrules::pelletsFell(taken, distance, tile))
         {
-            ZombieBlow::knockDown(ai, combatrules::downSeconds(combatrules::Body::Ordinary));
+            ZombieBlow::knockDown(ai, combatrules::downSeconds(bodyOf(ai)));
         }
     }
 

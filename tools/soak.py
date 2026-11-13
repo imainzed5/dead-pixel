@@ -7,6 +7,7 @@ balance. Run from the repository root after a build:
 
     python tools/soak.py --exe build/dead_pixel_survival.exe
     python tools/soak.py --exe build/dead_pixel_survival.exe --seeds 1-3 --jobs 3 --profile careful
+    python tools/soak.py --exe build/dead_pixel_survival.exe --mode stalker
 
 Each run needs the UCRT64 bin directory on PATH (the game's DLLs). Runs that
 crash, time out or report a stuck bot (FAIL) are marked and make the exit
@@ -98,6 +99,8 @@ def main():
                         help="harness script, relative to the repository (copied into each run)")
     parser.add_argument("--profile", choices=["careful", "normal", "bold"],
                         help="rewrite the script's bot line to this profile")
+    parser.add_argument("--mode", choices=["swarm", "stalker", "mutating", "society", "unknown", "hybrid"],
+                        help="play the runs in this threat mode (a mode line before the script's newrun)")
     parser.add_argument("--jobs", type=int, default=2, help="runs at once")
     parser.add_argument("--timeout", type=int, default=3600, help="seconds per run")
     parser.add_argument("--work", default=None, help="where the run directories go (default: a temp dir)")
@@ -112,18 +115,23 @@ def main():
     os.makedirs(workroot, exist_ok=True)
 
     script = args.script.replace("\\", "/")
-    if args.profile:
+    if args.profile or args.mode:
         with open(os.path.join(REPO, args.script), encoding="utf-8") as f:
             lines = f.read().splitlines()
-        lines = [("bot %s %s" % (args.profile, l.split()[2] if len(l.split()) > 2 else "7"))
-                 if l.strip().startswith("bot ") else l for l in lines]
+        if args.profile:
+            lines = [("bot %s %s" % (args.profile, l.split()[2] if len(l.split()) > 2 else "7"))
+                     if l.strip().startswith("bot ") else l for l in lines]
+        if args.mode:
+            at = next((i for i, l in enumerate(lines) if l.strip() == "newrun"), 0)
+            lines.insert(at, "mode %s" % args.mode)
         custom = os.path.join(workroot, "soak_script.txt")
         with open(custom, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
         script = custom
 
     seeds = parse_seeds(args.seeds)
-    print("soak: %d seed(s), %d at once, runs in %s" % (len(seeds), args.jobs, workroot))
+    print("soak: %d seed(s), %d at once, %s, runs in %s" % (len(seeds), args.jobs,
+                                                         "mode " + args.mode if args.mode else "default mode", workroot))
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         futures = [pool.submit(run_seed, exe, s, script, workroot, args.timeout, args.keep) for s in seeds]

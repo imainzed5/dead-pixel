@@ -177,6 +177,7 @@ class Frame:
         self.dep = [-1e9] * n
         self.grp = [0] * n
         self.under = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+        self.rscale = 1.0       # thickens (a Brute) or thins (a Runner) every part but the head
 
     # -- transforms ---------------------------------------------------------
 
@@ -206,7 +207,8 @@ class Frame:
         function (t, tone) -> rgb. flat skips the round shading (decals)."""
         ax, ay, ad = self.project(a)
         bx, by, bd = self.project(b)
-        r_end = r if r_end is None else r_end
+        r_end = (r if r_end is None else r_end) * self.rscale
+        r = r * self.rscale
         rmax = max(r, r_end)
         dx, dy = bx - ax, by - ay
         l2 = dx * dx + dy * dy
@@ -705,6 +707,227 @@ def pose_death(f, n, weapon=None):
     return _fall(p, f, ((-8.5, -1.0, 20.0), (8.5, -1.5, 23.0)))
 
 
+def zpose_alert(f, n, weapon=None):
+    """Something caught its eye: the head comes up off the chest."""
+    p = base_pose(True)
+    p.update(chest=(0.3, 1.6, 24.4), head=(0.4, 3.0, 31.4), nod=-0.22,
+             hand_l=(-3.8, 8.0, 22.5), hand_r=(4.0, 8.6, 23.8))
+    return p
+
+
+# -- the kinds (phase 4) ------------------------------------------------------
+#
+# Each kind has a build (scales on the skeleton) and a skin tint, applied to
+# all three clothing looks, and pose functions of its own where its movement
+# differs. A Runner leans; a Brute is broad and heavy; a Crawler lies along
+# the ground; a Screamer hangs its arms and throws its head back.
+
+def _tint(ramp, fn):
+    return tuple(tuple(max(0, min(255, int(v))) for v in fn(c)) for c in ramp)
+
+
+def _redder(c):
+    return (c[0] + 26, c[1] - 14, c[2] - 12)
+
+
+def _greyer(c):
+    g = 0.30 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+    return tuple((g * 0.7 + v * 0.3) * 0.90 for v in c)
+
+
+def _paler(c):
+    return tuple(v * 0.45 + w * 0.55 for v, w in zip(c, (228, 228, 216)))
+
+
+KIND_STYLE = {
+    "runner": dict(build=dict(sx=0.86, sy=0.92, sz=1.02, bulk=0.84, limb=1.02), tint=_redder),
+    "brute": dict(build=dict(sx=1.25, sy=1.18, sz=1.08, bulk=1.34, limb=1.08), tint=_greyer),
+    "crawler": dict(build=dict(), tint=None),
+    "screamer": dict(build=dict(sx=0.92, sy=0.95, sz=1.03, bulk=0.88, limb=1.03), tint=_paler),
+}
+
+
+def kind_looks(kind):
+    style = KIND_STYLE[kind]
+    looks = []
+    for base in ZOMBIE_LOOKS:
+        look = dict(base)
+        look["build"] = style["build"]
+        if style["tint"] is not None:
+            look["skin"] = _tint(base["skin"], style["tint"])
+        looks.append(look)
+    return looks
+
+
+# Runner: a forward lean even at rest, a sprint with the arms reaching.
+
+def _lean(p, amount=1.0):
+    for k, dy, dz in (("chest", 1.6, -0.4), ("head", 2.6, -0.9)):
+        q = p[k]
+        p[k] = (q[0], q[1] + dy * amount, q[2] + dz * amount)
+    return p
+
+
+def rpose_idle(f, n, weapon=None):
+    return _lean(zpose_idle(f, n))
+
+
+def rpose_walk(f, n, weapon=None):
+    return _lean(zpose_walk(f, n))
+
+
+def rpose_alert(f, n, weapon=None):
+    """The start: the head snaps up, the hands come up off the sides."""
+    p = base_pose(True)
+    p.update(chest=(0.0, 0.8, 24.8), head=(0.0, 1.6, 32.0), nod=-0.42, mouth_open=True,
+             hand_l=(-5.6, 5.0, 22.0), hand_r=(5.8, 5.4, 22.6),
+             foot_l=(-3.0, 1.2, 0.0), foot_r=(3.0, -1.6, 0.0))
+    return p
+
+
+def rpose_run(f, n, weapon=None):
+    ph = 2.0 * math.pi * f / n
+    s = math.sin(ph)
+    p = base_pose(True)
+    p.update(hip=(0.0, 1.0, 13.0), chest=(0.0, 5.4, 22.2), head=(0.0, 8.6, 27.4), nod=0.05,
+             mouth_open=True)
+    p = _gait(p, ph, stride=7.0, lift=5.0, bob=1.4, arm=0.0, twist=0.26)
+    p["hand_l"] = (-4.2, 10.0 + 3.4 * s, 20.0 + 1.2 * s)
+    p["hand_r"] = (4.4, 10.0 - 3.4 * s, 20.0 - 1.2 * s)
+    return p
+
+
+# Brute: arms hanging wide and low, a short heavy step with a big bob.
+
+def _brute_arms(p, s=0.0):
+    p["hand_l"] = (-5.0, 5.0 + 0.8 * s, 16.0 + 0.6 * s)
+    p["hand_r"] = (5.2, 5.6 - 0.8 * s, 16.6 - 0.6 * s)
+    return p
+
+
+def bpose_idle(f, n, weapon=None):
+    p = zpose_idle(f, n)
+    return _brute_arms(p, math.sin(2.0 * math.pi * f / n))
+
+
+def bpose_walk(f, n, weapon=None):
+    ph = 2.0 * math.pi * f / n
+    s = math.sin(ph)
+    p = base_pose(True)
+    p["hip"] = (s * 0.9, 0.0, 14.0)
+    p["chest"] = (0.5 + s * 1.3, 2.0, 24.0)
+    p["head"] = (0.9 + s * 1.6, 3.8, 30.0)
+    p = _gait(p, ph, stride=3.0, lift=2.4, bob=1.8, arm=0.0, twist=0.16, drag=0.8)
+    return _brute_arms(p, s)
+
+
+def bpose_alert(f, n, weapon=None):
+    return _brute_arms(zpose_alert(f, n))
+
+
+# Screamer: arms down at the sides; the scream throws the head back.
+
+def _screamer_arms(p, s=0.0):
+    p["hand_l"] = (-4.8, 1.2 + 0.6 * s, 14.4)
+    p["hand_r"] = (5.0, 1.0 - 0.6 * s, 14.2)
+    return p
+
+
+def spose_idle(f, n, weapon=None):
+    p = zpose_idle(f, n)
+    p["nod"] = 0.5
+    return _screamer_arms(p)
+
+
+def spose_walk(f, n, weapon=None):
+    ph = 2.0 * math.pi * f / n
+    p = zpose_walk(f, n)
+    p["nod"] = 0.5
+    return _screamer_arms(p, math.sin(ph))
+
+
+def spose_alert(f, n, weapon=None):
+    return _screamer_arms(zpose_alert(f, n))
+
+
+def spose_scream(f, n, weapon=None):
+    """Three frames: the head goes back, the jaw drops, the chest swells."""
+    k = (0.5, 1.0, 1.0)[min(f, 2)]
+    p = base_pose(True)
+    p.update(hip=(0.0, 0.0, 14.0),
+             chest=(0.0, -0.6 * k, 24.4 + 0.6 * k),
+             head=(0.0, -1.6 * k, 31.0 + 0.6 * k),
+             nod=-0.95 * k, mouth_open=True,
+             foot_l=(-3.0, 0.4, 0.0), foot_r=(3.0, -0.4, 0.0))
+    p = _screamer_arms(p)
+    if f == 2:
+        p["hand_l"] = (-5.6, 0.6, 14.8)
+        p["hand_r"] = (5.8, 0.4, 14.6)
+    return p
+
+
+# Crawler: prone, dragging itself on its arms, the legs trailing.
+
+def _prone(**kw):
+    p = base_pose(True)
+    p.update(prone=True, hip=(0.0, -2.0, 3.2), chest=(0.0, 6.0, 4.6), head=(0.0, 11.4, 6.6),
+             nod=0.12, foot_l=(-2.4, -14.4, 0.2), foot_r=(2.4, -14.0, 0.2),
+             hand_l=(-5.0, 14.0, 1.4), hand_r=(5.0, 11.0, 1.4),
+             knee_hint=(0.0, 0.0, 1.0), elbow_hint=(1.0, 0.0, 1.0), toe=(0.0, -0.6, -1.4))
+    p.update(kw)
+    return p
+
+
+def cpose_idle(f, n, weapon=None):
+    up = 0.5 * (f % 2)
+    return _prone(head=(0.0, 11.4, 6.6 + up), chest=(0.0, 6.0, 4.6 + up * 0.4))
+
+
+def cpose_walk(f, n, weapon=None):
+    ph = 2.0 * math.pi * f / n
+    s, c = math.sin(ph), math.cos(ph)
+    return _prone(chest=(0.3 * s, 6.0, 4.6 + 0.4 * abs(s)),
+                  head=(0.5 * s, 11.4, 6.6 + 0.5 * abs(s)),
+                  hip=(-0.4 * s, -2.0, 3.2),
+                  hand_l=(-5.0, 11.0 + 5.0 * s, 1.4 + 1.6 * max(0.0, c)),
+                  hand_r=(5.0, 11.0 - 5.0 * s, 1.4 + 1.6 * max(0.0, -c)),
+                  foot_l=(-2.4 - 0.8 * s, -14.4, 0.2),
+                  foot_r=(2.4 - 0.8 * s, -14.0, 0.2))
+
+
+def cpose_alert(f, n, weapon=None):
+    return _prone(chest=(0.0, 5.6, 6.0), head=(0.0, 10.4, 9.4), nod=-0.25,
+                  hand_l=(-4.6, 10.0, 0.8), hand_r=(4.6, 9.6, 0.8))
+
+
+def cpose_lunge(f, n, weapon=None):
+    frames = [
+        dict(chest=(0.0, 4.6, 5.6), head=(0.0, 9.6, 8.2), hand_l=(-4.6, 8.0, 0.8), hand_r=(4.6, 8.0, 0.8)),
+        dict(chest=(0.0, 3.8, 6.2), head=(0.0, 8.6, 9.0), nod=-0.2, mouth_open=True,
+             hand_l=(-4.6, 7.0, 0.8), hand_r=(4.6, 7.0, 0.8)),
+        dict(chest=(0.0, 8.6, 5.4), head=(0.0, 14.6, 6.8), mouth_open=True,
+             hand_l=(-3.6, 17.0, 2.6), hand_r=(3.8, 16.4, 3.2)),
+        dict(chest=(0.0, 9.0, 5.0), head=(0.0, 15.0, 6.0), nod=0.3, mouth_open=True,
+             hand_l=(-3.4, 16.0, 1.4), hand_r=(3.6, 15.6, 1.6)),
+        dict(chest=(0.0, 7.0, 4.8), head=(0.0, 12.4, 6.6), hand_l=(-4.8, 13.0, 1.4), hand_r=(4.8, 11.6, 1.4)),
+    ]
+    return _prone(**frames[min(f, 4)])
+
+
+def cpose_stagger(f, n, weapon=None):
+    return _prone(chest=(0.0, 4.8, 5.6), head=(0.0, 9.0, 8.4), nod=-0.4, mouth_open=True,
+                  hand_l=(-6.0, 9.0, 2.0), hand_r=(6.0, 8.6, 2.4))
+
+
+def cpose_death(f, n, weapon=None):
+    t = min(f, 4) / 4.0
+    return _prone(chest=(0.0, 6.0, 4.6 - 1.4 * t), head=(0.0, 11.4, 6.6 - 2.6 * t), nod=0.12 + 0.5 * t,
+                  mouth_open=True,
+                  hand_l=lerp3((-5.0, 14.0, 1.4), (-8.0, 8.0, 1.0), t),
+                  hand_r=lerp3((5.0, 11.0, 1.4), (8.4, 6.0, 1.0), t),
+                  pool=(0.0, 0.0, 0.0, 0.25, 0.65, 1.0)[min(f, 5)])
+
+
 # ---------------------------------------------------------------------------
 # Drawing a posed figure
 # ---------------------------------------------------------------------------
@@ -718,19 +941,34 @@ def draw(look, pose, view):
     skin, top, legs, shoes = look["skin"], look["top"], look["legs"], look["shoes"]
     tw = pose["twist"]
 
+    # A kind's build: wider or narrower across, taller, thicker limbs.
+    build = look.get("build", {})
+    bx, by, bz = build.get("sx", 1.0), build.get("sy", 1.0), build.get("sz", 1.0)
+    limb = build.get("limb", 1.0)
+    fr.rscale = build.get("bulk", 1.0)
+
+    def S(p):
+        return (p[0] * bx, p[1] * by, p[2] * bz)
+
+    pose = dict(pose)
+    for k in ("hip", "chest", "head", "foot_l", "foot_r", "hand_l", "hand_r"):
+        pose[k] = S(pose[k])
+
     hip, chest, head = pose["hip"], pose["chest"], pose["head"]
-    sh_l = add(chest, rot_z((-3.9, 0.0, 0.4), tw))
-    sh_r = add(chest, rot_z((3.9, 0.0, 0.4), tw))
-    hp_l = add(hip, (-2.2, 0.0, 0.0))
-    hp_r = add(hip, (2.2, 0.0, 0.0))
+    sh_l = add(chest, rot_z((-3.9 * bx, 0.0, 0.4), tw))
+    sh_r = add(chest, rot_z((3.9 * bx, 0.0, 0.4), tw))
+    hp_l = add(hip, (-2.2 * bx, 0.0, 0.0))
+    hp_r = add(hip, (2.2 * bx, 0.0, 0.0))
+    knee_hint = pose.get("knee_hint", (0.0, 1.0, 0.15))
+    toe_dir = pose.get("toe", (0.0, 2.4, -0.5))
 
     # Which side is nearer the viewer decides the group, for contact shading.
     def leg(side_hip, foot, group):
         ankle = add(foot, (0.0, 0.0, 1.6))
-        knee, ankle = ik(side_hip, ankle, 6.5, 6.5, (0.0, 1.0, 0.15))
+        knee, ankle = ik(side_hip, ankle, 6.5 * limb, 6.5 * limb, knee_hint)
         fr.capsule(side_hip, knee, 2.0, legs, group, r_end=1.7)
         fr.capsule(knee, ankle, 1.7, legs, group, r_end=1.5)
-        toe = add(ankle, (0.0, 2.4, -0.5))
+        toe = add(ankle, toe_dir)
         fr.capsule(add(ankle, (0.0, -0.3, -0.4)), toe, 1.45, shoes, group)
 
     lx = fr.project(hp_l)[2]
@@ -774,8 +1012,11 @@ def draw(look, pose, view):
 
     fr.head(head, look, G_HEAD, yaw=pose["head_yaw"], mouth_open=pose["mouth_open"], nod=pose["nod"])
 
+    elbow_hint = pose.get("elbow_hint", (0.5, -1.0, -0.45))
+
     def arm(shoulder, hand, group, side):
-        elbow, hand = ik(shoulder, hand, 5.4, 5.4, (0.5 * side, -1.0, -0.45))
+        elbow, hand = ik(shoulder, hand, 5.4 * limb, 5.4 * limb,
+                         (elbow_hint[0] * side, elbow_hint[1], elbow_hint[2]))
         if zombie and look["sleeves"] == "short":
             fr.capsule(shoulder, lerp3(shoulder, elbow, 0.6), 1.6, top, group)
             fr.capsule(lerp3(shoulder, elbow, 0.6), elbow, 1.4, skin, group)
@@ -830,8 +1071,14 @@ def draw(look, pose, view):
         cpx, cpy, _ = fr.project((chest[0], chest[1], chest[2] * 0.85))
         fr.ground_ellipse(cpx, cpy + 1.0, 4.0 + 9.0 * k, 2.0 + 3.6 * k, BLOOD[2] + (215,))
         fr.ground_ellipse(cpx - 1.0, cpy + 1.0, 2.0 + 6.5 * k, 1.0 + 2.4 * k, BLOOD[1] + (225,))
+    elif pose.get("prone"):
+        # Lying along the ground: a long shadow under the whole body.
+        a = fr.project((0.0, -6.0, 0.0))
+        b = fr.project((0.0, 9.0, 0.0))
+        for t in (0.0, 0.25, 0.5, 0.75, 1.0):
+            fr.ground_ellipse(lerp(a[0], b[0], t), lerp(a[1], b[1], t), 5.5, 2.4, SHADOW_RGBA)
     else:
-        fr.ground_ellipse(scx, scy, 9.0 + 3.0 * fall, 2.6 + 0.8 * fall, SHADOW_RGBA)
+        fr.ground_ellipse(scx, scy, (9.0 + 3.0 * fall) * bx, 2.6 + 0.8 * fall, SHADOW_RGBA)
     return fr.finish()
 
 
@@ -884,6 +1131,58 @@ def character_frames():
                        [draw(look, fn(f, count), view) for f in range(count)])
 
 
+# The kinds (phase 4): kind -> {move: (pose function, frame count)}. The
+# Shambler is the "zombie" set above plus its alert frame. A Crawler is drawn
+# for two facings only (the game mirrors them for the rest).
+KIND_MOVES = {
+    "runner": dict(idle=(rpose_idle, 2), walk=(rpose_walk, 8), run=(rpose_run, 6), alert=(rpose_alert, 1),
+                   lunge=(zpose_lunge, 5), stagger=(zpose_stagger, 2), death=(zpose_death, 6)),
+    "brute": dict(idle=(bpose_idle, 2), walk=(bpose_walk, 8), alert=(bpose_alert, 1),
+                  lunge=(zpose_lunge, 5), stagger=(zpose_stagger, 2), death=(zpose_death, 6)),
+    "crawler": dict(idle=(cpose_idle, 2), walk=(cpose_walk, 8), alert=(cpose_alert, 1),
+                    lunge=(cpose_lunge, 5), stagger=(cpose_stagger, 1), death=(cpose_death, 6)),
+    "screamer": dict(idle=(spose_idle, 2), walk=(spose_walk, 8), alert=(spose_alert, 1), scream=(spose_scream, 3),
+                     lunge=(zpose_lunge, 5), stagger=(zpose_stagger, 2), death=(zpose_death, 6)),
+}
+KIND_VIEWS = {"crawler": ("se", "ne")}
+
+
+def kind_frames():
+    """Yield (sprite name, [frames]) for the Shambler's alert frame and every
+    animation of the other kinds."""
+    for view in VIEW_ORDER:
+        for i, look in enumerate(ZOMBIE_LOOKS):
+            yield (f"zombie{i}_alert_{view}", [draw(look, zpose_alert(0, 1), view)])
+    for kind, moves in KIND_MOVES.items():
+        for view in KIND_VIEWS.get(kind, VIEW_ORDER):
+            for i, look in enumerate(kind_looks(kind)):
+                for move, (fn, count) in moves.items():
+                    yield (f"{kind}{i}_{move}_{view}",
+                           [draw(look, fn(f, count), view) for f in range(count)])
+
+
+def kinds_preview(path, scale=3):
+    """python tools/charrig.py --kinds out.png: the five kinds side by side
+    in every move, for looking at."""
+    rows = []
+    shambler = [draw(ZOMBIE_LOOKS[0], zpose_idle(0, 2), v) for v in VIEW_ORDER]
+    rows.append(shambler + [draw(ZOMBIE_LOOKS[0], zpose_alert(0, 1), v) for v in VIEW_ORDER])
+    for kind, moves in KIND_MOVES.items():
+        looks = kind_looks(kind)
+        for v in KIND_VIEWS.get(kind, VIEW_ORDER)[:2]:
+            row = []
+            for j, (move, (fn, count)) in enumerate(moves.items()):
+                row += [draw(looks[j % 3], fn(f, count), v) for f in range(count)]
+            rows.append(row)
+    w = max(len(r) for r in rows) * SIZE
+    sheet = Image.new("RGBA", (w, len(rows) * SIZE), (74, 98, 62, 255))
+    for j, r in enumerate(rows):
+        for i, frame in enumerate(r):
+            sheet.alpha_composite(frame, (i * SIZE, j * SIZE))
+    sheet = sheet.resize((sheet.width * scale, sheet.height * scale), Image.NEAREST)
+    sheet.save(path)
+
+
 # ---------------------------------------------------------------------------
 # Preview: python tools/charrig.py out.png [scale]
 # ---------------------------------------------------------------------------
@@ -919,5 +1218,8 @@ def preview(path, scale=4):
 
 if __name__ == "__main__":
     import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--kinds":
+        kinds_preview(sys.argv[2] if len(sys.argv) > 2 else "kinds_preview.png")
+        sys.exit(0)
     preview(sys.argv[1] if len(sys.argv) > 1 else "charrig_preview.png",
             int(sys.argv[2]) if len(sys.argv) > 2 else 4)

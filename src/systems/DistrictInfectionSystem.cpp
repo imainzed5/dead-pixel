@@ -138,3 +138,14 @@ bool DistrictInfectionSystem::isOverwhelmed(int districtId) const
     }
     return false;
 }
+
+void DistrictInfectionSystem::setInfection(int districtId, float infection)
+{
+    for (auto& di : mDistricts)
+    {
+        if (di.districtId != districtId) continue;
+        di.infection = std::clamp(infection, 0.0f, 100.0f);
+        di.overwhelmed = di.infection >= kOverwhelmedThreshold;
+        return;
+    }
+}

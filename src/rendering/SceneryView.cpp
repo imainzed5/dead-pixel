@@ -284,6 +284,24 @@ void SceneryView::drawFlat(SpriteBatch& batch, const Camera& camera, const Sprit
         }
         batch.draw(topLeft, size, entry.uv, glm::vec4(1.0f));
     }
+    for (RuinMark& mark : mRuin)
+    {
+        if (mark.size.x <= 0.0f)
+        {
+            if (sheet.find(mark.sprite) == nullptr) continue;
+            mark.uv = sheet.frameUv(mark.sprite, mark.frame);
+            mark.size = sheet.pixelSize(mark.sprite);
+            if (mark.anchor.x < 0.0f) mark.anchor = mark.size * 0.5f; // centred on its point
+        }
+        const glm::vec2 ground = camera.worldToScreen(mark.position);
+        const glm::vec2 size = mark.size * zoom;
+        const glm::vec2 topLeft(std::round(ground.x - mark.anchor.x * zoom), std::round(ground.y - mark.anchor.y * zoom));
+        if (topLeft.x + size.x < 0.0f || topLeft.x > viewport.x || topLeft.y + size.y < 0.0f || topLeft.y > viewport.y)
+        {
+            continue;
+        }
+        batch.draw(topLeft, size, mark.uv, glm::vec4(1.0f, 1.0f, 1.0f, mark.alpha));
+    }
 }
 
 void SceneryView::collect(const Camera& camera, const glm::ivec2& playerTile, const SpriteSheet& sheet,

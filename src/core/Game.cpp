@@ -386,23 +386,7 @@ RunCheckpoint Game::buildRunCheckpoint()
             record.lifeRemaining = fire.lifeRemaining;
             cp.fires.push_back(record);
         });
-    cp.zombiesSaved = true;
-    mWorld.forEach<ZombieAI, Transform, Health>(
-        [&](Entity zombie, ZombieAI& ai, Transform& transform, Health& health)
-        {
-            if (health.current <= 0.0f || mWorld.hasComponent<LegacyLink>(zombie)) return;
-            ZombieRecord record;
-            record.x = transform.x;
-            record.y = transform.y;
-            record.health = health.current;
-            record.maxHealth = health.maximum;
-            record.baseMoveSpeed = ai.baseMoveSpeed;
-            record.spawnDay = ai.spawnDay;
-            cp.zombies.push_back(record);
-        });
-    mWorld.forEach<Corpse, Transform, Sprite>(
-        [&](Entity, Corpse& corpse, Transform& transform, Sprite& sprite)
-        { cp.corpses.push_back(CorpseRecord{transform.x, transform.y, sprite.flipX, corpse.look, corpse.dir}); });
+    recordTheDead(cp);
     cp.firstDaysSaved = true;
     cp.firstDays = firstDaysRecord();
     cp.windowsSaved = true;
@@ -420,6 +404,7 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
     }
 
     syncLegacyToSave();
+    saveDistrictMemory();
 
     const bool ok = mSaveManager.saveCheckpoint(buildRunCheckpoint());
     if (ok)
@@ -668,35 +653,29 @@ void Game::startNewRun()
         switch (saveThreatModeFromIndex(mTitleModeIndex))
         {
         case SaveThreatMode::OverwhelmingSwarm:
-            duplicateTo(mSpawnData.zombieSpawns, 1.45f);
             reduceTo(mSpawnData.foodSpawns, 0.88f);
             reduceTo(mSpawnData.waterSpawns, 0.90f);
             break;
         case SaveThreatMode::Stalker:
-            reduceTo(mSpawnData.zombieSpawns, 0.68f);
             duplicateTo(mSpawnData.weaponSpawns, 1.10f);
             break;
         case SaveThreatMode::MutatingThreat:
-            duplicateTo(mSpawnData.zombieSpawns, 1.18f);
             reduceTo(mSpawnData.bandageSpawns, 0.85f);
             break;
         case SaveThreatMode::InfectedSociety:
-            reduceTo(mSpawnData.zombieSpawns, 0.82f);
             reduceTo(mSpawnData.foodSpawns, 0.92f);
             break;
         case SaveThreatMode::Unknown:
         {
             std::uniform_real_distribution<float> ratioDist(0.75f, 1.35f);
-            const float zRatio = ratioDist(runRng);
+            (void)ratioDist(runRng); // was the dead's count; kept so the supplies roll as before
             const float foodRatio = ratioDist(runRng);
             const float waterRatio = ratioDist(runRng);
-            if (zRatio >= 1.0f) duplicateTo(mSpawnData.zombieSpawns, zRatio); else reduceTo(mSpawnData.zombieSpawns, zRatio);
             if (foodRatio >= 1.0f) duplicateTo(mSpawnData.foodSpawns, foodRatio); else reduceTo(mSpawnData.foodSpawns, foodRatio);
             if (waterRatio >= 1.0f) duplicateTo(mSpawnData.waterSpawns, waterRatio); else reduceTo(mSpawnData.waterSpawns, waterRatio);
             break;
         }
         case SaveThreatMode::Hybrid:
-            duplicateTo(mSpawnData.zombieSpawns, 1.32f);
             reduceTo(mSpawnData.foodSpawns, 0.82f);
             reduceTo(mSpawnData.bandageSpawns, 0.82f);
             break;
@@ -715,7 +694,10 @@ void Game::startNewRun()
             scaleTo(*supplies, tone.suppliesScale);
         }
         scaleTo(mSpawnData.weaponSpawns, tone.weaponScale);
-        scaleTo(mSpawnData.zombieSpawns, tone.zombieCountScale);
+        // The dead: the mode's population (zombies.json), then the tone's,
+        // then what the last life cleared.
+        scaleTo(mSpawnData.zombieSpawns, modeRules().population * tone.zombieCountScale);
+        reduceStartingDead();
     }
 
     ensureCampaignObjective();

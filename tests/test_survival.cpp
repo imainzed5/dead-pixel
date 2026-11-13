@@ -8,6 +8,7 @@
 #include <glm/geometric.hpp>
 
 #include "components/Bleeding.h"
+#include "components/Corpse.h"
 #include "components/Combat.h"
 #include "components/Facing.h"
 #include "components/Health.h"
@@ -59,6 +60,7 @@ struct SurvivalWorld
         world.registerComponent<Stamina>();
         world.registerComponent<Wounds>();
         world.registerComponent<Bleeding>();
+        world.registerComponent<Corpse>();
 
         map.resize(width, height, 32, 32);
 
@@ -69,6 +71,19 @@ struct SurvivalWorld
         world.addComponent(player, MentalState{});
         world.addComponent(player, Traits{});
         world.addComponent(player, Wounds{});
+    }
+
+    // One tick at noon on day 1 for the dead.
+    ZombieTick tick()
+    {
+        ZombieTick t;
+        t.tileMap = &map;
+        t.noise = &noise;
+        t.player = player;
+        t.dt = 1.0f / 60.0f;
+        t.hours = 12.0;
+        t.day = 1;
+        return t;
     }
 
     static Transform tileTransform(int tx, int ty)
@@ -430,7 +445,7 @@ DP_TEST(zombie_attacks_are_survivable_lunges)
 
     for (int i = 0; i < 600; ++i) // 10 s at 60 Hz
     {
-        ai.update(w.world, w.map, w.noise, w.player, 1.0f / 60.0f, 12.0, 1, nullptr);
+        ai.update(w.world, w.tick());
         // A grab is met by tearing free at once (the struggle is the
         // combat system's): what is left are the claws.
         w.world.getComponent<ZombieAI>(z).holding = false;
@@ -458,13 +473,13 @@ DP_TEST(zombie_lunge_can_be_dodged)
     zt.y = pt.y;
 
     // Let the lunge start, then step well out of reach before it lands.
-    ai.update(w.world, w.map, w.noise, w.player, 1.0f / 60.0f, 12.0, 1, nullptr);
+    ai.update(w.world, w.tick());
     DP_CHECK(w.world.getComponent<ZombieAI>(z).attackWindup > 0.0f);
     pt.x -= 3.0f * kTile;
     pt.prevX = pt.x;
     for (int i = 0; i < 40; ++i)
     {
-        ai.update(w.world, w.map, w.noise, w.player, 1.0f / 60.0f, 12.0, 1, nullptr);
+        ai.update(w.world, w.tick());
         zt.x = pt.x + 3.0f * kTile + 10.0f; // the zombie stays where it lunged
         zt.y = pt.y;
     }

@@ -144,7 +144,8 @@ void Game::update(float dtSeconds)
     }
     mPanicDrift = glm::vec2(0.0f);
 
-    if (playerAlive && !mShowCrafting && !mContainerOpen)
+    // Knocked down by a Brute: no walking, no swinging, until you are up.
+    if (playerAlive && !mShowCrafting && !mContainerOpen && !playerKnockedDown())
     {
         mInputSystem.update(mWorld, mInput, mMouseWorld, feelDt);
     }
@@ -323,13 +324,15 @@ void Game::update(float dtSeconds)
     playerAlive = false;
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
     {
-        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        // The harness's god mode: a crowd's bites in one tick cannot kill.
+        if (mDevGodMode) health.current = std::max(health.current, health.maximum);
         playerAlive = health.current > 0.0f;
     }
 
     if (!playerAlive)
     {
-        std::string cause = "Killed by zombies";
+        std::string cause = zombieDeathCause();
 
         bool diedInFire = false;
         if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
@@ -366,7 +369,8 @@ void Game::update(float dtSeconds)
         {
             cause = "Bled out";
         }
-        else if (cause == "Killed by zombies" && mPlayerEntity != kInvalidEntity &&
+        else if (!diedInFire && cause != "Dehydrated" && cause != "Starved" &&
+                 mPlayerEntity != kInvalidEntity &&
                  mWorld.hasComponent<Wounds>(mPlayerEntity) &&
                  hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity)))
         {
@@ -479,7 +483,8 @@ void Game::update(float dtSeconds)
 
         // E with nothing else in reach: approach the nearest survivor (G
         // throws now).
-        if (mInput.wasKeyPressed(SDL_SCANCODE_E) && mProximityPrompt.empty())
+        if (mInput.wasKeyPressed(SDL_SCANCODE_E) && mProximityPrompt.empty() && !mContainerOpen &&
+            !searchNearestCorpse())
         {
             auto result = mSurvivorInteractionSystem.tryApproach(mWorld, mPlayerEntity);
             if (!result.message.empty())
@@ -526,7 +531,7 @@ void Game::update(float dtSeconds)
         : AttackPhase::Idle;
 
     if (!mShowCrafting && !mContainerOpen && !drivingVehicle && !mBuildWheelOpen && mBuildChoice < 0 &&
-        mBaseAction.kind == BaseAction::Kind::None)
+        mBaseAction.kind == BaseAction::Kind::None && !playerKnockedDown())
     {
         mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, feelDt);
         syncEquippedWeapon();
@@ -587,6 +592,7 @@ void Game::update(float dtSeconds)
             });
         for (const Fallen& fallen : dead)
         {
+            onZombieDeath(fallen.zombie);
             if (fallen.leavesBody)
             {
                 const Transform& t = mWorld.getComponent<Transform>(fallen.zombie);
@@ -595,6 +601,7 @@ void Game::update(float dtSeconds)
                 const glm::vec2 topLeft(t.x, t.y);
                 const glm::vec4 tint = s.color;
                 const int look = ai.look;
+                const ZombieKind kind = ai.kind;
                 const glm::vec2 slide = ai.knock * 0.7f;
                 int dir = mWorld.hasComponent<Animation>(fallen.zombie)
                     ? mWorld.getComponent<Animation>(fallen.zombie).dir
@@ -611,7 +618,7 @@ void Game::update(float dtSeconds)
                     dir = (dir + ((look + static_cast<int>(topLeft.x)) % 2 == 0 ? 1 : 7)) & 7;
                 }
                 mWorld.destroyEntity(fallen.zombie);
-                spawnCorpse(topLeft, look, dir, tint, slide, false);
+                spawnCorpse(topLeft, look, dir, tint, slide, false, kind);
             }
             else
             {
@@ -680,74 +687,30 @@ void Game::update(float dtSeconds)
         }
     }
 
-    // Threat-mode runtime tuning layer for zombie behavior.
-    {
-        const SaveThreatMode threatMode = saveThreatModeFromIndex(mTitleModeIndex);
-        const std::uint64_t runSeed = mSaveManager.currentRunSeed();
-        mWorld.forEach<ZombieAI>(
-            [&](Entity zombieEntity, ZombieAI& zombieAI)
-            {
-                const ThreatBehaviorTuning tuning = computeThreatBehaviorTuning(threatMode, mCurrentDay, zombieEntity, runSeed);
-                zombieAI.moveSpeed = zombieAI.baseMoveSpeed * tuning.speedScale;
-                zombieAI.visionRangeTiles = 8.0f * tuning.visionScale;
-            });
-    }
-
     // Threat director: migration toward the player's area and population growth.
     {
         std::vector<ThreatDirectorSystem::SpawnRequest> spawns;
         mThreatDirector.update(mWorld, mTileMap, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay,
                                &mDistrictInfectionSystem, spawns);
-        for (const auto& request : spawns)
+        if (!spawns.empty())
         {
-            EntityFactory::ZombieParams params;
-            params.topLeftWorld = request.topLeftWorld;
-            params.health = request.health * toneTuning(saveTonePresetFromIndex(mTitleToneIndex)).zombieHealthScale;
-            params.baseMoveSpeed = request.baseMoveSpeed;
-            params.spawnDay = mCurrentDay;
-            EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
+            // The kind from the mode's shares and the district's infection.
+            std::mt19937 rng(mSaveManager.currentRunSeed() ^ static_cast<std::uint32_t>(mCurrentDay * 7919) ^
+                             static_cast<std::uint32_t>(mGameHours * 3600.0));
+            for (const auto& request : spawns)
+            {
+                const glm::ivec2 tile = worldToTile(mTileMap, request.topLeftWorld + glm::vec2(kSpriteSize * 0.5f));
+                EntityFactory::spawnZombie(mWorld, mSpriteSheet, zombieParams(rollKind(rng, tile), request.topLeftWorld, rng));
+            }
         }
     }
 
-    mZombieAISystem.setPlayerLit(mFlashlightOn);
-    mZombieAISystem.update(
-        mWorld,
-        mTileMap,
-        mNoiseModel,
-        mPlayerEntity,
-        feelDt,
-        mGameHours,
-        mCurrentDay,
-        &mDistrictInfectionSystem,
-        &mDoorBlows,
-        &mPlayerHits);
+    updateDead(dtSeconds, feelDt);
     updateDoors(dtSeconds);
     updateWindows(dtSeconds);
     updateStructures(dtSeconds);
     updateTraps(dtSeconds);
 
-    // A blow that lands on the player shoves them, shakes the view and
-    // throws blood the way the blow went.
-    if (!mPlayerHits.empty() && mPlayerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Velocity>(mPlayerEntity) && mWorld.hasComponent<Transform>(mPlayerEntity))
-    {
-        Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
-        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-        const bool pinned = playerHeld(); // a bite while held does not throw you clear
-        for (const glm::vec2& direction : mPlayerHits)
-        {
-            if (!pinned)
-            {
-                vel.dx += direction.x * 230.0f;
-                vel.dy += direction.y * 230.0f;
-            }
-            mParticleSystem.spawnBloodSpray(
-                glm::vec2(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f), direction, 9);
-        }
-        mPlayerHurtTimer = 0.24f;
-        mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.5f);
-    }
-    mPlayerHits.clear();
 
     // Zombie audio: growls from chasing zombies, attack sounds
     mZombieGrowlTimer = std::max(0.0f, mZombieGrowlTimer - dtSeconds);
@@ -846,10 +809,11 @@ void Game::update(float dtSeconds)
 
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
     {
-        const Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        Health& health = mWorld.getComponent<Health>(mPlayerEntity);
+        if (mDevGodMode) health.current = std::max(health.current, health.maximum);
         if (health.current <= 0.0f)
         {
-            beginDeathState("Killed by zombies on Day " + std::to_string(mCurrentDay));
+            beginDeathState(zombieDeathCause() + " on Day " + std::to_string(mCurrentDay));
             return;
         }
     }
@@ -1020,6 +984,19 @@ bool viewFlipped(int dir)
     return dir >= 3 && dir <= 5;
 }
 
+// The dead's views: a Crawler is drawn in two facings (toward the viewer
+// and away), mirrored like the rest.
+const char* zombieView(ZombieKind kind, int dir)
+{
+    if (kind == ZombieKind::Crawler) return (dir & 7) >= 5 ? "_ne" : "_se";
+    return viewSuffix(dir);
+}
+
+std::string zombieSet(ZombieKind kind, int look)
+{
+    return std::string(zombiekinds::spriteSet(kind)) + std::to_string(((look % 3) + 3) % 3);
+}
+
 void face(Animation& anim, Sprite& sprite, const glm::vec2& worldDir)
 {
     anim.dir = facingDir(worldDir, anim.dir);
@@ -1107,15 +1084,19 @@ AttackFrames attackFrames(const Combat& combat)
 }
 } // namespace
 
-void Game::spawnCorpse(const glm::vec2& topLeft, int look, int dir, const glm::vec4& tint,
-                       const glm::vec2& slide, bool settled)
+Entity Game::spawnCorpse(const glm::vec2& topLeft, int look, int dir, const glm::vec4& tint,
+                         const glm::vec2& slide, bool settled, ZombieKind kind)
 {
     Transform body{};
     body.x = body.prevX = topLeft.x;
     body.y = body.prevY = topLeft.y;
 
     Animation fall{};
-    fall.currentAnim = "zombie" + std::to_string(((look % 3) + 3) % 3) + "_death" + viewSuffix(dir);
+    fall.currentAnim = zombieSet(kind, look) + "_death" + zombieView(kind, dir);
+    if (mSpriteSheet.find(fall.currentAnim) == nullptr)
+    {
+        fall.currentAnim = "zombie" + std::to_string(((look % 3) + 3) % 3) + "_death" + viewSuffix(dir);
+    }
     fall.dir = dir & 7;
     fall.frameDuration = 0.075f;
     fall.looping = false;
@@ -1139,12 +1120,14 @@ void Game::spawnCorpse(const glm::vec2& topLeft, int look, int dir, const glm::v
     corpse.slideY = slide.y;
     corpse.look = look;
     corpse.dir = dir & 7;
+    corpse.kind = kind;
 
     const Entity entity = mWorld.createEntity();
     mWorld.addComponent<Transform>(entity, body);
     mWorld.addComponent<Sprite>(entity, sprite);
     mWorld.addComponent<Animation>(entity, fall);
     mWorld.addComponent<Corpse>(entity, corpse);
+    return entity;
 }
 
 // A blow that has just landed on a zombie: blood along the swing, and, for
@@ -1284,15 +1267,40 @@ void Game::updateAnimations(float dtSeconds)
     mWorld.forEach<ZombieAI, Animation, Velocity, Sprite, Transform>(
         [&](Entity, ZombieAI& ai, Animation& anim, Velocity& vel, Sprite& sprite, Transform& transform)
         {
-            const std::string set = "zombie" + std::to_string(((ai.look % 3) + 3) % 3);
+            const std::string set = zombieSet(ai.kind, ai.look);
             const float speed2 = vel.dx * vel.dx + vel.dy * vel.dy;
             const bool lunging = ai.attackWindup > 0.0f || ai.strikeTimer > 0.0f;
+            // A Crawler low in grass or beside furniture cannot be made out
+            // from more than 2 tiles off.
+            if (ai.kind == ZombieKind::Crawler)
+            {
+                const glm::vec2 at(transform.x + 16.0f, transform.y + 16.0f);
+                const glm::ivec2 tile(static_cast<int>(at.x) / 32, static_cast<int>(at.y) / 32);
+                bool cover = false;
+                if (glm::length(at - playerWorldCenter()) > zombiekinds::kCrawlerHiddenTiles * 32.0f)
+                {
+                    cover = mTileMap.getSurfaceType(tile.x, tile.y) == SurfaceType::Grass;
+                    // Furniture stands indoors; only there is it worth the search.
+                    for (int dy = -1; dy <= 1 && !cover && mTileMap.isIndoors(tile.x, tile.y); ++dy)
+                    {
+                        for (int dx = -1; dx <= 1 && !cover; ++dx) cover = furnitureAt(tile + glm::ivec2(dx, dy)) != nullptr;
+                    }
+                }
+                sprite.visible = !cover;
+            }
+            const ZombieKind kind = ai.kind;
 
+            if (ai.dormant)
+            {
+                // Lying in wait under something: still, low.
+                showFrame(anim, set + "_idle" + zombieView(kind, anim.dir), 0);
+                return;
+            }
             if (ZombieBlow::isDown(ai))
             {
                 // On the floor: the fall is the death fall held on its last
                 // frame; getting up plays it backwards, slower.
-                const std::string fall = set + "_death" + viewSuffix(anim.dir);
+                const std::string fall = set + "_death" + zombieView(kind, anim.dir);
                 const int frames = std::max(1, mSpriteSheet.frameCount(fall));
                 int frame = frames - 1;
                 if (ai.downTimer <= 0.0f)
@@ -1306,25 +1314,42 @@ void Game::updateAnimations(float dtSeconds)
             if (ai.stagger > 0.0f)
             {
                 // Thrown back: it keeps facing whoever hit it.
-                showFrame(anim, set + "_stagger" + viewSuffix(anim.dir), ai.stagger > 0.11f ? 0 : 1);
+                showFrame(anim, set + "_stagger" + zombieView(kind, anim.dir),
+                          kind == ZombieKind::Crawler ? 0 : (ai.stagger > 0.11f ? 0 : 1));
                 return;
             }
-            if (lunging || ai.state == ZombieState::Attack)
+            const glm::vec2 centre(transform.x + 16.0f, transform.y + 16.0f);
+            const bool screaming = ai.screamTimer > 0.0f;
+            const bool starting = kind == ZombieKind::Runner && ai.startTimer > 0.0f &&
+                                  ai.state == ZombieState::Chase;
+            if (lunging || ai.state == ZombieState::Attack || screaming || starting)
             {
-                const glm::vec2 centre(transform.x + 16.0f, transform.y + 16.0f);
                 face(anim, sprite, ai.targetWorld - centre);
             }
             else if (speed2 > 1.0f)
             {
                 face(anim, sprite, glm::vec2(vel.dx, vel.dy));
             }
-            const std::string view = viewSuffix(anim.dir);
+            const std::string view = zombieView(kind, anim.dir);
 
-            if (ai.attackWindup > 0.0f)
+            if (screaming)
+            {
+                // Head back, jaw open: three frames over the scream.
+                const int frames = std::max(1, mSpriteSheet.frameCount(set + "_scream" + view));
+                showFrame(anim, set + "_scream" + view,
+                          partFrame(ai.screamTimer, zombiekinds::kScreamSeconds, frames));
+            }
+            else if (starting)
+            {
+                // The tell: the head snaps up before the sprint.
+                showFrame(anim, set + "_alert" + view, 0);
+            }
+            else if (ai.attackWindup > 0.0f)
             {
                 // Coiling back is the warning; the strike follows.
-                showFrame(anim, set + "_lunge" + view,
-                          partFrame(ai.attackWindup, ZombieAISystem::kZombieAttackWindupSeconds, 2));
+                const float windup = kind == ZombieKind::Runner ? zombiekinds::kRunnerWindupSeconds
+                                                                : ZombieAISystem::kZombieAttackWindupSeconds;
+                showFrame(anim, set + "_lunge" + view, partFrame(ai.attackWindup, windup, 2));
             }
             else if (ai.strikeTimer > 0.0f)
             {
@@ -1333,9 +1358,22 @@ void Game::updateAnimations(float dtSeconds)
             }
             else if (speed2 > 1.0f)
             {
-                // The shamble keeps time with how fast it is going.
+                // The shamble keeps time with how fast it is going; a Runner
+                // in a sprint has a gait of its own.
                 const float speed = std::sqrt(speed2);
-                playAnimation(anim, set + "_walk" + view, std::clamp(8.0f / speed, 0.07f, 0.2f));
+                if (kind == ZombieKind::Runner && ai.sprintTimer > 0.0f && ai.state == ZombieState::Chase)
+                {
+                    playAnimation(anim, set + "_run" + view, std::clamp(9.0f / speed, 0.05f, 0.12f));
+                }
+                else
+                {
+                    playAnimation(anim, set + "_walk" + view, std::clamp(8.0f / speed, 0.07f, 0.2f));
+                }
+            }
+            else if (ai.awareness > senses::kHeadUpAwareness && ai.state != ZombieState::Chase)
+            {
+                // Something caught its eye: the head comes up.
+                showFrame(anim, set + "_alert" + view, 0);
             }
             else
             {
@@ -1527,11 +1565,10 @@ void Game::updateDistrictToast(float dtSeconds)
         }
     }
 
-    const int infection = static_cast<int>(std::round(mDistrictInfectionSystem.getInfection(districtId)));
-    const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(districtId);
-    mDistrictToastText = std::string(districtTypeLabel(districtType)) + " district - "
-        + (overwhelmed ? std::string("OVERWHELMED") : std::to_string(infection) + "% infected");
-    mDistrictToastDanger = overwhelmed || infection >= 60;
+    // A word, not a number: what the streets look like.
+    const int level = ruinLevel(districtId);
+    mDistrictToastText = std::string(districtTypeLabel(districtType)) + " district - " + ruinWord(level);
+    mDistrictToastDanger = level >= 2;
     mDistrictToastTimer = 4.0f;
 }
 

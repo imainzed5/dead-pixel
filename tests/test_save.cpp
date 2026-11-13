@@ -217,7 +217,11 @@ DP_TEST(save_checkpoint_round_trips_and_is_run_scoped)
     ZombieRecord dead = zombie;
     dead.health = 0.0f;
     cp.zombies = {zombie, dead};
-    cp.corpses = {CorpseRecord{200.0f, 64.0f, true}};
+    CorpseRecord body;
+    body.x = 200.0f;
+    body.y = 64.0f;
+    body.flipX = true;
+    cp.corpses = {body};
     cp.boardedDoors = {BoardedDoorRecord{7, 9, 150.0f}};
     DP_CHECK(save.saveCheckpoint(cp));
 

@@ -27,9 +27,12 @@ shot pistol_loaded
 
 # A shot at six tiles: the line, the flash, the case; it kills the one in
 # front (50 health), costs one round, and every wanderer in earshot comes to
-# look. (A Loud noise reaches 30 tiles, but the hearing threshold leaves its
-# faint last stretch unheard: in practice about 27.6 tiles.)
+# look. (A Loud noise reaches 30 tiles; since phase 4 it carries 20 % less
+# upwind and a Brute hears at 0.7, so every kind is sure to hear it within
+# about 16.8 tiles.)
 zombie 6 0 idle hp 50
+# A wanderer well inside earshot, behind the shooter.
+zombie -14 0 shambler
 waits 0.2
 click left
 wait 8
@@ -38,7 +41,7 @@ waits 0.4
 expect loaded 7
 expect kills 1
 zombies
-expect zombies all 27
+expect zombies all 16
 slay 40
 set panic 0
 waits 0.5
@@ -76,8 +79,8 @@ expect loaded 2
 shot shotgun_loaded
 # Two side by side at a tile and a half: the spread drops both. (Pellets
 # stop at the first body, so two in a line would shield each other. The
-# kill count includes the six slain above: slay counts as yours.)
-expect kills 7
+# kill count includes the seven slain above: slay counts as yours.)
+expect kills 8
 zombie 1.5 0.28 idle exact
 zombie 1.5 -0.28 idle exact
 waits 0.1
@@ -86,7 +89,7 @@ wait 13
 shot shotgun_blast
 waits 0.3
 expect loaded 1
-expect kills 9
+expect kills 10
 shot shotgun_down
 slay 40
 waits 1

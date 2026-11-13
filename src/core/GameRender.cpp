@@ -2,6 +2,8 @@
 #include "core/GameShared.h"
 #include "world/CombatRules.h"
 
+#include <cctype>
+
 using namespace gameshared;
 
 void Game::render()
@@ -44,6 +46,7 @@ void Game::render()
     // Marks on the ground (dried blood) lie under everything that stands.
     const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
     mSceneryView.drawFlat(mSpriteBatch, mCamera, mSpriteSheet);
+    drawBloodTrail();
     mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv, true);
 
     mRenderSystem.render(mWorld, mSpriteBatch, mCamera, mInterpolationAlpha, &extras);
@@ -485,8 +488,9 @@ void Game::renderWorldMapOverlay()
     {
         if (district.districtId >= 0)
         {
+            // Shaded by ruin level (phase 4), the same steps the streets show.
             riskByDistrict[static_cast<std::size_t>(district.districtId)] =
-                district.overwhelmed ? 1.0f : std::clamp(district.infection / 100.0f, 0.0f, 1.0f);
+                static_cast<float>(ruinLevel(district.districtId)) / 3.0f;
         }
     }
     std::vector<std::uint8_t> burned(static_cast<std::size_t>(tilesW * tilesH), 0u);
@@ -540,7 +544,9 @@ void Game::renderWorldMapOverlay()
                 }
             }
 
-            const int districtId = mTileMap.getDistrictId(tx, ty);
+            // The streets shade with the district nearest them, as their ruin does.
+            const std::size_t tileIndex = static_cast<std::size_t>(ty * tilesW + tx);
+            const int districtId = tileIndex < mRuinDistrictOf.size() ? mRuinDistrictOf[tileIndex] : mTileMap.getDistrictId(tx, ty);
             if (districtId > 0 && districtId < static_cast<int>(riskByDistrict.size()))
             {
                 const float risk = riskByDistrict[static_cast<std::size_t>(districtId)];
@@ -587,16 +593,16 @@ void Game::renderWorldMapOverlay()
         mSpriteBatch.draw(at - glm::vec2(size * 0.5f), glm::vec2(size), uiUv, color);
     };
 
-    // Only districts worth worrying about get a label.
+    // Only districts worth worrying about get a label: a word, not a number.
     for (const auto& district : mMapGenerator.layoutData().districts)
     {
-        const float infection = mDistrictInfectionSystem.getInfection(district.id);
-        const bool overrun = mDistrictInfectionSystem.isOverwhelmed(district.id);
-        if (!overrun && infection < 35.0f) continue;
+        const int level = ruinLevel(district.id);
+        if (level < 1) continue;
         const glm::vec2 centre = toMap(glm::vec2(
             (static_cast<float>(district.minX + district.maxX + 1) * 0.5f) * tileW,
             (static_cast<float>(district.minY + district.maxY + 1) * 0.5f) * tileH));
-        const std::string text = overrun ? "OVERRUN" : std::to_string(static_cast<int>(std::round(infection))) + "% infected";
+        std::string text = ruinWord(level);
+        text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
         const glm::vec2 size = mFont.measureText(text, 1.0f);
         mFont.drawText(mSpriteBatch, centre - size * 0.5f + glm::vec2(1.0f), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.8f), 1.0f);
         mFont.drawText(mSpriteBatch, centre - size * 0.5f, text, glm::vec4(1.0f, 0.70f, 0.62f, 0.95f), 1.0f);

@@ -48,9 +48,11 @@ add_library(dead_pixel_core STATIC
     src/core/GameFirstDays.cpp
     src/core/GameContent.cpp
     src/core/GameStorage.cpp
+    src/core/GameDead.cpp
     src/core/Tuning.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
+    src/ai/FlowField.cpp
     src/ecs/EntityManager.cpp
     src/ecs/World.cpp
     src/map/TileMap.cpp
@@ -67,6 +69,9 @@ add_library(dead_pixel_core STATIC
     src/systems/NeedsSystem.cpp
     src/systems/BleedingSystem.cpp
     src/systems/ZombieAISystem.cpp
+    src/systems/ZombieSenses.cpp
+    src/systems/ZombieMove.cpp
+    src/systems/ZombieAttack.cpp
     src/systems/RenderSystem.cpp
     src/systems/InventorySystem.cpp
     src/systems/MentalStateSystem.cpp
@@ -86,6 +91,10 @@ add_library(dead_pixel_core STATIC
     src/world/Windows.cpp
     src/world/Storage.cpp
     src/world/CombatRules.cpp
+    src/world/ZombieKinds.cpp
+    src/world/Senses.cpp
+    src/world/BloodTrail.cpp
+    src/world/Horde.cpp
     src/world/Scenery.cpp
     src/systems/Atmosphere.cpp
     src/world/FirstDays.cpp
@@ -163,6 +172,10 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_base.cpp
         tests/test_windows.cpp
         tests/test_combat_rules.cpp
+        tests/test_zombie_kinds.cpp
+        tests/test_senses.cpp
+        tests/test_bloodtrail.cpp
+        tests/test_horde.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

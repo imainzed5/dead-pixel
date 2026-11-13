@@ -111,13 +111,51 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
             params.health = record.maxHealth;
             params.baseMoveSpeed = record.baseMoveSpeed;
             params.spawnDay = record.spawnDay;
+            params.kind = static_cast<ZombieKind>(std::clamp(record.kind, 0, kZombieKindCount - 1));
+            params.dormant = record.dormant;
             const Entity zombie = EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
             mWorld.getComponent<Health>(zombie).current = record.health;
+            mWorld.getComponent<ZombieAI>(zombie).follower = record.follower;
+            if (record.follower) mFollowerChosen = true;
         }
     }
     for (const CorpseRecord& record : cp.corpses)
     {
-        spawnCorpse(glm::vec2(record.x, record.y), record.look, record.dir, glm::vec4(1.0f), glm::vec2(0.0f), true);
+        const Entity body = spawnCorpse(glm::vec2(record.x, record.y), record.look, record.dir, glm::vec4(1.0f),
+                                        glm::vec2(0.0f), true,
+                                        static_cast<ZombieKind>(std::clamp(record.kind, 0, kZombieKindCount - 1)));
+        if (record.searched)
+        {
+            // Its pockets as they were left.
+            if (body != kInvalidEntity)
+            {
+                Corpse& corpse = mWorld.getComponent<Corpse>(body);
+                corpse.searched = true;
+                Inventory pockets{};
+                pockets.maxSlots = 6;
+                for (const auto& [id, count] : record.items)
+                {
+                    InventorySystem::addItem(pockets, mItemDatabase, id, count);
+                }
+                mWorld.addComponent<Inventory>(body, pockets);
+            }
+        }
+    }
+    {
+        std::vector<bloodtrail::Marker> markers;
+        for (const BloodMarkerRecord& b : cp.blood)
+        {
+            bloodtrail::Marker m;
+            m.world = glm::vec2(b.x, b.y);
+            m.strength = b.strength;
+            m.age = b.age;
+            m.life = b.life;
+            m.place = static_cast<bloodtrail::Place>(std::clamp(b.place, 0, 2));
+            m.pool = b.pool;
+            m.seq = b.seq;
+            markers.push_back(m);
+        }
+        mBloodTrail.restore(markers);
     }
 }
 
@@ -201,21 +239,23 @@ void Game::setupScene()
         // Quick and LightSleeper are applied dynamically in movement/sleep systems
     }
 
-    // --- Zombies ---
-    std::uniform_real_distribution<float> hpDist(30.0f, 70.0f);
-    std::uniform_real_distribution<float> speedMul(0.8f, 1.2f);
+    // The districts as the world remembers them (phase 4), before the
+    // dead are placed: infection sets the mix.
+    mDistrictInfectionSystem.initialize(mMapGenerator.layoutData(), mTileMap.tileWidth(), mTileMap.tileHeight());
+    resetDead();
+    loadDistrictMemory(true);
 
-    for (const auto& tile : mSpawnData.zombieSpawns)
+    // --- Zombies --- (the kind from the mode's shares and the district)
     {
-        if (mTileMap.isSolid(tile.x, tile.y)) continue;
-
-        EntityFactory::ZombieParams params;
-        params.topLeftWorld = glm::vec2(static_cast<float>(tile.x * mTileMap.tileWidth()),
-                                        static_cast<float>(tile.y * mTileMap.tileHeight()));
-        params.health = hpDist(runRng) * tone.zombieHealthScale;
-        params.baseMoveSpeed = 112.0f * speedMul(runRng);
-        params.spawnDay = mCurrentDay;
-        EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
+        std::mt19937 kindRng(mSaveManager.currentRunSeed() ^ 0x0DEADu);
+        for (const auto& tile : mSpawnData.zombieSpawns)
+        {
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            const glm::vec2 topLeft(static_cast<float>(tile.x * mTileMap.tileWidth()),
+                                    static_cast<float>(tile.y * mTileMap.tileHeight()));
+            EntityFactory::spawnZombie(mWorld, mSpriteSheet, zombieParams(rollKind(kindRng, tile), topLeft, kindRng));
+        }
+        placeDormantCrawlers(kindRng);
     }
 
     // --- NPC Survivors ---
@@ -344,9 +384,7 @@ void Game::setupScene()
         }
     }
 
-    // Initialize district infection system
-    mDistrictInfectionSystem.initialize(mMapGenerator.layoutData(), mTileMap.tileWidth(), mTileMap.tileHeight());
-    mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(saveThreatModeFromIndex(mTitleModeIndex)));
+    mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(modeRules()));
     // Weather and combat rolls follow the run seed too, so a seed replays.
     mWeatherSystem.reset(mSaveManager.currentRunSeed() ^ 0x5EA7u);
     mCombatSystem.reseed(mSaveManager.currentRunSeed() ^ 0xC0B7u);

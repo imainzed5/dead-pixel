@@ -1,0 +1,17 @@
+# The dead in numbers (phase 4): 300 of them around the player, 600 ticks
+# timed. Average tick under 4 ms, worst under 12 ms (Release build).
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/perf.txt --hidden --world-seed 1234 --shots shots/perf
+
+mode swarm
+newrun
+god on
+waits 1
+hours 22
+slay 200
+perf 300
+waits 2
+shot perf_crowd
+waits 9
+expect perf 4 12
+quit

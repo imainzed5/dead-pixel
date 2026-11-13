@@ -27,6 +27,12 @@ bool Game::loadContent(const std::filesystem::path& assetsRoot)
         std::cerr << "Failed to load loot tables: " << lootError << '\n';
         return false;
     }
+    std::string deadError;
+    if (!zombiekinds::activeTable().load((data / "zombies.json").string(), &deadError))
+    {
+        std::cerr << "Failed to load zombies.json: " << deadError << "\n";
+        return false;
+    }
     Tuning::load((data / "tuning.json").string());
     return true;
 }

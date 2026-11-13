@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "ecs/Types.h"
+#include "world/ZombieKinds.h"
 
 enum class ZombieState
 {
@@ -61,10 +62,54 @@ struct ZombieAI
     // Which of the zombie looks (clothes, hair) this one wears.
     int look = 0;
 
-    // Per-zombie base speed (rolled at spawn); threat tuning scales it into moveSpeed.
+    // Which kind of the dead (phase 4) and what that gives it, set at spawn
+    // from zombies.json.
+    ZombieKind kind = ZombieKind::Shambler;
+    float clawDamage = 7.0f;
+    float hearing = 1.0f;
+    float doorDamage = 1.0f;
+
+    // Per-zombie base speed (rolled at spawn); the threat mode scales it into moveSpeed.
     float baseMoveSpeed = 112.0f;
     float moveSpeed = 112.0f;
     float visionRangeTiles = 8.0f;
+
+    // Senses (phase 4). Sight is checked ten times a second; what it saw is
+    // kept here between checks. Awareness fills while it sees its prey and
+    // drains out of sight; at 1 it gives chase.
+    float awareness = 0.0f;
+    bool seesPrey = false;
+    float seenDistanceTiles = 0.0f;
+    float seenRangeTiles = 0.0f;
+    glm::vec2 seenAt{0.0f, 0.0f};
+    Entity prey = kInvalidEntity;  // the one it saw (the player, or a survivor)
+    glm::vec2 facing{0.0f, 1.0f};  // where it last walked: an unaware one sees in front of it
+    // After reaching a noise it turns in place for a while; at a loud one
+    // it lingers near the spot (`lingerTimer`).
+    float lookAroundTimer = 0.0f;
+    float lingerTimer = 0.0f;
+    glm::vec2 lingerAt{0.0f, 0.0f};
+    // Following blood: the latest marker it reached.
+    std::uint32_t trailSeq = 0;
+    bool followingTrail = false;
+    float groanTimer = 0.0f;
+    // Runner: the start (head snaps up), the sprint, then winded.
+    float startTimer = 0.0f;
+    float sprintTimer = 0.0f;
+    float windedTimer = 0.0f;
+    // Screamer: screaming (> 0), and the wait before the next.
+    float screamTimer = 0.0f;
+    float screamCooldown = 0.0f;
+    // Crawler: lying still under furniture until the living come close; the
+    // scrape comes `wakeTimer` before it moves.
+    bool dormant = false;
+    float wakeTimer = 0.0f;
+    // A horde member (phase 4): which horde, and which leg of its route.
+    int horde = 0;
+    int hordeLeg = 0;
+    // The Stalker's follower: one per run, it always finds you.
+    bool follower = false;
+    bool pathQueued = false;
 
     // Decomposition / aging
     DecompStage decomp = DecompStage::Fresh;
@@ -113,6 +158,12 @@ inline constexpr float kFlashSeconds = 0.12f;
 // and reels, and whatever lunge it was winding up is broken off.
 inline void land(ZombieAI& zombie, const glm::vec2& direction, float knockbackPixels)
 {
+    // A Brute shrugs off light blows: it flinches, and keeps coming.
+    if (zombie.kind == ZombieKind::Brute && knockbackPixels < zombiekinds::kBruteKnockbackFloorPixels)
+    {
+        zombie.hitFlash = kFreshHit;
+        return;
+    }
     zombie.knock = direction * (knockbackPixels * kKnockDecay);
     zombie.stagger = std::max(zombie.stagger, std::clamp(0.14f + knockbackPixels * 0.006f, 0.18f, 0.45f));
     zombie.hitFlash = kFreshHit;

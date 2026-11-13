@@ -1,5 +1,7 @@
 #pragma once
 
+#include "world/ZombieKinds.h"
+
 #include <glm/vec2.hpp>
 
 #include "ecs/World.h"
@@ -16,6 +18,10 @@ struct ZombieParams
     float health = 50.0f;
     float baseMoveSpeed = 112.0f;
     int spawnDay = 1;
+    // Its kind (phase 4): sight, hearing, claw and door damage come from
+    // the loaded zombies.json; the sprite set too.
+    ZombieKind kind = ZombieKind::Shambler;
+    bool dormant = false; // a Crawler lying in wait
 };
 
 Entity spawnZombie(World& world, const SpriteSheet& spriteSheet, const ZombieParams& params);

@@ -5,6 +5,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -63,6 +64,7 @@ public:
     bool loadScript(std::string& error);
 
     void beforeTick(Game& game);
+    void beforeTickInner(Game& game);
     void afterTick(Game& game);
 
     [[nodiscard]] bool finished() const { return mFinished; }
@@ -112,6 +114,12 @@ private:
     bool mWasAlive = true;
 
     GLuint mFramebuffer = 0;
+    // `perf N`: the next ticks are timed.
+    int mPerfTicksLeft = 0;
+    int mPerfTicks = 0;
+    double mPerfTotalMs = 0.0;
+    double mPerfWorstMs = 0.0;
+    std::chrono::steady_clock::time_point mPerfStart{};
     GLuint mColorTexture = 0;
     int mFramebufferWidth = 0;
     int mFramebufferHeight = 0;

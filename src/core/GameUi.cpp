@@ -156,6 +156,11 @@ void Game::buildHudState()
                 hud.objectiveSteps.push_back(HudStep{step.text, step.done});
             }
         }
+        // A horde comes tonight: the day says so.
+        if (hordeDay() && mGameHours >= 12.0)
+        {
+            hud.objectiveSteps.push_back(HudStep{"Tonight: stay quiet.", false});
+        }
 
         const glm::vec4 medicalColor(0.95f, 0.50f, 0.45f, 1.0f);
         if (hud.health < hud.healthMax * 0.85f)
@@ -271,10 +276,12 @@ void Game::buildHudState()
     // District you are standing in, and a toast when you cross into a new one.
     if (mHudDistrictId > 0)
     {
-        const int infection = static_cast<int>(std::round(mDistrictInfectionSystem.getInfection(mHudDistrictId)));
-        const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(mHudDistrictId);
-        hud.districtLine = overwhelmed ? std::string("Overwhelmed") : "Infection " + std::to_string(infection) + "%";
-        hud.districtLineDanger = overwhelmed || infection >= 60;
+        // A word for how far it has gone (phase 4), not a number.
+        const int level = ruinLevel(mHudDistrictId);
+        std::string word = ruinWord(level);
+        word[0] = static_cast<char>(word[0] - 'a' + 'A');
+        hud.districtLine = word;
+        hud.districtLineDanger = level >= 2;
     }
     if (mDistrictToastTimer > 0.0f)
     {
@@ -288,7 +295,7 @@ void Game::buildHudState()
     {
         const firstdays::DayCard card = firstdays::dayCard(mCurrentDay);
         hud.dayCardTitle = card.title;
-        hud.dayCardLine = card.line;
+        hud.dayCardLine = isHordeNight(mCurrentDay) ? std::string("Something is moving on the far side of town.") : card.line;
         const float shown = 6.0f - mFirstDays.cardTimer;
         hud.dayCardAlpha = std::clamp(std::min(shown / 0.8f, mFirstDays.cardTimer / 1.2f), 0.0f, 1.0f);
     }
@@ -347,10 +354,20 @@ void Game::renderNotebookOverlay()
         if (!line.empty()) knownLines.push_back(line);
         if (knownLines.size() > 3) knownLines.resize(3);
     }
+    // The Unknown's rules, once seen often enough to write down (phase 4).
+    std::vector<std::string> ruleLines;
+    for (const std::string& key : mLearnedRules)
+    {
+        for (int r = 0; r < zombiekinds::kUnknownRuleCount; ++r)
+        {
+            const auto rule = static_cast<zombiekinds::UnknownRule>(r);
+            if (key == zombiekinds::unknownRuleKey(rule)) ruleLines.push_back(zombiekinds::unknownRuleLine(rule));
+        }
+    }
     const float contentH = 22.0f + bodyLine + 2.0f + 30.0f +
                            18.0f + static_cast<float>(leadRows) * bodyLine + (leads.size() > kMaxLeads ? 16.0f : 0.0f) + 14.0f +
                            18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) + 14.0f +
-                           18.0f + static_cast<float>(knownLines.size()) * bodyLine +
+                           18.0f + static_cast<float>(knownLines.size() + ruleLines.size()) * bodyLine +
                            44.0f;
     const float panelW = std::min(900.0f, w - 40.0f);
     const float panelH = std::min(contentH, h - 40.0f);
@@ -471,6 +488,12 @@ void Game::renderNotebookOverlay()
         heading(y, "WHAT WE KNOW");
         y += 18.0f;
         const bool none = mSaveManager.discoveredRecipes().empty();
+        for (const std::string& line : ruleLines)
+        {
+            if (y + bodyLine >= statsY - 6.0f) break;
+            mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit(line, kBody), ink, kBody);
+            y += bodyLine;
+        }
         for (const std::string& line : knownLines)
         {
             if (y + bodyLine >= statsY - 6.0f) break;

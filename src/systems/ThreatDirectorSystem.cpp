@@ -52,7 +52,9 @@ bool ThreatDirectorSystem::findWalkableNear(const TileMap& tileMap, const glm::v
         const glm::vec2 p = center + glm::vec2(std::cos(angle), std::sin(angle)) * radius;
         const int tx = static_cast<int>(std::floor(p.x / tile));
         const int ty = static_cast<int>(std::floor(p.y / tile));
-        if (tileMap.inBounds(tx, ty) && !tileMap.isSolid(tx, ty))
+        // Outdoors only (phase 4): a dark, shut house is passed by; the dead
+        // drift down the streets, not into the rooms.
+        if (tileMap.inBounds(tx, ty) && !tileMap.isSolid(tx, ty) && tileMap.getBuildingId(tx, ty) == 0)
         {
             outWorld = glm::vec2((static_cast<float>(tx) + 0.5f) * tile, (static_cast<float>(ty) + 0.5f) * tile);
             return true;

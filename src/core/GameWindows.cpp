@@ -354,7 +354,7 @@ void Game::breakWindow(const glm::ivec2& tile, bool loud)
     mSaveManager.setWindows(windowRecords());
 }
 
-void Game::windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds)
+void Game::windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds, float damageScale)
 {
     const Windows::Window* window = mWindows.find(tile);
     if (window == nullptr)
@@ -409,7 +409,7 @@ void Game::windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds)
         return;
     }
 
-    const Windows::Blow blow = mWindows.batter(mTileMap, tile, Doors::kZombieDamagePerSecond * dtSeconds);
+    const Windows::Blow blow = mWindows.batter(mTileMap, tile, Doors::kZombieDamagePerSecond * damageScale * dtSeconds);
     if (blow == Windows::Blow::None || blow == Windows::Blow::Thud)
     {
         return;

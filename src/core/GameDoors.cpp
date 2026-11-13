@@ -56,19 +56,25 @@ void Game::updateDoors(float dtSeconds)
     for (const BarrierBlow& barrier : mDoorBlows)
     {
         const glm::ivec2 tile = barrier.tile;
+        // How hard this one hits (its kind; Mutating doubles it late on).
+        const float scale = barrierDamageScale(barrier.zombie);
         // A window, or furniture across a doorway, takes the blow instead.
         if (mTileMap.hasWindow(tile.x, tile.y))
         {
-            windowBlow(tile, barrier.zombie, dtSeconds);
+            // Late in Mutating, the dead go straight through glass.
+            const bool climbs = zombiekinds::climbsWindows(modeRules(), mCurrentDay) &&
+                                mTileMap.windowState(tile.x, tile.y) == WindowState::Intact &&
+                                mTileMap.windowBoards(tile.x, tile.y) == 0;
+            windowBlow(tile, barrier.zombie, dtSeconds, climbs ? 1000.0f : scale);
             continue;
         }
         if (mTileMap.doorwayBlocked(tile.x, tile.y))
         {
-            furnitureBlow(tile, Doors::kZombieDamagePerSecond * dtSeconds);
+            furnitureBlow(tile, Doors::kZombieDamagePerSecond * scale * dtSeconds);
             continue;
         }
         rattleAlarm(tile);
-        const Doors::Blow blow = mDoors.batter(mTileMap, tile, Doors::kZombieDamagePerSecond * dtSeconds);
+        const Doors::Blow blow = mDoors.batter(mTileMap, tile, Doors::kZombieDamagePerSecond * scale * dtSeconds);
         if (blow != Doors::Blow::Bang && blow != Doors::Blow::Splinters && blow != Doors::Blow::Breaks)
         {
             continue;

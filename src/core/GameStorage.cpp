@@ -23,6 +23,7 @@ FurnitureKind Game::containerKindAt(const glm::ivec2& tile) const
 std::string Game::containerName(Entity container) const
 {
     std::string name = "Container";
+    if (mWorld.hasComponent<Corpse>(container)) return "Body";
     if (mWorld.hasComponent<Interactable>(container))
     {
         std::string thing = searchedThing(mWorld.getComponent<Interactable>(container).prompt);
@@ -45,7 +46,7 @@ void Game::recordContainer(Entity container)
     const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(t.x, t.y));
     // Only furniture is remembered by its tile: a crate keeps its things in
     // the structures file, a pile on the floor lasts this life.
-    if (mWorld.hasComponent<Structure>(container) ||
+    if (mWorld.hasComponent<Structure>(container) || mWorld.hasComponent<Corpse>(container) ||
         (mWorld.hasComponent<Interactable>(container) && mWorld.getComponent<Interactable>(container).prompt == "Search the pile"))
     {
         return;

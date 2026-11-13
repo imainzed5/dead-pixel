@@ -1,0 +1,55 @@
+# A horde (phase 4): on a horde night the crowd crosses the town past the
+# house. Lights out and the house shut, it passes by and none come in. With
+# a candle in an uncurtained window, some turn to it and break in.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/horde.txt --hidden --world-seed 1234 --shots shots/horde
+
+mode mutating
+newrun
+god on
+waits 1
+zoom 1.5
+day 7
+hours 20.9
+slay 200
+goto home
+# Shut up: every window curtained, no light.
+window curtained all
+waits 0.3
+horde
+expect horde on
+waits 30
+shot horde_passing
+waits 300
+expect zombies outside 60
+shot horde_passed_by
+# Dawn: it has gone.
+hours 7
+waits 2
+expect horde off
+expect zombies outside 60
+
+# The next night, another horde, and a candle burning in a clear window.
+hours 20.9
+slay 200
+goto home
+window curtained all
+goto window home
+window open
+expect window clear
+give Candle
+give Matches
+waits 0.2
+tap 5
+tap F
+waits 0.3
+light
+waits 0.3
+horde
+expect horde on
+waits 30
+shot horde_drawn_to_light
+waits 300
+expect zombies inside 60
+shot horde_broke_in
+quit

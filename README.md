@@ -27,9 +27,17 @@ done, what is next, and known issues.
 - **Staying alive:** hunger, thirst, fatigue and sleep debt, temperature,
   illness, wounds, bleeding and infection. Panic, depression and
   desensitisation also play a part.
-- **The dead:** they hunt by sight and noise, and a threat director decides
-  how hard the town pushes back. Their lunges are telegraphed, and a well-timed blow breaks one off. They batter
-  closed doors down, and the bodies stay where they fall.
+- **The dead:** five kinds you learn to tell apart: the Shambler, the
+  Runner (its head snaps up, then it sprints), the Brute (broad, grey, and
+  it knocks you down), the Crawler (low in the grass and under furniture)
+  and the Screamer (pale; its scream brings the rest). They see in a cone,
+  less in the dark and less of you crouched; they hear through walls only
+  if a door or window is open; rain muffles you; they follow your blood.
+  Hordes cross the town on set nights and pass a dark, shut house by. Each
+  threat mode plays differently, and districts show how far they have gone
+  ("quiet", "uneasy", "turning", "overrun") in litter, smears and bodies.
+  Lunges are telegraphed, and a well-timed blow breaks one off. They batter
+  closed doors down, and the bodies stay where they fall; search them with E.
 - **Fighting back:**
   - weapons that each fight differently (wind-up, reach, weight, noise) and
     wear with every blow that lands;
@@ -58,7 +66,7 @@ done, what is next, and known issues.
 | Right click, then left click | Take down one turned away or on the floor |
 | Space | Shove (a crowd back, one hurt or from behind off its feet); when held, tap fast to tear free |
 | Hold G, aim, let go | Throw the selected item (rock, alarm clock, flare, bottle, molotov) |
-| E | Interact: talk to a survivor (with nothing else in reach), open and close doors, open containers, sleep in a bed or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern |
+| E | Interact: talk to a survivor (with nothing else in reach), open and close doors, open containers, search a body of the dead, sleep in a bed or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern |
 | Hold E beside furniture, then walk | Grab and push it (heavy pieces slowly, a tile at a time; through an open doorway; onto the floor inside a door to block it) |
 | In a container: A/D or Left/Right, W/S, E or Enter, Shift+E, Esc | Pick the pack or the container side, move the cursor, move one across, move the whole stack, close (the mouse works too: click moves one, Shift+click the stack) |
 | R / X at a closed door or a window (from inside) | Board it up (hammer, a plank and 2 nails) / pry a board off (a crowbar saves the nails) |
@@ -151,11 +159,18 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 - **Moving and setup:**
   - `teleport X Y`, `enter N` (a building), `mark` (remember this tile);
   - `goto home|mark|risen|pack|grave|door [outside]|furniture [KIND|any|container] [stocked]`;
+  - `goto pavement` (the nearest open outdoor spot on ordinary ground, three
+    tiles clear either side: no grass, gravel or road, which change a
+    footstep's loudness);
   - `goto window [home] [front|back] [inside|outside [N]]` (the nearest
     window, of the home, in a wall facing the camera or away; N tiles off),
     `goto base` (the house the last lives held, beside its crate);
   - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE` (also
-    `set wounds N`), `trait tough`, `zoom Z`;
+    `set wounds N`, `set bleeding SECONDS`), `trait tough|plain` (`plain`:
+    no bad trait, so a Clumsy player's louder steps do not skew a test),
+    `zoom Z`;
+  - `mode swarm|stalker|mutating|society|unknown|hybrid` sets the threat
+    mode of the next `newrun`;
   - `tune KEY VALUE` overrides a number from `assets/data/tuning.json` for
     the run;
   - `weather KIND` holds a condition, `weather roll` lets it roll a new one,
@@ -176,12 +191,23 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   the pack's materials), `light` (the nearest candle, lantern or campfire),
   `window intact|broken|boarded1|boarded|curtained|open [all]` (the nearest
   window, or every window of this building), `windows` (how they stand).
-- **The dead:** `zombie DX DY [idle] [down] [lunging] [away] [close]
-  [exact] [hp N]`, `zombie mark [idle]` (heading for the player, or
-  wandering; `down` on the floor; `lunging` with a lunge winding up; `away`
-  with its back to the player, reeling so it cannot turn; `close` 20 px
-  from the player toward the spot; `exact` at a fractional DX, DY; `hp N`
-  below 60 is a hurt one), `slay RADIUS` (counts as the player's kills).
+- **The dead:** `zombie DX DY [KIND] [idle] [still] [dormant] [down]
+  [lunging] [away] [close] [exact] [hp N]`, `zombie mark [...]`,
+  `zombie outside R [...]` (heading for the player, or wandering; KIND is
+  shambler, runner, brute, crawler or screamer, with that kind's own
+  health, speed and senses; `still` stands where it is put but still looks
+  and listens; `dormant` a Crawler lying in wait; `down` on the floor;
+  `lunging` with a lunge winding up; `away` with its back to the player,
+  reeling so it cannot turn; `close` 20 px from the player toward the spot;
+  `exact` at a fractional DX, DY; `outside R` on open ground about R tiles from
+  the player; `hp N` below 60 is a hurt one), `slay RADIUS` (counts as the
+  player's kills).
+- **Senses and crowds:** `noise whisper|soft|medium|loud|explosive [DX DY]`
+  (a noise at the player, or DX, DY tiles off, through the walls as the
+  rules say), `trail` (print the blood markers), `horde` (start tonight's
+  horde now), `infection N [all]` (the player's district, or every one, set
+  to N and its ruin shown at once), `perf N` (N of the dead put round the
+  player, 5 to 40 tiles off, and the next 600 ticks timed).
 - **Fighting:** `shove` (Space for a tick: a shove, or a struggle tap when
   held), `reload` (R for a tick), `select ITEM NAME` (make it the active
   slot, in hand if a weapon), `throw DX DY [ITEM NAME]` (the selected or
@@ -205,7 +231,13 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
     lunge), `expect kills N` (the run's kills), `expect loaded N` (rounds in
     the gun in hand), `expect landed DX DY` (the last throw came down within
     a tile of the spot), `expect burning DX DY` (a fire on or beside that
-    tile);
+    tile), `expect kind KIND|any near|coming|calm|dormant|awake|unmoved|far R`
+    (of that kind within R tiles: some, some after something, none after
+    anything, some lying in wait, none lying in wait, one struck and not
+    moved, none at all), `expect zombies outside R` (some within R tiles
+    and none in the player's building), `expect trail N|none` (blood
+    markers on the ground), `expect horde on|off`, `expect perf AVG WORST`
+    (milliseconds a tick over the last `perf`);
   - `shot NAME`, `metrics INTERVAL` (ticks), `log TEXT`. Metrics rows add the
     cause of death, items carried by category, containers searched, boards
     up (doors and windows), tonight's callers, zombies within 10 tiles,
@@ -230,6 +262,11 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `weapon_wear` | Blows that land wear the weapon; wear kept through re-equip and resume |
 | `fighting` | A shove breaks a lunge and fells the hurt and one from behind; a bat's stomp kills one down; the take-down; grabbed within three lunges, four taps free; the sledgehammer's knockdown |
 | `throwing` | The aim arc; a rock at 8 tiles turns two of the dead to it; a wound clock holds three for 20 s; a flare at night; a molotov lights its tile; a bottle |
+| `kinds` | The five kinds side by side at default zoom; a Runner covers 10 tiles in under 4 s; a knife does not move a Brute; a scream brings a wanderer from 20 tiles; a dormant Crawler wakes at 2 tiles |
+| `senses` | Crouched and still in the dark, unseen at 5 tiles; running, heard; a swing in a shut house not heard 10 tiles out, with the door open it is; heavy rain hides a walk; a bleeding walk is followed, and with dressed wounds in rain it is not |
+| `horde` | Night 7's horde passes a dark, curtained house by; with a candle in a clear window, some break in |
+| `perf` | 300 of the dead: average and worst tick time |
+| `ruin` | A district's ruin from quiet to overrun: litter, smears and bodies, the HUD word, the town map's shading; blood drops on the ground |
 | `guns` | Reload from the pack; a pistol shot kills at 6 tiles, costs a round, brings every wanderer in earshot; the empty click; the shotgun a shell at a time drops two side by side |
 | `resume` | Checkpoints keep the walking dead and the bodies |
 | `corpses` | Melee kills count and leave a body |
@@ -245,7 +282,8 @@ runs `bot_week` for seeds 1 to 10, each in a fresh directory, and prints a
 table: days survived, how the run ended, kills, food and drink carried,
 containers searched, the most boards up at once, and whether it died in
 the home on night 1. `--seeds 1-3`, `--jobs N` and `--profile careful` change
-what it runs. Later phases read balance from it.
+what it runs; `--mode stalker` (or any threat mode) plays every run in
+that mode. Later phases read balance from it.
 
 ## Assets
 

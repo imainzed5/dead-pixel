@@ -274,6 +274,7 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
     mWorldMemoryPath = mSaveDir + "/" + mSlotName + "_memory.json";
     mSurvivorPath = mSaveDir + "/" + mSlotName + "_survivors.json";
     mFurniturePath = mSaveDir + "/" + mSlotName + "_furniture.json";
+    mDistrictPath = mSaveDir + "/" + mSlotName + "_districts.json";
 
     std::error_code ec;
     std::filesystem::create_directories(mSaveDir, ec);
@@ -309,6 +310,7 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
 
     loadWorldMemory();
     loadFurnitureMemory();
+    loadDistrictMemory();
 
     if (migrating)
     {
@@ -324,7 +326,7 @@ void SaveManager::backupSlotFiles(int version) const
 {
     const std::string suffix = ".v" + std::to_string(version) + ".backup";
     for (const std::string& path : {mMetaPath, mLegacyPath, mStructurePath, mLayoutPath, mCheckpointPath,
-                                    mWorldMemoryPath, mSurvivorPath, mFurniturePath})
+                                    mWorldMemoryPath, mSurvivorPath, mFurniturePath, mDistrictPath})
     {
         std::error_code ec;
         if (std::filesystem::exists(path, ec))
@@ -380,6 +382,9 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     ec.clear();
     std::filesystem::remove(mFurniturePath, ec);
     ec.clear();
+    std::filesystem::remove(mDistrictPath, ec);
+    ec.clear();
+    mDistrictMemory = DistrictMemoryRecord{};
 
     if (!writeLegacy())
     {
@@ -1266,14 +1271,31 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["zombies"] = nlohmann::json::array();
     for (const ZombieRecord& z : cp.zombies)
     {
-        json["zombies"].push_back({{"x", z.x}, {"y", z.y}, {"hp", z.health}, {"maxHp", z.maxHealth},
-                                   {"speed", z.baseMoveSpeed}, {"day", z.spawnDay}});
+        nlohmann::json zj = {{"x", z.x}, {"y", z.y}, {"hp", z.health}, {"maxHp", z.maxHealth},
+                             {"speed", z.baseMoveSpeed}, {"day", z.spawnDay}};
+        if (z.kind != 0) zj["kind"] = z.kind;
+        if (z.dormant) zj["dormant"] = true;
+        if (z.follower) zj["follower"] = true;
+        json["zombies"].push_back(zj);
     }
     json["corpses"] = nlohmann::json::array();
     for (const CorpseRecord& c : cp.corpses)
     {
-        json["corpses"].push_back({{"x", c.x}, {"y", c.y}, {"flip", c.flipX},
-                                   {"look", c.look}, {"dir", c.dir}});
+        nlohmann::json cj = {{"x", c.x}, {"y", c.y}, {"flip", c.flipX}, {"look", c.look}, {"dir", c.dir}};
+        if (c.kind != 0) cj["kind"] = c.kind;
+        if (c.searched)
+        {
+            cj["searched"] = true;
+            cj["items"] = nlohmann::json::array();
+            for (const auto& [id, count] : c.items) cj["items"].push_back({id, count});
+        }
+        json["corpses"].push_back(cj);
+    }
+    json["blood"] = nlohmann::json::array();
+    for (const BloodMarkerRecord& b : cp.blood)
+    {
+        json["blood"].push_back({{"x", b.x}, {"y", b.y}, {"s", b.strength}, {"age", b.age}, {"life", b.life},
+                                 {"place", b.place}, {"pool", b.pool}, {"seq", b.seq}});
     }
     {
         const FirstDaysRecord& fd = cp.firstDays;
@@ -1493,6 +1515,9 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             z.health = std::clamp(zj.value("hp", z.maxHealth), 0.0f, z.maxHealth);
             z.baseMoveSpeed = std::clamp(zj.value("speed", 112.0f), 10.0f, 400.0f);
             z.spawnDay = std::max(1, zj.value("day", 1));
+            z.kind = std::clamp(zj.value("kind", 0), 0, 4);
+            z.dormant = zj.value("dormant", false);
+            z.follower = zj.value("follower", false);
             if (z.health > 0.0f)
             {
                 cp.zombies.push_back(z);
@@ -1509,7 +1534,32 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             c.flipX = cj.value("flip", false);
             c.look = cj.value("look", 0);
             c.dir = cj.value("dir", c.flipX ? 3 : 1);
+            c.kind = std::clamp(cj.value("kind", 0), 0, 4);
+            c.searched = cj.value("searched", false);
+            if (cj.contains("items") && cj["items"].is_array())
+            {
+                for (const auto& ij : cj["items"])
+                {
+                    if (ij.is_array() && ij.size() == 2) c.items.emplace_back(ij[0].get<int>(), ij[1].get<int>());
+                }
+            }
             cp.corpses.push_back(c);
+        }
+    }
+    if (json.contains("blood") && json["blood"].is_array())
+    {
+        for (const auto& bj : json["blood"])
+        {
+            BloodMarkerRecord b;
+            b.x = bj.value("x", 0.0f);
+            b.y = bj.value("y", 0.0f);
+            b.strength = bj.value("s", 1.0f);
+            b.age = bj.value("age", 0.0f);
+            b.life = bj.value("life", 10.0f);
+            b.place = std::clamp(bj.value("place", 0), 0, 2);
+            b.pool = bj.value("pool", false);
+            b.seq = bj.value("seq", 0u);
+            cp.blood.push_back(b);
         }
     }
     if (json.contains("firstDays") && json["firstDays"].is_object())
@@ -2042,6 +2092,67 @@ std::vector<SurvivorRecord> SaveManager::loadSurvivors() const
 void SaveManager::setSeedOverride(std::uint32_t seed)
 {
     gSeedOverride = seed;
+}
+
+void SaveManager::loadDistrictMemory()
+{
+    mDistrictMemory = DistrictMemoryRecord{};
+    const std::string contents = readFileToString(mDistrictPath);
+    if (contents.empty()) return;
+    const nlohmann::json json = nlohmann::json::parse(contents, nullptr, false);
+    if (json.is_discarded()) return;
+    if (json.contains("districts") && json["districts"].is_array())
+    {
+        for (const auto& dj : json["districts"])
+        {
+            const int id = dj.value("id", 0);
+            mDistrictMemory.infection.emplace_back(id, std::clamp(dj.value("infection", 0.0f), 0.0f, 100.0f));
+            mDistrictMemory.kills.emplace_back(id, std::max(0, dj.value("kills", 0)));
+        }
+    }
+    mDistrictMemory.appliedRunSeed = json.value("appliedRun", 0u);
+    if (json.contains("learned") && json["learned"].is_array())
+    {
+        for (const auto& rj : json["learned"])
+        {
+            if (rj.is_string()) mDistrictMemory.learnedRules.push_back(rj.get<std::string>());
+        }
+    }
+}
+
+bool SaveManager::saveDistrictMemory() const
+{
+    if (mDistrictPath.empty()) return false;
+    nlohmann::json json;
+    json["version"] = kCurrentSaveVersion;
+    json["districts"] = nlohmann::json::array();
+    for (const auto& [id, infection] : mDistrictMemory.infection)
+    {
+        int kills = 0;
+        for (const auto& [kid, k] : mDistrictMemory.kills)
+        {
+            if (kid == id) kills = k;
+        }
+        json["districts"].push_back({{"id", id}, {"infection", infection}, {"kills", kills}});
+    }
+    json["appliedRun"] = mDistrictMemory.appliedRunSeed;
+    json["learned"] = mDistrictMemory.learnedRules;
+    const std::string tempPath = mDistrictPath + ".tmp";
+    {
+        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+        if (!output) return false;
+        output << json.dump();
+        output.flush();
+        if (!output.good()) return false;
+    }
+    std::error_code ec;
+    if (std::filesystem::exists(mDistrictPath, ec))
+    {
+        std::filesystem::remove(mDistrictPath, ec);
+        ec.clear();
+    }
+    std::filesystem::rename(tempPath, mDistrictPath, ec);
+    return !ec;
 }
 
 void SaveManager::loadFurnitureMemory()

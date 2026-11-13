@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <deque>
 #include <memory>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,6 +31,10 @@
 #include "world/FirstDays.h"
 #include "world/Furniture.h"
 #include "world/Scenery.h"
+#include "world/BloodTrail.h"
+#include "world/ZombieKinds.h"
+#include "world/EntityFactory.h"
+#include "world/Senses.h"
 #include "map/MapGenerator.h"
 #include "map/TileMap.h"
 #include "map/TiledLoader.h"
@@ -101,6 +106,7 @@ public:
 
 private:
     friend class DevHarness;
+    bool mDevGodMode = false; // set by the harness's `god on`
     friend class Autoplayer;
 
     enum class RunState
@@ -298,8 +304,8 @@ private:
     // A body where a zombie fell (sprite top-left). It wears the zombie's
     // look, falls facing `dir` (Animation::dir) and slides on what is left of
     // the blow; `settled` skips the fall (bodies restored from a save).
-    void spawnCorpse(const glm::vec2& topLeft, int look, int dir, const glm::vec4& tint,
-                     const glm::vec2& slide, bool settled);
+    Entity spawnCorpse(const glm::vec2& topLeft, int look, int dir, const glm::vec4& tint,
+                     const glm::vec2& slide, bool settled, ZombieKind kind = ZombieKind::Shambler);
     // Blood, a held frame and a shaken screen when a blow lands on a zombie.
     void updateBlowFeedback(float dtSeconds);
 
@@ -333,7 +339,7 @@ private:
     bool handleWindowInteraction(const ProximityPrompt& entityPrompt);
     void boardUpWindow(const glm::ivec2& tile);
     // A zombie's blow at a window this tick (glass, boards, or a climb).
-    void windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds);
+    void windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds, float damageScale = 1.0f);
     void breakWindow(const glm::ivec2& tile, bool loud);
     void updateWindows(float dtSeconds);
     // True when (world) is on the inside of the window's wall.
@@ -399,6 +405,50 @@ private:
     void restoreStructures(const std::vector<StructureRecord>& records);
     // A light inside the building shows through its uncovered windows at night.
     [[nodiscard]] bool buildingLit(int building) const;
+
+    // The dead (overhaul phase 4), GameDead.cpp: kinds, senses, blood,
+    // hordes, threat modes and what the districts remember.
+    [[nodiscard]] const zombiekinds::ModeRules& modeRules() const;
+    // A kind for a new one on `tile` today, from the mode's shares and the
+    // district's infection.
+    [[nodiscard]] ZombieKind rollKind(std::mt19937& rng, const glm::ivec2& tile) const;
+    // Spawn parameters for one of `kind` (health and speed rolled, the
+    // mode's and the tone's health scales applied).
+    [[nodiscard]] EntityFactory::ZombieParams zombieParams(ZombieKind kind, const glm::vec2& topLeft, std::mt19937& rng) const;
+    void resetDead();
+    void updateDead(float dtSeconds, float feelDt);
+    void runZombieAI(float feelDt);
+    void updateHordes(float dtSeconds);
+    void updateFollower();
+    void updateBloodTrail(float dtSeconds);
+    void handleZombieEvents();
+    void applyPlayerBlows();
+    // A zombie has just died: the district, its blood and its burst.
+    void onZombieDeath(Entity zombie);
+    [[nodiscard]] senses::Shell shellAt(const glm::ivec2& tile);
+    [[nodiscard]] bool buildingSealed(int building);
+    [[nodiscard]] int ruinLevel(int districtId) const;
+    void refreshRuinLevels();
+    void noticeUnknownRules();
+    void recordTheDead(RunCheckpoint& cp); // the dead, bodies and blood into a checkpoint
+    [[nodiscard]] std::string zombieDeathCause();
+    ZombieKind mLastBlowKind = ZombieKind::Shambler;
+    bool mLastBlowFollower = false;
+    void buildRuinMarks();   // litter, smears and bodies by each district's ruin level
+    void drawBloodTrail();
+    [[nodiscard]] static const char* ruinWord(int level); // quiet, uneasy, turning, overrun
+    [[nodiscard]] bool isHordeNight(int night) const;
+    [[nodiscard]] bool hordeDay() const; // a horde comes tonight (or is passing)
+    [[nodiscard]] float barrierDamageScale(Entity zombie) const;
+    [[nodiscard]] bool playerKnockedDown() const { return mPlayerDownTimer > 0.0f; }
+    // Search the body of the dead in reach (E): rolled once, then a container.
+    bool searchNearestCorpse();
+    void loadDistrictMemory(bool newLife);
+    void saveDistrictMemory() const;
+    void startHorde();
+    void reduceStartingDead();
+    void placeDormantCrawlers(std::mt19937& rng);
+    [[nodiscard]] bool nightNow() const; // dusk to dawn
     [[nodiscard]] glm::vec2 screenToWorld(const glm::vec2& screenPosition) const;
 
     LaunchOptions mLaunchOptions;
@@ -461,7 +511,6 @@ private:
     float mShakeTrauma = 0.0f;
     float mShakeClock = 0.0f;
     float mPlayerHurtTimer = 0.0f;
-    std::vector<glm::vec2> mPlayerHits; // directions of blows the player took this tick
 
     // Fighting (phase 3). Not saved: things in flight, burning flares and
     // ringing clocks end with the session (a checkpoint drops them).
@@ -613,6 +662,45 @@ private:
     std::vector<std::pair<int, int>> mBurnedTiles;
     Doors mDoors;
     std::vector<BarrierBlow> mDoorBlows; // this tick's zombie blows on doors, windows, blocked doorways
+
+    // The dead (phase 4). Blood markers are kept by a checkpoint; the
+    // districts' infection, kills and the rules of The Unknown seen are
+    // world memory (save/districts.json); the rest is not saved.
+    bloodtrail::Trail mBloodTrail;
+    glm::vec2 mTrailLast{-1.0f};
+    std::vector<ZombieEvent> mZombieEvents;
+    std::vector<PlayerBlow> mPlayerBlows;
+    float mPlayerDownTimer = 0.0f;   // knocked down by a Brute
+    float mHobbleTimer = 0.0f;       // bitten in the leg by a Crawler
+    float mThunderTimer = 60.0f;
+    float mRainStoppedTimer = 0.0f;  // The Unknown: frenzied for a while after rain
+    bool mWasRaining = false;
+    float mBruteShakeTimer = 0.0f;
+    struct Horde
+    {
+        int id = 0;
+        int night = 0;
+        std::vector<glm::ivec2> route;
+        bool active = false;
+        float checkTimer = 0.0f;
+        int members = 0;
+    } mHorde;
+    int mNextHordeId = 1;
+    int mHordeNightStarted = 0;
+    std::vector<int> mRuinLevels;               // by district id, set at run start and each dawn
+    int mRuinDay = -1;
+    std::vector<int> mRuinDistrictOf;           // by tile: the district whose ruin it shows
+    std::vector<int> mDistrictKills;            // this life's kills, by district id
+    std::vector<int> mStartKills;               // the last life's, which thin the start
+    std::array<int, zombiekinds::kUnknownRuleCount> mUnknownSeen{};
+    std::array<float, zombiekinds::kUnknownRuleCount> mUnknownSeenCooldown{};
+    std::vector<std::string> mLearnedRules;     // rule keys written in the notebook (world memory)
+    std::pair<zombiekinds::UnknownRule, zombiekinds::UnknownRule> mUnknownRules{};
+    float mFollowerTimer = 0.0f;
+    bool mFollowerChosen = false;               // one follower a run (Stalker)
+    std::uint64_t mShellTick = 0;
+    std::vector<std::int8_t> mShellSealed;     // by building id: -1 not yet known this tick
+    float mDecayedExposure = 0.0f;
     Windows mWindows;
     std::vector<windows::Spot> mWindowSpots;
     std::vector<glm::ivec2> mRemovedFurniture; // origins of pieces broken up (world memory)

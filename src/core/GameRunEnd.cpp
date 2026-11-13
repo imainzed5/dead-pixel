@@ -185,6 +185,7 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
     mSaveManager.saveStructures(structureRecords(true));
     mSaveManager.setWindows(windowRecords());
     recordBase(mRunState == RunState::Dead);
+    saveDistrictMemory(); // infection, this life's kills, the rules learned
 
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
 

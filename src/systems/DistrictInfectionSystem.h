@@ -22,6 +22,9 @@ public:
     [[nodiscard]] float getInfection(int districtId) const;
     [[nodiscard]] bool isOverwhelmed(int districtId) const;
     [[nodiscard]] const std::vector<DistrictInfection>& districts() const { return mDistricts; }
+    // Set a district's infection (0..100), e.g. from what the world remembers
+    // or a kill or a horde passing (phase 4).
+    void setInfection(int districtId, float infection);
 
 private:
     static constexpr float kOverwhelmedThreshold = 75.0f;

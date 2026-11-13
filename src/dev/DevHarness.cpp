@@ -5,12 +5,14 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <random>
 #include <sstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
 #include "components/Animation.h"
+#include "components/Bleeding.h"
 #include "components/Combat.h"
 #include "components/Fire.h"
 #include "components/Corpse.h"
@@ -216,6 +218,13 @@ void DevHarness::fail(const Command& command, const std::string& message)
 
 void DevHarness::beforeTick(Game& game)
 {
+    beforeTickInner(game);
+    // `perf`: the game's tick is timed from here to afterTick.
+    if (mPerfTicksLeft > 0) mPerfStart = std::chrono::steady_clock::now();
+}
+
+void DevHarness::beforeTickInner(Game& game)
+{
     // Release holds whose time is up.
     for (auto it = mPendingReleases.begin(); it != mPendingReleases.end();)
     {
@@ -277,6 +286,21 @@ void DevHarness::beforeTick(Game& game)
 
 void DevHarness::afterTick(Game& game)
 {
+    if (mPerfTicksLeft > 0)
+    {
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mPerfStart).count();
+        mPerfTotalMs += ms;
+        mPerfWorstMs = std::max(mPerfWorstMs, ms);
+        ++mPerfTicks;
+        if (--mPerfTicksLeft == 0)
+        {
+            int alive = 0;
+            game.mWorld.forEach<ZombieAI>([&](Entity, ZombieAI&) { ++alive; });
+            std::cout << "[harness] tick " << mTick << ": perf over " << mPerfTicks << " ticks with " << alive
+                      << " of the dead: average " << (mPerfTotalMs / static_cast<double>(std::max(1, mPerfTicks)))
+                      << " ms, worst " << mPerfWorstMs << " ms\n";
+        }
+    }
     ++mTick;
 
     const bool alive = game.mRunState == Game::RunState::Playing || game.mRunState == Game::RunState::Paused;
@@ -412,6 +436,44 @@ void DevHarness::execute(Game& game, const Command& command)
         const int tileH = std::max(1, game.mTileMap.tileHeight());
         const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
         const glm::vec2 playerCentre(pt.x + 16.0f, pt.y + 16.0f);
+        // zombie outside R [options]: on open ground about R tiles from the
+        // player (for hearing through walls).
+        if (lower(a[1]) == "outside")
+        {
+            if (!need(2)) return;
+            const float r = std::stof(a[2]);
+            const glm::ivec2 me = gameshared::worldToTile(game.mTileMap, playerCentre);
+            glm::ivec2 found(-1);
+            float bestError = 1.0e9f;
+            const int reach = static_cast<int>(r) + 2;
+            for (int dy = -reach; dy <= reach; ++dy)
+            {
+                for (int dx = -reach; dx <= reach; ++dx)
+                {
+                    const glm::ivec2 t = me + glm::ivec2(dx, dy);
+                    if (!game.mTileMap.inBounds(t.x, t.y) || game.mTileMap.isSolid(t.x, t.y) ||
+                        game.mTileMap.getBuildingId(t.x, t.y) > 0)
+                    {
+                        continue;
+                    }
+                    const float error = std::abs(std::hypot(static_cast<float>(dx), static_cast<float>(dy)) - r);
+                    if (error < bestError)
+                    {
+                        bestError = error;
+                        found = t;
+                    }
+                }
+            }
+            if (found.x < 0 || bestError > 1.0f)
+            {
+                fail(command, "no open ground " + a[2] + " tiles away");
+                return;
+            }
+            std::vector<std::string> args = {"zombie", std::to_string(found.x - me.x), std::to_string(found.y - me.y)};
+            for (std::size_t k = 3; k < a.size(); ++k) args.push_back(a[k]);
+            execute(game, Command{command.line, args});
+            return;
+        }
         const bool atMark = lower(a[1]) == "mark";
         if (atMark && mMark.x < 0)
         {
@@ -432,16 +494,35 @@ void DevHarness::execute(Game& game, const Command& command)
         bool close = false;
         bool exact = false;
         float hp = 60.0f;
+        // A kind (shambler, runner, brute, crawler, screamer: its own health,
+        // speed and senses) and "dormant" (a Crawler lying in wait).
+        bool kindGiven = false;
+        ZombieKind kind = ZombieKind::Shambler;
+        bool dormant = false;
+        bool still = false; // stands where it is put (it still looks and listens)
+        bool hpGiven = false;
         for (std::size_t k = atMark ? 2 : 3; k < a.size(); ++k)
         {
             const std::string opt = lower(a[k]);
-            if (opt == "idle") idle = true;
+            ZombieKind parsed;
+            if (zombiekinds::parseKind(opt, parsed))
+            {
+                kind = parsed;
+                kindGiven = true;
+            }
+            else if (opt == "dormant") dormant = idle = true;
+            else if (opt == "still") still = idle = true;
+            else if (opt == "idle") idle = true;
             else if (opt == "down") down = idle = true;
             else if (opt == "lunging") lunging = idle = true;
             else if (opt == "close") close = true;
             else if (opt == "exact") exact = !atMark;
             else if (opt == "away") away = idle = true;
-            else if (opt == "hp" && k + 1 < a.size()) hp = std::stof(a[++k]);
+            else if (opt == "hp" && k + 1 < a.size())
+            {
+                hp = std::stof(a[++k]);
+                hpGiven = true;
+            }
         }
         const int tx = atMark ? mMark.x : static_cast<int>(playerCentre.x / static_cast<float>(tileW)) + std::stoi(a[1]);
         const int ty = atMark ? mMark.y : static_cast<int>(playerCentre.y / static_cast<float>(tileH)) + std::stoi(a[2]);
@@ -466,6 +547,15 @@ void DevHarness::execute(Game& game, const Command& command)
         params.health = hp;
         params.baseMoveSpeed = 112.0f;
         params.spawnDay = game.mCurrentDay;
+        if (kindGiven)
+        {
+            // The middle of the kind's ranges, the same every run.
+            const zombiekinds::Rolled rolled = zombiekinds::roll(zombiekinds::activeTable(), kind, 0.5f, 0.5f);
+            params.kind = kind;
+            params.health = hpGiven ? hp : rolled.health;
+            params.baseMoveSpeed = rolled.speed;
+            params.dormant = dormant;
+        }
         const Entity zombie = EntityFactory::spawnZombie(game.mWorld, game.mSpriteSheet, params);
         if (down && zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
         {
@@ -492,15 +582,122 @@ void DevHarness::execute(Game& game, const Command& command)
             game.mWorld.getComponent<Animation>(zombie).dir = best;
             game.mWorld.getComponent<ZombieAI>(zombie).stagger = 3.0f;
         }
-        if (zombie != kInvalidEntity && game.mWorld.hasComponent<Health>(zombie) && hp < 60.0f)
+        if (!kindGiven && zombie != kInvalidEntity && game.mWorld.hasComponent<Health>(zombie) && hp < 60.0f)
         {
             // Hurt: below the usual 60, so a shove can put it over.
             game.mWorld.getComponent<Health>(zombie).maximum = 60.0f;
+        }
+        if (still && zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
+        {
+            game.mWorld.getComponent<ZombieAI>(zombie).idleTimer = 1.0e6f;
         }
         if (!idle && zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
         {
             ZombieAISystem::sendTo(game.mWorld.getComponent<ZombieAI>(zombie), playerCentre, false);
         }
+    }
+    else if (op == "infection")
+    {
+        // infection N [all]: set the infection of the player's district (or
+        // every district) and show its ruin at once, as at a dawn.
+        if (!need(1)) return;
+        const float value = std::stof(a[1]);
+        const bool all = a.size() > 2 && lower(a[2]) == "all";
+        const glm::vec2 here = game.playerWorldCenter();
+        const int mine = game.mTileMap.getDistrictId(static_cast<int>(here.x) / 32, static_cast<int>(here.y) / 32);
+        for (const DistrictInfection& d : game.mDistrictInfectionSystem.districts())
+        {
+            if (all || d.districtId == mine) game.mDistrictInfectionSystem.setInfection(d.districtId, value);
+        }
+        game.refreshRuinLevels();
+        game.mHudDistrictId = -1; // the toast again, with the new word
+        std::cout << "[harness] tick " << mTick << ": district " << mine << " ruin " << game.ruinLevel(mine) << " ("
+                  << Game::ruinWord(game.ruinLevel(mine)) << "), " << game.mSceneryView.ruin().size() << " ruin marks" << std::endl;
+    }
+    else if (op == "mode")
+    {
+        // mode NAME: the threat mode of the next newrun (swarm, stalker,
+        // mutating, society, unknown, hybrid).
+        if (!need(1)) return;
+        static const char* kModes[] = {"swarm", "stalker", "mutating", "society", "unknown", "hybrid"};
+        const std::string name = lower(a[1]);
+        int index = -1;
+        for (int i = 0; i < 6; ++i)
+        {
+            if (name == kModes[i]) index = i;
+        }
+        if (index < 0)
+        {
+            fail(command, "unknown mode '" + name + "'");
+            return;
+        }
+        game.mTitleModeIndex = index;
+        std::cout << "[harness] tick " << mTick << ": mode " << name << '\n';
+    }
+    else if (op == "horde")
+    {
+        // horde: send tonight's horde now (whatever the night).
+        game.startHorde();
+        std::cout << "[harness] tick " << mTick << ": horde of " << game.mHorde.members << " set out ("
+                  << game.mHorde.route.size() << " waypoints)\n";
+    }
+    else if (op == "trail")
+    {
+        // trail: print the blood markers on the ground.
+        const auto& markers = game.mBloodTrail.markers();
+        std::cout << "[harness] tick " << mTick << ": " << markers.size() << " blood markers\n";
+    }
+    else if (op == "noise")
+    {
+        // noise TIER [DX DY]: a noise (whisper, soft, medium, loud,
+        // explosive) at the player, or DX, DY tiles from them.
+        if (!need(1)) return;
+        const std::string tierName = lower(a[1]);
+        NoiseTier tier = NoiseTier::None;
+        if (tierName == "whisper") tier = NoiseTier::Whisper;
+        else if (tierName == "soft") tier = NoiseTier::Soft;
+        else if (tierName == "medium") tier = NoiseTier::Medium;
+        else if (tierName == "loud") tier = NoiseTier::Loud;
+        else if (tierName == "explosive") tier = NoiseTier::Explosive;
+        if (tier == NoiseTier::None)
+        {
+            fail(command, "unknown tier '" + tierName + "'");
+            return;
+        }
+        glm::vec2 at = game.playerWorldCenter();
+        if (a.size() >= 4) at += glm::vec2(std::stof(a[2]), std::stof(a[3])) * static_cast<float>(game.mTileMap.tileWidth());
+        game.mNoiseModel.emitNoise(at, tier, 1.0f, game.mPlayerEntity);
+    }
+    else if (op == "perf")
+    {
+        // perf N: N of the dead around the player (5 to 40 tiles), then the
+        // next 600 ticks are timed; average and worst are printed.
+        if (!need(1)) return;
+        const int count = std::max(0, std::stoi(a[1]));
+        const glm::vec2 player = game.playerWorldCenter();
+        const float tile = static_cast<float>(std::max(1, game.mTileMap.tileWidth()));
+        std::mt19937 rng(1234u);
+        std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+        int placed = 0;
+        for (int attempt = 0; placed < count && attempt < count * 50; ++attempt)
+        {
+            const float angle = unit(rng) * 6.2831853f;
+            const float distance = (5.0f + unit(rng) * 35.0f) * tile;
+            const glm::vec2 at = player + glm::vec2(std::cos(angle), std::sin(angle)) * distance;
+            const glm::ivec2 t = gameshared::worldToTile(game.mTileMap, at);
+            if (!game.mTileMap.inBounds(t.x, t.y) || game.mTileMap.isSolid(t.x, t.y)) continue;
+            const glm::vec2 topLeft = (glm::vec2(t) + glm::vec2(0.5f)) * tile - glm::vec2(16.0f);
+            EntityFactory::spawnZombie(game.mWorld, game.mSpriteSheet,
+                                       game.zombieParams(game.rollKind(rng, t), topLeft, rng));
+            ++placed;
+        }
+        int alive = 0;
+        game.mWorld.forEach<ZombieAI>([&](Entity, ZombieAI&) { ++alive; });
+        std::cout << "[harness] tick " << mTick << ": perf: " << placed << " placed, " << alive << " of the dead\n";
+        mPerfTicksLeft = 600;
+        mPerfTotalMs = 0.0;
+        mPerfWorstMs = 0.0;
+        mPerfTicks = 0;
     }
     else if (op == "shove")
     {
@@ -825,6 +1022,49 @@ void DevHarness::execute(Game& game, const Command& command)
             execute(game, Command{command.line, {"teleport", std::to_string(bestTile.x), std::to_string(bestTile.y)}});
             return;
         }
+        if (kind == "pavement")
+        {
+            // goto pavement: the nearest open outdoor spot with ordinary ground
+            // (no grass, gravel or road) three tiles either side and clear
+            // ground five tiles south.
+            if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+            {
+                fail(command, "no player");
+                return;
+            }
+            const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+            const glm::ivec2 from(static_cast<int>(pt.x + 16.0f) / 32, static_cast<int>(pt.y + 16.0f) / 32);
+            const TileMap& map = game.mTileMap;
+            auto plain = [&](int x, int y)
+            {
+                return !map.isSolid(x, y) && map.getBuildingId(x, y) == 0 &&
+                       map.getSurfaceType(x, y) == SurfaceType::Default;
+            };
+            glm::ivec2 best(-1);
+            int bestD = 0;
+            for (int y = 1; y < map.height() - 6; ++y)
+            {
+                for (int x = 4; x < map.width() - 4; ++x)
+                {
+                    bool ok = !map.isSolid(x, y + 5) && map.getBuildingId(x, y + 5) == 0;
+                    for (int dx = -3; ok && dx <= 3; ++dx) ok = plain(x + dx, y);
+                    if (!ok) continue;
+                    const int d = (x - from.x) * (x - from.x) + (y - from.y) * (y - from.y);
+                    if (best.x < 0 || d < bestD)
+                    {
+                        best = {x, y};
+                        bestD = d;
+                    }
+                }
+            }
+            if (best.x < 0)
+            {
+                fail(command, "no pavement");
+                return;
+            }
+            execute(game, Command{command.line, {"teleport", std::to_string(best.x), std::to_string(best.y)}});
+            return;
+        }
         if (kind == "mark")
         {
             if (mMark.x < 0)
@@ -1054,6 +1294,7 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "god")
     {
         if (need(1)) mGodMode = lower(a[1]) == "on";
+        game.mDevGodMode = mGodMode;
     }
     else if (op == "give")
     {
@@ -1136,6 +1377,19 @@ void DevHarness::execute(Game& game, const Command& command)
             }
             applied = true;
         }
+        if (stat == "bleeding")
+        {
+            // set bleeding SECONDS: bleeding for that long (0 stops it).
+            if (world.hasComponent<Bleeding>(player)) world.removeComponent<Bleeding>(player);
+            if (value > 0.0f)
+            {
+                Bleeding bleeding{};
+                bleeding.bleedRate = 0.2f;
+                bleeding.remainingSeconds = value;
+                world.addComponent<Bleeding>(player, bleeding);
+            }
+            applied = true;
+        }
         if (stat == "stamina" && world.hasComponent<Stamina>(player))
         {
             world.getComponent<Stamina>(player).current = value;
@@ -1146,8 +1400,14 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "trait")
     {
         // trait tough: the player is Tough (120 maximum health).
+        // trait plain: no bad trait (a Clumsy player's steps are louder).
         if (!need(1)) return;
         const Entity player = game.mPlayerEntity;
+        if (lower(a[1]) == "plain" && player != kInvalidEntity && game.mWorld.hasComponent<Traits>(player))
+        {
+            game.mWorld.getComponent<Traits>(player).negative = NegativeTrait::None;
+            return;
+        }
         if (lower(a[1]) != "tough" || player == kInvalidEntity || !game.mWorld.hasComponent<Health>(player))
         {
             fail(command, "cannot give trait '" + a[1] + "'");
@@ -1446,11 +1706,94 @@ void DevHarness::execute(Game& game, const Command& command)
                     const glm::ivec2 zt = gameshared::worldToTile(game.mTileMap, c);
                     if (building > 0 && game.mTileMap.getBuildingId(zt.x, zt.y) == building) ++inside;
                 });
-            const bool ok = mood == "coming" ? busy > 0 : mood == "all" ? near > 0 && busy == near : mood == "calm" ? busy == 0 : mood == "inside" ? inside > 0 : false;
+            const bool ok = mood == "coming" ? busy > 0 : mood == "all" ? near > 0 && busy == near : mood == "calm" ? busy == 0 : mood == "inside" ? inside > 0 : mood == "outside" ? inside == 0 : false;
             const std::string have = std::to_string(near) + " near, " + std::to_string(busy) + " after something, " +
                                      std::to_string(inside) + " inside";
             if (!ok) fail(command, "expected zombies " + mood + ": " + have);
             else std::cout << "[harness] tick " << mTick << ": zombies " << have << '\n';
+            return;
+        }
+        if (want == "kind")
+        {
+            // expect kind KIND MOOD R: of the dead of KIND (or "any") within
+            // R tiles: "near" some, "coming" some after something, "calm"
+            // none after anything, "dormant" some lying in wait, "awake" none
+            // lying in wait, "unmoved" one the player struck and did not move,
+            // "far" none at all.
+            if (!need(4)) return;
+            const std::string kindName = lower(a[2]);
+            ZombieKind kind = ZombieKind::Shambler;
+            const bool any = kindName == "any";
+            if (!any && !zombiekinds::parseKind(kindName, kind))
+            {
+                fail(command, "unknown kind '" + kindName + "'");
+                return;
+            }
+            const std::string mood = lower(a[3]);
+            const float range = std::stof(a[4]) * 32.0f;
+            const glm::vec2 here = game.playerWorldCenter();
+            int near = 0;
+            int busy = 0;
+            int dormant = 0;
+            int unmoved = 0;
+            float nearest = 1.0e9f;
+            game.mWorld.forEach<ZombieAI, Transform, Health>(
+                [&](Entity, ZombieAI& ai, Transform& t, Health& h)
+                {
+                    if (h.current <= 0.0f || (!any && ai.kind != kind)) return;
+                    const float d = glm::length(glm::vec2(t.x + 16.0f, t.y + 16.0f) - here);
+                    nearest = std::min(nearest, d / 32.0f);
+                    if (d > range) return;
+                    ++near;
+                    if (ai.state == ZombieState::Investigate || ai.state == ZombieState::Chase ||
+                        ai.state == ZombieState::Attack)
+                    {
+                        ++busy;
+                    }
+                    if (ai.dormant) ++dormant;
+                    if (ai.lastDamagedBy == game.mPlayerEntity && glm::length(ai.knock) <= 1.0f) ++unmoved;
+                });
+            bool ok = false;
+            if (mood == "near") ok = near > 0;
+            else if (mood == "coming") ok = busy > 0;
+            else if (mood == "calm") ok = near > 0 && busy == 0;
+            else if (mood == "dormant") ok = dormant > 0;
+            else if (mood == "awake") ok = near > 0 && dormant == 0;
+            else if (mood == "unmoved") ok = unmoved > 0;
+            else if (mood == "far") ok = near == 0;
+            const std::string have = std::to_string(near) + " near (nearest " + std::to_string(static_cast<int>(nearest)) +
+                                     " tiles), " + std::to_string(busy) + " after something, " + std::to_string(dormant) +
+                                     " dormant, " + std::to_string(unmoved) + " struck and unmoved";
+            if (!ok) fail(command, "expected " + kindName + " " + mood + ": " + have);
+            else std::cout << "[harness] tick " << mTick << ": " << kindName << " " << mood << ": " << have << std::endl;
+            return;
+        }
+        if (want == "trail")
+        {
+            // expect trail N: at least N blood markers on the ground ("none": none).
+            if (!need(2)) return;
+            const int have = static_cast<int>(game.mBloodTrail.markers().size());
+            const bool ok = lower(a[2]) == "none" ? have == 0 : have >= std::stoi(a[2]);
+            if (!ok) fail(command, "expected trail " + a[2] + ", there are " + std::to_string(have) + " markers");
+            else std::cout << "[harness] tick " << mTick << ": " << have << " blood markers" << std::endl;
+            return;
+        }
+        if (want == "perf")
+        {
+            // expect perf AVG WORST: the last `perf` run's ticks, in ms.
+            if (!need(3)) return;
+            const double average = mPerfTotalMs / static_cast<double>(std::max(1, mPerfTicks));
+            if (mPerfTicks == 0 || mPerfTicksLeft > 0) fail(command, "no finished perf run");
+            else if (average >= std::stod(a[2]) || mPerfWorstMs >= std::stod(a[3]))
+                fail(command, "average " + std::to_string(average) + " ms, worst " + std::to_string(mPerfWorstMs) + " ms");
+            return;
+        }
+        if (want == "horde")
+        {
+            // expect horde on|off: a horde is crossing the town, or not.
+            if (!need(2)) return;
+            const bool on = lower(a[2]) == "on";
+            if (game.mHorde.active != on) fail(command, std::string("expected horde ") + a[2]);
             return;
         }
         if (want == "held" || want == "free")

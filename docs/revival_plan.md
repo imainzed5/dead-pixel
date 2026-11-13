@@ -857,6 +857,98 @@ of the start, with 5 and 6 kills (why is not yet looked into; the hold is
 the new danger to check first). Day one's lethality stays phases 4 and
 14's to settle.
 
+## Overhaul phase 4: the dead (2026-11-14)
+
+Five kinds of dead, told apart by shape: the Shambler; the Runner (lean,
+redder, its head snaps up for half a second, then 1.7x for 8 s and winded
+4 s; a sprint that reaches you always grabs); the Brute (broad and grey,
+150-190 health, not moved by a light blow, its shove puts you on the floor
+for 0.8 s, x3 on doors and boards, the ground shakes near it); the Crawler
+(prone, slow, hidden in grass or by furniture past 2 tiles, bites the legs:
+hobbled 20 s; 30 % lie in wait by furniture and wake with a scrape at 2
+tiles); the Screamer (pale, arms down; on sight it screams 1.2 s, Loud,
+keeps 4 to 6 tiles off and screams every 10 s). Shares come from
+`assets/data/zombies.json` and grow by day; districts over 50 % infection
+double the Runner and Screamer shares. Night callers include a Runner in
+four from night 4 and a Brute from night 6.
+
+Senses: sight in a 160-degree cone for the unaware, x0.6 in the dark, x1.3
+when you are lit, less when you crouch, and an awareness meter that fills
+and drains (a head lifts above 0.4); hearing by tier radius, one tier
+lower through a sealed building's shell, scaled by rain and wind, with
+thunder in storms; blood trails from bleeding or open wounds, drawn on the
+ground, fading by place and rain, followed by the dead. Decomposition
+matters (a Bloated one bursts, a Decayed crowd sickens, the Skeletal can be
+waded through). Crowds clump; hordes cross the town on set nights (night 7,
+then every 4 to 6; Swarm and Hybrid from night 5 every 3 to 4) along the
+roads past the home, pass a dark shut house by and turn to a lit window.
+Each threat mode reads its rules from the data: Swarm many and weak,
+Stalker few and relentless with one follower, Mutating worse each day,
+Society fewer and slower, The Unknown two hidden rules a run that the
+notebook writes down once seen three times, Hybrid Swarm then Mutating.
+Districts carry their infection between lives (-10 a life), lose 0.15 a
+kill, and show a ruin level (quiet, uneasy, turning, overrun) on the HUD,
+on the town map, and in litter, smears and bodies on the street. Bodies can
+be searched (E). Deaths now say what did it: "Overrun by the dead" (five
+or more within 3 tiles), "Hunted down by the zombie that followed", or the
+kind that struck last. The AI is split into senses, movement and attack,
+with a spatial grid and a shared flow field: 300 of the dead average 1.3
+ms a tick, worst 4.4 ms (bar: 4 and 12).
+
+Art: `tools/charrig.py` draws the four new kinds with their own builds,
+tints and moves (a sprint and a start pose, a heavy walk, a prone drag, a
+scream) in all three clothing looks, plus an alert frame for every kind;
+the atlas grew to 4096 x 4096 with the kinds in the lower half.
+
+Harness: `kinds.txt` (five silhouettes apart at default zoom; a Runner
+covers 10 tiles in under 4 s; a knife does not move a Brute; a scream
+brings a wanderer from 20 tiles; a dormant Crawler wakes at 2 tiles),
+`senses.txt` (crouched and still in the dark, unseen for 10 s at 5 tiles;
+running, heard; a swing in a shut house not heard 10 tiles out, with the
+door open it is; a walk in heavy rain not heard at 5 tiles; a bleeding
+walk followed within 60 s, a dressed one in rain not), `horde.txt` (a dark,
+curtained house passed by; a candle in a clear window, broken into),
+`perf.txt`, and `ruin.txt` (the ruin levels on the street, the HUD and the
+map; blood drops). Every older script still passes; `guns.txt` now checks
+a shot is heard within 16 tiles (P04's wind and the Brute's hearing).
+
+The bot is unchanged (the phase asks nothing of it). `bot_week`, seeds 1 to
+10, in each threat mode (`tools/soak.py --mode`), days survived:
+
+| Seed | Swarm | Stalker | Mutating | Society | Unknown | Hybrid |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1.6 | 2.2 | 0.9 | 2.1 | 0.6 | 1.5 |
+| 2 | 1.7 | 2.5 | 0.9 | 3.0 | 0.4 | 1.6 |
+| 3 | 1.2 | 0.8 | 0.9 | 2.1 | 1.1 | 1.0 |
+| 4 | 0.8 | 3.9 | 1.7 | 4.0 | 2.5 | 2.0 |
+| 5 | 1.7 | 2.8 | 0.6 | 1.6 | 0.7 | 1.9 |
+| 6 | 1.4 | 2.6 | 0.8 | 2.1 | 2.0 | 1.7 |
+| 7 | 2.0 | 2.8 | 1.9 | 3.2 | 1.9 | 1.3 |
+| 8 | 1.9 | 1.6 | 0.7 | 2.0 | 1.1 | 0.7 |
+| 9 | 1.3 | 3.0 | 2.6 | 2.9 | 3.0 | 2.3 |
+| 10 | 1.2 | 2.4 | 1.5 | 2.9 | 1.9 | 0.4 |
+| **Median** | **1.5** | **2.5** | **0.9** | **2.5** | **1.5** | **1.6** |
+
+| Mode | Mean days | Median kills | Died at home, night 1 | How it ended |
+|---|---:|---:|---:|---|
+| Swarm | 1.5 | 32 | 1 | overrun 8, killed 1, a Brute 1 |
+| Stalker | 2.5 | 32 | 0 | overrun 7, killed 2, a Brute 1 |
+| Mutating | 1.2 | 25.5 | 2 | overrun 6, killed 4 |
+| Society | 2.6 | 38 | 0 | overrun 9, a Brute 1 |
+| Unknown | 1.5 | 27.5 | 1 | overrun 7, a Brute 2, infection 1 |
+| Hybrid | 1.4 | 31.5 | 1 | overrun 9, killed 1 |
+
+("Killed" is the last blow from a Shambler or Screamer with fewer than five
+round you.) All 60 runs clean; none lives the week. The modes play
+differently in length: Stalker and Society twice as long as Mutating,
+Swarm and Hybrid between. Swarm (the default mode, so phase 3's 0.9 is
+its baseline) went from 0.9 to 1.5. **Stalker and Swarm differ in day of
+death (median 2.5 against 1.5) but not in cause**: in both the bot dies
+overrun at home, and in no Stalker run did the follower land the last
+blow. The bot does not read the modes: it boards up and waits whatever
+comes, so a mode's character shows only in how long that lasts. Not
+retuned here (see `docs/overhaul/DECISIONS.md`).
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -1007,3 +1099,8 @@ Candidates for the next stretch, roughly in order. None is started.
   throwing on G (lures, clocks, flares), guns with reloads and jams, six new
   weapons and rare finds; bot shoves and struggles; median 0.9 days
   (bar: at least 0.0, met).
+- 2026-11-14: Overhaul phase 4, the dead: five kinds with their own art,
+  sight, hearing through walls and weather, blood trails, hordes, threat
+  modes as data, districts that turn and show it, searchable bodies; 300
+  dead at 1.3 ms a tick; bot medians by mode 0.9 to 2.5 days; Stalker and
+  Swarm differ in day of death, not in cause.

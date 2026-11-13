@@ -103,12 +103,12 @@ constexpr std::array<const char*, 6> kTitleModeNames = {
 };
 
 constexpr std::array<const char*, 6> kTitleModeDescriptions = {
-    "Huge populations; pressure through volume",
-    "Fewer but persistent hunters",
-    "Threat escalates as days pass",
-    "Human hostility dominates district danger",
-    "Unstable behavior patterns and uncertainty",
-    "Swarm pressure plus late-game mutation"
+    "Many, weak, endless; hordes early and often",
+    "Few, relentless; one follows you every night",
+    "Shamblers at first; worse kinds every day",
+    "Fewer, slower dead; people are the danger",
+    "Two hidden rules a run; learn them to live",
+    "Swarm to day 7, then it starts to mutate"
 };
 
 constexpr std::array<const char*, 3> kTitleToneNames = {
@@ -336,80 +336,12 @@ inline int indexFromSaveTonePreset(SaveTonePreset preset)
     }
 }
 
-struct ThreatBehaviorTuning
-{
-    float speedScale = 1.0f;
-    float visionScale = 1.0f;
-};
-
-inline ThreatDirectorSystem::Tuning threatDirectorTuning(SaveThreatMode mode)
+// The threat director's pressure from the threat mode (zombies.json "modes").
+inline ThreatDirectorSystem::Tuning threatDirectorTuning(const zombiekinds::ModeRules& rules)
 {
     ThreatDirectorSystem::Tuning tuning{};
-    switch (mode)
-    {
-    case SaveThreatMode::OverwhelmingSwarm: tuning.migrationScale = 1.3f; tuning.populationScale = 1.45f; break;
-    case SaveThreatMode::Stalker:           tuning.migrationScale = 1.6f; tuning.populationScale = 0.7f;  break;
-    case SaveThreatMode::MutatingThreat:    tuning.migrationScale = 1.0f; tuning.populationScale = 1.15f; break;
-    case SaveThreatMode::InfectedSociety:   tuning.migrationScale = 0.8f; tuning.populationScale = 0.9f;  break;
-    case SaveThreatMode::Unknown:           tuning.migrationScale = 1.1f; tuning.populationScale = 1.1f;  break;
-    case SaveThreatMode::Hybrid:            tuning.migrationScale = 1.25f; tuning.populationScale = 1.3f; break;
-    }
-    return tuning;
-}
-
-inline ThreatBehaviorTuning computeThreatBehaviorTuning(
-    SaveThreatMode mode,
-    int currentDay,
-    Entity zombieEntity,
-    std::uint64_t runSeed)
-{
-    ThreatBehaviorTuning tuning{};
-
-    switch (mode)
-    {
-    case SaveThreatMode::OverwhelmingSwarm:
-        tuning.speedScale = 0.94f;
-        tuning.visionScale = 0.96f;
-        break;
-
-    case SaveThreatMode::Stalker:
-        tuning.speedScale = 1.18f;
-        tuning.visionScale = 1.30f;
-        break;
-
-    case SaveThreatMode::MutatingThreat:
-    {
-        const float dayFactor = std::clamp((static_cast<float>(currentDay) - 1.0f) / 30.0f, 0.0f, 1.0f);
-        tuning.speedScale = 1.0f + dayFactor * 0.42f;
-        tuning.visionScale = 1.0f + dayFactor * 0.24f;
-        break;
-    }
-
-    case SaveThreatMode::InfectedSociety:
-        tuning.speedScale = 0.82f;
-        tuning.visionScale = 0.84f;
-        break;
-
-    case SaveThreatMode::Unknown:
-    {
-        const int seedA = static_cast<int>(runSeed & 0x7FFFFFFFu);
-        const int seedB = static_cast<int>((runSeed >> 17) & 0x7FFFFFFFu);
-        const float jitterA = deterministic01(static_cast<int>(zombieEntity), currentDay, seedA);
-        const float jitterB = deterministic01(currentDay, static_cast<int>(zombieEntity), seedB);
-        tuning.speedScale = 0.74f + jitterA * 0.78f;
-        tuning.visionScale = 0.78f + jitterB * 0.56f;
-        break;
-    }
-
-    case SaveThreatMode::Hybrid:
-    {
-        const float dayFactor = std::clamp((static_cast<float>(currentDay) - 1.0f) / 40.0f, 0.0f, 1.0f);
-        tuning.speedScale = 1.05f + dayFactor * 0.28f;
-        tuning.visionScale = 1.04f + dayFactor * 0.20f;
-        break;
-    }
-    }
-
+    tuning.migrationScale = rules.migration;
+    tuning.populationScale = rules.population;
     return tuning;
 }
 
@@ -555,7 +487,7 @@ constexpr std::array<ControlBinding, 26> kControlBindings = {{
     {"RClick", "Take down (from behind)"},
     {"Space", "Shove / struggle"},
     {"G", "Throw (hold, aim)"},
-    {"E", "Interact, talk; hold: push"},
+    {"E", "Interact, search; hold: push"},
     {"R", "Board, tap / reload"},
     {"X", "Pry board / break up"},
     {"F", "Use item / set down"},

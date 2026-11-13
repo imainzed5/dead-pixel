@@ -118,6 +118,10 @@ struct ZombieRecord
     float maxHealth = 50.0f;
     float baseMoveSpeed = 112.0f;
     int spawnDay = 1;
+    // Phase 4 (optional fields; older records are Shamblers).
+    int kind = 0;          // ZombieKind
+    bool dormant = false;  // a Crawler lying in wait
+    bool follower = false; // the Stalker's follower
 };
 
 // A boarded-up door and what is left of its boards.
@@ -136,6 +140,31 @@ struct CorpseRecord
     bool flipX = false;
     int look = 0; // zombie look
     int dir = 1;  // facing as it fell (Animation::dir)
+    int kind = 0; // ZombieKind (phase 4)
+    bool searched = false;
+    std::vector<std::pair<int, int>> items; // (item id, count) left in its pockets
+};
+
+// A blood marker on the ground (phase 4; checkpoint only).
+struct BloodMarkerRecord
+{
+    float x = 0.0f; // world centre
+    float y = 0.0f;
+    float strength = 1.0f;
+    float age = 0.0f;
+    float life = 10.0f;
+    int place = 0; // bloodtrail::Place
+    bool pool = false;
+    std::uint32_t seq = 0;
+};
+
+// What the districts remember between lives (phase 4, world memory).
+struct DistrictMemoryRecord
+{
+    std::vector<std::pair<int, float>> infection; // district id, 0..100
+    std::vector<std::pair<int, int>> kills;       // district id, the last life's kills there
+    std::uint32_t appliedRunSeed = 0;             // the life the "-10 a life" was taken for
+    std::vector<std::string> learnedRules;        // The Unknown's rules written in the notebook
 };
 
 // Where a run stands in its first three days (see world/FirstDays.h).
@@ -314,6 +343,7 @@ struct RunCheckpoint
     bool zombiesSaved = false;
     std::vector<ZombieRecord> zombies;
     std::vector<CorpseRecord> corpses;
+    std::vector<BloodMarkerRecord> blood;
     bool firstDaysSaved = false;
     FirstDaysRecord firstDays;
     WeatherRecord weather;
@@ -359,6 +389,9 @@ public:
     [[nodiscard]] const FurnitureMemoryRecord& furnitureMemory() const { return mFurnitureMemory; }
     void setFurnitureMemory(FurnitureMemoryRecord memory) { mFurnitureMemory = std::move(memory); }
     bool saveFurnitureMemory() const;
+    [[nodiscard]] const DistrictMemoryRecord& districtMemory() const { return mDistrictMemory; }
+    void setDistrictMemory(DistrictMemoryRecord memory) { mDistrictMemory = std::move(memory); }
+    bool saveDistrictMemory() const;
     [[nodiscard]] const BaseRecord& baseRecord() const { return mBase; }
     void setBaseRecord(const BaseRecord& base) { mBase = base; }
     [[nodiscard]] const LastHomeRecord& lastHome() const { return mLastHome; }
@@ -432,6 +465,7 @@ private:
     bool loadLegacy();
     bool loadStructures();
     void loadFurnitureMemory();
+    void loadDistrictMemory();
     bool writeMeta() const;
     bool writeLegacy() const;
     bool writeStructures() const;
@@ -453,6 +487,8 @@ private:
     std::string mWorldMemoryPath;
     std::string mSurvivorPath;
     std::string mFurniturePath;
+    std::string mDistrictPath;
+    DistrictMemoryRecord mDistrictMemory;
 
     int mSaveVersion = 0;
     std::uint32_t mWorldSeed = 0;
