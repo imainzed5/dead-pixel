@@ -471,6 +471,7 @@ private:
     bool mContainerPackSide = false;
     float mContainerSpoilHours = 0.0f;
     int mContainersOpened = 0; // this run, for the harness metrics
+    glm::vec2 mPanicDrift{0.0f}; // the drift added to the player's velocity this tick
 
     // M8 narrow slice state
     Entity mActiveVehicleEntity = kInvalidEntity;

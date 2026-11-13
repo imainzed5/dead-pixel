@@ -675,25 +675,79 @@ bullet passing through a crowd, and a campaign deadline that killed you.
 
 A bot (`bot PROFILE DAYS` in the harness) plays the game through the same
 input a player uses, and `tools/soak.py` runs it over seeds 1 to 10. The
-baseline, `bot_week.txt`, seed per row:
+baseline, `bot_week.txt`, seed per row (runs repeat exactly per seed):
 
 | Seed | Normal: days | Kills | Searched | Careful: days | Kills | Searched |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1 | 0.2 | 4 | 10 | 0.4 | 7 | 7 |
-| 2 | 0.3 | 5 | 13 | 0.7 | 5 | 10 |
-| 3 | 0.5 | 5 | 20 | 0.2 | 3 | 8 |
-| 4 | 0.5 | 9 | 10 | 0.2 | 3 | 14 |
-| 5 | 0.2 | 8 | 16 | 0.1 | 1 | 3 |
-| 6 | 0.1 | 4 | 22 | 0.5 | 3 | 22 |
-| 7 | 0.4 | 3 | 8 | 0.3 | 1 | 6 |
-| 8 | 0.1 | 7 | 7 | 0.2 | 3 | 8 |
-| 9 | 0.2 | 8 | 21 | 0.5 | 3 | 8 |
-| 10 | 0.5 | 4 | 20 | 0.1 | 2 | 10 |
+| 1 | 0.3 | 23 | 13 | 0.4 | 30 | 30 |
+| 2 | 1.5 | 39 | 39 | 0.5 | 11 | 26 |
+| 3 | 0.7 | 29 | 41 | 0.5 | 12 | 25 |
+| 4 | 2.2 | 40 | 47 | 1.8 | 33 | 5 |
+| 5 | 1.1 | 22 | 5 | 2.1 | 22 | 6 |
+| 6 | 1.3 | 17 | 4 | 1.0 | 22 | 4 |
+| 7 | 1.5 | 27 | 14 | 1.3 | 25 | 6 |
+| 8 | 0.7 | 25 | 43 | 0.8 | 23 | 21 |
+| 9 | 1.3 | 30 | 29 | 1.0 | 20 | 9 |
+| 10 | 1.0 | 25 | 10 | 0.9 | 24 | 25 |
 
-Every run is clean (no crash, no stuck bot) and every run ends "Killed by
-zombies on Day 1": median 0.3 days for both profiles. The bot is not yet a
-good player, and day one is hard for anyone who goes out searching; both are
-noted in `docs/overhaul/DECISIONS.md` for phases 3 and 14.
+Normal: median 1.2 days, mean 1.2; careful: median 0.9, mean 1.0. Every run
+is clean (no crash, no stuck bot) and none lives the week. The first bot
+died about seven game hours in on every seed (median 0.3 days); what was
+wrong with it, and what the game does to a player who plays sensibly, is
+below.
+
+### Why the bot died, and what changed
+
+Watched runs (metrics every game minute, screenshots every 30 seconds) and
+the damage taken per bot activity showed, in order:
+
+- **A game defect: panic drift ran away.** Above about 50 panic the drift
+  (meant to be up to 80 px/s) was added to the velocity every tick, faster
+  than the legs can steer it back, so a frightened player slid off at 750 to
+  1600 px/s, out of control, into crowds and across the town. It was there
+  before phase 1. Fixed: the drift is an offset taken off again before the
+  next tick's steering; `hud_states.txt` checks a panicked walk stays under
+  300 px/s.
+- **The bot fought with a broken knife.** A broken knife reaches 19 px,
+  inside a zombie's lunge. It now swaps to the best weapon carried (by damage
+  and reach after wear), keeps two, and runs from anything when it has
+  nothing that outreaches them.
+- **It sprinted everywhere.** Running fills fatigue in 12 seconds and
+  fatigue only falls standing still; at 100 it halves stamina. It now walks
+  unless one is within three tiles, and stops to rest when tired.
+- **It could not open most cupboards.** Interaction reaches 32 px, centre to
+  centre, so standing in front of one is just out of reach. It now leans in,
+  as a player does, and finds the home kit (hammer, planks).
+- **It pinned itself** against walls while fleeing and **stood still while
+  bitten** by a zombie it had given up on. It now turns and fights when
+  pinned, and never ignores one in reach.
+- **It let hunger and thirst fall below 55**, where health stops coming back.
+  It eats and drinks at 60 now, heads home below 70 % health, comes home at
+  16:30, keeps still at home after dark and when stocked, and never pries its
+  own boards off from the inside.
+
+### What still kills it: the game, not only the bot
+
+With all of that the median rises from 0.3 to 1.2 days and stops there;
+further changes moved it between 1.1 and 1.5. The evidence that day one is
+this lethal for a sensible player:
+
+- A player who stands in the home all day is dead by about 22:00 on day 1
+  (seeds 1, 3 and 5), and was the same before phase 1, so it is not a
+  regression.
+- Started at home at 15:00 with a bat, a hammer, six planks, food and water,
+  the bot is dead within 1.4 days on 6 of 10 seeds, having killed 19 to 50 of
+  the dead.
+- Hordes of 15 to 45 of the dead within 10 tiles appear on most seeds,
+  usually just before the death.
+- Health comes back at about 1 point an hour awake (and only with hunger and
+  thirst above 55), against 7 a bite.
+- With six boards on the home's two doors and eight of the dead outside at
+  dusk, three boards were gone within the hour.
+
+So phase 1's bar (the normal bot lives a median of three days) is not met,
+and was not reached by bending the game: no balance number was changed.
+Phases 3, 4 and 14 read this section (see `docs/overhaul/DECISIONS.md`).
 
 ## Next: the content overhaul (planned 2026-11-13)
 
@@ -831,3 +885,6 @@ Candidates for the next stretch, roughly in order. None is started.
 - 2026-11-13: Overhaul phase 1, foundations: items, loot and tuning as data,
   container storage, save version 2, ten defects fixed, the bot and
   `tools/soak.py` with a seeds 1-10 baseline.
+- 2026-11-13: Overhaul phase 1, the bot: diagnosed its day-one deaths, fixed
+  runaway panic drift, taught it weapons, walking, resting, reaching
+  cupboards and coming home; median 0.3 -> 1.2 days, three days not met.

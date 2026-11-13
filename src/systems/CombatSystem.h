@@ -27,6 +27,10 @@ public:
     static constexpr float kActiveSeconds = 0.10f;
     static constexpr float kRecoverySeconds = 0.30f;
 
+    // What the weapon in hand really reaches and hits for, after wear.
+    static float effectiveRangePixels(const Combat& combat);
+    static float effectiveDamage(const Combat& combat);
+
 private:
     static constexpr float kSpriteSize = 32.0f;
     static constexpr float kRecoveryDelayAfterAttackSeconds = 1.00f;
@@ -47,9 +51,7 @@ private:
     static constexpr float kCollisionCenterYOffset = 22.0f;
 
     static void degradeWeapon(Combat& combat);
-    static float effectiveRangePixels(const Combat& combat);
     static float effectiveArcDegrees(const Combat& combat);
-    static float effectiveDamage(const Combat& combat);
     static bool isPointInsideArc(const glm::vec2& origin, float facingRadians, float arcDegrees, float rangePixels, const glm::vec2& point);
 
     void resolveSwing(

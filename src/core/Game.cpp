@@ -220,7 +220,7 @@ bool Game::initialize()
     }
     mStructureSprites = StructureSprites::fromSheet(mSpriteSheet);
 
-    if (!mAudioManager.initialize(assetsRoot.string()))
+    if (!mLaunchOptions.harnessEnabled() && !mAudioManager.initialize(assetsRoot.string())) // harness runs are silent
     {
         std::cerr << "Warning: Audio init failed, continuing without sound.\n";
     }

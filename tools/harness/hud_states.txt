@@ -65,4 +65,11 @@ expect maxhp 120
 set wounds 1
 expect maxhp 115
 set wounds 0
+
+# Panic drift nudges a walk (up to 80 px/s); it never builds into a slide.
+set panic 100
+hold W 90
+waits 1
+expect speed 300
+waits 0.6
 quit

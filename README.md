@@ -119,7 +119,7 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 
 | Option | Effect |
 |---|---|
-| `--script FILE` | Run a harness script |
+| `--script FILE` | Run a harness script (the game makes no sound while a script runs) |
 | `--shots DIR` | Where screenshots go |
 | `--metrics FILE` | Write a CSV of player and world metrics |
 | `--world-seed N` | Seed for new save slots (deterministic town) |
@@ -148,7 +148,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   the open one holds), `stash ITEM NAME [COUNT]` (from the pack into it).
 - **The bot:** `bot careful|normal|bold [DAYS]` plays the game through the
   keyboard and mouse until DAYS days pass or the run ends; the script waits.
-  A bot that stands on one tile for 3 game hours while awake prints `FAIL`.
+  A bot that stands on one tile for 3 game hours while awake prints `FAIL`
+  (resting and holding the house on purpose do not count).
+  `botshots TICKS` takes a screenshot every TICKS ticks while it plays.
 - **The dead:** `zombie DX DY`, `slay RADIUS`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
@@ -156,7 +158,8 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   - `plan` prints the day's plan, the home's doors and boards, and the
     night's callers;
   - `expect alive|dead`, `expect maxhp N`, `expect weather same`,
-    `expect container ITEM NAME COUNT`;
+    `expect container ITEM NAME COUNT`, `expect speed V` (the player moves
+    no faster than V pixels a second);
   - `shot NAME`, `metrics INTERVAL` (ticks), `log TEXT`. Metrics rows add the
     cause of death, items carried by category, containers searched, boards
     up, tonight's callers, zombies within 10 tiles and noises per game hour.

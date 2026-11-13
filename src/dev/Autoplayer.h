@@ -78,6 +78,17 @@ private:
     bool handleDanger(Game& game);
     bool eatAndDrink(Game& game);
     bool armSelf(Game& game);
+    bool retreatWhenHurt(Game& game);
+    bool restWhenTired(Game& game);
+    float fatigue(Game& game) const;
+    float fitShare() const;
+    bool withinReach(Game& game, const glm::ivec2& tile) const;
+    bool isStocked(Game& game) const;
+    double homeHour() const;
+    bool isDark(Game& game) const;
+    bool atHome(Game& game) const;
+    float heldWeaponScore(Game& game) const;
+    int bestWeaponSlot(Game& game, float* score) const;
     bool sleepAtHome(Game& game);
     bool eveningAtHome(Game& game);
     bool useTap(Game& game);
@@ -145,6 +156,11 @@ private:
     std::uint32_t mRng = 0x9E3779B9u;
     std::uint64_t mTicks = 0;
     Entity mFightTarget = kInvalidEntity;
+    double mArmRetryAt = 0.0;
+    std::uint64_t mCorneredUntil = 0;
+    bool mResting = false;
+    glm::ivec2 mFleeTile{-1, -1};
+    int mFleeStillTicks = 0;
     float mFightHealth = 0.0f;
     int mFightTicks = 0;
     std::map<Entity, std::uint64_t> mIgnored; // zombie -> tick it counts again

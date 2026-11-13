@@ -133,6 +133,16 @@ void Game::update(float dtSeconds)
         mActiveVehicleEntity = kInvalidEntity;
     }
 
+    // Last tick's panic drift comes off before the legs steer again (it is an
+    // offset, not a push that builds up from tick to tick).
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
+    {
+        Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
+        vel.dx -= mPanicDrift.x;
+        vel.dy -= mPanicDrift.y;
+    }
+    mPanicDrift = glm::vec2(0.0f);
+
     if (playerAlive && !mShowCrafting && !mContainerOpen)
     {
         mInputSystem.update(mWorld, mInput, mMouseWorld, feelDt);
@@ -242,8 +252,9 @@ void Game::update(float dtSeconds)
             // Scale drift strength: 0 at 25 panic, full at 100
             const float t = (mental.panic - 25.0f) / 75.0f; // 0..1
             const float driftStrength = t * 80.0f; // up to 80 px/s drift
-            vel.dx += std::cos(mental.panicDriftAngle) * driftStrength;
-            vel.dy += std::sin(mental.panicDriftAngle) * driftStrength;
+            mPanicDrift = glm::vec2(std::cos(mental.panicDriftAngle), std::sin(mental.panicDriftAngle)) * driftStrength;
+            vel.dx += mPanicDrift.x;
+            vel.dy += mPanicDrift.y;
         }
     }
 

@@ -101,6 +101,7 @@ private:
 
     bool mGodMode = false;
     Autoplayer mBot;
+    int mBotShotInterval = 0;
     bool mBotFailReported = false;
     glm::ivec2 mMark{-1, -1};
     int mWeatherMark = -1;

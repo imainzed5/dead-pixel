@@ -13,6 +13,7 @@
 #include "components/Corpse.h"
 #include "components/Health.h"
 #include "components/Interactable.h"
+#include "components/Velocity.h"
 #include "components/Inventory.h"
 #include "components/LegacyLink.h"
 #include "components/MentalState.h"
@@ -217,6 +218,10 @@ void DevHarness::beforeTick(Game& game)
         }
         if (mBot.running())
         {
+            if (mBotShotInterval > 0 && mTick % static_cast<std::uint64_t>(mBotShotInterval) == 0)
+            {
+                capture(game, "bot_" + std::to_string(mTick));
+            }
             return;
         }
         std::cout << "[harness] tick " << mTick << ": bot stopped on day " << game.mCurrentDay << " hour "
@@ -1000,6 +1005,11 @@ void DevHarness::execute(Game& game, const Command& command)
         mMetricsInterval = std::max(0, std::stoi(a[1]));
         if (mMetrics && mMetricsInterval > 0) writeMetricsRow(game);
     }
+    else if (op == "botshots")
+    {
+        // botshots TICKS: a screenshot every TICKS ticks while the bot plays (0 stops).
+        if (need(1)) mBotShotInterval = std::max(0, std::stoi(a[1]));
+    }
     else if (op == "shot")
     {
         if (need(1) && !capture(game, a[1])) fail(command, "screenshot failed");
@@ -1055,6 +1065,23 @@ void DevHarness::execute(Game& game, const Command& command)
             {
                 fail(command, "expected " + std::to_string(count) + " " + name + " in the open container, found " +
                                   std::to_string(have));
+            }
+            return;
+        }
+        if (want == "speed")
+        {
+            // expect speed V: the player moves no faster than V pixels a second.
+            if (!need(2)) return;
+            const float limit = std::stof(a[2]);
+            float speed = -1.0f;
+            if (game.mPlayerEntity != kInvalidEntity && game.mWorld.hasComponent<Velocity>(game.mPlayerEntity))
+            {
+                const Velocity& v = game.mWorld.getComponent<Velocity>(game.mPlayerEntity);
+                speed = std::hypot(v.dx, v.dy);
+            }
+            if (speed < 0.0f || speed > limit)
+            {
+                fail(command, "expected speed at most " + a[2] + ", it is " + std::to_string(speed));
             }
             return;
         }
