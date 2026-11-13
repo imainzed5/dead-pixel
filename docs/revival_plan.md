@@ -662,7 +662,16 @@ Not built: compass, noise meter, worn slots, a Body tab.
 ![Pack](shots/ui_pack.png)
 ![Make](shots/ui_make.png)
 
-## Next, after the handoff
+## Next: the content overhaul (planned 2026-11-13)
+
+The full plan for what comes next is in `docs/overhaul/` (start with its
+`README.md`): fourteen phases covering foundations, the home base, fighting,
+the dead, body and mind, scavenging, weather and fire, survivors, the
+campaign ("the way out"), legacy, vehicles, sound, run flow and balance. It
+is written to be implemented without further questions. It replaces the
+candidate list below, which is kept for history.
+
+## Next, after the handoff (superseded)
 
 Candidates for the next stretch, roughly in order. None is started.
 
