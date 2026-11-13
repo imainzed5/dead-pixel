@@ -77,6 +77,9 @@ struct ItemDef
     float depressionRelief = 0.0f;
     float sleepDebtMask = 0.0f;    // game hours the item hides tiredness
     float rawIllness = 0.0f;       // illness when eaten uncooked
+    // What it does to a wound (phase 5): dress, dress_clean, stitch, splint,
+    // cure, disinfect; empty when nothing. See world/WoundRules.h.
+    std::string treats;
     WeaponOverrides weapon;
     ThrowDef throwDef;
 

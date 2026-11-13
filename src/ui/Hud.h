@@ -61,6 +61,11 @@ struct HudConditionInputs
     bool infected = false;
     bool overburdened = false;
     bool sleeping = false;
+    // Phase 5: each wound by name and place, most urgent first (from
+    // woundrules::hudLabels: "Bleeding", "Infected bite", "Broken left leg",
+    // "Fever"). When set, it replaces bites / cuts / infected above.
+    std::vector<std::string> woundLabels;
+    bool rested = false;
 };
 
 struct HudStep

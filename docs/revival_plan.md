@@ -949,6 +949,56 @@ blow. The bot does not read the modes: it boards up and waits whatever
 comes, so a mode's character shows only in how long that lasts. Not
 retuned here (see `docs/overhaul/DECISIONS.md`).
 
+## Overhaul phase 5: body and mind (2026-11-14)
+
+Who wakes up: a character screen before each run (a name, traits good and
+bad whose points must balance; Space takes the seed's pick). Seven skills
+(Carpentry, Fighting, Fitness, Scavenging, Medicine, Mechanics, Living off
+the land) rise with use and fade slowly unused; Carpentry makes boarding
+quicker and boards tougher (a second plank from level 3).
+
+The body: wounds land on a part (head, torso, arms, legs) as cuts, bites,
+bruises or breaks, shallow or deep, and each needs its own care. A dressing
+goes dirty after 12 hours, a deep cut opens again on swings until
+stitched, a broken leg slows you 45 % (20 % splinted), a broken arm rules
+out two-handed weapons. Antibiotics cure infection; the Disinfected
+Bandage only cleans. A BODY tab (Tab cycles Pack, Body, Make) shows and
+treats them. Sleep debt builds and is paid back in bed.
+
+The mind: panic and depression come in named bands that change how you
+move, work and sleep (panic 60 makes boarding 30 % slower); a slow breath
+(crouch held still 3 s) calms; a book lowers depression once. A tired or
+frightened mind sees false figures that touch nothing in the simulation.
+Boarding is now a held action (about 4 s at Carpentry 0); panic drift only
+nudges a walk, so it no longer carries a player out of reach mid-board.
+
+Old checkpoints load without a version bump (single traits become lists,
+a wound without a part is on the torso). Harness: `character.txt`,
+`body.txt`, `mind.txt`; all 35 scripts pass, 194 unit tests pass, clean
+build without warnings.
+
+The bot treats wounds with what it carries (splint, stitches, dressing,
+antibiotics) and stands still to board (its steering had cancelled the
+held action: 0 boards on every seed until fixed). `bot_week`, seeds 1 to
+10, default mode:
+
+| Seed | Days | End | Kills | Boards |
+|---:|---:|---|---:|---:|
+| 1 | 2.0 | Overrun, day 3 | 79 | 5 |
+| 2 | 2.0 | Infection, day 3 | 46 | 1 |
+| 3 | 2.6 | Overrun, day 3 | 25 | 0 |
+| 4 | 1.8 | Bled out, day 3 | 55 | 3 |
+| 5 | 1.8 | Overrun, day 3 | 51 | 1 |
+| 6 | 0.8 | Killed, day 2 | 35 | 2 |
+| 7 | 2.5 | Overrun, day 3 | 41 | 3 |
+| 8 | 0.6 | Infection, day 1 | 11 | 0 |
+| 9 | 1.2 | Overrun, day 2 | 34 | 0 |
+| 10 | 0.9 | Overrun, day 2 | 17 | 0 |
+
+Median 1.8 days (Swarm in phase 4: 1.5), mean 1.6; 10 of 10 clean; none
+died at home on night 1. Deaths: overrun 6, infection 2, bled out 1,
+killed 1. Infection appears but does not lead, as the phase asks.
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -1104,3 +1154,8 @@ Candidates for the next stretch, roughly in order. None is started.
   modes as data, districts that turn and show it, searchable bodies; 300
   dead at 1.3 ms a tick; bot medians by mode 0.9 to 2.5 days; Stalker and
   Swarm differ in day of death, not in cause.
+- 2026-11-14: Overhaul phase 5, body and mind: character screen with
+  balanced traits, seven skills that rise and fade, wounds by body part
+  with their own care and a BODY tab, sleep debt, panic and depression
+  bands, false figures, boarding as a held action; bot median 1.8 days,
+  infection 2 of 10 deaths (bar: appears, does not lead; met).

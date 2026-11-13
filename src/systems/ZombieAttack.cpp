@@ -12,6 +12,7 @@
 #include "components/Transform.h"
 #include "components/Wounds.h"
 #include "core/Tuning.h"
+#include "world/WoundRules.h"
 #include "world/CombatRules.h"
 
 namespace
@@ -73,11 +74,11 @@ void ZombieAISystem::hold(const Ctx& c, One& z, Velocity& v)
     }
     if (world.hasComponent<Wounds>(t.player) && nextRandom(ai, z.entity) < combatrules::kBiteWoundChance)
     {
-        Wound w{};
-        w.type = WoundType::Bite;
-        w.contaminated = nextRandom(ai, z.entity) < kBiteContaminationChance;
-        w.severity = 0.5f + nextRandom(ai, z.entity) * 0.5f;
-        world.getComponent<Wounds>(t.player).active.push_back(w);
+        // Held: the arms, the body, the neck.
+        const bool contaminated = nextRandom(ai, z.entity) < kBiteContaminationChance;
+        const WoundDepth depth = nextRandom(ai, z.entity) < woundrules::kDeepChance ? WoundDepth::Deep : WoundDepth::Shallow;
+        world.getComponent<Wounds>(t.player).active.push_back(
+            woundrules::make(WoundType::Bite, woundrules::heldBitePart(nextRandom(ai, z.entity)), depth, contaminated));
     }
 }
 
@@ -168,11 +169,11 @@ void ZombieAISystem::attack(const Ctx& c, One& z, Velocity& v)
         if (t.playerBlows != nullptr) t.playerBlows->push_back(blow);
         if (world.hasComponent<Wounds>(t.player) && nextRandom(ai, z.entity) < kZombieWoundChance)
         {
-            Wound w{};
-            w.type = WoundType::Bite;
-            w.contaminated = nextRandom(ai, z.entity) < kBiteContaminationChance;
-            w.severity = 0.4f + nextRandom(ai, z.entity) * 0.3f;
-            world.getComponent<Wounds>(t.player).active.push_back(w);
+            // A Crawler bites the legs; never deep.
+            const bool contaminated = nextRandom(ai, z.entity) < kBiteContaminationChance;
+            world.getComponent<Wounds>(t.player).active.push_back(
+                woundrules::make(WoundType::Bite, woundrules::crawlerPart(nextRandom(ai, z.entity)), WoundDepth::Shallow,
+                                 contaminated));
         }
         return;
     }
@@ -183,6 +184,12 @@ void ZombieAISystem::attack(const Ctx& c, One& z, Velocity& v)
             combatrules::clawDamage(baseDamage, fromBehindUncovered) * z.damageMultiplier);
         blow.knockdownSeconds = zombiekinds::kBruteKnockdownSeconds;
         if (t.playerBlows != nullptr) t.playerBlows->push_back(blow);
+        // A quarter of a Brute's blows break something.
+        if (world.hasComponent<Wounds>(t.player) && nextRandom(ai, z.entity) < woundrules::kBruteFractureChance)
+        {
+            world.getComponent<Wounds>(t.player).active.push_back(
+                woundrules::make(WoundType::Fracture, woundrules::limbPart(nextRandom(ai, z.entity))));
+        }
         return;
     }
 
@@ -207,22 +214,20 @@ void ZombieAISystem::attack(const Ctx& c, One& z, Velocity& v)
     if (world.hasComponent<Wounds>(t.player) && nextRandom(ai, z.entity) < kZombieWoundChance)
     {
         Wounds& wounds = world.getComponent<Wounds>(t.player);
-        Wound w{};
+        WoundType type = WoundType::Bruise;
+        bool contaminated = false;
         const float roll = nextRandom(ai, z.entity);
         if (roll < kZombieBiteShare)
         {
-            w.type = WoundType::Bite;
-            w.contaminated = nextRandom(ai, z.entity) < kBiteContaminationChance;
+            type = WoundType::Bite;
+            contaminated = nextRandom(ai, z.entity) < kBiteContaminationChance;
         }
         else if (roll < kZombieBiteShare + 0.4f)
         {
-            w.type = WoundType::Cut;
+            type = WoundType::Cut;
         }
-        else
-        {
-            w.type = WoundType::Bruise;
-        }
-        w.severity = 0.5f + nextRandom(ai, z.entity) * 0.5f;
-        wounds.active.push_back(w);
+        // A claw lands on the arms mostly; half of what it opens goes deep.
+        const WoundDepth depth = nextRandom(ai, z.entity) < woundrules::kDeepChance ? WoundDepth::Deep : WoundDepth::Shallow;
+        wounds.active.push_back(woundrules::make(type, woundrules::clawPart(nextRandom(ai, z.entity)), depth, contaminated));
     }
 }

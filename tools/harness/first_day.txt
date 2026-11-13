@@ -23,6 +23,9 @@ tap E
 waits 0.2
 tap E
 waits 0.5
+# Done here: the panel closes with Esc.
+tap Esc
+waits 0.2
 goto furniture any stocked
 waits 0.3
 tap E
@@ -37,6 +40,9 @@ tap E
 waits 0.2
 tap E
 waits 0.5
+# Done here: the panel closes with Esc.
+tap Esc
+waits 0.2
 goto furniture any stocked
 waits 0.3
 tap E
@@ -51,6 +57,9 @@ tap E
 waits 0.2
 tap E
 waits 0.5
+# Done here: the panel closes with Esc.
+tap Esc
+waits 0.2
 goto furniture any stocked
 waits 0.3
 tap E
@@ -65,6 +74,9 @@ tap E
 waits 0.2
 tap E
 waits 0.5
+# Done here: the panel closes with Esc.
+tap Esc
+waits 0.2
 plan
 # Drink a bottle (it leaves an empty one), then fill up at the tap.
 set thirst 60
@@ -89,11 +101,11 @@ waits 0.3
 goto door
 waits 0.3
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 doors
 plan
 shot 05_boarded

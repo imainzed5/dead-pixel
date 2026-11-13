@@ -326,13 +326,32 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 }
                 else
                 {
-                    const float craftDuration = std::max(0.25f, static_cast<float>(recipe.craftTimeSeconds));
+                    // Below the recipe's skill: twice as long (phase 5).
+                    const int skillHave = recipe.skill >= 0 ? skillLevel(static_cast<Skill>(recipe.skill)) : 0;
+                    const float gate = recipe.skill >= 0 ? skillrules::craftTimeScale(skillHave, recipe.skillLevel) : 1.0f;
+                    const float craftDuration = std::max(0.25f, static_cast<float>(recipe.craftTimeSeconds) * gate);
                     mActiveCraftProgressSeconds += dtSeconds;
 
                     if (mActiveCraftProgressSeconds >= craftDuration)
                     {
                         mActiveCraftProgressSeconds = 0.0f;
 
+                        // ... and it fails 40 % of the time: the inputs are kept, but food is spoiled.
+                        if (recipe.skill >= 0 && bodyRoll() < skillrules::craftFailChance(skillHave, recipe.skillLevel))
+                        {
+                            const auto spoil = [&](int itemId, int count)
+                            {
+                                const ItemDef* def = itemId >= 0 ? mItemDatabase.find(itemId) : nullptr;
+                                if (def != nullptr && def->category == ItemCategory::Food) InventorySystem::removeItem(inv, itemId, count);
+                            };
+                            spoil(recipe.inputA, recipe.countA);
+                            spoil(recipe.inputB, recipe.countB);
+                            --active.remaining;
+                            if (active.remaining <= 0) mCraftQueue.pop_front();
+                            mInteractionMessage = "It comes apart in your hands.";
+                            mInteractionMessageTimer = 2.5f;
+                            return;
+                        }
                         Inventory preview = inv;
                         if (!InventorySystem::removeItem(preview, recipe.inputA, recipe.countA) ||
                             (recipe.inputB >= 0 && !InventorySystem::removeItem(preview, recipe.inputB, recipe.countB)))
@@ -379,6 +398,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                                 }
                                 mInteractionMessageTimer = 1.8f;
                                 mAudioManager.playSound(SoundId::WeaponHit, 0.35f);
+                                // Cooking at a fire: Living off the land.
+                                if (recipe.station == CraftStation::Fire) awardXp(Skill::LivingOffTheLand, skillrules::kXpCook);
 
                                 if (active.remaining <= 0)
                                 {
@@ -408,32 +429,71 @@ void Game::updateInventoryInput(bool drivingVehicle)
         }
         else if (mShowCrafting)
         {
-            // Keep inventory disabled while crafting panel is open.
+            // MAKE is the last tab: Tab closes it.
+            mShowCrafting = false;
+            if (!mCraftQueue.empty())
+            {
+                mCraftQueue.clear();
+                mActiveCraftProgressSeconds = 0.0f;
+                mInteractionMessage = "Crafting interrupted.";
+                mInteractionMessageTimer = 2.0f;
+            }
         }
-        else
-        {
-        if (mContainerOpen)
+        else if (mContainerOpen)
         {
             mContainerOpen = false;
             mOpenContainerEntity = kInvalidEntity;
         }
-        else
+        else if (!mShowInventory)
         {
-            mShowInventory = !mShowInventory;
-            if (mShowInventory && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+            // PACK.
+            mShowInventory = true;
+            mPackTab = 0;
+            mBodyChoosing = false;
+            if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
             {
                 const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
                 mInventoryCursor = inv.activeSlot;
             }
         }
+        else if (mPackTab == 0)
+        {
+            // BODY (phase 5).
+            mPackTab = 1;
+            mBodyChoosing = false;
+        }
+        else
+        {
+            // MAKE: the crafting panel.
+            mShowInventory = false;
+            mPackTab = 0;
+            mBodyChoosing = false;
+            mShowCrafting = true;
+            mCraftingRecipeCursor = 0;
+            mCraftingQuantity = 1;
+            mInteractionMessage.clear();
+            mInteractionMessageTimer = 0.0f;
+            if (mWorld.hasComponent<Velocity>(mPlayerEntity))
+            {
+                Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+                velocity.dx = 0.0f;
+                velocity.dy = 0.0f;
+            }
         }
     }
 
     // Container view input (GameStorage.cpp)
     handleContainerInput();
 
+    // The BODY tab: wounds, and what helps them.
+    const bool bodyTab = mShowInventory && !mShowCrafting && mPackTab == 1;
+    if (bodyTab)
+    {
+        updateBodyTabInput();
+    }
+
     // Inventory cursor navigation (when inventory is open)
-    if (mShowInventory && !mShowCrafting && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    if (mShowInventory && !bodyTab && !mShowCrafting && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
@@ -504,7 +564,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
         }
 
         // Use item (F key or inventory click): use cursor slot when inventory is open, otherwise active hotbar slot
-        if (mInput.wasKeyPressed(SDL_SCANCODE_F) || useInventoryCursorItemRequested)
+        if ((mInput.wasKeyPressed(SDL_SCANCODE_F) && !bodyTab) || useInventoryCursorItemRequested)
         {
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
@@ -516,24 +576,51 @@ void Game::updateInventoryInput(bool drivingVehicle)
             else if (slot.itemId >= 0 && slot.count > 0)
             {
                 const ItemDef* item = mItemDatabase.find(slot.itemId);
+                const double nowHour = absoluteHour();
+                // Comfort is worth half when Worn down (phase 5).
+                const float comfort = mWorld.hasComponent<MentalState>(mPlayerEntity)
+                                          ? mindrules::comfortScale(mindrules::depressionBand(mWorld.getComponent<MentalState>(mPlayerEntity).depression))
+                                          : 1.0f;
                 if (item)
                 {
-                    if (item->category == ItemCategory::Food && mWorld.hasComponent<Needs>(mPlayerEntity))
+                    // A medical item (or a bottle of Spirits) goes on the worst
+                    // wound it can help; a book is read, a keepsake held.
+                    if (!item->treats.empty() && treatWithItem(useSlot, -1))
+                    {
+                        // Treated (or begun: stitching and splints take a while).
+                    }
+                    else if (useComfortItem(useSlot))
+                    {
+                        // Reading, or holding it.
+                    }
+                    else if (item->category == ItemCategory::Food && mWorld.hasComponent<Needs>(mPlayerEntity))
                     {
                         Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
                         const float restore = item->hungerRestore * slot.condition;
                         needs.hunger = std::min(needs.maxHunger, needs.hunger + restore);
 
-                        // Spoiled food causes illness
+                        // Spoiled food causes illness (twice over for a Weak Stomach).
                         if (slot.condition < 0.3f)
                         {
-                            needs.illness = std::min(100.0f, needs.illness + (1.0f - slot.condition) * 20.0f);
+                            const Traits* traits = playerTraits();
+                            const float scale = traits != nullptr ? traitrules::badFoodIllnessScale(*traits) : 1.0f;
+                            needs.illness = std::min(100.0f, needs.illness + (1.0f - slot.condition) * 20.0f * scale);
                             mInteractionMessage = "Ate spoiled " + item->name + "... feeling sick.";
                         }
                         else
                         {
                             mInteractionMessage = "Ate " + item->name + ".";
                         }
+                        // Chocolate settles the nerves; a hot meal lifts the mood.
+                        if (item->panicRelief > 0.0f) addPanic(-item->panicRelief);
+                        bool hot = false;
+                        for (const CraftingRecipe& recipe : mCraftingSystem.recipes())
+                        {
+                            if (recipe.station == CraftStation::Fire && recipe.outputItemId == item->id) hot = true;
+                        }
+                        float lift = item->depressionRelief;
+                        if (hot) lift = std::max(lift, mindrules::kHotMealRelief);
+                        if (lift > 0.0f) addDepression(-lift * comfort);
 
                         InventorySystem::consumeOne(inv, mItemDatabase, useSlot);
                         mInteractionMessageTimer = 3.0f;
@@ -544,6 +631,21 @@ void Game::updateInventoryInput(bool drivingVehicle)
                         Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
                         needs.thirst = std::min(needs.maxThirst, needs.thirst + item->thirstRestore);
                         mInteractionMessage = "Drank " + item->name + ".";
+                        // Coffee hides tiredness for a while; two too close, the shakes.
+                        if (item->sleepDebtMask > 0.0f)
+                        {
+                            if (sleeprules::doubleCoffee(nowHour, needs.lastCoffeeHour))
+                            {
+                                addPanic(sleeprules::kCoffeeDoublePanic);
+                                needs.coffeeJitterHours = sleeprules::kCoffeeJitterHours;
+                                mInteractionMessage = "Another coffee. Your hands start to shake.";
+                            }
+                            needs.coffeeHours = item->sleepDebtMask;
+                            needs.lastCoffeeHour = nowHour;
+                        }
+                        if (item->panicRelief > 0.0f) addPanic(-item->panicRelief);
+                        if (item->depressionRelief > 0.0f) addDepression(-item->depressionRelief * comfort);
+                        if (item->hasTag("sedative")) needs.lastSedativeHour = nowHour;
                         // What is left (an empty bottle a tap can fill again) stays in the pack.
                         InventorySystem::consumeOne(inv, mItemDatabase, useSlot);
                         mInteractionMessageTimer = 3.0f;
@@ -584,26 +686,19 @@ void Game::updateInventoryInput(bool drivingVehicle)
                             mental.panic = std::max(0.0f, mental.panic - item->panicRelief);
                             used = used || mental.panic < previousPanic;
                         }
+                        // Painkillers: stitches hurt less for a while, and sleep comes worse.
+                        if (item->hasTag("sedative") && mWorld.hasComponent<Needs>(mPlayerEntity))
+                        {
+                            Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                            needs.lastSedativeHour = nowHour;
+                            needs.lastPainkillerHour = nowHour;
+                            used = true;
+                        }
 
                         if (item->stopsBleeding && mWorld.hasComponent<Bleeding>(mPlayerEntity))
                         {
                             mWorld.removeComponent<Bleeding>(mPlayerEntity);
                             used = true;
-                        }
-
-                        if (item->woundTreatment > 0 && mWorld.hasComponent<Wounds>(mPlayerEntity))
-                        {
-                            Wounds& wounds = mWorld.getComponent<Wounds>(mPlayerEntity);
-                            const int treated = treatWorstWounds(wounds, item->woundTreatment);
-                            if (treated > 0)
-                            {
-                                used = true;
-                                if (mWorld.hasComponent<Health>(mPlayerEntity))
-                                {
-                                    Health& health = mWorld.getComponent<Health>(mPlayerEntity);
-                                    syncHealthWithWounds(health, wounds);
-                                }
-                            }
                         }
 
                         if (item->healthRestore > 0.0f && mWorld.hasComponent<Health>(mPlayerEntity))

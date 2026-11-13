@@ -121,7 +121,9 @@ void Game::render()
     uiLayer(
         [&]
         {
+            renderBodyEffects();
             renderTitleScreen();
+            renderCharacterCreation();
             mHud.drawShapes(mSpriteBatch, mSpriteSheet, mFont, mHudState, viewport);
             renderMinimapOverlay();
             renderAttackArcOverlay();
@@ -431,6 +433,15 @@ void Game::renderMinimapOverlay()
             (static_cast<float>(mCampaignObjective.tileX) + 0.5f) * static_cast<float>(tileW),
             (static_cast<float>(mCampaignObjective.tileY) + 0.5f) * static_cast<float>(tileH));
         drawIsoPoint(objectiveCenter, glm::vec4(0.94f, 0.80f, 0.30f, 0.95f), 4.0f);
+    }
+
+    // A dot that is not there (phase 5): it vanishes again.
+    for (const FalseSign& sign : mHallucinations.signs())
+    {
+        if (sign.kind == FalseSign::Kind::MinimapDot && sign.alpha > 0.01f)
+        {
+            drawIsoPoint(sign.world, glm::vec4(0.86f, 0.30f, 0.24f, 0.9f * sign.alpha), 3.0f);
+        }
     }
 
     drawIsoPoint(playerCenter, glm::vec4(0.98f, 0.96f, 0.78f, 1.0f), 4.0f);
@@ -949,8 +960,8 @@ void Game::renderTextOverlays()
                 if (!traitLine.empty()) traitLine += "  |  ";
                 traitLine += part;
             };
-            if (traits.positive != PositiveTrait::None) append(traits.positiveName());
-            if (traits.negative != NegativeTrait::None) append(traits.negativeName());
+            for (PositiveTrait trait : traits.positives) append(traitName(trait));
+            for (NegativeTrait trait : traits.negatives) append(traitName(trait));
             if (traits.bloodline != BloodlineTrait::None) append(std::string("Bloodline: ") + traits.bloodlineName());
             mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.traitsLineY), traitLine,
                             kPanelGood, 1.0f, TextAlign::Center);

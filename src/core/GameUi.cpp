@@ -55,6 +55,9 @@ void Game::buildHudState()
         conditions.fatigue = needs.fatigue;
         conditions.bodyTemperature = needs.bodyTemperature;
         conditions.illness = needs.illness;
+        // What a coffee hides does not show (phase 5).
+        conditions.sleepDebt = sleeprules::shownDebt(needs.sleepDebt, needs.coffeeHours);
+        conditions.rested = needs.restedHours > 0.0f;
     }
     if (mWorld.hasComponent<MentalState>(mPlayerEntity))
     {
@@ -84,12 +87,19 @@ void Game::buildHudState()
             conditions.infected = conditions.infected || wound.infected;
         }
     }
+    // Each wound by kind and place (phase 5). Infection shows only when it
+    // shows: Medicine 2 sees it early, everyone sees it once it is a fever.
+    {
+        std::vector<Wound> shown;
+        if (mWorld.hasComponent<Wounds>(mPlayerEntity)) shown = mWorld.getComponent<Wounds>(mPlayerEntity).active;
+        conditions.woundLabels = woundrules::hudLabels(shown, conditions.bleeding, conditions.illness);
+    }
     const Inventory* inventory = mWorld.hasComponent<Inventory>(mPlayerEntity)
         ? &mWorld.getComponent<Inventory>(mPlayerEntity)
         : nullptr;
     if (inventory)
     {
-        conditions.overburdened = InventorySystem::totalWeight(*inventory, mItemDatabase) > Inventory::kMaxCarryWeight;
+        conditions.overburdened = InventorySystem::totalWeight(*inventory, mItemDatabase) > playerCarryLimit();
     }
     hud.conditions = Hud::buildConditions(conditions);
     if (mFlashlightOn)
@@ -571,8 +581,8 @@ void Game::renderRunEndOverlay()
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
     {
         const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        if (traits.positive != PositiveTrait::None) traitLine += traits.positiveName();
-        if (traits.negative != NegativeTrait::None) traitLine += (traitLine.empty() ? "" : " / ") + std::string(traits.negativeName());
+        for (PositiveTrait trait : traits.positives) traitLine += (traitLine.empty() ? "" : ", ") + std::string(traitName(trait));
+        for (NegativeTrait trait : traits.negatives) traitLine += (traitLine.empty() ? "" : ", ") + std::string(traitName(trait));
         if (traits.bloodline != BloodlineTrait::None) traitLine += (traitLine.empty() ? "Bloodline: " : "   Bloodline: ") + std::string(traits.bloodlineName());
     }
     if (!traitLine.empty()) lines.push_back({traitLine, dimInk, 1.0f, 4.0f});
@@ -676,8 +686,11 @@ void Game::renderDockedHeader(const glm::vec2& pos, float width, bool crafting)
         }
         x += w + 24.0f;
     };
-    tab("PACK", "Tab", !crafting);
-    tab("MAKE", "N", crafting);
+    // PACK, BODY, MAKE (phase 5): Tab steps through them.
+    const int open = crafting ? 2 : mPackTab;
+    tab("PACK", "Tab", open == 0);
+    tab("BODY", "Tab", open == 1);
+    tab("MAKE", "N", open == 2);
     mSpriteBatch.draw(glm::vec2(pos.x + InventoryLayout::kPadding, pos.y + 64.0f),
                       glm::vec2(width - InventoryLayout::kPadding * 2.0f, 1.0f), white, kPanelRule);
 }
@@ -687,6 +700,11 @@ void Game::renderInventoryPanel()
     if (!mShowInventory || mShowCrafting || mRunState != RunState::Playing ||
         mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
+        return;
+    }
+    if (mPackTab == 1)
+    {
+        renderBodyTab();
         return;
     }
 
@@ -722,16 +740,17 @@ void Game::renderInventoryPanel()
 
     // Carry weight, top right.
     const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
-    const bool over = weight > Inventory::kMaxCarryWeight;
+    const float carryLimit = playerCarryLimit();
+    const bool over = weight > carryLimit;
     {
         std::ostringstream weightStr;
         weightStr << std::fixed << std::setprecision(1) << weight << " / " << std::setprecision(0)
-                  << Inventory::kMaxCarryWeight << " kg";
+                  << carryLimit << " kg";
         text(glm::vec2(right, layout.titleY), weightStr.str(), over ? kPanelBad : kPanelInk, 2.0f, TextAlign::Right);
         const float barW = 150.0f;
         rect(glm::vec2(right - barW, layout.titleY + 24.0f), glm::vec2(barW, 3.0f), kPanelTrack);
         rect(glm::vec2(right - barW, layout.titleY + 24.0f),
-             glm::vec2(std::round(barW * std::clamp(weight / Inventory::kMaxCarryWeight, 0.0f, 1.0f)), 3.0f),
+             glm::vec2(std::round(barW * std::clamp(weight / carryLimit, 0.0f, 1.0f)), 3.0f),
              over ? kPanelBad : kPanelAmber);
     }
 
@@ -915,7 +934,7 @@ void Game::renderInventoryPanel()
         }
     }
 
-    text(glm::vec2(left, layout.footerY), fit("F use   Enter swap with belt   Tab close", innerW, 2.0f), kPanelDim, 2.0f);
+    text(glm::vec2(left, layout.footerY), fit("F use   Enter swap with belt   Tab body   Esc close", innerW, 2.0f), kPanelDim, 2.0f);
 }
 
 Game::CraftingLayout Game::craftingLayout() const

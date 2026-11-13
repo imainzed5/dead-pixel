@@ -286,6 +286,33 @@ def add_kind_sprites(img, sprites):
         sprites[name] = entry
 
 
+# Phase 5: the player with a broken arm held in, below the kinds, full width.
+ARMIN_BLOCK_Y = 3456
+
+
+def add_armin_sprites(img, sprites):
+    import charrig
+
+    slot = 0
+    cols = SHEET_W // ENTITY_SIZE
+    for name, frames in charrig.armin_frames():
+        if slot % cols + len(frames) > cols:
+            slot += cols - slot % cols
+        rects = []
+        for frame in frames:
+            x = (slot % cols) * ENTITY_SIZE
+            y = ARMIN_BLOCK_Y + (slot // cols) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("arm-in block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
+
+
 SCENERY_X = 1024
 SCENERY_Y = 1344
 
@@ -747,6 +774,7 @@ def generate_atlas():
     add_furniture_sprites(img, sprites)
     add_character_sprites(img, sprites)
     add_kind_sprites(img, sprites)
+    add_armin_sprites(img, sprites)
     add_scenery_sprites(img, sprites)
     add_building_sprites(img, sprites)
     add_window_sprites(img, sprites)
@@ -2666,6 +2694,73 @@ def draw_item_icon(name):
         ic.line(8, 26, 15, 18, (200, 188, 160), 4)             # rag wrapped round
         ic.line(9, 23, 12, 26, shade((200, 188, 160), -30), 1)
         ic.line(11, 21, 14, 24, shade((200, 188, 160), -30), 1)
+    # Phase 5: body and mind.
+    elif name == "item_splint":
+        wood = (182, 140, 86)
+        ic.rect(9, 5, 13, 28, wood)                            # two slats
+        ic.rect(19, 5, 23, 28, shade(wood, -12))
+        ic.light(26, -28)
+        cloth = (226, 218, 200)
+        for y in (9, 16, 23):                                  # bound with strips
+            ic.rect(7, y, 25, y + 3, cloth)
+            ic.line(7, y + 2, 25, y + 2, shade(cloth, -34), 1)
+    elif name == "item_suture_kit":
+        tin = (196, 200, 206)
+        ic.rect(6, 10, 26, 24, tin)
+        ic.light(24, -30)
+        ic.rect(8, 12, 24, 22, shade(tin, -26))
+        ic.rect(14, 13, 18, 21, (196, 52, 46))                 # the red cross
+        ic.rect(12, 15, 20, 19, (196, 52, 46))
+        ic.line(20, 6, 26, 9, (220, 224, 230), 1)              # a curved needle on top
+        ic.line(26, 9, 27, 12, (220, 224, 230), 1)
+    elif name == "item_needle_and_thread":
+        thread = (70, 92, 150)
+        ic.ellipse(13, 18, 6.5, 7.5, thread)                   # a spool of thread
+        ic.rect(6, 10, 20, 12, (186, 150, 100))
+        ic.rect(6, 24, 20, 26, (186, 150, 100))
+        ic.light(24, -26)
+        ic.line(10, 15, 16, 21, shade(thread, 30), 1)
+        ic.line(22, 26, 28, 5, (214, 218, 224), 1)             # the needle
+        ic.set(27, 7, (60, 60, 64))
+    elif name == "item_spirits":
+        glass = (150, 96, 46)
+        ic.rect(11, 12, 21, 28, glass)                         # a squat bottle
+        ic.rect(14, 5, 18, 12, glass)
+        ic.rect(13, 3, 19, 5, (60, 44, 34))                    # the cork
+        ic.light(30, -24)
+        ic.rect(12, 17, 20, 23, (226, 214, 180))               # the label
+        ic.line(13, 20, 19, 20, (120, 60, 40), 1)
+    elif name == "item_coffee":
+        tin = (88, 60, 44)
+        ic.rect(9, 8, 23, 27, tin)                             # a tin of ground coffee
+        ic.ellipse(16, 8, 7.2, 2.2, shade(tin, 26))
+        ic.light(24, -28)
+        ic.rect(9, 14, 23, 20, (214, 176, 96))
+        ic.ellipse(16, 17, 2.4, 1.6, (90, 56, 34))             # a bean on the band
+        ic.line(16, 16, 16, 18, (60, 38, 24), 1)
+    elif name == "item_book":
+        cover = (128, 46, 44)
+        ic.poly([(7, 8), (21, 5), (25, 24), (11, 27)], cover)
+        ic.light(26, -30)
+        ic.line(11, 27, 25, 24, (232, 222, 196), 2)            # the pages' edge
+        ic.line(7, 8, 11, 27, shade(cover, -40), 1)            # the spine
+        ic.line(12, 11, 20, 9, (214, 180, 96), 1)              # a title in gilt
+    elif name == "item_keepsake":
+        ic.ellipse(16, 19, 7.0, 7.0, (206, 170, 82))           # a locket
+        ic.light(30, -26)
+        ic.ellipse(16, 19, 4.6, 4.6, shade((206, 170, 82), -30))
+        ic.ellipse(15, 18, 1.6, 1.6, (236, 214, 150))
+        ic.line(16, 12, 12, 4, (190, 160, 90), 1)              # its chain
+        ic.line(16, 12, 20, 4, (190, 160, 90), 1)
+    elif name == "item_chocolate":
+        wrap = (120, 42, 52)
+        ic.rect(6, 11, 26, 23, wrap)                           # a bar, half unwrapped
+        ic.rect(17, 11, 26, 23, (98, 60, 40))
+        ic.light(24, -28)
+        for x in (20, 23):
+            ic.line(x, 11, x, 22, (72, 42, 28), 1)
+        ic.line(17, 16, 25, 16, (72, 42, 28), 1)
+        ic.rect(7, 14, 16, 18, (214, 186, 110))                # the band on the wrapper
     else:
         ic.rect(9, 9, 23, 23, (150, 150, 150))
     ic.grain(3)
@@ -2699,6 +2794,11 @@ ITEM_ICONS_FIGHT = [
     "item_shells", "item_machete", "item_sledgehammer", "item_chair_leg",
     "item_frying_pan", "item_glass_shiv",
 ]
+# Phase 5: body and mind, after the fighting icons.
+ITEM_ICONS_BODY = [
+    "item_splint", "item_suture_kit", "item_needle_and_thread", "item_spirits",
+    "item_coffee", "item_book", "item_keepsake", "item_chocolate",
+]
 
 
 def add_item_icons(img, sprites):
@@ -2715,6 +2815,10 @@ def add_item_icons(img, sprites):
         sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
     for i, name in enumerate(ITEM_ICONS_FIGHT):
         x = (len(ITEM_ICONS_BASE) + i) * ITEM_SIZE
+        draw_item_icon(name).paste(img, x, BASE_ICON_Y)
+        sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    for i, name in enumerate(ITEM_ICONS_BODY):
+        x = (len(ITEM_ICONS_BASE) + len(ITEM_ICONS_FIGHT) + i) * ITEM_SIZE
         draw_item_icon(name).paste(img, x, BASE_ICON_Y)
         sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
 

@@ -1,6 +1,7 @@
 // Per-tick simulation: input, systems, combat, sleep, animation and particles.
 #include "core/GameShared.h"
 #include "world/CombatRules.h"
+#include "world/WoundRules.h"
 
 using namespace gameshared;
 
@@ -91,6 +92,12 @@ void Game::update(float dtSeconds)
         updateTitleScreen(dtSeconds);
         return;
     }
+    // The character screen, over the town at a standstill (phase 5).
+    if (mRunState == RunState::CharacterCreation)
+    {
+        updateCharacterCreation();
+        return;
+    }
 
     // Pause menu input
     if (mRunState == RunState::Paused)
@@ -112,6 +119,7 @@ void Game::update(float dtSeconds)
 
         if (restartRequested && mDeathStateTimer >= kDeathRestartDelaySeconds)
         {
+            mCreateCharacterOnStart = true;
             startNewRun();
         }
 
@@ -144,8 +152,12 @@ void Game::update(float dtSeconds)
     }
     mPanicDrift = glm::vec2(0.0f);
 
+    // What the body does to a walk and a swing this tick (phase 5).
+    prepareBodyModifiers();
+
     // Knocked down by a Brute: no walking, no swinging, until you are up.
-    if (playerAlive && !mShowCrafting && !mContainerOpen && !playerKnockedDown())
+    // Eyes shut for a moment (a microsleep): nothing either.
+    if (playerAlive && !mShowCrafting && !mContainerOpen && !playerKnockedDown() && mMicrosleepLeft <= 0.0f)
     {
         mInputSystem.update(mWorld, mInput, mMouseWorld, feelDt);
     }
@@ -154,6 +166,15 @@ void Game::update(float dtSeconds)
         Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
         velocity.dx = 0.0f;
         velocity.dy = 0.0f;
+    }
+    // Breaking: the legs take over and run, for a moment.
+    if (playerAlive && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<MentalState>(mPlayerEntity) &&
+        mWorld.hasComponent<Velocity>(mPlayerEntity) && mWorld.getComponent<MentalState>(mPlayerEntity).lostControlTimer > 0.0f &&
+        !playerKnockedDown() && !playerHeld())
+    {
+        Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+        velocity.dx = mLostControlDir.x * 180.0f * 1.75f; // the run speed (InputSystem)
+        velocity.dy = mLostControlDir.y * 180.0f * 1.75f;
     }
 
     handleVehicleKey(playerAlive);
@@ -171,7 +192,9 @@ void Game::update(float dtSeconds)
     const NeedsEnvironment needsEnvironment = buildNeedsEnvironment();
     mNeedsSystem.update(mWorld, dtSeconds, needsEnvironment);
     mBleedingSystem.update(mWorld, dtSeconds);
-    mWoundSystem.update(mWorld, mPlayerEntity, dtSeconds, mGameHours);
+    // Wounds, sleep debt, coffee, a deep breath, seeing things (GameBody.cpp).
+    updateBody(dtSeconds);
+    if (mRunState != RunState::Playing) return; // turned
 
     // Inventory food spoilage
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
@@ -233,7 +256,11 @@ void Game::update(float dtSeconds)
         mWorld.hasComponent<Velocity>(mPlayerEntity))
     {
         const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-        if (mental.panic >= 25.0f)
+        // It nudges a walk; someone standing still (boarding a door, stitching
+        // a cut) stays where they are, and makes no footsteps for it.
+        const bool walking = mInput.isKeyDown(SDL_SCANCODE_W) || mInput.isKeyDown(SDL_SCANCODE_A) ||
+                             mInput.isKeyDown(SDL_SCANCODE_S) || mInput.isKeyDown(SDL_SCANCODE_D);
+        if (mental.panic >= 25.0f && walking)
         {
             Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
             // Scale drift strength: 0 at 25 panic, full at 100
@@ -245,20 +272,7 @@ void Game::update(float dtSeconds)
         }
     }
 
-    // Depression effects: slow movement
-    if (mPlayerEntity != kInvalidEntity &&
-        mWorld.hasComponent<MentalState>(mPlayerEntity) &&
-        mWorld.hasComponent<Velocity>(mPlayerEntity))
-    {
-        const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-        if (mental.depression > 20.0f)
-        {
-            const float slowFactor = 1.0f - mental.depression * 0.003f;
-            Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
-            vel.dx *= slowFactor;
-            vel.dy *= slowFactor;
-        }
-    }
+    // (Depression's slow walk is the Numb band's -5 %, in prepareBodyModifiers.)
 
     // Depression crisis penalties: heavy movement slowdown while in crisis state.
     if (mPlayerEntity != kInvalidEntity &&
@@ -281,9 +295,10 @@ void Game::update(float dtSeconds)
     {
         const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
         const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
-        if (weight > Inventory::kMaxCarryWeight)
+        const float limit = playerCarryLimit();
+        if (weight > limit)
         {
-            const float overRatio = std::min((weight - Inventory::kMaxCarryWeight) / 10.0f, 0.6f);
+            const float overRatio = std::min((weight - limit) / 10.0f, 0.6f);
             Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
             vel.dx *= (1.0f - overRatio);
             vel.dy *= (1.0f - overRatio);
@@ -554,7 +569,7 @@ void Game::update(float dtSeconds)
     // Desensitisation gain: check for zombie deaths after combat
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<MentalState>(mPlayerEntity))
     {
-        MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+        int killsNow = 0;
         mWorld.forEach<ZombieAI, Health>(
             [&](Entity, ZombieAI& zombieAI, Health& h)
             {
@@ -563,12 +578,14 @@ void Game::update(float dtSeconds)
                 {
                     if (zombieAI.lastDamagedBy == mPlayerEntity)
                     {
-                        mental.desensitisation = std::min(100.0f, mental.desensitisation + 1.5f);
                         ++mRunStats.kills;
+                        ++killsNow;
                     }
                     h.current = -1000.0f; // mark as counted
                 }
             });
+        // Numbness, the first kill, Fighting XP (GameBody.cpp).
+        for (int i = 0; i < killsNow; ++i) onPlayerKill();
     }
 
     // Clear away the dead however they died, once their kills are counted,
@@ -866,6 +883,13 @@ void Game::updateSleep(float dtSeconds)
             const float room = std::min(1.0f, kRoomQuality[sleeping.safety] + (inBed ? 0.05f : 0.0f));
             // A sleeping bag or a bedroll is no better than itself; a collapse is a collapse.
             sleeping.quality = inBed ? room : std::min(room, sleeping.quality);
+            // Something to make you sleep makes worse sleep (phase 5).
+            if (mWorld.hasComponent<Needs>(mPlayerEntity))
+            {
+                const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                const bool sedated = absoluteHour() - needs.lastSedativeHour <= sleeprules::kSedativeWindowHours;
+                sleeping.quality = sleeprules::sleepQuality(sleeping.quality, sedated);
+            }
         }
         constexpr float kSleepTimeMultiplier = 8.0f;
         constexpr float kSleepWakeRange = 160.0f;
@@ -873,13 +897,14 @@ void Game::updateSleep(float dtSeconds)
         const float extraDtSeconds = dtSeconds * (kSleepTimeMultiplier - 1.0f);
         const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond * kSleepTimeMultiplier);
         sleeping.durationRemaining -= gameHoursThisTick;
+        sleeping.hoursSlept += gameHoursThisTick;
         advanceGameClock(gameHoursThisTick, mGameHours, mCurrentDay);
 
         if (extraDtSeconds > 0.0f)
         {
             mNeedsSystem.update(mWorld, extraDtSeconds, buildNeedsEnvironment());
             mBleedingSystem.update(mWorld, extraDtSeconds);
-            mWoundSystem.update(mWorld, mPlayerEntity, extraDtSeconds, mGameHours);
+            mWoundSystem.update(mWorld, mPlayerEntity, extraDtSeconds, mGameHours, woundContext());
 
             if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
             {
@@ -891,7 +916,11 @@ void Game::updateSleep(float dtSeconds)
         if (mWorld.hasComponent<Needs>(mPlayerEntity))
         {
             Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-            needs.sleepDebt = std::max(0.0f, needs.sleepDebt - sleeping.debtRecoveryRate * sleeping.quality * gameHoursThisTick);
+            // Low: a night does less (phase 5).
+            const float rest = mWorld.hasComponent<MentalState>(mPlayerEntity)
+                                   ? mindrules::restScale(mindrules::depressionBand(mWorld.getComponent<MentalState>(mPlayerEntity).depression))
+                                   : 1.0f;
+            needs.sleepDebt = std::max(0.0f, needs.sleepDebt - sleeping.debtRecoveryRate * sleeping.quality * rest * gameHoursThisTick);
             needs.fatigue = std::max(0.0f, needs.fatigue - sleeping.fatigueRecoveryRate * sleeping.quality * gameHoursThisTick);
 
             const bool canRecoverHealth =
@@ -913,12 +942,12 @@ void Game::updateSleep(float dtSeconds)
         // they come near; behind shut doors only when they are in the room
         // (or at the door: see updateDoors and updateWindows).
         bool interrupted = false;
+        float nearestZombie = 1e9f;
         float wakeRange = sleeping.safety <= 1 ? 12.0f * static_cast<float>(mTileMap.tileWidth())
                                                : std::min(kSleepWakeRange, 2.0f * static_cast<float>(mTileMap.tileWidth()));
         if (mWorld.hasComponent<Traits>(mPlayerEntity))
         {
-            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-            if (traits.positive == PositiveTrait::LightSleeper) wakeRange *= 1.5f;
+            wakeRange *= traitrules::wakeRangeScale(mWorld.getComponent<Traits>(mPlayerEntity));
         }
         if (mWorld.hasComponent<Transform>(mPlayerEntity))
         {
@@ -928,6 +957,7 @@ void Game::updateSleep(float dtSeconds)
                 [&](Entity, ZombieAI&, Transform& zt)
                 {
                     const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
+                    nearestZombie = std::min(nearestZombie, glm::distance(pc, zc));
                     if (glm::distance(pc, zc) < wakeRange)
                     {
                         interrupted = true;
@@ -940,6 +970,11 @@ void Game::updateSleep(float dtSeconds)
             if (interrupted)
             {
                 mInteractionMessage = "Woken up by nearby threat!";
+                // Woken with one of them close: the worst way to wake.
+                if (nearestZombie < mindrules::kWokenByZombieTiles * static_cast<float>(mTileMap.tileWidth()))
+                {
+                    addPanic(mindrules::kWokenByZombiePanic);
+                }
             }
             else
             {
@@ -953,6 +988,12 @@ void Game::updateSleep(float dtSeconds)
                         ? 8.0f
                         : std::max(2.0f, sleeping.quality * 6.0f);
                     mental.depression = std::max(0.0f, mental.depression - depressionRelief);
+                }
+                // A full night: Rested for a while (phase 5).
+                if (sleeprules::fullSleep(sleeping.hoursSlept, sleeping.quality) && mWorld.hasComponent<Needs>(mPlayerEntity))
+                {
+                    mWorld.getComponent<Needs>(mPlayerEntity).restedHours = sleeprules::kRestedHours;
+                    mInteractionMessage = "A whole night. You feel rested.";
                 }
 
                 // Checkpoint after a full sleep cycle
@@ -1212,6 +1253,19 @@ void Game::updateAnimations(float dtSeconds)
             ? &mWorld.getComponent<Combat>(mPlayerEntity)
             : nullptr;
         const std::string set = std::string("player_") + (combat != nullptr ? loadoutName(*combat) : "none");
+        // A broken arm is held in against the chest; a hurt leg limps (the
+        // step onto it is quick, the step off it lingers).
+        woundrules::BodyEffects body;
+        if (mWorld.hasComponent<Wounds>(mPlayerEntity))
+        {
+            body = woundrules::effects(mWorld.getComponent<Wounds>(mPlayerEntity).active);
+        }
+        const char* armIn = body.armHeldIn ? "armin" : "";
+        const auto limpTiming = [&]()
+        {
+            if (!body.limp) return;
+            anim.frameDuration *= (anim.currentFrame % 4 < 2) ? 0.65f : 1.45f;
+        };
 
         if (dead)
         {
@@ -1247,19 +1301,22 @@ void Game::updateAnimations(float dtSeconds)
             if (fac.crouching)
             {
                 playAnimation(anim, set + "_crouchwalk" + view, 0.11f);
+                limpTiming();
             }
             else if (fac.running)
             {
-                playAnimation(anim, set + "_run" + view, 0.062f);
+                playAnimation(anim, set + "_run" + armIn + view, 0.062f);
+                limpTiming();
             }
             else
             {
-                playAnimation(anim, set + "_walk" + view, 0.075f);
+                playAnimation(anim, set + "_walk" + armIn + view, 0.075f);
+                limpTiming();
             }
         }
         else
         {
-            playAnimation(anim, set + (fac.crouching ? "_crouch" : "_idle") + view, 0.55f);
+            playAnimation(anim, set + (fac.crouching ? std::string("_crouch") : std::string("_idle") + armIn) + view, 0.55f);
         }
     }
 
@@ -1643,11 +1700,13 @@ void Game::updateNoiseModel(float dtSeconds)
     // Clumsy trait: +1 noise tier on footsteps
     if (mWorld.hasComponent<Traits>(mPlayerEntity))
     {
-        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        if (traits.negative == NegativeTrait::Clumsy)
-        {
-            noiseTier = NoiseModel::adjustTier(noiseTier, 1);
-        }
+        noiseTier = NoiseModel::adjustTier(noiseTier, traitrules::footstepTierBonus(mWorld.getComponent<Traits>(mPlayerEntity)));
+    }
+    // Shaken: every other step lands a tier louder (phase 5).
+    if (noiseTier != NoiseTier::None && mWorld.hasComponent<MentalState>(mPlayerEntity) &&
+        mindrules::louderStep(mindrules::panicBand(mWorld.getComponent<MentalState>(mPlayerEntity).panic), mStepIndex))
+    {
+        noiseTier = NoiseModel::adjustTier(noiseTier, 1);
     }
 
     mMovementNoiseTier = noiseTier;
@@ -1667,6 +1726,7 @@ void Game::updateNoiseModel(float dtSeconds)
     }
 
     mNoiseEmitTimer = 0.0f;
+    ++mStepIndex;
     mNoiseModel.emitNoise(feetPosition, noiseTier, tierDurationSeconds(noiseTier), mPlayerEntity);
 
     // Footstep audio

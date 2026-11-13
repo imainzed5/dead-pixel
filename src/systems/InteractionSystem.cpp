@@ -11,12 +11,14 @@
 #include "components/Health.h"
 #include "components/Interactable.h"
 #include "components/Inventory.h"
+#include "components/MentalState.h"
 #include "components/Needs.h"
 #include "components/Sleeping.h"
 #include "components/Transform.h"
 #include "components/ZombieAI.h"
 #include "items/ItemDatabase.h"
 #include "systems/InventorySystem.h"
+#include "world/MindRules.h"
 
 namespace
 {
@@ -187,6 +189,12 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
         if (nearbyThreat)
         {
             return "Too dangerous to sleep here.";
+        }
+        // Panicking, sleep will not come (phase 5).
+        if (world.hasComponent<MentalState>(playerEntity) &&
+            !mindrules::canSleep(mindrules::panicBand(world.getComponent<MentalState>(playerEntity).panic)))
+        {
+            return "Your heart is pounding. Sleep won't come.";
         }
 
         Sleeping sleeping{};

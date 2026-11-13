@@ -43,6 +43,10 @@ struct CraftingRecipe
     std::string hintA;
     std::string hintB;
     bool startsKnown = false;
+    // The soft gate (phase 5): below this skill's level the craft takes twice
+    // as long and fails 40 % of the time. skill -1: anyone can.
+    int skill = -1; // a Skill, as int
+    int skillLevel = 0;
 };
 
 class CraftingSystem

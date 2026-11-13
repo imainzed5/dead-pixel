@@ -47,7 +47,7 @@ comes before fighting; no engine switch.
 | 2 | `phases/P02_home_base.md` | A home worth defending: furniture as material, windows, traps, stations, a base the next life inherits | done |
 | 3 | `phases/P03_fighting.md` | Shove, knockdown, grabs by the dead, weapon kinds that differ, throwables, guns that cost you | done |
 | 4 | `phases/P04_the_dead.md` | Five kinds of dead, senses (sight, sound, blood), hordes, threat modes that really differ | done |
-| 5 | `phases/P05_body_and_mind.md` | Skills, chosen traits, deeper wounds and illness, sleep debt and a mind that shows | not started |
+| 5 | `phases/P05_body_and_mind.md` | Skills, chosen traits, deeper wounds and illness, sleep debt and a mind that shows | done |
 | 6 | `phases/P06_scavenging.md` | Buildings with a purpose, locks and windows, power and water running out, cooking, foraging, growing food | not started |
 | 7 | `phases/P07_weather_and_fire.md` | Weather and seasons that change the rules; fire that follows them | not started |
 | 8 | `phases/P08_survivors.md` | Other people with needs, homes and tempers: trade, travel together, get robbed | not started |

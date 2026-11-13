@@ -304,6 +304,63 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   after the 2-tile distance test: the first version cost `perf` 1 ms on
   average and a 13.6 ms worst tick.
 
+- 2026-11-14, P05: saves -> no version bump. A wound without a part is on
+  the torso; a severity above 0.75 on a cut or bite reads as Deep; single
+  traits become one-item lists; a checkpoint with no traits takes the
+  seed's old pick (`traitrules::legacyPick`), so old characters keep theirs.
+- 2026-11-14, P05: the character screen -> harness `newrun` is the quick
+  start and `newrun create` shows the screen. The name is typed with
+  letters ("-" for a space, Backspace) without SDL text input; Space quick
+  starts and begins at once.
+- 2026-11-14, P05: Tab cycles PACK -> BODY -> MAKE -> closed; Esc closes
+  any of them. N still opens MAKE straight away.
+- 2026-11-14, P05: boarding -> a held action (4 s at Carpentry 0, scaled by
+  panic), not instant. R again while boarding does not start over. A
+  board's strength is a per-board `toughness` (Carpentry, and x1.5 when
+  reinforced with a second plank from level 3), saved with the boards.
+- 2026-11-14, P05: panic drift -> now only nudges a walk (keys held). It
+  used to move a player standing still, which carried them out of reach
+  of a door mid-board and, with Shaken's louder steps, made footsteps out
+  of standing still. A bug the louder steps exposed, not a retune.
+- 2026-11-14, P05: a failed window climb (exhausted or overloaded) slips
+  back with a 5 % chance of a broken leg; an overloaded knockdown by a
+  Brute, 10 %. Car hits wait for P11.
+- 2026-11-14, P05: an unsplinted broken arm -> no two-handed weapons, and a
+  missed swing wears the weapon twice as much (the spec's "hurts").
+- 2026-11-14, P05: the Disinfected Bandage dresses two wounds and cleans
+  them but no longer cures an infection (antibiotics do). Painkillers take
+  15 off panic as well as the pain.
+- 2026-11-14, P05: rebleeding -> a deep unstitched arm wound reopens on 30 %
+  of swings; a deep leg wound on a 30 % roll every 10 s of running. Either
+  is `Bleeding` at 1 health a second for 6 s. A deep torso or head wound
+  bleeds slowly (2 an hour, 1 dressed) in WoundSystem until stitched.
+- 2026-11-14, P05: half of claw and bite wounds are deep; a Crawler's bite
+  on the legs is always shallow.
+- 2026-11-14, P05: fever above 39 C (the seeing-things trigger) needs
+  illness from an infection near the top; it is rare on purpose.
+- 2026-11-14, P05: a book is read over 20 game minutes indoors; each copy
+  once per character, counted in the slot's `loaded`. The keepsake works
+  once per character (`MentalState::keepsakeUsed`).
+- 2026-11-14, P05: hesitation (Numb) delays swings and treatments.
+  Searching a container is an instant open, so it has no hesitation.
+- 2026-11-14, P05: Fighting XP comes from kills and shove saves only; XP
+  per landed blow is not wired (kills already follow landed blows).
+  Cooking XP (Living off the land) is any Fire recipe at a fire, and its
+  output counts as a hot meal.
+- 2026-11-14, P05: the broken-arm frames (`player_<load>_{idle,walk,run}armin`)
+  are a new atlas block at y 3456, full width (the character block was
+  full). The limp is uneven frame timing on the ordinary walk.
+- 2026-11-14, P05: the harness counts rebleeds (`expect rebleeds`) rather
+  than checking `Bleeding` after a fixed number of swings, because each
+  swing is a 30 % roll.
+- 2026-11-14, P05: older scripts -> boarding waits are 4.5 s a board (6 s
+  where the player is shaken); panels close with Esc; `base` waits 14 s
+  for a table broken up while shaken; `first_day` closes each cupboard
+  with Esc (it had left the fridge open since the storage panel came in,
+  so it never took the kit or boarded the door).
+- 2026-11-14, P05: dressed wounds stay on the body now, so the blood trail
+  counts only undressed cuts and bites.
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -328,6 +385,11 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
 - 2026-11-14, P04: the horde's warning sounds (distant groaning, birds
   gone) and each kind's own sound wait for P12, as the phase says; the
   Crawler's scrape plays a soft footstep for now.
+
+- 2026-11-14, P05: Loner's half trust (survivors are P08); tea, the
+  radio and stew as comforts (P06); journals and a companion's company
+  are hooks only (P10, P08); dependency on Spirits and Painkillers and a
+  Smoker trait are the phase's own "Later".
 
 ## Balance: needs a design change
 

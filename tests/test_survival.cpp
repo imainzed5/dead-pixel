@@ -20,6 +20,7 @@
 #include "components/Traits.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
+#include "components/Skills.h"
 #include "components/Wounds.h"
 #include "components/ZombieAI.h"
 #include "ecs/World.h"
@@ -51,6 +52,7 @@ struct SurvivalWorld
         world.registerComponent<Needs>();
         world.registerComponent<MentalState>();
         world.registerComponent<Traits>();
+        world.registerComponent<Skills>();
         world.registerComponent<ZombieAI>();
         world.registerComponent<SurvivorAI>();
         world.registerComponent<Sleeping>();

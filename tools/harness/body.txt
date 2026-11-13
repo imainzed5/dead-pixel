@@ -1,0 +1,196 @@
+# A body that keeps its wounds (phase 5): a broken leg slows a walk 45 %, a
+# splint brings that to 20 %; a deep arm cut opens again on a swing until it
+# is stitched; a dressing left on 12 hours goes dirty; the BODY tab.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/body.txt --hidden --world-seed 1234 --shots shots/body
+
+newrun
+god on
+trait plain
+waits 1
+slay 80
+zoom 2.5
+
+# Five seconds walking along the street, whole: 900 px less the start, about
+# 27.8 tiles (something on the street stops it a little short).
+goto pavement
+waits 0.5
+mark
+goto mark
+waits 0.5
+hold D 300
+waits 5.5
+expect moved 25.5 28.5
+
+# A broken left leg: 45 % slower, 0.55 x 27.8 = 15.3 tiles.
+goto mark
+waits 0.5
+wound fracture lleg
+expect condition Broken leg
+mark
+hold D 300
+waits 5.5
+expect moved 14.6 16.0
+shot 01_broken_leg_limp
+
+# Splinted (ten seconds of standing still): 20 % slower, 0.8 x 27.8 = 22.2.
+goto mark
+waits 0.5
+give Splint
+treat Splint
+waits 0.5
+expect action busy
+waits 10.5
+expect action none
+expect wounds 1 splinted
+mark
+hold D 300
+waits 5.5
+expect moved 21.5 22.9
+
+# A deep cut on the arm, dressed: the bleeding stops, and swings open it
+# again (three in ten).
+wound cut larm deep
+give Bandage 2
+treat Bandage
+waits 0.5
+expect wounds 0 bleeding
+expect condition Deep cut
+set rebleeds 0
+mouse 900 300
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+expect rebleeds 1 99
+shot 02_reopened
+
+# Stitched: swings no longer open it.
+waits 7
+expect wounds 0 bleeding
+give Suture Kit
+treat suture_kit
+waits 0.5
+expect action busy
+waits 9
+expect action none
+expect wounds 1 stitched
+set rebleeds 0
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+click left
+waits 0.8
+expect rebleeds 0 0
+expect wounds 0 bleeding
+
+# The BODY tab: Tab opens the pack, Tab again the body.
+tap Tab
+waits 0.3
+tap Tab
+waits 0.3
+shot 03_body_tab
+tap Esc
+waits 0.3
+
+# A fresh dressing on a deep leg cut: clean at 11.5 hours, dirty by 12.5.
+# The dead are kept away so nothing else lands on the body meanwhile.
+newrun
+god on
+trait plain
+tune threat.spawn.interval 100000
+tune night.callers.base 0
+waits 1
+slay 200
+goto home
+waits 0.3
+wound cut rleg deep
+give Bandage
+treat Bandage
+waits 0.5
+expect wounds 1 dressed
+expect wounds 0 dirty
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 60
+slay 200
+waits 30
+expect wounds 1
+expect wounds 1 dressed
+slay 200
+waits 60
+expect wounds 1
+expect wounds 0 dressed
+expect wounds 1 dirty
+shot 04_dirty_dressing
+quit

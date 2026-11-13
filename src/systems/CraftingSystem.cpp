@@ -1,5 +1,9 @@
 #include "systems/CraftingSystem.h"
 
+#include <optional>
+
+#include "world/SkillRules.h"
+
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -102,6 +106,19 @@ bool CraftingSystem::loadRecipesFromFile(const std::string& jsonPath, const Item
         recipe.hintA = recipeJson.value("hintA", std::string{});
         recipe.hintB = recipeJson.value("hintB", std::string{});
         recipe.startsKnown = recipeJson.value("startsKnown", false);
+        if (recipeJson.contains("skill"))
+        {
+            const std::string skillName = recipeJson.value("skill", std::string{});
+            if (const std::optional<Skill> skill = skillrules::parse(skillName))
+            {
+                recipe.skill = static_cast<int>(*skill);
+                recipe.skillLevel = std::max(0, recipeJson.value("skillLevel", 1));
+            }
+            else
+            {
+                mErrors.push_back("recipe '" + recipe.label + "': unknown skill '" + skillName + "'");
+            }
+        }
 
         std::string station = recipeJson.value("station", std::string("none"));
         if (recipeJson.value("requiresWorkbench", false)) station = "workbench";

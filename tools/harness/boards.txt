@@ -12,16 +12,16 @@ waits 0.3
 zoom 3
 # No hammer yet: nothing happens.
 tap R
-waits 0.3
+waits 4.5
 doors
 give Hammer
 give Wood Planks 3
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 # Nailed shut: E does not open it.
 tap E
 waits 0.3

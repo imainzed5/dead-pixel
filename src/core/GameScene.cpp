@@ -58,7 +58,7 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
         for (const Doors::Door& door : mDoors.all())
             mDoors.setBoards(mTileMap, door.tile, 0.0f);
         for (const BoardedDoorRecord& record : cp.boardedDoors)
-            mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp);
+            mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp, record.toughness);
     }
 
     if (cp.windowsSaved) restoreWindows(cp.windows);
@@ -220,24 +220,11 @@ void Game::setupScene()
     mWorld.addComponent<MentalState>(mPlayerEntity, MentalState{});
     mWorld.addComponent<Wounds>(mPlayerEntity, Wounds{});
 
-    // Assign traits from seed
-    {
-        const std::uint32_t traitSeed = mSaveManager.currentRunSeed() ^ 0xDEADBEEFu;
-        Traits traits{};
-        traits.positive = static_cast<PositiveTrait>(1 + (traitSeed % 3));         // 1-3
-        traits.negative = static_cast<NegativeTrait>(1 + ((traitSeed / 3) % 3));   // 1-3
-        mWorld.addComponent<Traits>(mPlayerEntity, traits);
-
-        // Apply trait effects
-        if (traits.positive == PositiveTrait::Tough)
-        {
-            Health& h = mWorld.getComponent<Health>(mPlayerEntity);
-            h.baseMaximum = 120.0f;
-            h.maximum = h.baseMaximum;
-            h.current = h.maximum;
-        }
-        // Quick and LightSleeper are applied dynamically in movement/sleep systems
-    }
+    // Traits: the seed's quick pick until the character screen (or a
+    // checkpoint) says otherwise. Health, carry limit and skills follow.
+    mWorld.addComponent<Traits>(mPlayerEntity, Traits{});
+    mWorld.addComponent<Skills>(mPlayerEntity, Skills{});
+    applyCharacter(traitrules::quickStart(mSaveManager.currentRunSeed()), true);
 
     // The districts as the world remembers them (phase 4), before the
     // dead are placed: infection sets the mix.

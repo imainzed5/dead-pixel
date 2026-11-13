@@ -7,7 +7,6 @@
 #include "components/Facing.h"
 #include "components/PlayerInput.h"
 #include "components/Stamina.h"
-#include "components/Traits.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
 #include "world/CombatRules.h"
@@ -61,6 +60,7 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
 
             facing.running =
                 runRequested &&
+                mModifiers.canRun &&
                 !facing.crouching &&
                 glm::dot(moveInput, moveInput) > 0.0f;
 
@@ -71,7 +71,8 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             }
             else if (facing.running)
             {
-                speedMultiplier = kRunSpeedMultiplier;
+                // A splinted leg: you hurry, but no faster than a walk.
+                speedMultiplier = mModifiers.runAtWalkSpeed ? 1.0f : kRunSpeedMultiplier * mModifiers.runSpeedScale;
             }
 
             if (world.hasComponent<Stamina>(entity))
@@ -84,15 +85,8 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
                 }
             }
 
-            // Quick trait: +15% speed
-            if (world.hasComponent<Traits>(entity))
-            {
-                const Traits& traits = world.getComponent<Traits>(entity);
-                if (traits.positive == PositiveTrait::Quick)
-                {
-                    speedMultiplier *= 1.15f;
-                }
-            }
+            // Traits, wounds and the mind (Quick, a hurt leg, Numb).
+            speedMultiplier *= mModifiers.speedScale;
 
             const glm::vec2 wanted = moveInput * (kBaseSpeed * speedMultiplier);
             const glm::vec2 current(velocity.dx, velocity.dy);

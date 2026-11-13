@@ -30,6 +30,18 @@ std::uint32_t randomSeed()
     return dist(gen);
 }
 
+// A list of strings under `key`; false (and `out` untouched) when there is none.
+bool readStringList(const nlohmann::json& json, const char* key, std::vector<std::string>& out)
+{
+    if (!json.contains(key) || !json[key].is_array()) return false;
+    out.clear();
+    for (const auto& entry : json[key])
+    {
+        if (entry.is_string()) out.push_back(entry.get<std::string>());
+    }
+    return true;
+}
+
 std::string readFileToString(const std::string& filePath)
 {
     std::ifstream input(filePath, std::ios::binary);
@@ -627,6 +639,15 @@ bool SaveManager::loadLegacy()
                 record.cause = graveJson.value("cause", std::string("Unknown"));
                 record.risen = graveJson.value("risen", false);
                 record.laidToRest = graveJson.value("laidToRest", false);
+                readStringList(graveJson, "positiveTraits", record.positiveTraits);
+                readStringList(graveJson, "negativeTraits", record.negativeTraits);
+                if (graveJson.contains("skills") && graveJson["skills"].is_array())
+                {
+                    for (const auto& skillJson : graveJson["skills"])
+                    {
+                        record.skills.emplace_back(skillJson.value("id", 0), skillJson.value("level", 0));
+                    }
+                }
                 if (graveJson.contains("items") && graveJson["items"].is_array())
                 {
                     for (const auto& itemJson : graveJson["items"])
@@ -671,8 +692,17 @@ bool SaveManager::loadLegacy()
                 record.retired = charJson.value("retired", false);
                 record.cause = charJson.value("cause", std::string{});
                 record.locationTag = charJson.value("locationTag", std::string{});
-                record.positiveTrait = charJson.value("positiveTrait", std::string{});
-                record.negativeTrait = charJson.value("negativeTrait", std::string{});
+                // Older records: one trait each, a string.
+                if (!readStringList(charJson, "positiveTraits", record.positiveTraits))
+                {
+                    const std::string one = charJson.value("positiveTrait", std::string{});
+                    if (!one.empty()) record.positiveTraits.push_back(one);
+                }
+                if (!readStringList(charJson, "negativeTraits", record.negativeTraits))
+                {
+                    const std::string one = charJson.value("negativeTrait", std::string{});
+                    if (!one.empty()) record.negativeTraits.push_back(one);
+                }
                 record.bloodlineTrait = charJson.value("bloodlineTrait", std::string{});
                 record.finalNote = charJson.value("finalNote", std::string{});
                 mCharacterHistory.push_back(record);
@@ -758,6 +788,16 @@ bool SaveManager::writeLegacy() const
         {
             graveJson["laidToRest"] = true;
         }
+        if (!grave.positiveTraits.empty()) graveJson["positiveTraits"] = grave.positiveTraits;
+        if (!grave.negativeTraits.empty()) graveJson["negativeTraits"] = grave.negativeTraits;
+        if (!grave.skills.empty())
+        {
+            graveJson["skills"] = nlohmann::json::array();
+            for (const auto& [skillId, level] : grave.skills)
+            {
+                graveJson["skills"].push_back({{"id", skillId}, {"level", level}});
+            }
+        }
         if (!grave.items.empty())
         {
             graveJson["items"] = nlohmann::json::array();
@@ -790,8 +830,8 @@ bool SaveManager::writeLegacy() const
         characterJson["retired"] = character.retired;
         characterJson["cause"] = character.cause;
         characterJson["locationTag"] = character.locationTag;
-        characterJson["positiveTrait"] = character.positiveTrait;
-        characterJson["negativeTrait"] = character.negativeTrait;
+        characterJson["positiveTraits"] = character.positiveTraits;
+        characterJson["negativeTraits"] = character.negativeTraits;
         characterJson["bloodlineTrait"] = character.bloodlineTrait;
         characterJson["finalNote"] = character.finalNote;
         json["characters"].push_back(characterJson);
@@ -1206,11 +1246,38 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["sleepDebt"] = cp.needs.sleepDebt;
     json["bodyTemperature"] = cp.needs.bodyTemperature;
     json["illness"] = cp.needs.illness;
+    json["coffeeHours"] = cp.needs.coffeeHours;
+    json["coffeeJitterHours"] = cp.needs.coffeeJitterHours;
+    json["lastCoffeeHour"] = cp.needs.lastCoffeeHour;
+    json["lastSedativeHour"] = cp.needs.lastSedativeHour;
+    json["lastPainkillerHour"] = cp.needs.lastPainkillerHour;
+    json["restedHours"] = cp.needs.restedHours;
 
     // Mental state
     json["panic"] = cp.mental.panic;
     json["depression"] = cp.mental.depression;
     json["desensitisation"] = cp.mental.desensitisation;
+    json["firstKillDone"] = cp.mental.firstKillDone;
+    json["hoursSinceKill"] = cp.mental.hoursSinceKill;
+    json["keepsakeUsed"] = cp.mental.keepsakeUsed;
+    json["weekRelieved"] = cp.mental.weekRelieved;
+    json["bloodlineGraveSeen"] = cp.mental.bloodlineGraveSeen;
+
+    // Who they are and what they have learned (phase 5).
+    if (cp.traitsSaved)
+    {
+        json["positiveTraits"] = cp.positiveTraits;
+        json["negativeTraits"] = cp.negativeTraits;
+    }
+    if (cp.skillsSaved)
+    {
+        nlohmann::json skills = nlohmann::json::array();
+        for (std::size_t i = 0; i < kSkillCount; ++i)
+        {
+            skills.push_back({{"xp", cp.skills.xp[i]}, {"level", cp.skills.level[i]}, {"lastUsed", cp.skills.lastUsedHour[i]}});
+        }
+        json["skills"] = skills;
+    }
 
     // Wounds
     json["wounds"] = nlohmann::json::array();
@@ -1218,11 +1285,23 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     {
         nlohmann::json wj;
         wj["type"] = static_cast<int>(w.type);
-        wj["severity"] = w.severity;
+        wj["part"] = static_cast<int>(w.part);
+        wj["depth"] = static_cast<int>(w.depth);
+        wj["dressed"] = w.dressed;
+        wj["stitched"] = w.stitched;
+        wj["splinted"] = w.splinted;
         wj["infected"] = w.infected;
         wj["infectionTimer"] = w.infectionTimer;
         wj["contaminated"] = w.contaminated;
         wj["healTimer"] = w.healTimer;
+        wj["dressingHours"] = w.dressingHours;
+        wj["infectedHours"] = w.infectedHours;
+        if (w.turning)
+        {
+            wj["turning"] = true;
+            wj["turningHours"] = w.turningHours;
+            wj["turnDeathHours"] = w.turnDeathHours;
+        }
         json["wounds"].push_back(wj);
     }
     json["bleeding"] = cp.bleeding;
@@ -1259,7 +1338,7 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["boardedDoors"] = nlohmann::json::array();
     for (const BoardedDoorRecord& door : cp.boardedDoors)
     {
-        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}});
+        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}, {"tough", door.toughness}});
     }
     json["burned"] = tilesToJson(cp.burnedTiles);
     json["fires"] = nlohmann::json::array();
@@ -1312,7 +1391,7 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         json["windows"] = nlohmann::json::array();
         for (const WindowRecord& w : cp.windows)
         {
-            json["windows"].push_back({{"x", w.x}, {"y", w.y}, {"broken", w.broken}, {"hp", w.boardHp}, {"covered", w.covered}});
+            json["windows"].push_back({{"x", w.x}, {"y", w.y}, {"broken", w.broken}, {"hp", w.boardHp}, {"covered", w.covered}, {"tough", w.toughness}});
         }
     }
     if (cp.structuresSaved)
@@ -1381,22 +1460,66 @@ RunCheckpoint SaveManager::loadCheckpoint() const
     cp.needs.sleepDebt = json.value("sleepDebt", 0.0f);
     cp.needs.bodyTemperature = json.value("bodyTemperature", 37.0f);
     cp.needs.illness = json.value("illness", 0.0f);
+    cp.needs.coffeeHours = json.value("coffeeHours", 0.0f);
+    cp.needs.coffeeJitterHours = json.value("coffeeJitterHours", 0.0f);
+    cp.needs.lastCoffeeHour = json.value("lastCoffeeHour", -1000.0);
+    cp.needs.lastSedativeHour = json.value("lastSedativeHour", -1000.0);
+    cp.needs.lastPainkillerHour = json.value("lastPainkillerHour", -1000.0);
+    cp.needs.restedHours = json.value("restedHours", 0.0f);
 
     cp.mental.panic = json.value("panic", 0.0f);
     cp.mental.depression = json.value("depression", 0.0f);
     cp.mental.desensitisation = json.value("desensitisation", 0.0f);
+    cp.mental.firstKillDone = json.value("firstKillDone", false);
+    cp.mental.hoursSinceKill = json.value("hoursSinceKill", 0.0f);
+    cp.mental.keepsakeUsed = json.value("keepsakeUsed", false);
+    cp.mental.weekRelieved = json.value("weekRelieved", false);
+    cp.mental.bloodlineGraveSeen = json.value("bloodlineGraveSeen", false);
+
+    // Phase 5: chosen traits and skills. Older checkpoints have neither.
+    cp.traitsSaved = readStringList(json, "positiveTraits", cp.positiveTraits);
+    cp.traitsSaved = readStringList(json, "negativeTraits", cp.negativeTraits) || cp.traitsSaved;
+    if (json.contains("skills") && json["skills"].is_array())
+    {
+        cp.skillsSaved = true;
+        const auto& arr = json["skills"];
+        for (std::size_t i = 0; i < arr.size() && i < kSkillCount; ++i)
+        {
+            cp.skills.xp[i] = arr[i].value("xp", 0.0f);
+            cp.skills.level[i] = std::clamp(arr[i].value("level", 0), 0, 5);
+            cp.skills.lastUsedHour[i] = arr[i].value("lastUsed", 0.0);
+        }
+    }
 
     if (json.contains("wounds") && json["wounds"].is_array())
     {
         for (const auto& wj : json["wounds"])
         {
             Wound w;
-            w.type = static_cast<WoundType>(wj.value("type", 0));
-            w.severity = wj.value("severity", 1.0f);
+            w.type = static_cast<WoundType>(std::clamp(wj.value("type", 0), 0, 3));
+            w.part = static_cast<BodyPart>(std::clamp(wj.value("part", static_cast<int>(BodyPart::Torso)), 0, 5));
+            if (wj.contains("depth"))
+            {
+                w.depth = wj.value("depth", 0) == 1 ? WoundDepth::Deep : WoundDepth::Shallow;
+            }
+            else
+            {
+                // Before phase 5 a wound had a severity; above 0.75 it was deep.
+                const bool open = w.type == WoundType::Cut || w.type == WoundType::Bite;
+                w.depth = open && wj.value("severity", 0.0f) > 0.75f ? WoundDepth::Deep : WoundDepth::Shallow;
+            }
+            w.dressed = wj.value("dressed", false);
+            w.stitched = wj.value("stitched", false);
+            w.splinted = wj.value("splinted", false);
             w.infected = wj.value("infected", false);
             w.infectionTimer = wj.value("infectionTimer", 0.0f);
             w.contaminated = wj.value("contaminated", w.type == WoundType::Bite);
             w.healTimer = wj.value("healTimer", 0.0f);
+            w.dressingHours = wj.value("dressingHours", 0.0f);
+            w.infectedHours = wj.value("infectedHours", 0.0f);
+            w.turning = wj.value("turning", false);
+            w.turningHours = wj.value("turningHours", 0.0f);
+            w.turnDeathHours = wj.value("turnDeathHours", 18.0f);
             cp.wounds.push_back(w);
         }
     }
@@ -1443,7 +1566,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
         cp.boardsSaved = true;
         for (const auto& dj : json["boardedDoors"])
         {
-            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f)};
+            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f), dj.value("tough", 1.0f)};
             if (door.boardHp > 0.0f) cp.boardedDoors.push_back(door);
         }
     }
@@ -1453,7 +1576,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
         for (const auto& wj : json["windows"])
         {
             cp.windows.push_back(WindowRecord{wj.value("x", 0), wj.value("y", 0), wj.value("broken", false),
-                                              std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false)});
+                                              std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false), wj.value("tough", 1.0f)});
         }
     }
     if (json.contains("structures") && json["structures"].is_array())
@@ -1773,13 +1896,13 @@ bool SaveManager::saveWorldMemory()
     json["boardedDoors"] = nlohmann::json::array();
     for (const BoardedDoorRecord& door : mBoardedDoors)
     {
-        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}});
+        json["boardedDoors"].push_back({{"x", door.x}, {"y", door.y}, {"hp", door.boardHp}, {"tough", door.toughness}});
     }
 
     json["windows"] = nlohmann::json::array();
     for (const WindowRecord& w : mWindows)
     {
-        json["windows"].push_back({{"x", w.x}, {"y", w.y}, {"broken", w.broken}, {"hp", w.boardHp}, {"covered", w.covered}});
+        json["windows"].push_back({{"x", w.x}, {"y", w.y}, {"broken", w.broken}, {"hp", w.boardHp}, {"covered", w.covered}, {"tough", w.toughness}});
     }
     if (mBase.building > 0)
     {
@@ -1978,7 +2101,7 @@ bool SaveManager::loadWorldMemory()
     {
         for (const auto& dj : json["boardedDoors"])
         {
-            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f)};
+            const BoardedDoorRecord door{dj.value("x", 0), dj.value("y", 0), dj.value("hp", 0.0f), dj.value("tough", 1.0f)};
             if (door.boardHp > 0.0f) mBoardedDoors.push_back(door);
         }
     }
@@ -1988,7 +2111,7 @@ bool SaveManager::loadWorldMemory()
         for (const auto& wj : json["windows"])
         {
             mWindows.push_back(WindowRecord{wj.value("x", 0), wj.value("y", 0), wj.value("broken", false),
-                                            std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false)});
+                                            std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false), wj.value("tough", 1.0f)});
         }
     }
     if (json.contains("base") && json["base"].is_object())

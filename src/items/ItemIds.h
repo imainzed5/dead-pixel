@@ -56,7 +56,16 @@ struct ItemIds
     X(sledgehammer, "sledgehammer")         \
     X(chairLeg, "chair_leg")                \
     X(fryingPan, "frying_pan")              \
-    X(glassShiv, "glass_shiv")
+    X(glassShiv, "glass_shiv")              \
+    X(splint, "splint")                     \
+    X(sutureKit, "suture_kit")              \
+    X(needleAndThread, "needle_and_thread") \
+    X(spirits, "spirits")                   \
+    X(coffee, "coffee")                     \
+    X(book, "book")                         \
+    X(keepsake, "keepsake")                 \
+    X(chocolate, "chocolate")               \
+    X(disinfectedBandage, "disinfected_bandage")
 
 #define DEAD_PIXEL_ITEM_FIELD(field, key) int field = -1;
     DEAD_PIXEL_ITEM_IDS(DEAD_PIXEL_ITEM_FIELD)

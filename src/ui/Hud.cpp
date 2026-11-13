@@ -11,6 +11,8 @@
 #include "rendering/SpriteBatch.h"
 #include "rendering/SpriteSheet.h"
 #include "systems/NeedsSystem.h"
+#include "world/MindRules.h"
+#include "world/SleepRules.h"
 
 namespace
 {
@@ -29,19 +31,11 @@ const glm::vec4 kStaminaLostColor(0.46f, 0.16f, 0.14f, 0.95f);
 // Conditions thresholds that live only in the HUD (early warnings shown before
 // the needs model starts to bite).
 constexpr float kPeckishBelow = 50.0f;
-constexpr float kDrowsyAbove = 50.0f;
-constexpr float kExhaustedAbove = 90.0f;
 constexpr float kWindedAbove = 60.0f;
 constexpr float kQueasyAbove = 20.0f;
 constexpr float kSickAbove = 40.0f;
 constexpr float kGravelyIllAbove = 80.0f;
-constexpr float kAnxiousAt = 25.0f;
-constexpr float kScaredAt = 50.0f;
-constexpr float kPanickingAt = 75.0f;
-constexpr float kLowSpiritsAt = 40.0f;
-constexpr float kDepressedAt = 60.0f;
-constexpr float kDespairAt = 85.0f;
-constexpr float kNumbAt = 50.0f;
+constexpr float kHardenedAt = 50.0f;
 
 float ratio(float value, float maximum)
 {
@@ -248,21 +242,45 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
     };
 
     // Wounds first: they are the most urgent things to fix.
-    if (in.bleeding)
+    if (!in.woundLabels.empty())
     {
-        add("Bleeding", HudSeverity::Critical, "fx_blood");
+        // Named by kind and place (phase 5): how bad each is reads from its name.
+        for (const std::string& label : in.woundLabels)
+        {
+            const auto starts = [&](const char* prefix) { return label.rfind(prefix, 0) == 0; };
+            HudSeverity severity = HudSeverity::Mild;
+            const char* icon = "fx_blood";
+            if (starts("Bleeding") || starts("Turning") || starts("Infected"))
+            {
+                severity = HudSeverity::Critical;
+                if (!starts("Bleeding")) icon = "ui_skull";
+            }
+            else if (starts("Broken") || starts("Deep") || starts("Bite") || starts("Fever") || starts("Dirty"))
+            {
+                severity = HudSeverity::Serious;
+                if (starts("Fever")) icon = "ui_skull";
+            }
+            out.push_back(HudStatus{label, severity, icon});
+        }
     }
-    if (in.infected)
+    else
     {
-        add("Infected", HudSeverity::Critical, "ui_skull");
-    }
-    else if (in.bites > 0)
-    {
-        add(in.bites > 1 ? "Bitten x2+" : "Bitten", HudSeverity::Serious, "ui_skull");
-    }
-    if (in.cuts > 0 && !in.bleeding)
-    {
-        add("Cut", HudSeverity::Mild, "fx_blood");
+        if (in.bleeding)
+        {
+            add("Bleeding", HudSeverity::Critical, "fx_blood");
+        }
+        if (in.infected)
+        {
+            add("Infected", HudSeverity::Critical, "ui_skull");
+        }
+        else if (in.bites > 0)
+        {
+            add(in.bites > 1 ? "Bitten x2+" : "Bitten", HudSeverity::Serious, "ui_skull");
+        }
+        if (in.cuts > 0 && !in.bleeding)
+        {
+            add("Cut", HudSeverity::Mild, "fx_blood");
+        }
     }
 
     if (in.thirst < NeedsSystem::kParchedBelow)
@@ -323,17 +341,16 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
 
     if (!in.sleeping)
     {
-        if (in.sleepDebt > kExhaustedAbove)
+        // The sleep bands (phase 5, world/SleepRules): what a coffee hides is not shown.
+        switch (sleeprules::band(in.sleepDebt))
         {
-            add("Exhausted", HudSeverity::Critical, "ui_sleep");
-        }
-        else if (in.sleepDebt > NeedsSystem::kTiredAbove)
-        {
-            add("Tired", HudSeverity::Serious, "ui_sleep");
-        }
-        else if (in.sleepDebt > kDrowsyAbove)
-        {
-            add("Drowsy", HudSeverity::Mild, "ui_sleep");
+        case sleeprules::Band::DeadOnFeet: add("Dead on your feet", HudSeverity::Critical, "ui_sleep"); break;
+        case sleeprules::Band::Exhausted: add("Exhausted", HudSeverity::Critical, "ui_sleep"); break;
+        case sleeprules::Band::Tired: add("Tired", HudSeverity::Serious, "ui_sleep"); break;
+        case sleeprules::Band::Drowsy: add("Drowsy", HudSeverity::Mild, "ui_sleep"); break;
+        case sleeprules::Band::Fine:
+            if (in.rested) add("Rested", HudSeverity::Info, "ui_sleep");
+            break;
         }
     }
 
@@ -346,39 +363,36 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
         add("Overburdened", HudSeverity::Serious, "");
     }
 
-    if (in.panic >= kPanickingAt)
+    // The mind's bands (phase 5, world/MindRules).
+    switch (mindrules::panicBand(in.panic))
     {
-        add("Panicking", HudSeverity::Critical, "");
-    }
-    else if (in.panic >= kScaredAt)
-    {
-        add("Scared", HudSeverity::Serious, "");
-    }
-    else if (in.panic >= kAnxiousAt)
-    {
-        add("Anxious", HudSeverity::Mild, "");
+    case mindrules::PanicBand::Breaking: add("Breaking", HudSeverity::Critical, ""); break;
+    case mindrules::PanicBand::Panicking: add("Panicking", HudSeverity::Critical, ""); break;
+    case mindrules::PanicBand::Shaken: add("Shaken", HudSeverity::Serious, ""); break;
+    case mindrules::PanicBand::Uneasy: add("Uneasy", HudSeverity::Mild, ""); break;
+    case mindrules::PanicBand::Calm: break;
     }
 
     if (in.inCrisis)
     {
         add("In crisis", HudSeverity::Critical, "");
     }
-    else if (in.depression >= kDespairAt)
+    else
     {
-        add("Despairing", HudSeverity::Critical, "");
-    }
-    else if (in.depression >= kDepressedAt)
-    {
-        add("Depressed", HudSeverity::Serious, "");
-    }
-    else if (in.depression >= kLowSpiritsAt)
-    {
-        add("Low spirits", HudSeverity::Mild, "");
+        switch (mindrules::depressionBand(in.depression))
+        {
+        case mindrules::DepressionBand::GivingUp: add("Giving up", HudSeverity::Critical, ""); break;
+        case mindrules::DepressionBand::Numb: add("Numb", HudSeverity::Serious, ""); break;
+        case mindrules::DepressionBand::WornDown: add("Worn down", HudSeverity::Serious, ""); break;
+        case mindrules::DepressionBand::Low: add("Low", HudSeverity::Mild, ""); break;
+        case mindrules::DepressionBand::Fine: break;
+        }
     }
 
-    if (in.desensitisation >= kNumbAt)
+    // Used to the killing (was "Numb" before the depression bands took the word).
+    if (in.desensitisation >= kHardenedAt)
     {
-        add("Numb", HudSeverity::Info, "");
+        add("Hardened", HudSeverity::Info, "");
     }
     if (in.sleeping)
     {

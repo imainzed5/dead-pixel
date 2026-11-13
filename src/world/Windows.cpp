@@ -148,7 +148,7 @@ Windows::Blow Windows::batter(TileMap& map, const glm::ivec2& tile, float damage
     if (window->boardHp > 0.0f)
     {
         const int before = boardsFor(window->boardHp);
-        window->boardHp = std::max(0.0f, window->boardHp - damage);
+        window->boardHp = std::max(0.0f, window->boardHp - damage / std::max(0.1f, window->boardToughness));
         const int after = boardsFor(window->boardHp);
         map.setWindowBoards(tile.x, tile.y, after);
         if (after < before)
@@ -188,10 +188,12 @@ bool Windows::breakGlass(TileMap& map, const glm::ivec2& tile)
     return true;
 }
 
-bool Windows::addBoard(TileMap& map, const glm::ivec2& tile)
+bool Windows::addBoard(TileMap& map, const glm::ivec2& tile, float toughness)
 {
     Window* window = findMutable(tile);
     if (window == nullptr || boardsFor(window->boardHp) >= kMaxBoards) return false;
+    const float before = static_cast<float>(boardsFor(window->boardHp));
+    window->boardToughness = (window->boardToughness * before + toughness) / (before + 1.0f);
     window->boardHp = std::min(window->boardHp + kBoardHp, kBoardHp * static_cast<float>(kMaxBoards));
     map.setWindowBoards(tile.x, tile.y, boardsFor(window->boardHp));
     return true;
@@ -202,16 +204,18 @@ bool Windows::removeBoard(TileMap& map, const glm::ivec2& tile)
     Window* window = findMutable(tile);
     if (window == nullptr || window->boardHp <= 0.0f) return false;
     window->boardHp = kBoardHp * static_cast<float>(boardsFor(window->boardHp) - 1);
+    if (window->boardHp <= 0.0f) window->boardToughness = 1.0f;
     map.setWindowBoards(tile.x, tile.y, boardsFor(window->boardHp));
     return true;
 }
 
-void Windows::restore(TileMap& map, const glm::ivec2& tile, bool broken, float boardHp, bool covered)
+void Windows::restore(TileMap& map, const glm::ivec2& tile, bool broken, float boardHp, bool covered, float toughness)
 {
     Window* window = findMutable(tile);
     if (window == nullptr) return;
     window->glassHp = broken ? 0.0f : kGlassHp;
     window->boardHp = std::clamp(boardHp, 0.0f, kBoardHp * static_cast<float>(kMaxBoards));
+    window->boardToughness = window->boardHp > 0.0f ? std::max(0.1f, toughness) : 1.0f;
     map.setWindowState(tile.x, tile.y, broken ? WindowState::Broken : WindowState::Intact);
     map.setWindowBoards(tile.x, tile.y, boardsFor(window->boardHp));
     map.setWindowCovered(tile.x, tile.y, covered);

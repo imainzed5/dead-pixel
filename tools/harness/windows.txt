@@ -208,10 +208,11 @@ waits 0.5
 give Hammer
 give Wood Planks 2
 give Nails 4
+# Boarding takes about four seconds a board, more when shaken.
 tap R
-waits 0.3
+waits 6
 tap R
-waits 0.3
+waits 6
 expect window boarded 2
 zombie mark
 waits 42

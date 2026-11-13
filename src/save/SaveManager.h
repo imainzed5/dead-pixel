@@ -10,6 +10,7 @@
 #include "components/Needs.h"
 #include "components/Health.h"
 #include "components/MentalState.h"
+#include "components/Skills.h"
 #include "components/Traits.h"
 #include "components/Wounds.h"
 
@@ -26,6 +27,11 @@ struct GraveRecord
     std::vector<std::pair<int, int>> items; // (itemId, count)
     bool risen = false;      // came back: walks near (x, y) as a zombie
     bool laidToRest = false; // a later survivor put them down
+    // Phase 5: who they were. Trait keys ("strong_back"), and the top two
+    // skills as (Skill id, level) for phase 10's journals.
+    std::vector<std::string> positiveTraits;
+    std::vector<std::string> negativeTraits;
+    std::vector<std::pair<int, int>> skills;
 };
 
 struct RetirementRecord
@@ -63,6 +69,7 @@ struct WindowRecord
     bool broken = false;
     float boardHp = 0.0f;
     bool covered = false;
+    float toughness = 1.0f; // phase 5: how well its boards were nailed (absent: 1)
 };
 
 // Furniture the player moved or broke up, named by the tile the town put it
@@ -130,6 +137,7 @@ struct BoardedDoorRecord
     int x = 0;
     int y = 0;
     float boardHp = 0.0f;
+    float toughness = 1.0f; // phase 5: how well they were nailed (absent: 1)
 };
 
 // A body lying where a zombie fell.
@@ -244,8 +252,9 @@ struct CharacterHistoryRecord
     bool retired = false;
     std::string cause;
     std::string locationTag;
-    std::string positiveTrait;
-    std::string negativeTrait;
+    // Trait names; older records held one of each, read as one-item lists.
+    std::vector<std::string> positiveTraits;
+    std::vector<std::string> negativeTraits;
     std::string bloodlineTrait;
     std::string finalNote;
 };
@@ -323,6 +332,13 @@ struct RunCheckpoint
     MentalState mental{};
     std::vector<Wound> wounds;
     bool bleeding = false;
+    // Phase 5: the chosen traits (keys) and what has been learned. Older
+    // checkpoints leave these false: traits come from the seed's old pick.
+    bool traitsSaved = false;
+    std::vector<std::string> positiveTraits;
+    std::vector<std::string> negativeTraits;
+    bool skillsSaved = false;
+    Skills skills{};
     Inventory inventory{};
     int equippedSlot = -1; // inventory slot of the weapon in hand
     int kills = 0;

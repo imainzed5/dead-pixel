@@ -766,8 +766,8 @@ void Game::updateBloodTrail(float dtSeconds)
     {
         for (const Wound& wound : mWorld.getComponent<Wounds>(mPlayerEntity).active)
         {
-            // A dressed wound is gone from the list; what is left is open.
-            if (wound.type == WoundType::Cut || wound.type == WoundType::Bite)
+            // A dressed wound stays on the body (phase 5) but drips no more.
+            if ((wound.type == WoundType::Cut || wound.type == WoundType::Bite) && !wound.dressed)
             {
                 strength = bloodtrail::kWoundStrength;
                 break;
@@ -808,6 +808,8 @@ void Game::handleZombieEvents()
         case ZombieEvent::Type::Scream:
             mAudioManager.playSound(SoundId::ZombieGrowl, std::min(1.0f, 0.9f * near + 0.2f));
             if (distanceTiles < 12.0f) mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.15f);
+            // A scream close by goes straight through you (phase 5).
+            if (distanceTiles < mindrules::kScreamerPanicTiles) addPanic(mindrules::kScreamerPanic);
             break;
         case ZombieEvent::Type::Scrape:
             if (distanceTiles < 8.0f) mAudioManager.playSound(SoundId::FootstepSoft, 0.5f);
@@ -936,6 +938,16 @@ void Game::applyPlayerBlows()
         {
             mPlayerDownTimer = std::max(mPlayerDownTimer, blow.knockdownSeconds);
             mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.3f);
+            // Knocked down carrying more than you can: a fall that can break a leg (phase 5).
+            if (mWorld.hasComponent<Inventory>(mPlayerEntity) && mWorld.hasComponent<Wounds>(mPlayerEntity) &&
+                InventorySystem::totalWeight(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase) > playerCarryLimit() &&
+                bodyRoll() < woundrules::kOverloadedFallFractureChance)
+            {
+                mWorld.getComponent<Wounds>(mPlayerEntity).active.push_back(
+                    woundrules::make(WoundType::Fracture, woundrules::legPart(bodyRoll())));
+                mInteractionMessage = "You land badly under the weight. Something snaps.";
+                mInteractionMessageTimer = 3.0f;
+            }
         }
         if (blow.hobbleSeconds > 0.0f) mHobbleTimer = std::max(mHobbleTimer, blow.hobbleSeconds);
     }
@@ -1020,6 +1032,14 @@ bool Game::searchNearestCorpse()
         });
     if (best == kInvalidEntity) return false;
 
+    // Giving up: you cannot bring yourself to (phase 5).
+    if (mWorld.hasComponent<MentalState>(mPlayerEntity) &&
+        !mindrules::canLootBodies(mindrules::depressionBand(mWorld.getComponent<MentalState>(mPlayerEntity).depression)))
+    {
+        mInteractionMessage = "You cannot bring yourself to touch them.";
+        mInteractionMessageTimer = 2.5f;
+        return true;
+    }
     Corpse& corpse = mWorld.getComponent<Corpse>(best);
     if (!corpse.searched)
     {

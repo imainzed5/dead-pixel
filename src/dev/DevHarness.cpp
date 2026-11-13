@@ -134,6 +134,7 @@ const char* runStateName(int state)
     case 2: return "paused";
     case 3: return "dead";
     case 4: return "retired";
+    case 5: return "creating";
     default: return "unknown";
     }
 }
@@ -400,11 +401,44 @@ void DevHarness::execute(Game& game, const Command& command)
     }
     else if (op == "newrun")
     {
+        // newrun: a fresh run with the seed's quick pick of traits.
+        // newrun tough,clumsy: with exactly these traits.
+        // newrun create: through the character screen, as the menus do.
         game.mSaveManager.deleteCheckpoint();
         game.mIgnoreCheckpointRestoreOnce = true;
         game.syncPresentationSettingsToSave();
+        const bool create = a.size() > 1 && lower(a[1]) == "create";
+        game.mCreateCharacterOnStart = create;
         game.startNewRun();
         mWasAlive = true;
+        if (a.size() > 1 && !create)
+        {
+            Traits traits;
+            std::string list = a[1];
+            for (std::size_t i = 2; i < a.size(); ++i) list += "," + a[i];
+            std::size_t start = 0;
+            while (start <= list.size())
+            {
+                std::size_t end = list.find(',', start);
+                if (end == std::string::npos) end = list.size();
+                const std::string name = list.substr(start, end - start);
+                start = end + 1;
+                if (name.empty()) continue;
+                if (const auto good = traitrules::parsePositive(name))
+                {
+                    traitrules::toggle(traits, *good);
+                }
+                else if (const auto bad = traitrules::parseNegative(name))
+                {
+                    traitrules::toggle(traits, *bad);
+                }
+                else if (lower(name) != "none")
+                {
+                    fail(command, "unknown trait '" + name + "'");
+                }
+            }
+            game.applyCharacter(traits, true);
+        }
     }
     else if (op == "save")
     {
@@ -1322,6 +1356,19 @@ void DevHarness::execute(Game& game, const Command& command)
         }
         InventorySystem::addItem(game.mWorld.getComponent<Inventory>(game.mPlayerEntity), game.mItemDatabase, item->id, count);
     }
+    else if (op == "set" && a.size() > 1 && lower(a[1]) == "skill")
+    {
+        // set skill NAME LEVEL (phase 5).
+        if (!need(3)) return;
+        const auto skill = skillrules::parse(a[2]);
+        const Entity player = game.mPlayerEntity;
+        if (!skill || player == kInvalidEntity || !game.mWorld.hasComponent<Skills>(player))
+        {
+            fail(command, "cannot set skill '" + a[2] + "'");
+            return;
+        }
+        skillrules::setLevel(game.mWorld.getComponent<Skills>(player), *skill, std::stoi(a[3]), game.absoluteHour());
+    }
     else if (op == "set")
     {
         // set STAT VALUE: force a player stat, for screenshots and tuning.
@@ -1341,7 +1388,8 @@ void DevHarness::execute(Game& game, const Command& command)
             Needs& needs = world.getComponent<Needs>(player);
             if (stat == "hunger") { needs.hunger = value; applied = true; }
             else if (stat == "thirst") { needs.thirst = value; applied = true; }
-            else if (stat == "sleepdebt") { needs.sleepDebt = value; applied = true; }
+            else if (stat == "sleepdebt" || stat == "debt") { needs.sleepDebt = value; applied = true; }
+            else if (stat == "illness") { needs.illness = value; applied = true; }
             else if (stat == "fatigue") { needs.fatigue = value; applied = true; }
             else if (stat == "temp") { needs.bodyTemperature = value; applied = true; }
             else if (stat == "illness") { needs.illness = value; applied = true; }
@@ -1351,6 +1399,11 @@ void DevHarness::execute(Game& game, const Command& command)
             MentalState& mental = world.getComponent<MentalState>(player);
             if (stat == "panic") { mental.panic = value; applied = true; }
             else if (stat == "depression") { mental.depression = value; applied = true; }
+        }
+        if (stat == "rebleeds")
+        {
+            game.mRebleeds = static_cast<int>(value);
+            applied = true;
         }
         if (stat == "hp" && world.hasComponent<Health>(player))
         {
@@ -1364,16 +1417,11 @@ void DevHarness::execute(Game& game, const Command& command)
             wounds.active.clear();
             for (int i = 0; i < static_cast<int>(value); ++i)
             {
-                Wound wound;
-                wound.type = WoundType::Cut;
-                wound.severity = 0.5f;
-                wounds.active.push_back(wound);
+                wounds.active.push_back(woundrules::make(WoundType::Cut, BodyPart::Torso, WoundDepth::Shallow));
             }
             if (world.hasComponent<Health>(player))
             {
-                Health& health = world.getComponent<Health>(player);
-                health.maximum = woundedMaximum(health.baseMaximum, wounds.active.size());
-                health.current = std::min(health.current, health.maximum);
+                gameshared::syncHealthWithWounds(world.getComponent<Health>(player), wounds);
             }
             applied = true;
         }
@@ -1399,28 +1447,136 @@ void DevHarness::execute(Game& game, const Command& command)
     }
     else if (op == "trait")
     {
-        // trait tough: the player is Tough (120 maximum health).
-        // trait plain: no bad trait (a Clumsy player's steps are louder).
+        // trait NAME: add one trait to the player (health and carry follow).
+        // trait plain: no bad traits (a Clumsy player's steps are louder).
         if (!need(1)) return;
         const Entity player = game.mPlayerEntity;
-        if (lower(a[1]) == "plain" && player != kInvalidEntity && game.mWorld.hasComponent<Traits>(player))
+        const Traits* own = game.playerTraits();
+        if (player == kInvalidEntity || own == nullptr)
         {
-            game.mWorld.getComponent<Traits>(player).negative = NegativeTrait::None;
+            fail(command, "no player");
             return;
         }
-        if (lower(a[1]) != "tough" || player == kInvalidEntity || !game.mWorld.hasComponent<Health>(player))
+        Traits traits = *own;
+        if (lower(a[1]) == "plain")
+        {
+            traits.negatives.clear();
+        }
+        else if (const auto good = traitrules::parsePositive(a[1]))
+        {
+            if (!traits.has(*good)) traitrules::toggle(traits, *good);
+        }
+        else if (const auto bad = traitrules::parseNegative(a[1]))
+        {
+            if (!traits.has(*bad)) traitrules::toggle(traits, *bad);
+        }
+        else
         {
             fail(command, "cannot give trait '" + a[1] + "'");
             return;
         }
-        if (!game.mWorld.hasComponent<Traits>(player)) game.mWorld.addComponent<Traits>(player, Traits{});
-        game.mWorld.getComponent<Traits>(player).positive = PositiveTrait::Tough;
-        Health& health = game.mWorld.getComponent<Health>(player);
-        health.baseMaximum = 120.0f;
-        const std::size_t wounds =
-            game.mWorld.hasComponent<Wounds>(player) ? game.mWorld.getComponent<Wounds>(player).active.size() : 0;
-        health.maximum = woundedMaximum(health.baseMaximum, wounds);
-        health.current = health.maximum;
+        // Skills are kept; health is refilled to the new maximum.
+        Skills skills = game.mWorld.hasComponent<Skills>(player) ? game.mWorld.getComponent<Skills>(player) : Skills{};
+        game.applyCharacter(traits, true);
+        game.mWorld.getComponent<Skills>(player) = skills;
+    }
+    else if (op == "wound")
+    {
+        // wound TYPE PART [deep] [dirty]: give the player a wound (phase 5).
+        // TYPE cut|bite|bruise|fracture; PART head|torso|larm|rarm|lleg|rleg.
+        if (!need(2)) return;
+        const Entity player = game.mPlayerEntity;
+        if (player == kInvalidEntity)
+        {
+            fail(command, "no player");
+            return;
+        }
+        const std::string type = lower(a[1]);
+        const std::string part = lower(a[2]);
+        WoundType woundType = WoundType::Cut;
+        if (type == "bite") woundType = WoundType::Bite;
+        else if (type == "bruise") woundType = WoundType::Bruise;
+        else if (type == "fracture" || type == "broken") woundType = WoundType::Fracture;
+        else if (type != "cut")
+        {
+            fail(command, "unknown wound '" + type + "'");
+            return;
+        }
+        BodyPart bodyPart = BodyPart::Torso;
+        if (part == "head") bodyPart = BodyPart::Head;
+        else if (part == "larm" || part == "leftarm" || part == "arm") bodyPart = BodyPart::LeftArm;
+        else if (part == "rarm" || part == "rightarm") bodyPart = BodyPart::RightArm;
+        else if (part == "lleg" || part == "leftleg" || part == "leg") bodyPart = BodyPart::LeftLeg;
+        else if (part == "rleg" || part == "rightleg") bodyPart = BodyPart::RightLeg;
+        else if (part != "torso")
+        {
+            fail(command, "unknown part '" + part + "'");
+            return;
+        }
+        bool deep = false;
+        bool dirty = false;
+        for (std::size_t i = 3; i < a.size(); ++i)
+        {
+            deep = deep || lower(a[i]) == "deep";
+            dirty = dirty || lower(a[i]) == "dirty";
+        }
+        World& world = game.mWorld;
+        if (!world.hasComponent<Wounds>(player)) world.addComponent<Wounds>(player, Wounds{});
+        Wounds& wounds = world.getComponent<Wounds>(player);
+        wounds.active.push_back(woundrules::make(woundType, bodyPart, deep ? WoundDepth::Deep : WoundDepth::Shallow, dirty));
+        if (world.hasComponent<Health>(player)) gameshared::syncHealthWithWounds(world.getComponent<Health>(player), wounds);
+    }
+    else if (op == "treat")
+    {
+        // treat ITEM [WOUND]: F with this item from the pack, as the BODY
+        // tab does (WOUND: its index in the list; the worst it helps if left out).
+        if (!need(1)) return;
+        const ItemDef* item = game.mItemDatabase.findByName(a[1]);
+        if (item == nullptr) item = game.mItemDatabase.findByKey(lower(a[1]));
+        const Entity player = game.mPlayerEntity;
+        if (item == nullptr || player == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(player))
+        {
+            fail(command, "cannot treat with '" + a[1] + "'");
+            return;
+        }
+        const Inventory& inv = game.mWorld.getComponent<Inventory>(player);
+        int slot = -1;
+        for (int i = 0; i < Inventory::kMaxSlots; ++i)
+        {
+            if (inv.slots[static_cast<std::size_t>(i)].itemId == item->id && inv.slots[static_cast<std::size_t>(i)].count > 0) slot = i;
+        }
+        const int wound = a.size() > 2 ? std::stoi(a[2]) : -1;
+        if (slot < 0 || !game.treatWithItem(slot, wound)) fail(command, "nothing to treat with " + a[1]);
+    }
+    else if (op == "use")
+    {
+        // use ITEM: F with this item from the pack (a book, a keepsake, coffee).
+        if (!need(1)) return;
+        const ItemDef* item = game.mItemDatabase.findByName(a[1]);
+        if (item == nullptr) item = game.mItemDatabase.findByKey(lower(a[1]));
+        const Entity player = game.mPlayerEntity;
+        if (item == nullptr || player == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(player))
+        {
+            fail(command, "cannot use '" + a[1] + "'");
+            return;
+        }
+        Inventory& inv = game.mWorld.getComponent<Inventory>(player);
+        int slot = -1;
+        for (int i = 0; i < Inventory::kMaxSlots; ++i)
+        {
+            if (inv.slots[static_cast<std::size_t>(i)].itemId == item->id && inv.slots[static_cast<std::size_t>(i)].count > 0) slot = i;
+        }
+        if (slot < 0)
+        {
+            fail(command, "no " + a[1] + " in the pack");
+            return;
+        }
+        // Put it on the belt and press F, as a player would.
+        if (slot >= 8) std::swap(inv.slots[static_cast<std::size_t>(slot)], inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
+        else inv.activeSlot = slot;
+        game.mShowInventory = false;
+        game.mInput.setKeyState(SDL_SCANCODE_F, true);
+        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_F, 0});
     }
     else if (op == "tune")
     {
@@ -1430,6 +1586,14 @@ void DevHarness::execute(Game& game, const Command& command)
     }
     else if (op == "mark")
     {
+        if (a.size() > 1 && lower(a[1]) == "sim")
+        {
+            // mark sim: remember the zombie count and noise events (expect sim).
+            mSimZombies = 0;
+            game.mWorld.forEach<ZombieAI, Health>([&](Entity, ZombieAI&, Health& h) { if (h.current > 0.0f) ++mSimZombies; });
+            mSimNoises = game.mNoiseModel.emittedTotal();
+            return;
+        }
         if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
         {
             fail(command, "no player");
@@ -1437,6 +1601,7 @@ void DevHarness::execute(Game& game, const Command& command)
         }
         const Transform& t = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
         mMark = glm::ivec2(static_cast<int>(t.x + 16.0f) / 32, static_cast<int>(t.y + 16.0f) / 32);
+        mMarkWorld = glm::vec2(t.x + 16.0f, t.y + 16.0f);
     }
     else if (op == "stash")
     {
@@ -1648,6 +1813,20 @@ void DevHarness::execute(Game& game, const Command& command)
                 return;
             }
             fail(command, "no furniture blocks a door of building " + std::to_string(building));
+            return;
+        }
+        if (want == "door")
+        {
+            // expect door boarded N: the nearest door has exactly N boards.
+            if (!need(3) || lower(a[2]) != "boarded")
+            {
+                fail(command, "expect door boarded N");
+                return;
+            }
+            const Doors::Door* door = game.mDoors.nearest(game.mTileMap, game.playerWorldCenter(), 1.0e9f);
+            const int boards = door != nullptr ? game.mDoors.boards(door->tile) : -1;
+            if (boards != std::stoi(a[3])) fail(command, "expected " + a[3] + " boards, there are " + std::to_string(boards));
+            else std::cout << "[harness] tick " << mTick << ": door boards " << boards << '\n';
             return;
         }
         if (want == "window")
@@ -1889,6 +2068,144 @@ void DevHarness::execute(Game& game, const Command& command)
             {
                 std::cout << "[harness] tick " << mTick << ": landed " << off / tile << " tiles from the spot" << '\n';
             }
+            return;
+        }
+        if (want == "condition" || want == "nocondition")
+        {
+            // expect condition NAME...: the HUD's conditions list shows it (phase 5).
+            if (!need(2)) return;
+            game.buildHudState();
+            std::string name = a[2];
+            for (std::size_t i = 3; i < a.size(); ++i) name += " " + a[i];
+            bool found = false;
+            std::string shown;
+            for (const HudStatus& status : game.mHudState.conditions)
+            {
+                shown += (shown.empty() ? "" : ", ") + status.label;
+                if (lower(status.label) == lower(name)) found = true;
+            }
+            if (found != (want == "condition")) fail(command, "conditions are: " + shown);
+            else std::cout << "[harness] tick " << mTick << ": conditions " << shown << '\n';
+            return;
+        }
+        if (want == "skill")
+        {
+            // expect skill NAME LEVEL: at least this level.
+            if (!need(3)) return;
+            const auto skill = skillrules::parse(a[2]);
+            const int have = skill ? game.skillLevel(*skill) : -1;
+            if (!skill || have < std::stoi(a[3])) fail(command, "expected " + a[2] + " " + a[3] + ", it is " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << a[2] << " " << have << '\n';
+            return;
+        }
+        if (want == "carry" || want == "health")
+        {
+            // expect carry KG / expect health N: the limit and current health.
+            if (!need(2)) return;
+            const float wantValue = std::stof(a[2]);
+            float have = -1.0f;
+            if (want == "carry") have = game.playerCarryLimit();
+            else if (game.mPlayerEntity != kInvalidEntity && game.mWorld.hasComponent<Health>(game.mPlayerEntity))
+                have = game.mWorld.getComponent<Health>(game.mPlayerEntity).current;
+            if (std::abs(have - wantValue) > 0.51f) fail(command, "expected " + want + " " + a[2] + ", it is " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << want << " " << have << '\n';
+            return;
+        }
+        if (want == "mind")
+        {
+            // expect mind panic|depression below|above V
+            if (!need(4)) return;
+            const Entity player = game.mPlayerEntity;
+            if (player == kInvalidEntity || !game.mWorld.hasComponent<MentalState>(player)) { fail(command, "no mind"); return; }
+            const MentalState& mental = game.mWorld.getComponent<MentalState>(player);
+            const float have = lower(a[2]) == "panic" ? mental.panic : mental.depression;
+            const float bound = std::stof(a[4]);
+            const bool ok = lower(a[3]) == "below" ? have < bound : have > bound;
+            if (!ok) fail(command, "expected " + a[2] + " " + a[3] + " " + a[4] + ", it is " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << a[2] << " " << have << '\n';
+            return;
+        }
+        if (want == "signs")
+        {
+            // expect signs N: at least N false silhouettes shown so far.
+            if (!need(2)) return;
+            const int have = game.mHallucinations.silhouettesShown();
+            if (have < std::stoi(a[2])) fail(command, "expected " + a[2] + " silhouettes, saw " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << have << " silhouettes, " << game.mHallucinations.signsShown() << " signs" << '\n';
+            return;
+        }
+        if (want == "sim")
+        {
+            // expect sim: the zombie count and noise events match the last
+            // "mark sim" (a false sign changes neither).
+            int zombies = 0;
+            game.mWorld.forEach<ZombieAI, Health>([&](Entity, ZombieAI&, Health& h) { if (h.current > 0.0f) ++zombies; });
+            const std::uint64_t noises = game.mNoiseModel.emittedTotal();
+            if (zombies != mSimZombies || noises != mSimNoises)
+            {
+                fail(command, "the simulation moved: zombies " + std::to_string(mSimZombies) + " -> " + std::to_string(zombies) +
+                                  ", noises " + std::to_string(mSimNoises) + " -> " + std::to_string(noises));
+            }
+            else
+            {
+                std::cout << "[harness] tick " << mTick << ": simulation unchanged (" << zombies << " zombies, " << noises
+                          << " noises)" << '\n';
+            }
+            return;
+        }
+        if (want == "moved")
+        {
+            // expect moved MIN MAX: tiles walked since "mark" (straight line).
+            if (!need(3)) return;
+            const Transform& t = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+            const glm::vec2 now(t.x + 16.0f, t.y + 16.0f);
+            const float tiles = glm::length(now - mMarkWorld) / 32.0f;
+            if (tiles < std::stof(a[2]) || tiles > std::stof(a[3]))
+                fail(command, "moved " + std::to_string(tiles) + " tiles, expected " + a[2] + " to " + a[3]);
+            else std::cout << "[harness] tick " << mTick << ": moved " << tiles << " tiles" << '\n';
+            return;
+        }
+        if (want == "rebleeds")
+        {
+            // expect rebleeds MIN MAX: deep wounds opened again since "set rebleeds 0".
+            if (!need(3)) return;
+            const int have = game.mRebleeds;
+            if (have < std::stoi(a[2]) || have > std::stoi(a[3]))
+                fail(command, "expected " + a[2] + " to " + a[3] + " rebleeds, there were " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << have << " rebleeds" << '\n';
+            return;
+        }
+        if (want == "action")
+        {
+            // expect action none|busy: a held action (boarding, treating) is or is not under way.
+            if (!need(2)) return;
+            const bool busy = game.mBaseAction.kind != Game::BaseAction::Kind::None;
+            if (busy != (lower(a[2]) == "busy")) fail(command, std::string("expected ") + a[2] + ", " + (busy ? "busy: " + game.mBaseAction.label : "idle"));
+            else std::cout << "[harness] tick " << mTick << ": action " << (busy ? game.mBaseAction.label : "none") << '\n';
+            return;
+        }
+        if (want == "wounds")
+        {
+            // expect wounds N [bleeding|dressed|stitched|splinted|dirty|undressed]: N wounds (with that).
+            if (!need(2)) return;
+            const Entity player = game.mPlayerEntity;
+            const std::vector<Wound> wounds = player != kInvalidEntity && game.mWorld.hasComponent<Wounds>(player)
+                                                  ? game.mWorld.getComponent<Wounds>(player).active
+                                                  : std::vector<Wound>{};
+            const std::string with = a.size() > 3 ? lower(a[3]) : "";
+            int have = 0;
+            if (with == "bleeding") have = game.mWorld.hasComponent<Bleeding>(player) ? 1 : 0;
+            for (const Wound& w : wounds)
+            {
+                if (with.empty() || (with == "dressed" && w.dressed) || (with == "undressed" && !w.dressed) ||
+                    (with == "stitched" && w.stitched) || (with == "splinted" && w.splinted) ||
+                    (with == "dirty" && w.contaminated))
+                {
+                    ++have;
+                }
+            }
+            if (have != std::stoi(a[2])) fail(command, "expected " + a[2] + " " + with + " wounds, there are " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << have << " " << with << " wounds" << '\n';
             return;
         }
         if (want == "speed")

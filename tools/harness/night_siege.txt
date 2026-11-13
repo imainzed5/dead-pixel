@@ -16,11 +16,11 @@ waits 0.3
 goto door
 waits 0.3
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 goto home
 window boarded all
 waits 0.3
@@ -44,7 +44,7 @@ plan
 goto door
 waits 0.3
 tap R
-waits 0.3
+waits 4.5
 goto home
 day 2
 hours 2.4

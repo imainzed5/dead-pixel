@@ -22,6 +22,8 @@
 #include "components/ZombieAI.h"
 #include "systems/InventorySystem.h"
 #include "world/CombatRules.h"
+#include "world/MindRules.h"
+#include "world/SkillRules.h"
 
 namespace
 {
@@ -115,9 +117,20 @@ bool CombatSystem::startReload(Combat& combat, const Inventory& inventory)
     return true;
 }
 
+bool CombatSystem::twoHanded(const WeaponStats& weapon)
+{
+    // The heavy blunt weapons and the shotgun take both hands.
+    return weapon.itemId >= 0 && ((weapon.category == WeaponCategory::Blunt && weapon.knocksDown) ||
+                                  (weapon.category == WeaponCategory::Ranged && weapon.pellets > 1));
+}
+
 void CombatSystem::update(World& world, const Input& input, const TileMap& tileMap, NoiseModel& noiseModel, float dtSeconds)
 {
     mShotLines.clear();
+    mSwung = false;
+    mShoveSaves = 0;
+    mRefusedTwoHanded = false;
+    mFumbledReload = false;
 
     world.forEach<PlayerInput, Transform, Facing, Combat, Stamina>(
         [&](Entity playerEntity, PlayerInput&, Transform& transform, Facing& facing, Combat& combat, Stamina& stamina)
@@ -143,6 +156,7 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
             {
                 actionStaminaMultiplier = 1.5f;
             }
+            actionStaminaMultiplier *= mBody.staminaScale;
             const bool isExhausted = combatrules::exhausted(stamina.current, stamina.maximum);
             const glm::vec2 centre = entityCenter(transform);
 
@@ -182,7 +196,8 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
             {
                 if (combat.recoveryDelayTimer <= 0.0f)
                 {
-                    stamina.current = std::min(stamina.maximum, stamina.current + stamina.recoveryPerSecond * dtSeconds);
+                    stamina.current = std::min(stamina.maximum,
+                                               stamina.current + stamina.recoveryPerSecond * mBody.regenScale * dtSeconds);
                 }
 
                 // Right click: a take-down, on one turned away or on the floor.
@@ -238,6 +253,12 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
                 }
 
                 const bool ranged = combat.weapon.category == WeaponCategory::Ranged;
+                // A broken arm, not yet set, cannot take a two-handed weapon.
+                if (mBody.noTwoHanded && twoHanded(combat.weapon))
+                {
+                    mRefusedTwoHanded = true;
+                    return;
+                }
                 if (ranged)
                 {
                     // A shotgun can stop between shells to fire; the pistol's
@@ -273,10 +294,12 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
                         });
                 }
 
-                float attackCost = combat.weapon.staminaCost * actionStaminaMultiplier;
+                const float swingScale = ranged ? 1.0f : mBody.swingStaminaScale;
+                float attackCost = combat.weapon.staminaCost * actionStaminaMultiplier * swingScale;
                 if (combat.stompTarget != kInvalidEntity)
                 {
-                    attackCost = combatrules::stompStamina(combat.weapon, combat.weapon.staminaCost) * actionStaminaMultiplier;
+                    attackCost = combatrules::stompStamina(combat.weapon, combat.weapon.staminaCost) *
+                                 actionStaminaMultiplier * swingScale;
                 }
                 if (stamina.current < attackCost * 0.5f)
                 {
@@ -286,7 +309,14 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
                 combat.recoveryDelayTimer = kRecoveryDelayAfterAttackSeconds;
                 combat.phase = AttackPhase::Windup;
                 combat.shoving = false;
-                combat.windupTotal = combatrules::windupSeconds(combat.weapon, isExhausted && !ranged);
+                combat.windupTotal = combatrules::windupSeconds(combat.weapon, isExhausted && !ranged) * mBody.windupScale;
+                // Numb: now and then the blow comes late.
+                if (mBody.hesitationChance > 0.0f && mDist(mRng) < mBody.hesitationChance)
+                {
+                    combat.windupTotal += mindrules::kHesitationSeconds;
+                }
+                mSwingDamageScale = (!ranged && mBody.doubleBlowChance > 0.0f && mDist(mRng) < mBody.doubleBlowChance) ? 2.0f : 1.0f;
+                mSwung = !ranged;
                 combat.recoveryTotal = combat.weapon.recoverySeconds;
                 combat.phaseTimer = combat.windupTotal;
                 combat.hitProcessed = false;
@@ -441,12 +471,20 @@ void CombatSystem::updateReload(World& world, Entity player, Combat& combat, boo
         combat.reloadTimer = 0.0f; // running spills the reload
         return;
     }
-    combat.reloadTimer -= dtSeconds;
+    combat.reloadTimer -= dtSeconds / std::max(0.1f, mBody.reloadScale);
     if (combat.reloadTimer > 0.0f)
     {
         return;
     }
     combat.reloadTimer = 0.0f;
+    // Panicking hands drop a round: start again.
+    if (mBody.fumbleChance > 0.0f && mDist(mRng) < mBody.fumbleChance)
+    {
+        mFumbledReload = true;
+        combat.reloadTimer = combat.jammed ? combatrules::kJamClearSeconds
+                                           : combatrules::reloadSeconds(combat.weapon.pellets, 1);
+        return;
+    }
     if (combat.jammed)
     {
         combat.jammed = false;
@@ -653,11 +691,16 @@ void CombatSystem::resolveShove(World& world, const TileMap& tileMap, NoiseModel
                 return;
             }
             const glm::vec2 dir = unitOr(zc - playerCenter, glm::vec2(std::cos(facingRadians), std::sin(facingRadians)));
+            float share = h.maximum > 0.0f ? h.current / h.maximum : 1.0f;
+            if (mBody.shoveFellsWeakened && share < skillrules::kWeakenedShoveShare)
+            {
+                share = std::min(share, combatrules::kShoveFallHealthShare * 0.99f);
+            }
             const combatrules::ShoveOutcome outcome = combatrules::shove(
-                bodyOf(ai), h.maximum > 0.0f ? h.current / h.maximum : 1.0f,
-                combatrules::fromBehind(zombieFacing(world, ze), zc - playerCenter), exhausted);
+                bodyOf(ai), share, combatrules::fromBehind(zombieFacing(world, ze), zc - playerCenter), exhausted);
             if (outcome.distancePixels <= 0.0f) return;
             ++combat.lastHitCount;
+            if (ai.attackWindup > 0.0f || ai.state == ZombieState::Attack) ++mShoveSaves;
 
             // Where it would end up: a wall on the way stops it and hurts it.
             glm::vec2 to = zc + dir * outcome.distancePixels;
@@ -718,7 +761,7 @@ void CombatSystem::resolveSwing(World& world, const TileMap& tileMap, NoiseModel
     combat.lastHitCount = 0;
     const float rangePixels = effectiveRangePixels(combat);
     const float arcDegrees = effectiveArcDegrees(combat);
-    const float damage = effectiveDamage(combat);
+    const float damage = effectiveDamage(combat) * mSwingDamageScale;
     const float knockback = combat.weapon.knockbackPixels;
     const int blowKind = combat.weapon.itemId >= 0 ? static_cast<int>(combat.weapon.category)
                                                    : static_cast<int>(WeaponCategory::Unarmed);
@@ -801,7 +844,7 @@ void CombatSystem::resolveSwing(World& world, const TileMap& tileMap, NoiseModel
                                                             : combatrules::downSeconds(bodyOf(zombieAI)));
                 }
 
-                if (!stuck && mDist(mRng) < combatrules::stickChance(combat.weapon, dealt, killed))
+                if (!stuck && mDist(mRng) < combatrules::stickChance(combat.weapon, dealt, killed, mBody.fightingLevel))
                 {
                     stuck = true;
                 }
@@ -826,7 +869,20 @@ void CombatSystem::resolveSwing(World& world, const TileMap& tileMap, NoiseModel
             }
         }
     }
-    degradeWeapon(combat, combatrules::wearForSwing(contact));
+    int wear = combatrules::wearForSwing(contact);
+    // A broken arm: a missed swing wrenches the weapon too.
+    if (contact == combatrules::SwingContact::Miss && combat.weapon.itemId >= 0) wear += static_cast<int>(mBody.missWear);
+    // A skilled fighter spares the weapon: each point of wear may be saved.
+    if (mBody.wearScale < 1.0f)
+    {
+        int kept = 0;
+        for (int i = 0; i < wear; ++i)
+        {
+            if (mDist(mRng) < mBody.wearScale) ++kept;
+        }
+        wear = kept;
+    }
+    degradeWeapon(combat, wear);
 
     // A loud weapon (the frying pan) rings out when it lands.
     if (combat.lastHitCount > 0 && combat.weapon.noiseTier >= static_cast<int>(NoiseTier::Loud))
@@ -884,7 +940,7 @@ void CombatSystem::resolveShot(World& world, const TileMap& tileMap, NoiseModel&
         const Stamina& s = world.getComponent<Stamina>(playerEntity);
         spread.exhausted = combatrules::exhausted(s.current, s.maximum);
     }
-    const float spreadRadians = glm::radians(combatrules::spreadDegrees(spread));
+    const float spreadRadians = glm::radians(combatrules::spreadDegrees(spread) + mBody.extraSpreadDegrees);
     const float aim = facingRadians + (mDist(mRng) * 2.0f - 1.0f) * spreadRadians;
 
     const int pellets = std::max(1, combat.weapon.pellets);

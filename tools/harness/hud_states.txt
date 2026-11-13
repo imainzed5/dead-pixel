@@ -25,7 +25,7 @@ shot 03b_pack
 tap Left
 waits 0.2
 shot 03c_pack_weapon
-tap Tab
+tap Esc
 waits 0.2
 
 set hunger 18

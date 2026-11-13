@@ -532,6 +532,27 @@ def pose_hurt(f, n, weapon=None):
     return p
 
 
+def _arm_in(p):
+    """A broken left arm held in against the chest (phase 5): the hand comes
+    up and across, still, whatever the legs do."""
+    dz = p["chest"][2] - 25.0
+    dy = p["chest"][1] - 0.4
+    p["hand_l"] = (-1.6, 3.2 + dy, 20.2 + dz)
+    return p
+
+
+def pose_idle_armin(f, n, weapon=None):
+    return _arm_in(pose_idle(f, n, weapon))
+
+
+def pose_walk_armin(f, n, weapon=None):
+    return _arm_in(pose_walk(f, n, weapon))
+
+
+def pose_run_armin(f, n, weapon=None):
+    return _arm_in(pose_run(f, n, weapon))
+
+
 def _keys(f, frames):
     """Pick the keyframe dict for frame f and lay it over the base pose."""
     p = base_pose()
@@ -1104,6 +1125,12 @@ PLAYER_ATTACKS = {
     "shoot": (pose_shoot, 3, "gun"),
     "shootlong": (pose_shoot, 3, "long"),
 }
+# Phase 5: the same moves with a broken arm held in ("<move>armin").
+PLAYER_ARMIN_MOVES = {
+    "idlearmin": (pose_idle_armin, 2),
+    "walkarmin": (pose_walk_armin, 8),
+    "runarmin": (pose_run_armin, 6),
+}
 ZOMBIE_MOVES = {
     "idle": (zpose_idle, 2),
     "walk": (zpose_walk, 8),
@@ -1145,6 +1172,15 @@ KIND_MOVES = {
                      lunge=(zpose_lunge, 5), stagger=(zpose_stagger, 2), death=(zpose_death, 6)),
 }
 KIND_VIEWS = {"crawler": ("se", "ne")}
+
+
+def armin_frames():
+    """Yield (sprite name, [frames]) for the player with a broken arm held in."""
+    for view in VIEW_ORDER:
+        for load, weapon in PLAYER_LOADOUTS:
+            for move, (fn, count) in PLAYER_ARMIN_MOVES.items():
+                yield (f"player_{load}_{move}_{view}",
+                       [draw(PLAYER_LOOK, fn(f, count, weapon), view) for f in range(count)])
 
 
 def kind_frames():

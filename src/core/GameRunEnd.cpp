@@ -30,8 +30,29 @@ void Game::beginDeathState(const std::string& cause)
     {
         record.items = InventorySystem::itemsUnloaded(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
     }
+    // Who they were, for the journals of phase 10: their traits and their
+    // two best skills.
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+    {
+        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        for (PositiveTrait trait : traits.positives) record.positiveTraits.emplace_back(traitrules::key(trait));
+        for (NegativeTrait trait : traits.negatives) record.negativeTraits.emplace_back(traitrules::key(trait));
+    }
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Skills>(mPlayerEntity))
+    {
+        const Skills& skills = mWorld.getComponent<Skills>(mPlayerEntity);
+        std::vector<std::pair<int, int>> ranked;
+        for (std::size_t i = 0; i < kSkillCount; ++i)
+        {
+            if (skills.level[i] > 0) ranked.emplace_back(static_cast<int>(i), skills.level[i]);
+        }
+        std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        if (ranked.size() > 2) ranked.resize(2);
+        record.skills = ranked;
+    }
+    // A turning always rises (Hopeless).
     const bool infectedBite = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Wounds>(mPlayerEntity) &&
-                              hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity));
+                              (hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity)) || cause.rfind("Turned", 0) == 0);
     record.risen = legacy::shouldRise(cause, infectedBite);
     mRunEndLegacyLine = record.risen          ? "They will not stay down. Whoever comes next will meet them."
                       : !record.items.empty() ? "Their pack will wait by the grave for whoever comes next."
@@ -155,8 +176,8 @@ CharacterHistoryRecord Game::runEndHistory(bool retired, int runIndex) const
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
     {
         const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        history.positiveTrait = traits.positiveName();
-        history.negativeTrait = traits.negativeName();
+        for (PositiveTrait trait : traits.positives) history.positiveTraits.emplace_back(traitName(trait));
+        for (NegativeTrait trait : traits.negatives) history.negativeTraits.emplace_back(traitName(trait));
         history.bloodlineTrait = traits.bloodlineName();
     }
     return history;

@@ -10,7 +10,7 @@
       "tools": [],
       "station": "none",
       "craftTimeSeconds": 6,
-      "notes": "Dresses two wounds at once and kills any infection in them.",
+      "notes": "Dresses two wounds at once and cleans the dirt out of them.",
       "hintA": "a clean dressing",
       "hintB": "pills from a medicine cabinet",
       "startsKnown": false
@@ -97,7 +97,9 @@
       "hintA": "a plank",
       "hintB": "a handful of nails",
       "startsKnown": true,
-      "countB": 8
+      "countB": 8,
+      "skill": "carpentry",
+      "skillLevel": 1
     },
     {
       "name": "Can Alarm",
@@ -178,6 +180,83 @@
       "hintA": "something sharp",
       "hintB": "something to hold it by",
       "startsKnown": false
+    },
+    {
+      "name": "Disinfected Bandage",
+      "inputA": "bandage",
+      "inputB": "spirits",
+      "output": "disinfected_bandage",
+      "count": 1,
+      "category": "MED",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 6,
+      "notes": "A dressing soaked clean. Dresses two wounds and cleans the dirt out of them.",
+      "hintA": "something clean",
+      "hintB": "something strong",
+      "startsKnown": false
+    },
+    {
+      "name": "Soaked Rag",
+      "inputA": "rags",
+      "inputB": "spirits",
+      "output": "soaked_rag",
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 4,
+      "notes": "Burns long and bright. Half of a firebomb.",
+      "hintA": "cloth",
+      "hintB": "something that burns",
+      "startsKnown": false
+    },
+    {
+      "name": "Bandage",
+      "inputA": "rags",
+      "inputB": "water_bottle",
+      "output": "bandage",
+      "count": 1,
+      "category": "MED",
+      "tools": [],
+      "station": "fire",
+      "craftTimeSeconds": 6,
+      "notes": "Rags boiled clean over a fire. Dressings go dirty in half a day.",
+      "hintA": "cloth",
+      "hintB": "something to wash it in",
+      "startsKnown": false
+    },
+    {
+      "name": "Splint",
+      "inputA": "wood_planks",
+      "inputB": "rags",
+      "output": "splint",
+      "count": 1,
+      "category": "MED",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 6,
+      "notes": "Sets a broken arm or leg (F). Without one a break never mends.",
+      "hintA": "something stiff",
+      "hintB": "something to bind it",
+      "startsKnown": false
+    },
+    {
+      "name": "Suture Kit",
+      "inputA": "needle_and_thread",
+      "inputB": "spirits",
+      "output": "suture_kit",
+      "count": 1,
+      "category": "MED",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 5,
+      "notes": "Stitches a deep wound shut (F). It hurts without painkillers.",
+      "hintA": "something to sew with",
+      "hintB": "something to clean it",
+      "startsKnown": false,
+      "skill": "medicine",
+      "skillLevel": 1
     }
   ]
 }

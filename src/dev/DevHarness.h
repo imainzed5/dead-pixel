@@ -106,6 +106,9 @@ private:
     int mBotShotInterval = 0;
     bool mBotFailReported = false;
     glm::ivec2 mMark{-1, -1};
+    glm::vec2 mMarkWorld{0.0f};      // "mark": where the player stood (expect moved)
+    int mSimZombies = 0;             // "mark sim": the simulation, for expect sim
+    std::uint64_t mSimNoises = 0;
     int mWeatherMark = -1;
     std::uint64_t mNoiseAtLastRow = 0;
     double mClockAtLastRow = -1.0;

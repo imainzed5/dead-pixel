@@ -13,6 +13,27 @@
 #include "map/TileMap.h"
 #include "noise/NoiseModel.h"
 
+// What the body and mind bring to a fight (phase 5): skills, wounds, sleep
+// and nerves, worked out by the game each tick (world/SkillRules,
+// WoundRules, SleepRules, MindRules).
+struct CombatBody
+{
+    float staminaScale = 1.0f;      // every action: panic (Uneasy +10 %)
+    float swingStaminaScale = 1.0f; // swings: Fighting, an undressed arm
+    float windupScale = 1.0f;       // Fighting, a splinted arm, tiredness
+    float hesitationChance = 0.0f;  // Numb: a swing starts 0.6 s late
+    float wearScale = 1.0f;         // Fighting 3: wear -20 %
+    float missWear = 0.0f;          // a broken arm: a missed swing still wears the weapon
+    int fightingLevel = 0;          // Fighting 3 halves the chance a blade sticks (CombatRules)
+    float doubleBlowChance = 0.0f;  // Fighting 5: one blow in ten does double
+    bool shoveFellsWeakened = false; // Fighting 2
+    float extraSpreadDegrees = 0.0f; // tiredness
+    float reloadScale = 1.0f;       // shaking hands: Shaken +30 %
+    float fumbleChance = 0.0f;      // Panicking: a reload slips and starts again
+    float regenScale = 1.0f;        // Drowsy -15 %, Rested +10 %
+    bool noTwoHanded = false;       // a broken arm, unsplinted
+};
+
 // The player's side of a fight: swings, the shove (Space), the stomp, the
 // take-down (right click), shots, and getting free of the dead that hold on.
 // The rules themselves live in world/CombatRules.
@@ -25,6 +46,17 @@ public:
     void reseed(std::uint32_t seed) { mRng.seed(seed); }
 
     void update(World& world, const Input& input, const TileMap& tileMap, NoiseModel& noiseModel, float dtSeconds);
+
+    // Set before update each tick (phase 5).
+    void setBody(const CombatBody& body) { mBody = body; }
+    // What happened this tick, for skills and wounds: a melee swing began, a
+    // shove met one already lunging, a two-handed weapon was refused, a
+    // reload slipped.
+    [[nodiscard]] bool swungThisTick() const { return mSwung; }
+    [[nodiscard]] int shoveSavesThisTick() const { return mShoveSaves; }
+    [[nodiscard]] bool refusedTwoHandedThisTick() const { return mRefusedTwoHanded; }
+    [[nodiscard]] bool fumbledReloadThisTick() const { return mFumbledReload; }
+    [[nodiscard]] static bool twoHanded(const WeaponStats& weapon);
 
     // The active part of every swing (wind-up and recovery are the weapon's).
     static constexpr float kActiveSeconds = 0.10f;
@@ -74,6 +106,13 @@ private:
                       const glm::vec2& playerCenter, float facingRadians, Combat& combat, bool exhausted);
     void resolveShot(World& world, const TileMap& tileMap, NoiseModel& noiseModel, Entity playerEntity,
                      const glm::vec2& playerCenter, float facingRadians, Combat& combat);
+
+    CombatBody mBody;
+    bool mSwung = false;
+    int mShoveSaves = 0;
+    bool mRefusedTwoHanded = false;
+    bool mFumbledReload = false;
+    float mSwingDamageScale = 1.0f;
 
     std::mt19937 mRng;
     std::uniform_real_distribution<float> mDist;

@@ -45,7 +45,7 @@ void Game::restoreWindows(const std::vector<WindowRecord>& records)
     }
     for (const WindowRecord& record : records)
     {
-        mWindows.restore(mTileMap, glm::ivec2(record.x, record.y), record.broken, record.boardHp, record.covered);
+        mWindows.restore(mTileMap, glm::ivec2(record.x, record.y), record.broken, record.boardHp, record.covered, record.toughness);
     }
 }
 
@@ -59,7 +59,7 @@ std::vector<WindowRecord> Game::windowRecords() const
         const bool covered = mTileMap.windowCovered(tile.x, tile.y);
         if (broken || window.boardHp > 0.0f || covered)
         {
-            records.push_back(WindowRecord{tile.x, tile.y, broken, window.boardHp, covered});
+            records.push_back(WindowRecord{tile.x, tile.y, broken, window.boardHp, covered, window.boardToughness});
         }
     }
     return records;
@@ -154,7 +154,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
         }
         else
         {
-            boardUpWindow(tile);
+            startBoarding(tile, true);
         }
         return true;
     }
@@ -237,6 +237,32 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
             mInteractionMessageTimer = 2.0f;
             return true;
         }
+        // Exhausted, or carrying more than you can: you slip back down, and
+        // now and then land badly (phase 5).
+        {
+            bool exhausted = false;
+            if (mWorld.hasComponent<Needs>(mPlayerEntity))
+            {
+                const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                exhausted = sleeprules::band(sleeprules::shownDebt(needs.sleepDebt, needs.coffeeHours)) >= sleeprules::Band::Exhausted;
+            }
+            const bool overloaded = mWorld.hasComponent<Inventory>(mPlayerEntity) &&
+                                    InventorySystem::totalWeight(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase) > playerCarryLimit();
+            if (exhausted || overloaded)
+            {
+                std::string message = overloaded ? "Too much on your back. You slip back down." : "Your arms give out. You slip back down.";
+                if (bodyRoll() < woundrules::kFailedClimbFractureChance && mWorld.hasComponent<Wounds>(mPlayerEntity))
+                {
+                    mWorld.getComponent<Wounds>(mPlayerEntity).active.push_back(
+                        woundrules::make(WoundType::Fracture, woundrules::legPart(bodyRoll())));
+                    message = "You fall badly. Something in your leg snaps.";
+                }
+                mNoiseModel.emitNoise(centre, NoiseTier::Medium, 0.8f, mPlayerEntity);
+                mInteractionMessage = message;
+                mInteractionMessageTimer = 3.0f;
+                return true;
+            }
+        }
         mBaseAction = BaseAction{};
         mBaseAction.kind = BaseAction::Kind::Climb;
         mBaseAction.tile = tile;
@@ -267,10 +293,9 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
             if (std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) < kClimbCutChance &&
                 mWorld.hasComponent<Wounds>(mPlayerEntity))
             {
-                Wound cut;
-                cut.type = WoundType::Cut;
-                cut.severity = 0.35f;
-                mWorld.getComponent<Wounds>(mPlayerEntity).active.push_back(cut);
+                mWorld.getComponent<Wounds>(mPlayerEntity).active.push_back(
+                    woundrules::make(WoundType::Cut, woundrules::limbPart(std::uniform_real_distribution<float>(0.0f, 1.0f)(rng)),
+                                     WoundDepth::Shallow));
                 if (mWorld.hasComponent<Health>(mPlayerEntity))
                 {
                     Health& health = mWorld.getComponent<Health>(mPlayerEntity);
@@ -319,9 +344,22 @@ void Game::boardUpWindow(const glm::ivec2& tile)
     {
         message = "You need nails to board it up (2 a board).";
     }
-    else if (mWindows.addBoard(mTileMap, tile))
+    else
     {
-        InventorySystem::removeItem(inventory, mItems.woodPlanks, 1);
+        // Carpentry: a better-driven board holds longer; from level 3 a
+        // second plank doubled behind it (reinforced) when you have one.
+        const int carpentry = skillLevel(Skill::Carpentry);
+        const bool reinforced = skillrules::canReinforceBoards(carpentry) &&
+                                InventorySystem::countItem(inventory, mItems.woodPlanks) >= 2;
+        const float toughness = skillrules::boardStrengthScale(carpentry) *
+                                (reinforced ? skillrules::kReinforcedBoardScale : 1.0f);
+        if (!mWindows.addBoard(mTileMap, tile, toughness))
+        {
+            mInteractionMessage = "It won't take another board.";
+            mInteractionMessageTimer = 2.0f;
+            return;
+        }
+        InventorySystem::removeItem(inventory, mItems.woodPlanks, reinforced ? 2 : 1);
         InventorySystem::removeItem(inventory, mItems.nails, 2);
         mNoiseModel.emitNoise(tileCentre(mTileMap, tile), NoiseTier::Loud, 1.0f, mPlayerEntity);
         mAudioManager.playSound(SoundId::WeaponHit, 0.7f);

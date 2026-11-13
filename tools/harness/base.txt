@@ -46,8 +46,9 @@ waits 0.5
 give Hammer
 goto furniture table
 waits 0.3
+# Still shaken from the siege: held work goes slower (phase 5).
 tap X
-waits 10
+waits 14
 expect pack Wood Planks 2
 # The build wheel, then a crate built where it may stand.
 mouse 640 360

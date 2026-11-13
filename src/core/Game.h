@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <utility>
@@ -25,6 +26,8 @@
 #include "items/ItemIds.h"
 #include "items/LootTables.h"
 #include "legacy/LegacyRules.h"
+#include "components/Skills.h"
+#include "components/Traits.h"
 #include "world/Doors.h"
 #include "world/FurnitureUse.h"
 #include "world/Windows.h"
@@ -66,6 +69,7 @@
 #include "systems/ThrownSystem.h"
 #include "systems/RenderSystem.h"
 #include "systems/WoundSystem.h"
+#include "systems/HallucinationSystem.h"
 #include "systems/ZombieAISystem.h"
 #include "systems/SurvivorAISystem.h"
 #include "systems/SurvivorInteractionSystem.h"
@@ -115,7 +119,8 @@ private:
         Playing,
         Paused,
         Dead,
-        Retired
+        Retired,
+        CharacterCreation // the character screen, over the dimmed town (phase 5)
     };
 
     bool initialize();
@@ -211,6 +216,50 @@ private:
     void updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle);
     bool igniteTile(const glm::ivec2& tile);
     bool douseFireAhead();
+
+    // --- Body and mind (phase 5, GameBody.cpp) ---
+    // Give the player these traits: health, carry limit and starting skills
+    // follow. `fresh`: a new character (full health, skills from the traits).
+    void applyCharacter(const Traits& traits, bool fresh);
+    [[nodiscard]] const Traits* playerTraits() const;
+    [[nodiscard]] int skillLevel(Skill skill) const;
+    // Earn XP; a level gained is posted in the message line.
+    void awardXp(Skill skill, float amount);
+    [[nodiscard]] float playerCarryLimit() const;
+    [[nodiscard]] double absoluteHour() const { return static_cast<double>(mCurrentDay) * 24.0 + mGameHours; }
+    void addPanic(float amount);
+    void addDepression(float amount);
+    // Before input and combat each tick: what the body does to a walk and a swing.
+    void prepareBodyModifiers();
+    // What the wound system needs to know of you (seed, tone, bed, Medicine).
+    [[nodiscard]] WoundContext woundContext() const;
+    // After the needs and mind: sleep debt, coffee, microsleeps, a deep
+    // breath, running blind, numbness fading, seeing things, wounds bleeding
+    // again, skills forgetting.
+    void updateBody(float dtSeconds);
+    // A kill of the player's: XP, the first kill's fright, numbness.
+    void onPlayerKill();
+    // F with a medical item (or Enter in the BODY tab): `woundIndex` -1 is
+    // the worst it can help. True when the item was a treatment.
+    bool treatWithItem(int slotIndex, int woundIndex);
+    void finishTreatment();
+    // F on a book in shelter: 20 game minutes; F on a keepsake.
+    bool useComfortItem(int slotIndex);
+    void finishReading();
+    // R at a door or window: the held boarding (timed, Carpentry).
+    void startBoarding(const glm::ivec2& tile, bool window);
+    void finishBoarding();
+    [[nodiscard]] float heldActionScale() const; // shaking hands
+    // Things that are not there: where a sign may show.
+    [[nodiscard]] std::optional<glm::vec2> placeFalseSign(FalseSign::Kind kind, float a, float b);
+    void renderBodyEffects();      // vignette, closing eyes, figures (shape pass)
+    void renderBodyTab();          // the BODY tab of the docked panel
+    void updateBodyTabInput();
+    // The character screen (GameCharacter.cpp).
+    void beginCharacterCreation();
+    void updateCharacterCreation();
+    void renderCharacterCreation();
+    void finishCharacterCreation();
 
     // --- Fighting (phase 3, GameFighting.cpp) ---
     // Before combat: held by the dead, throwing (G), reloading (R), wound
@@ -657,6 +706,41 @@ private:
     int mContainersOpened = 0; // this run, for the harness metrics
     glm::vec2 mPanicDrift{0.0f}; // the drift added to the player's velocity this tick
 
+    // Body and mind (phase 5). Not saved unless said.
+    HallucinationSystem mHallucinations;
+    int mPackTab = 0;               // 0 PACK, 1 BODY (MAKE is the crafting panel)
+    int mBodyCursor = 0;            // the wound picked in the BODY tab
+    bool mBodyChoosing = false;     // Enter on a wound: what you carry that helps
+    int mBodyChoice = 0;
+    float mMicrosleepIn = -1.0f;    // seconds to the next microsleep (< 0: not counting)
+    float mMicrosleepLeft = 0.0f;   // eyes shut, input lost
+    float mRunXpPixels = 0.0f;      // running, toward Fitness XP
+    float mCarryXpHours = 0.0f;     // carrying heavy, toward Fitness XP
+    int mStepIndex = 0;             // footsteps, for "a tier louder half the time"
+    glm::vec2 mLostControlDir{0.0f};
+    int mPrevHolders = 0;           // grabbed this tick: +12 panic
+    float mRebleedRunSeconds = 0.0f; // running on a deep leg wound
+    int mRebleeds = 0;               // deep wounds opened again (the harness counts them)
+    std::uint32_t mBodyRolls = 0;
+    float bodyRoll();               // the run's seed: deterministic body rolls
+    int mWeekDayNoted = 0;
+    bool mWokeToZombieCheck = false; // set when sleep ends; the next tick checks
+    float mBodyMessageCooldown = 0.0f;
+    std::vector<Entity> mXpSearched; // containers already looked through (Scavenging XP)
+    // The character screen.
+    struct CharacterDraft
+    {
+        Traits traits;
+        std::string name;
+        int column = 1; // 0 the name, 1 good at, 2 bad at, 3 Begin
+        int rerolls = 0;  // Enter on the name: another
+        int row = 0;
+        bool typed = false; // typing replaced the seeded name
+        float refusedTimer = 0.0f;
+        std::string refusedWhy; // what was refused, shown while the timer runs
+    } mDraft;
+    bool mCreateCharacterOnStart = false;
+
     // M8 narrow slice state
     Entity mActiveVehicleEntity = kInvalidEntity;
     std::vector<std::pair<int, int>> mBurnedTiles;
@@ -715,7 +799,10 @@ private:
             Break,    // X at a piece
             Climb,    // through a window, over a piece
             Build,    // a station going up
-            Repair    // mending a weapon at a workbench
+            Repair,   // mending a weapon at a workbench
+            Board,    // nailing a board across a door or window (phase 5)
+            Treat,    // stitching or splinting a wound (phase 5)
+            Read      // a book, in shelter (phase 5)
         } kind = Kind::None;
         glm::ivec2 tile{0};       // the piece, window or build site
         glm::ivec2 to{0};         // climb: where you come out
@@ -729,6 +816,10 @@ private:
         glm::vec2 startPos{0.0f};
         float startHp = 0.0f;
         std::string label;
+        bool window = false;   // board: a window, not a door
+        int slot = -1;         // treat, read: the pack slot of the item
+        int wound = -1;        // treat: which wound
+        int treatment = 0;     // treat: a woundrules::Treatment
     };
     BaseAction mBaseAction;
     bool mBuildWheelOpen = false;

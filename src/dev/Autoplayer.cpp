@@ -23,6 +23,7 @@
 #include "systems/CombatSystem.h"
 #include "systems/InventorySystem.h"
 #include "world/FirstDays.h"
+#include "world/WoundRules.h"
 
 using namespace gameshared;
 
@@ -54,10 +55,11 @@ bool stopsBleeding(const ItemDatabase& db, int itemId, float)
     return def != nullptr && def->stopsBleeding;
 }
 
-bool treatsWounds(const ItemDatabase& db, int itemId, float)
+// What an item does for a wound (phase 5), or None.
+woundrules::Treatment treatmentOf(const ItemDatabase& db, int itemId)
 {
     const ItemDef* def = db.find(itemId);
-    return def != nullptr && def->woundTreatment > 0;
+    return def != nullptr && !def->treats.empty() ? woundrules::treatmentFromName(def->treats) : woundrules::Treatment::None;
 }
 
 bool heals(const ItemDatabase& db, int itemId, float)
@@ -418,18 +420,23 @@ bool Autoplayer::handlePendingUse(Game& game)
     if (++mUseTicks > 120)
     {
         mUseSlot = -1;
-        if (game.mShowInventory) tap(SDL_SCANCODE_TAB);
+        if (game.mShowInventory) tap(SDL_SCANCODE_ESCAPE);
         return true;
     }
     if (mUseDone)
     {
-        if (game.mShowInventory) tap(SDL_SCANCODE_TAB);
+        if (game.mShowInventory) tap(SDL_SCANCODE_ESCAPE);
         else mUseSlot = -1;
         return true;
     }
     if (!game.mShowInventory)
     {
         tap(SDL_SCANCODE_TAB);
+        return true;
+    }
+    if (game.mPackTab != 0)
+    {
+        tap(SDL_SCANCODE_ESCAPE); // not the pack: close, and open it again
         return true;
     }
     const InventoryLayout layout = computeInventoryLayout(game.mWindowWidth, game.mWindowHeight);
@@ -448,9 +455,23 @@ bool Autoplayer::treatBleeding(Game& game)
                          !game.mWorld.getComponent<Wounds>(game.mPlayerEntity).active.empty();
     if (!bleeding && !wounded) return false;
     if (clock(game) < mTreatRetryAt) return false; // the last try did nothing; wait a while
-    const int slot = findSlot(game, bleeding ? stopsBleeding : treatsWounds);
+    int slot = bleeding ? findSlot(game, stopsBleeding) : -1;
+    if (slot < 0 && wounded)
+    {
+        // The first thing in the pack that helps a wound: a splint for a
+        // break, stitches for a deep cut, a dressing, antibiotics.
+        const std::vector<Wound>& wounds = game.mWorld.getComponent<Wounds>(game.mPlayerEntity).active;
+        const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        for (int i = 0; i < Inventory::kMaxSlots && slot < 0; ++i)
+        {
+            const InventorySlot& s = inv.slots[static_cast<std::size_t>(i)];
+            if (s.itemId < 0 || s.count <= 0) continue;
+            const woundrules::Treatment treatment = treatmentOf(game.mItemDatabase, s.itemId);
+            if (treatment != woundrules::Treatment::None && woundrules::worstFor(treatment, wounds) >= 0) slot = i;
+        }
+    }
     if (slot < 0) return false;
-    mActivity = "bandage";
+    mActivity = "treat";
     mTreatRetryAt = clock(game) + 0.5;
     useSlot(slot);
     return true;
@@ -979,7 +1000,9 @@ bool Autoplayer::eveningAtHome(Game& game)
             if (move == Move::Failed) continue;
             if (move == Move::Arrived)
             {
-                steer(game, tileCentre(tile) - playerCentre(game));
+                // Boarding is a held action (phase 5): stand still for it,
+                // or the first step cancels it.
+                if (key != SDL_SCANCODE_R) steer(game, tileCentre(tile) - playerCentre(game));
                 if (tap(key))
                 {
                     if (++mOpenTries > 12)
@@ -1242,7 +1265,8 @@ void Autoplayer::checkStuck(Game& game)
     const glm::ivec2 here = playerTile(game);
     const bool asleep = game.mWorld.hasComponent<Sleeping>(game.mPlayerEntity);
     // Keeping still on purpose (resting, holding the house) is not being stuck.
-    const bool still = std::string_view(mActivity) == "hold" || std::string_view(mActivity) == "rest";
+    const bool still = std::string_view(mActivity) == "hold" || std::string_view(mActivity) == "rest" ||
+                       std::string_view(mActivity) == "busy";
     if (asleep || still || here != mStuckTile)
     {
         mStuckTile = here;
@@ -1297,6 +1321,17 @@ void Autoplayer::tick(Game& game)
     if (game.mShowCrafting || game.mShowWorldMap || game.mShowNotebook)
     {
         tap(SDL_SCANCODE_ESCAPE);
+        applyInput(game);
+        return;
+    }
+
+    // A held action under way (boarding, stitching, reading): keep still
+    // until it is done. The dead coming still come first.
+    if (game.mBaseAction.kind != Game::BaseAction::Kind::None && game.mBaseAction.kind != Game::BaseAction::Kind::Grab &&
+        mUseSlot < 0)
+    {
+        if (game.mShowInventory) tap(SDL_SCANCODE_ESCAPE);
+        if (!handleDanger(game)) mActivity = "busy";
         applyInput(game);
         return;
     }

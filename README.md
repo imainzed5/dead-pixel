@@ -24,9 +24,17 @@ done, what is next, and known issues.
 - **The first three days:** each run starts at home, with a plan for each
   day and night. Search the house and board it up before dark; the taps run
   until day 3; every night more of the dead come knocking.
+- **Who wakes up:** each run starts with a name and traits picked on the
+  character screen (good at, bad at, the points must balance; Space takes
+  the seed's pick). Seven skills (Carpentry, Fighting, Fitness,
+  Scavenging, Medicine, Mechanics, Living off the land) rise with use and
+  fade slowly unused.
 - **Staying alive:** hunger, thirst, fatigue and sleep debt, temperature,
-  illness, wounds, bleeding and infection. Panic, depression and
-  desensitisation also play a part.
+  illness. Wounds land on a part of the body (cuts, bites, bruises,
+  breaks; deep or shallow) and each needs its own care: a dressing that
+  goes dirty, stitches, a splint, antibiotics. The BODY tab shows them.
+  Panic and depression come in named bands that change how you move, work
+  and sleep; a tired or frightened mind sees things that are not there.
 - **The dead:** five kinds you learn to tell apart: the Shambler, the
   Runner (its head snaps up, then it sprints), the Brute (broad, grey, and
   it knocks you down), the Crawler (low in the grass and under furniture)
@@ -61,7 +69,7 @@ done, what is next, and known issues.
 | Key | Action |
 |---|---|
 | WASD | Move (screen directions) |
-| Shift / C | Run / crouch |
+| Shift / C | Run / crouch (held still for 3 s: a slow breath that calms you) |
 | Mouse, left click | Aim, attack (on one lying down: stomp; with a gun: fire) |
 | Right click, then left click | Take down one turned away or on the floor |
 | Space | Shove (a crowd back, one hurt or from behind off its feet); when held, tap fast to tear free |
@@ -69,7 +77,7 @@ done, what is next, and known issues.
 | E | Interact: talk to a survivor (with nothing else in reach), open and close doors, open containers, search a body of the dead, sleep in a bed or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern |
 | Hold E beside furniture, then walk | Grab and push it (heavy pieces slowly, a tile at a time; through an open doorway; onto the floor inside a door to block it) |
 | In a container: A/D or Left/Right, W/S, E or Enter, Shift+E, Esc | Pick the pack or the container side, move the cursor, move one across, move the whole stack, close (the mouse works too: click moves one, Shift+click the stack) |
-| R / X at a closed door or a window (from inside) | Board it up (hammer, a plank and 2 nails) / pry a board off (a crowbar saves the nails) |
+| R / X at a closed door or a window (from inside) | Board it up (hammer, a plank and 2 nails; about 4 seconds standing still, quicker with Carpentry, slower when shaken) / pry a board off (a crowbar saves the nails) |
 | X at furniture | Break it up for planks and rags (hands, faster with a hammer, axe or crowbar; a saw gives an extra plank) |
 | Click at a window in reach / crouch + F with duct tape | Smash the glass (loud) / break it quietly |
 | R at a kitchen counter or sink, or a rain collector | Drink from the tap and fill empty bottles (taps until day 3) |
@@ -78,7 +86,9 @@ done, what is next, and known issues.
 | F | Use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead |
 | Q | Flashlight |
 | 1-8 | Hotbar slot |
-| Tab, arrows, Enter | Inventory, cursor, swap to hotbar |
+| Tab | Cycles the side panel: Pack, Body, Make, closed (Esc closes it) |
+| In the pack: arrows, Enter, F | Cursor, swap to hotbar, use |
+| In the body tab: W/S, Enter or F | Pick a wound, treat it (then pick what with) |
 | N | Crafting |
 | B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll (click one, then click where it goes; right click puts it away) |
 | V / Shift+V | Enter or exit a car / refuel |
@@ -155,7 +165,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   - `mouse X Y`, `click left|right`, `button left|right down|up`.
 - **Time:** `wait TICKS`, `waits SECONDS`, `hours H` (set the clock),
   `day N`.
-- **Runs:** `newrun`, `save`, `resume`, `kill [cause]`, `retire`, `quit`.
+- **Runs:** `newrun` (quick start: the seed's pick of traits), `newrun create`
+  (through the character screen), `newrun TRAIT,TRAIT,...` (exactly these),
+  `save`, `resume`, `kill [cause]`, `retire`, `quit`.
 - **Moving and setup:**
   - `teleport X Y`, `enter N` (a building), `mark` (remember this tile);
   - `goto home|mark|risen|pack|grave|door [outside]|furniture [KIND|any|container] [stocked]`;
@@ -166,9 +178,13 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
     window, of the home, in a wall facing the camera or away; N tiles off),
     `goto base` (the house the last lives held, beside its crate);
   - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE` (also
-    `set wounds N`, `set bleeding SECONDS`), `trait tough|plain` (`plain`:
-    no bad trait, so a Clumsy player's louder steps do not skew a test),
-    `zoom Z`;
+    `set wounds N`, `set bleeding SECONDS`, `set debt V` for sleep debt,
+    `set illness V`, `set rebleeds 0`), `set skill NAME LEVEL`,
+    `trait NAME|plain` (`plain`: no bad trait, so a Clumsy player's louder
+    steps do not skew a test), `zoom Z`;
+  - `wound cut|bite|bruise|fracture head|torso|larm|rarm|lleg|rleg [deep]
+    [dirty]` gives a wound; `treat ITEM_KEY [WOUND]` treats with it as the
+    BODY tab does; `use ITEM NAME` puts it on the belt and presses F;
   - `mode swarm|stalker|mutating|society|unknown|hybrid` sets the threat
     mode of the next `newrun`;
   - `tune KEY VALUE` overrides a number from `assets/data/tuning.json` for
@@ -212,13 +228,23 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   held), `reload` (R for a tick), `select ITEM NAME` (make it the active
   slot, in hand if a weapon), `throw DX DY [ITEM NAME]` (the selected or
   named item at the spot DX, DY tiles off).
+- **Body and mind (phase 5):** `mark sim` remembers the zombie count and
+  noise events; `expect sim` checks they are unchanged.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
   - `plan` prints the day's plan, the home's doors and boards, every way
     into the house (doors and windows, how they stand, their strength) and
     the night's callers;
-  - `expect alive|dead`, `expect maxhp N`, `expect weather same`,
+  - `expect alive|dead|creating|playing`, `expect maxhp N`, `expect weather same`,
+    `expect condition NAME` / `expect nocondition NAME` (the HUD list),
+    `expect skill NAME LEVEL` (at least), `expect carry KG`,
+    `expect health N`, `expect mind panic|depression below|above V`,
+    `expect signs N` (false figures seen), `expect moved MIN MAX` (tiles
+    since `mark`), `expect action none|busy` (a held action under way),
+    `expect wounds N [bleeding|dressed|stitched|splinted|dirty|undressed]`,
+    `expect rebleeds MIN MAX` (deep wounds opened again since
+    `set rebleeds 0`), `expect door boarded N` (the nearest door),
     `expect container ITEM NAME COUNT`, `expect speed V` (the player moves
     no faster than V pixels a second), `expect pack ITEM NAME COUNT`,
     `expect blocked` (furniture blocks a door of this house),
@@ -272,6 +298,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `corpses` | Melee kills count and leave a body |
 | `facing` | Characters face the four screen diagonals |
 | `legacy` | Graves, the risen, packs, laying the dead to rest |
+| `character` | The character screen with nothing chosen, overspent (Begin refused) and balanced; the character starts with the health, carry limit and skill it promised; Space quick-starts |
+| `body` | A broken leg slows a 5 s walk 45 %, a splint brings it to 20 %; a deep arm cut opens again on swings until stitched; a dressing left 12 hours goes dirty; the BODY tab |
+| `mind` | At sleep debt 90 a false figure within two minutes, with the dead and the noise untouched; panic 60 makes boarding 30 % longer, Carpentry 3 quicker; a book lowers depression by 10, once |
 | `atmosphere` | Each kind of weather, a storm at night, lamps; weather left alone holds for hours |
 | `storage` | Putting things in a cupboard; they stay through a save, a resume and the next life |
 | `bot_week` | The bot plays a week with metrics (what `tools/soak.py` runs) |

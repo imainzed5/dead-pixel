@@ -50,6 +50,7 @@ public:
         windows::Spot spot;
         float glassHp = kGlassHp;
         float boardHp = 0.0f; // all its boards together
+        float boardToughness = 1.0f; // how well they were nailed (see Doors::Door)
         float sinceBang = kBangInterval;
     };
 
@@ -69,10 +70,10 @@ public:
     Blow batter(TileMap& map, const glm::ivec2& tile, float damage);
     // Breaks the glass. False if there is none (no window, already broken).
     bool breakGlass(TileMap& map, const glm::ivec2& tile);
-    bool addBoard(TileMap& map, const glm::ivec2& tile);
+    bool addBoard(TileMap& map, const glm::ivec2& tile, float toughness = 1.0f);
     bool removeBoard(TileMap& map, const glm::ivec2& tile);
     // Restores a saved window: glass broken or not, what is left of its boards.
-    void restore(TileMap& map, const glm::ivec2& tile, bool broken, float boardHp, bool covered);
+    void restore(TileMap& map, const glm::ivec2& tile, bool broken, float boardHp, bool covered, float toughness = 1.0f);
     [[nodiscard]] int boards(const glm::ivec2& tile) const;
     void tick(float dtSeconds);
 

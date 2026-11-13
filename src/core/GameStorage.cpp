@@ -108,6 +108,12 @@ void Game::openContainer(Entity container)
     mShowCrafting = false;
     ++mContainersOpened;
     noteContainerSearched(container, false);
+    // Scavenging: the first look through each (phase 5).
+    if (std::find(mXpSearched.begin(), mXpSearched.end(), container) == mXpSearched.end())
+    {
+        mXpSearched.push_back(container);
+        awardXp(Skill::Scavenging, skillrules::kXpSearch);
+    }
 }
 
 int Game::containerMove(bool fromPack, int row, bool wholeStack)

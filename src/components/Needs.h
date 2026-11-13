@@ -33,4 +33,12 @@ struct Needs
 
     // Illness (0 = healthy, 100 = severe)
     float illness = 0.0f;
+
+    // Phase 5: what was taken, and when (absolute game hours, day * 24 + hour).
+    float coffeeHours = 0.0f;         // game hours a coffee still hides tiredness
+    float coffeeJitterHours = 0.0f;   // two coffees too close: the shakes
+    double lastCoffeeHour = -1000.0;
+    double lastSedativeHour = -1000.0;   // Painkillers or Spirits: spoils a night
+    double lastPainkillerHour = -1000.0; // stitches hurt less within 2 h
+    float restedHours = 0.0f;         // after a full night: "Rested"
 };

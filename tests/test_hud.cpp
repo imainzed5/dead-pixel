@@ -72,8 +72,8 @@ DP_TEST(hud_conditions_sorted_most_severe_first)
     HudConditionInputs in;
     in.hunger = 40.0f;   // Peckish: mild
     in.bleeding = true;  // critical
-    in.panic = 55.0f;    // Scared: serious
-    in.desensitisation = 60.0f; // Numb: info
+    in.panic = 55.0f;    // Shaken: serious
+    in.desensitisation = 60.0f; // Hardened: info
     const auto statuses = Hud::buildConditions(in);
     DP_CHECK_EQ(statuses.size(), static_cast<std::size_t>(4));
     for (std::size_t i = 1; i < statuses.size(); ++i)
@@ -81,17 +81,19 @@ DP_TEST(hud_conditions_sorted_most_severe_first)
         DP_CHECK(static_cast<int>(statuses[i - 1].severity) >= static_cast<int>(statuses[i].severity));
     }
     DP_CHECK(statuses.front().label == "Bleeding");
-    DP_CHECK(statuses.back().label == "Numb");
+    DP_CHECK(statuses.back().label == "Hardened");
 }
 
 DP_TEST(hud_sleeping_hides_tiredness)
 {
     HudConditionInputs in;
-    in.sleepDebt = 95.0f;
+    in.sleepDebt = 90.0f;
     DP_CHECK(hasLabel(Hud::buildConditions(in), "Exhausted"));
+    in.sleepDebt = 96.0f;
+    DP_CHECK(hasLabel(Hud::buildConditions(in), "Dead on your feet"));
     in.sleeping = true;
     const auto statuses = Hud::buildConditions(in);
-    DP_CHECK(!hasLabel(statuses, "Exhausted"));
+    DP_CHECK(!hasLabel(statuses, "Dead on your feet"));
     DP_CHECK(hasLabel(statuses, "Asleep"));
 }
 
@@ -106,15 +108,42 @@ DP_TEST(hud_infection_replaces_bitten)
     DP_CHECK(!hasLabel(statuses, "Bitten"));
 }
 
+DP_TEST(hud_wound_labels_replace_counts)
+{
+    HudConditionInputs in;
+    in.bites = 1;
+    in.woundLabels = {"Bleeding", "Infected bite", "Broken left leg", "Shallow cut, right arm"};
+    const auto statuses = Hud::buildConditions(in);
+    DP_CHECK(hasLabel(statuses, "Infected bite"));
+    DP_CHECK(hasLabel(statuses, "Broken left leg"));
+    DP_CHECK(!hasLabel(statuses, "Bitten"));
+    DP_CHECK(statuses.front().severity == HudSeverity::Critical);
+}
+
+DP_TEST(hud_mind_bands_named)
+{
+    HudConditionInputs in;
+    in.panic = 30.0f;
+    DP_CHECK(hasLabel(Hud::buildConditions(in), "Uneasy"));
+    in.panic = 92.0f;
+    DP_CHECK(hasLabel(Hud::buildConditions(in), "Breaking"));
+    in.panic = 0.0f;
+    in.depression = 55.0f;
+    DP_CHECK(hasLabel(Hud::buildConditions(in), "Worn down"));
+    in.depression = 0.0f;
+    in.rested = true;
+    DP_CHECK(hasLabel(Hud::buildConditions(in), "Rested"));
+}
+
 DP_TEST(hud_crisis_overrides_depression_label)
 {
     HudConditionInputs in;
     in.depression = 99.0f;
-    DP_CHECK(hasLabel(Hud::buildConditions(in), "Despairing"));
+    DP_CHECK(hasLabel(Hud::buildConditions(in), "Giving up"));
     in.inCrisis = true;
     const auto statuses = Hud::buildConditions(in);
     DP_CHECK(hasLabel(statuses, "In crisis"));
-    DP_CHECK(!hasLabel(statuses, "Despairing"));
+    DP_CHECK(!hasLabel(statuses, "Giving up"));
 }
 
 DP_TEST(hud_weapon_slot_label_shows_wear_and_hand)

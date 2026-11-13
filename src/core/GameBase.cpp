@@ -357,9 +357,14 @@ void Game::breakFurniture(const glm::ivec2& tile)
             give(mItems.chairLeg, 1);
         }
     }
+    // A practised hand gets more out of it (Carpentry 4: a plank more; 2: nails).
+    const int carpentry = skillLevel(Skill::Carpentry);
+    if (yield.planks > 0) yield.planks += skillrules::extraPlanksFromFurniture(carpentry);
     give(mItems.woodPlanks, yield.planks);
     give(mItems.rags, yield.rags);
     give(mItems.scrapMetal, yield.scrap);
+    if (yield.planks > 0 && skillrules::salvagesNails(carpentry)) give(mItems.nails, 1);
+    awardXp(Skill::Carpentry, skillrules::kXpBreakFurniture);
 
     std::string got;
     const auto part = [&](int n, const char* one, const char* many)
@@ -606,6 +611,14 @@ bool Game::canAffordStation(const StationRecipe& recipe, std::string* missing) c
 
 void Game::startBuild(const StationRecipe& recipe, const glm::ivec2& tile)
 {
+    // Giving up: nothing gets started (phase 5).
+    if (mWorld.hasComponent<MentalState>(mPlayerEntity) &&
+        !mindrules::canBuild(mindrules::depressionBand(mWorld.getComponent<MentalState>(mPlayerEntity).depression)))
+    {
+        mInteractionMessage = "What would be the point.";
+        mInteractionMessageTimer = 2.5f;
+        return;
+    }
     Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
     const auto take = [&](const char* key, int count)
     {
@@ -618,7 +631,7 @@ void Game::startBuild(const StationRecipe& recipe, const glm::ivec2& tile)
     mBaseAction.kind = BaseAction::Kind::Build;
     mBaseAction.building = recipe.type;
     mBaseAction.tile = tile;
-    mBaseAction.total = recipe.seconds;
+    mBaseAction.total = recipe.seconds * skillrules::buildTimeScale(skillLevel(Skill::Carpentry));
     mBaseAction.label = std::string("Building a ") + recipe.name;
     mBaseAction.startPos = playerWorldCenter();
     mBaseAction.startHp = mWorld.hasComponent<Health>(mPlayerEntity) ? mWorld.getComponent<Health>(mPlayerEntity).current : 0.0f;
@@ -1320,19 +1333,22 @@ void Game::updateBaseActions(float dtSeconds)
         return;
     }
     holdStill();
-    mBaseAction.timer += dtSeconds;
+    // Shaking hands make held work slower (phase 5).
+    mBaseAction.timer += mBaseAction.kind == BaseAction::Kind::Climb ? dtSeconds : dtSeconds / heldActionScale();
     mBaseAction.noiseTimer += dtSeconds;
     if (mBaseAction.noiseTimer >= 1.0f)
     {
         mBaseAction.noiseTimer -= 1.0f;
         NoiseTier tier = NoiseTier::Soft;
-        if (mBaseAction.kind == BaseAction::Kind::Break) tier = NoiseTier::Loud;
+        if (mBaseAction.kind == BaseAction::Kind::Break || mBaseAction.kind == BaseAction::Kind::Board) tier = NoiseTier::Loud;
         if (mBaseAction.kind == BaseAction::Kind::Build)
         {
             const StationRecipe* recipe = BuildSystem::recipeFor(mBaseAction.building);
             if (recipe != nullptr && recipe->hammering) tier = NoiseTier::Loud;
         }
-        if (mBaseAction.kind != BaseAction::Kind::Climb)
+        const bool quiet = mBaseAction.kind == BaseAction::Kind::Climb || mBaseAction.kind == BaseAction::Kind::Treat ||
+                           mBaseAction.kind == BaseAction::Kind::Read;
+        if (!quiet)
         {
             mNoiseModel.emitNoise(here, tier, 1.0f, mPlayerEntity);
             if (tier == NoiseTier::Loud) mAudioManager.playSound(SoundId::WeaponHit, 0.35f);
@@ -1362,6 +1378,16 @@ void Game::updateBaseActions(float dtSeconds)
     }
     case BaseAction::Kind::Build:
         finishBuild();
+        awardXp(Skill::Carpentry, skillrules::kXpBuild);
+        break;
+    case BaseAction::Kind::Board:
+        finishBoarding();
+        break;
+    case BaseAction::Kind::Treat:
+        finishTreatment();
+        break;
+    case BaseAction::Kind::Read:
+        finishReading();
         break;
     case BaseAction::Kind::Repair:
     {
@@ -1379,6 +1405,7 @@ void Game::updateBaseActions(float dtSeconds)
             weapon.condition = std::min(1.0f, weapon.condition + kRepairAmount);
             equipWeaponFromSlot(slot);
         }
+        awardXp(Skill::Carpentry, skillrules::kXpRepair);
         mInteractionMessage = "You straighten and bind it. Good for a while yet.";
         mInteractionMessageTimer = 2.5f;
         break;
@@ -1576,10 +1603,8 @@ void Game::updateTraps(float dtSeconds)
             h.current = std::max(0.0f, h.current - kSpikePlayerDamage);
             if (mWorld.hasComponent<Wounds>(mPlayerEntity))
             {
-                Wound cut;
-                cut.type = WoundType::Cut;
-                cut.severity = 0.4f;
-                mWorld.getComponent<Wounds>(mPlayerEntity).active.push_back(cut);
+                mWorld.getComponent<Wounds>(mPlayerEntity).active.push_back(
+                    woundrules::make(WoundType::Cut, woundrules::legPart(bodyRoll()), WoundDepth::Shallow));
             }
             mInteractionMessage = "You tread on your own spikes.";
             mInteractionMessageTimer = 2.5f;

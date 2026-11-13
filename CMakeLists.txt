@@ -49,6 +49,8 @@ add_library(dead_pixel_core STATIC
     src/core/GameContent.cpp
     src/core/GameStorage.cpp
     src/core/GameDead.cpp
+    src/core/GameBody.cpp
+    src/core/GameCharacter.cpp
     src/core/Tuning.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
@@ -98,6 +100,12 @@ add_library(dead_pixel_core STATIC
     src/world/Scenery.cpp
     src/systems/Atmosphere.cpp
     src/world/FirstDays.cpp
+    src/world/TraitRules.cpp
+    src/world/SkillRules.cpp
+    src/world/WoundRules.cpp
+    src/world/SleepRules.cpp
+    src/world/MindRules.cpp
+    src/systems/HallucinationSystem.cpp
     src/items/ItemDatabase.cpp
     src/items/LootTables.cpp
     src/rendering/Camera.cpp
@@ -176,6 +184,9 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_senses.cpp
         tests/test_bloodtrail.cpp
         tests/test_horde.cpp
+        tests/test_skills.cpp
+        tests/test_wounds.cpp
+        tests/test_mind.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

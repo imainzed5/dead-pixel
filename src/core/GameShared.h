@@ -27,6 +27,7 @@
 #include "components/Sleeping.h"
 #include "components/Wounds.h"
 #include "components/Traits.h"
+#include "components/Skills.h"
 #include "components/Sprite.h"
 #include "components/Stamina.h"
 #include "components/Structure.h"
@@ -37,6 +38,11 @@
 #include "components/SurvivorAI.h"
 #include "dev/DevHarness.h"
 #include "world/EntityFactory.h"
+#include "world/MindRules.h"
+#include "world/SkillRules.h"
+#include "world/SleepRules.h"
+#include "world/TraitRules.h"
+#include "world/WoundRules.h"
 
 #include <algorithm>
 #include <array>
@@ -118,7 +124,7 @@ constexpr std::array<const char*, 3> kTitleToneNames = {
 };
 
 constexpr std::array<const char*, 3> kTitleToneDescriptions = {
-    "Scarce supplies, tougher dead, darker nights, drained colour",
+    "Scarce supplies, tougher dead; a festering bite turns you",
     "The intended balance: dark, scarce, but fair",
     "More dead but weaker, more weapons, quicker breath"
 };
@@ -481,7 +487,7 @@ struct ControlBinding
 constexpr std::array<ControlBinding, 26> kControlBindings = {{
     {"WASD", "Move"},
     {"Shift", "Run"},
-    {"C", "Crouch"},
+    {"C", "Crouch; still 3 s: breathe"},
     {"Mouse", "Aim"},
     {"LClick", "Attack / fire"},
     {"RClick", "Take down (from behind)"},
@@ -493,7 +499,7 @@ constexpr std::array<ControlBinding, 26> kControlBindings = {{
     {"F", "Use item / set down"},
     {"Q", "Flashlight"},
     {"1-8", "Hotbar slot"},
-    {"Tab", "Inventory"},
+    {"Tab", "Pack / Body / Make"},
     {"Arrows", "Inventory cursor"},
     {"Enter", "Swap to hotbar"},
     {"N", "Crafting"},
@@ -826,41 +832,9 @@ inline bool hasInfectedWound(const Wounds& wounds)
         });
 }
 
-inline int treatWorstWounds(Wounds& wounds, int treatCount)
-{
-    int treated = 0;
-    while (treated < treatCount && !wounds.active.empty())
-    {
-        int bestIdx = 0;
-        for (int i = 1; i < static_cast<int>(wounds.active.size()); ++i)
-        {
-            const Wound& current = wounds.active[i];
-            const Wound& best = wounds.active[bestIdx];
-
-            if (current.type == WoundType::Bite && best.type != WoundType::Bite)
-            {
-                bestIdx = i;
-            }
-            else if (current.infected && !best.infected)
-            {
-                bestIdx = i;
-            }
-            else if (current.severity > best.severity)
-            {
-                bestIdx = i;
-            }
-        }
-
-        wounds.active.erase(wounds.active.begin() + bestIdx);
-        ++treated;
-    }
-
-    return treated;
-}
-
 inline void syncHealthWithWounds(Health& health, const Wounds& wounds)
 {
-    health.maximum = woundedMaximum(health.baseMaximum, wounds.active.size());
+    health.maximum = woundrules::maxHealth(health.baseMaximum, wounds.active);
     health.current = std::min(health.current, health.maximum);
 }
 

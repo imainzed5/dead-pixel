@@ -150,6 +150,7 @@ void Game::updateTitleScreen(float dtSeconds)
             mSaveManager.deleteCheckpoint();
             mIgnoreCheckpointRestoreOnce = true;
             syncPresentationSettingsToSave();
+            mCreateCharacterOnStart = true;
             startNewRun();
             break;
 
@@ -183,6 +184,7 @@ void Game::updateTitleScreen(float dtSeconds)
 
                 mIgnoreCheckpointRestoreOnce = true;
                 syncPresentationSettingsToSave();
+                mCreateCharacterOnStart = true;
                 startNewRun();
             }
             break;
@@ -257,6 +259,7 @@ void Game::updatePauseMenu()
         }
         else if (mPauseSelection == 3) // Restart
         {
+            mCreateCharacterOnStart = true; // only shown when no checkpoint resumes
             startNewRun();
         }
         else // Quit

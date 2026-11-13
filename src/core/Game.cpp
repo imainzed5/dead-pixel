@@ -358,6 +358,18 @@ RunCheckpoint Game::buildRunCheckpoint()
         if (mWorld.hasComponent<Wounds>(mPlayerEntity))
             cp.wounds = mWorld.getComponent<Wounds>(mPlayerEntity).active;
         cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
+        if (mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            cp.traitsSaved = true;
+            for (PositiveTrait trait : traits.positives) cp.positiveTraits.emplace_back(traitrules::key(trait));
+            for (NegativeTrait trait : traits.negatives) cp.negativeTraits.emplace_back(traitrules::key(trait));
+        }
+        if (mWorld.hasComponent<Skills>(mPlayerEntity))
+        {
+            cp.skillsSaved = true;
+            cp.skills = mWorld.getComponent<Skills>(mPlayerEntity);
+        }
         if (mWorld.hasComponent<Inventory>(mPlayerEntity))
             cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
         cp.equippedSlot = mEquippedWeaponSlot;
@@ -536,6 +548,7 @@ void Game::registerComponents()
     mWorld.registerComponent<Projectile>();
     mWorld.registerComponent<Wounds>();
     mWorld.registerComponent<Traits>();
+    mWorld.registerComponent<Skills>();
     mWorld.registerComponent<SurvivorAI>();
     mWorld.registerComponent<LegacyLink>();
     mWorld.registerComponent<Corpse>();
@@ -735,6 +748,29 @@ void Game::startNewRun()
             auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
             t.x = cp.playerX; t.y = cp.playerY;
         }
+        // Who they were: the chosen traits, or (a checkpoint from before
+        // the character screen) the seed's old pick; then health as saved.
+        {
+            Traits traits = traitrules::legacyPick(mSaveManager.currentRunSeed());
+            if (cp.traitsSaved)
+            {
+                traits.positives.clear();
+                traits.negatives.clear();
+                for (const std::string& key : cp.positiveTraits)
+                {
+                    if (const auto trait = traitrules::parsePositive(key)) traits.positives.push_back(*trait);
+                }
+                for (const std::string& key : cp.negativeTraits)
+                {
+                    if (const auto trait = traitrules::parseNegative(key)) traits.negatives.push_back(*trait);
+                }
+            }
+            applyCharacter(traits, true);
+            if (cp.skillsSaved && mWorld.hasComponent<Skills>(mPlayerEntity))
+            {
+                mWorld.getComponent<Skills>(mPlayerEntity) = cp.skills;
+            }
+        }
         if (mWorld.hasComponent<Health>(mPlayerEntity))
         {
             auto& h = mWorld.getComponent<Health>(mPlayerEntity);
@@ -791,7 +827,23 @@ void Game::startNewRun()
             mInteractionMessage = "You are " + mCurrentCharacterName + ".";
             mInteractionMessageTimer = 3.5f;
         }
+        // A new life from the menus: choose who first (phase 5).
+        if (mCreateCharacterOnStart) beginCharacterCreation();
     }
+    mCreateCharacterOnStart = false;
+    mHallucinations.reset(mSaveManager.currentRunSeed() ^ 0x5EE1u);
+    mPackTab = 0;
+    mBodyCursor = 0;
+    mBodyChoosing = false;
+    mMicrosleepIn = -1.0f;
+    mMicrosleepLeft = 0.0f;
+    mRunXpPixels = 0.0f;
+    mCarryXpHours = 0.0f;
+    mPrevHolders = 0;
+    mBodyRolls = 0;
+    mWeekDayNoted = mCurrentDay;
+    mXpSearched.clear();
+    mRebleedRunSeconds = 0.0f;
 }
 
 void Game::returnToTitleScreen()
@@ -979,6 +1031,10 @@ void Game::handleEscapeKey()
             else if (mShowNotebook)
             {
                 mShowNotebook = false;
+            }
+            else if (mShowInventory && mBodyChoosing)
+            {
+                mBodyChoosing = false;
             }
             else if (mShowInventory)
             {

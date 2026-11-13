@@ -2,7 +2,10 @@
 
 #include <atomic>
 #include <filesystem>
+#include <fstream>
 #include <string>
+
+#include <nlohmann/json.hpp>
 
 #include "map/MapGenerator.h"
 #include "save/SaveManager.h"
@@ -265,4 +268,113 @@ DP_TEST(save_checkpoint_round_trips_and_is_run_scoped)
     grave.name = "Mara Quill";
     DP_CHECK(save.recordDeath(grave));
     DP_CHECK(!save.loadCheckpoint().valid);
+}
+
+DP_TEST(save_checkpoint_keeps_traits_skills_and_wounds)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(31u);
+
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("body_slot"));
+    RunCheckpoint cp;
+    cp.valid = true;
+    cp.runSeed = save.currentRunSeed();
+    cp.characterName = "Ines Hale";
+    cp.traitsSaved = true;
+    cp.positiveTraits = {"strong_back", "handy"};
+    cp.negativeTraits = {"frail"};
+    cp.skillsSaved = true;
+    cp.skills.xp[static_cast<std::size_t>(Skill::Carpentry)] = 260.0f;
+    cp.skills.level[static_cast<std::size_t>(Skill::Carpentry)] = 2;
+    cp.skills.lastUsedHour[static_cast<std::size_t>(Skill::Carpentry)] = 40.5;
+    Wound leg;
+    leg.type = WoundType::Fracture;
+    leg.part = BodyPart::LeftLeg;
+    leg.splinted = true;
+    Wound cut;
+    cut.type = WoundType::Cut;
+    cut.part = BodyPart::RightArm;
+    cut.depth = WoundDepth::Deep;
+    cut.dressed = true;
+    cut.dressingHours = 5.0f;
+    cp.wounds = {leg, cut};
+    cp.boardedDoors = {BoardedDoorRecord{2, 3, 90.0f, 1.5f}};
+    DP_CHECK(save.saveCheckpoint(cp));
+
+    const RunCheckpoint loaded = save.loadCheckpoint();
+    DP_CHECK(loaded.traitsSaved);
+    DP_CHECK(loaded.positiveTraits == cp.positiveTraits);
+    DP_CHECK(loaded.negativeTraits == cp.negativeTraits);
+    DP_CHECK(loaded.skillsSaved);
+    DP_CHECK_EQ(loaded.skills.of(Skill::Carpentry), 2);
+    DP_CHECK_NEAR(loaded.skills.xp[static_cast<std::size_t>(Skill::Carpentry)], 260.0f, 0.01);
+    DP_CHECK_NEAR(loaded.skills.lastUsedHour[static_cast<std::size_t>(Skill::Carpentry)], 40.5, 0.01);
+    DP_CHECK_EQ(loaded.wounds.size(), std::size_t{2});
+    DP_CHECK(loaded.wounds[0].type == WoundType::Fracture);
+    DP_CHECK(loaded.wounds[0].part == BodyPart::LeftLeg);
+    DP_CHECK(loaded.wounds[0].splinted);
+    DP_CHECK(loaded.wounds[1].depth == WoundDepth::Deep);
+    DP_CHECK(loaded.wounds[1].dressed);
+    DP_CHECK_NEAR(loaded.wounds[1].dressingHours, 5.0f, 0.01);
+    DP_CHECK_EQ(loaded.boardedDoors.size(), std::size_t{1});
+    DP_CHECK_NEAR(loaded.boardedDoors[0].toughness, 1.5f, 0.001);
+}
+
+DP_TEST(save_old_checkpoint_without_traits_or_parts_still_loads)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(41u);
+
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("old_slot"));
+    RunCheckpoint cp;
+    cp.valid = true;
+    cp.runSeed = save.currentRunSeed();
+    cp.characterName = "Old Timer";
+    cp.boardedDoors = {BoardedDoorRecord{2, 3, 90.0f}};
+    DP_CHECK(save.saveCheckpoint(cp));
+
+    // Rewrite it as a phase 4 checkpoint: no traits, no skills, wounds with a
+    // severity and no part or depth, boards with no toughness.
+    const std::string path = "save/old_slot_checkpoint.json";
+    nlohmann::json json;
+    {
+        std::ifstream in(path);
+        DP_CHECK(in.good());
+        in >> json;
+    }
+    json.erase("positiveTraits");
+    json.erase("negativeTraits");
+    json.erase("skills");
+    json["wounds"] = nlohmann::json::array({
+        {{"type", 0}, {"severity", 0.9f}, {"infected", false}, {"infectionTimer", 0.0f}, {"contaminated", false}, {"healTimer", 30.0f}},
+        {{"type", 2}, {"severity", 0.5f}, {"infected", true}, {"infectionTimer", 2.0f}, {"contaminated", true}, {"healTimer", 0.0f}},
+    });
+    for (auto& [key, value] : json.items())
+    {
+        if (!value.is_array()) continue;
+        for (auto& entry : value)
+        {
+            if (entry.is_object() && entry.contains("toughness")) entry.erase("toughness");
+        }
+    }
+    {
+        std::ofstream out(path, std::ios::trunc);
+        out << json.dump();
+    }
+
+    const RunCheckpoint loaded = save.loadCheckpoint();
+    DP_CHECK(loaded.valid);
+    DP_CHECK(!loaded.traitsSaved); // traits come from the seed's old pick
+    DP_CHECK(!loaded.skillsSaved);
+    DP_CHECK_EQ(loaded.wounds.size(), std::size_t{2});
+    DP_CHECK(loaded.wounds[0].type == WoundType::Cut);
+    DP_CHECK(loaded.wounds[0].part == BodyPart::Torso);
+    DP_CHECK(loaded.wounds[0].depth == WoundDepth::Deep); // severity above 0.75
+    DP_CHECK(loaded.wounds[1].type == WoundType::Bite);
+    DP_CHECK(loaded.wounds[1].depth == WoundDepth::Shallow);
+    DP_CHECK(loaded.wounds[1].infected);
+    DP_CHECK_EQ(loaded.boardedDoors.size(), std::size_t{1});
+    DP_CHECK_NEAR(loaded.boardedDoors[0].toughness, 1.0f, 0.001);
 }

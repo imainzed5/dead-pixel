@@ -28,7 +28,7 @@ std::vector<BoardedDoorRecord> Game::boardedDoorRecords() const
     {
         if (door.boardHp > 0.0f && mTileMap.isClosedDoor(door.tile.x, door.tile.y))
         {
-            records.push_back(BoardedDoorRecord{door.tile.x, door.tile.y, door.boardHp});
+            records.push_back(BoardedDoorRecord{door.tile.x, door.tile.y, door.boardHp, door.boardToughness});
         }
     }
     return records;
@@ -43,7 +43,7 @@ void Game::resetDoors()
     }
     for (const BoardedDoorRecord& record : mSaveManager.boardedDoors())
     {
-        mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp);
+        mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp, record.toughness);
     }
 }
 
@@ -209,7 +209,7 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
 
     if (state == DoorState::Closed && mInput.wasKeyPressed(SDL_SCANCODE_R))
     {
-        boardUpDoor(door->tile);
+        startBoarding(door->tile, false);
         return true;
     }
     if (state == DoorState::Closed && boards > 0 && mInput.wasKeyPressed(SDL_SCANCODE_X))
@@ -306,9 +306,22 @@ void Game::boardUpDoor(const glm::ivec2& tile)
     {
         message = "You need nails to board it up (2 a board).";
     }
-    else if (mDoors.addBoard(mTileMap, tile))
+    else
     {
-        InventorySystem::removeItem(inventory, mItems.woodPlanks, 1);
+        // Carpentry: a better-driven board holds longer; from level 3 a
+        // second plank doubled behind it (reinforced) when you have one.
+        const int carpentry = skillLevel(Skill::Carpentry);
+        const bool reinforced = skillrules::canReinforceBoards(carpentry) &&
+                                InventorySystem::countItem(inventory, mItems.woodPlanks) >= 2;
+        const float toughness = skillrules::boardStrengthScale(carpentry) *
+                                (reinforced ? skillrules::kReinforcedBoardScale : 1.0f);
+        if (!mDoors.addBoard(mTileMap, tile, toughness))
+        {
+            mInteractionMessage = "It won't take another board.";
+            mInteractionMessageTimer = 2.0f;
+            return;
+        }
+        InventorySystem::removeItem(inventory, mItems.woodPlanks, reinforced ? 2 : 1);
         InventorySystem::removeItem(inventory, mItems.nails, 2);
         // Hammering carries: the dead will hear it.
         mNoiseModel.emitNoise(doorCentre(mTileMap, tile), NoiseTier::Loud, 1.0f, mPlayerEntity);

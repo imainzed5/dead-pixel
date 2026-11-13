@@ -62,7 +62,8 @@
       "stopsBleeding": true,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "treats": "dress"
     },
     {
       "id": 5,
@@ -239,7 +240,8 @@
       "curesInfection": true,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "treats": "cure"
     },
     {
       "id": 16,
@@ -249,10 +251,13 @@
       "weight": 0.1,
       "maxStack": 5,
       "sprite": "item_painkillers",
-      "panicRelief": 30.0,
+      "panicRelief": 15.0,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "sedative"
+      ]
     },
     {
       "id": 17,
@@ -346,7 +351,8 @@
       "stopsBleeding": true,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "treats": "dress"
     },
     {
       "id": 23,
@@ -373,8 +379,8 @@
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0,
-      "curesInfection": true,
-      "illnessRelief": 10.0
+      "illnessRelief": 10.0,
+      "treats": "dress_clean"
     },
     {
       "id": 25,
@@ -771,6 +777,104 @@
         "recovery": 0.3,
         "noise": 4
       }
+    },
+    {
+      "id": 47,
+      "key": "splint",
+      "name": "Splint",
+      "category": "medical",
+      "weight": 0.3,
+      "maxStack": 2,
+      "sprite": "item_splint",
+      "treats": "splint"
+    },
+    {
+      "id": 48,
+      "key": "suture_kit",
+      "name": "Suture Kit",
+      "category": "medical",
+      "weight": 0.1,
+      "maxStack": 3,
+      "sprite": "item_suture_kit",
+      "treats": "stitch"
+    },
+    {
+      "id": 49,
+      "key": "needle_and_thread",
+      "name": "Needle and Thread",
+      "category": "material",
+      "weight": 0.05,
+      "maxStack": 3,
+      "sprite": "item_needle_and_thread"
+    },
+    {
+      "id": 50,
+      "key": "spirits",
+      "name": "Bottle of Spirits",
+      "category": "drink",
+      "weight": 0.7,
+      "maxStack": 2,
+      "sprite": "item_spirits",
+      "thirstRestore": 4.0,
+      "panicRelief": 20.0,
+      "treats": "disinfect",
+      "tags": [
+        "sedative",
+        "comfort"
+      ]
+    },
+    {
+      "id": 51,
+      "key": "coffee",
+      "name": "Coffee",
+      "category": "drink",
+      "weight": 0.2,
+      "maxStack": 5,
+      "sprite": "item_coffee",
+      "thirstRestore": 8.0,
+      "sleepDebtMask": 4.0
+    },
+    {
+      "id": 52,
+      "key": "book",
+      "name": "Book",
+      "category": "material",
+      "weight": 0.4,
+      "maxStack": 3,
+      "sprite": "item_book",
+      "depressionRelief": 10.0,
+      "tags": [
+        "comfort",
+        "readable"
+      ]
+    },
+    {
+      "id": 53,
+      "key": "keepsake",
+      "name": "Keepsake",
+      "category": "material",
+      "weight": 0.1,
+      "maxStack": 1,
+      "sprite": "item_keepsake",
+      "depressionRelief": 25.0,
+      "tags": [
+        "comfort"
+      ]
+    },
+    {
+      "id": 65,
+      "key": "chocolate",
+      "name": "Chocolate",
+      "category": "food",
+      "weight": 0.1,
+      "maxStack": 5,
+      "sprite": "item_chocolate",
+      "hungerRestore": 8.0,
+      "panicRelief": 6.0,
+      "spoilHours": 0.0,
+      "tags": [
+        "comfort"
+      ]
     },
     {
       "id": 81,
