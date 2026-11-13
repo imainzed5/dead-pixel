@@ -632,6 +632,36 @@ warmth, fire and noise are as they were.
 Not done: doors still change state at a cut rather than swinging, there is
 no weather sound, and snow is drawn as rain.
 
+## Interface: bare hands (2026-11-13)
+
+Four styles were mocked up (docs/mockups, and a design canvas); the one chosen
+is the low-chrome "bare hands" HUD, with the pack and crafting as panels docked
+to the right edge so the world stays in view.
+
+- HUD (`src/ui/Hud.*`): no plates. Health and stamina are two thin lines in the
+  bottom-left with conditions stacked above them, the time is large in the
+  top-right over the day, weather and objective, and the belt is a row of bare
+  item icons with the one in use drawn double size. Every label carries its own
+  shadow instead of a backing.
+- Pack (`renderInventoryPanel`, `InventoryLayout`): carried slots in two rows of
+  six over the belt's eight, then the item under the cursor: weapon damage,
+  reach and condition as bars, and how it compares with what is in hand.
+- Make (`renderCraftingOverlay`, `craftingLayout`): the same panel, wider; the
+  chosen recipe is an inverted row, each row says Ready / Missing something /
+  A hunch.
+- The HUD stays up while a panel is open, minus the belt, clock and minimap.
+
+- Every other screen shares the palette (`kPanel*` in `GameShared.h`): title,
+  pause, controls, container, notebook, run end and the legacy card lost their
+  gold edges, and a chosen row is inverted everywhere. Build mode moved to the
+  top-left and sits straight on the world like the HUD.
+
+Not built: compass, noise meter, worn slots, a Body tab.
+
+![HUD](shots/ui_hud.png)
+![Pack](shots/ui_pack.png)
+![Make](shots/ui_make.png)
+
 ## Next, after the handoff
 
 Candidates for the next stretch, roughly in order. None is started.
@@ -754,3 +784,5 @@ Candidates for the next stretch, roughly in order. None is started.
   hip roofs with eaves, per-house paint.
 - 2026-11-13: The town wall made thin. Art and feel, pass 3: visible weather,
   wind in the trees, kicked litter, spent cases, street lamps.
+- 2026-11-13: Interface redrawn in the chosen "bare hands" style: HUD, pack and
+  crafting docked to the right edge.

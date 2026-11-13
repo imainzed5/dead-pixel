@@ -427,8 +427,7 @@ void Game::renderLegacyCardShapes()
     const float alpha = std::min(1.0f, mLegacyCardTimer / kLegacyCardFadeSeconds);
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
     const LegacyCardLayout layout = legacyCardLayout();
-    mSpriteBatch.draw(layout.pos, layout.size, uiUv, glm::vec4(0.05f, 0.05f, 0.06f, 0.82f * alpha));
-    mSpriteBatch.draw(layout.pos, glm::vec2(layout.size.x, 2.0f), uiUv, glm::vec4(0.78f, 0.66f, 0.42f, 0.9f * alpha));
+    mSpriteBatch.draw(layout.pos, layout.size, uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.82f * alpha));
 }
 
 Game::LegacyCardLayout Game::legacyCardLayout() const
@@ -519,12 +518,12 @@ void Game::renderLegacyText()
         const float cx = layout.pos.x + layout.size.x * 0.5f;
         float y = layout.pos.y + 20.0f;
         mFont.drawText(mSpriteBatch, glm::vec2(cx, y), mLegacyCardTitle,
-                       glm::vec4(0.95f, 0.84f, 0.58f, alpha), layout.titleScale, TextAlign::Center);
+                       glm::vec4(kPanelAmber.r, kPanelAmber.g, kPanelAmber.b, alpha), layout.titleScale, TextAlign::Center);
         y += mFont.lineHeight(layout.titleScale) + 12.0f;
         for (const std::string& line : mLegacyCardLines)
         {
             mFont.drawText(mSpriteBatch, glm::vec2(cx, y), line,
-                           glm::vec4(0.86f, 0.86f, 0.82f, alpha), layout.lineScale, TextAlign::Center);
+                           glm::vec4(kPanelInk.r, kPanelInk.g, kPanelInk.b, alpha), layout.lineScale, TextAlign::Center);
             y += mFont.lineHeight(layout.lineScale) + 6.0f;
         }
     }

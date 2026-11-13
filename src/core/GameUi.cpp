@@ -8,7 +8,6 @@ void Game::buildHudState()
     HudState& hud = mHudState;
     hud = HudState{};
     hud.visible = mRunState == RunState::Playing &&
-        !mShowCrafting &&
         !mShowWorldMap &&
         mPlayerEntity != kInvalidEntity &&
         mWorld.hasComponent<Transform>(mPlayerEntity);
@@ -18,6 +17,10 @@ void Game::buildHudState()
     }
 
     hud.timeSeconds = mHudClock;
+    if (mShowCrafting || mShowInventory)
+    {
+        hud.dockedWidth = dockedPanelWidth(mShowCrafting, mWindowWidth);
+    }
 
     if (mWorld.hasComponent<Health>(mPlayerEntity))
     {
@@ -346,15 +349,13 @@ void Game::renderNotebookOverlay()
     const float panelX = std::floor((w - panelW) * 0.5f);
     const float panelY = std::floor((h - panelH) * 0.5f);
 
-    const glm::vec4 ink(0.90f, 0.88f, 0.80f, 1.0f);
-    const glm::vec4 dimInk(0.66f, 0.64f, 0.58f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const glm::vec4 ink = kPanelInk;
+    const glm::vec4 dimInk = kPanelDim;
     const glm::vec4 risenColor = legacyLeadColor(legacy::LeadKind::Risen);
     const glm::vec4 survivorColor = legacyLeadColor(legacy::LeadKind::Survivor);
 
     mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.06f, 0.055f, 0.05f, 0.97f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, 3.0f), uiUv, gold);
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.96f));
 
     const float left = panelX + 28.0f;
     const float textW = panelW - 56.0f;
@@ -365,16 +366,16 @@ void Game::renderNotebookOverlay()
     };
     const auto heading = [&](float y, const std::string& text)
     {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), text, gold, 1.0f);
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), text, dimInk, 1.0f);
         const float textEnd = left + mFont.measureText(text, 1.0f).x + 10.0f;
         mSpriteBatch.draw(glm::vec2(textEnd, y + 4.0f), glm::vec2(left + textW - textEnd, 1.0f), uiUv,
-                          glm::vec4(gold.r, gold.g, gold.b, 0.35f));
+                          kPanelRule);
     };
 
     // Title and who you are now.
     const int run = mSaveManager.runNumber();
     float y = panelY + 22.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "NOTEBOOK", gold, kBody);
+    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "NOTEBOOK", ink, kBody);
     const std::string closeHint = "J to close";
     mFont.drawText(mSpriteBatch, glm::vec2(left + textW - mFont.measureText(closeHint, 1.0f).x, y + 4.0f), closeHint, dimInk, 1.0f);
     y += bodyLine + 2.0f;
@@ -492,7 +493,7 @@ void Game::renderNotebookOverlay()
     std::string stats = "Lives " + std::to_string(history.size()) + "   Days survived " + std::to_string(daysTotal);
     if (longest > 0) stats += "   Longest " + std::to_string(longest) + (longest == 1 ? " day (" : " days (") + longestName + ")";
     if (laidToRest > 0) stats += "   Laid to rest " + std::to_string(laidToRest);
-    mSpriteBatch.draw(glm::vec2(left, statsY - 8.0f), glm::vec2(textW, 1.0f), uiUv, glm::vec4(gold.r, gold.g, gold.b, 0.25f));
+    mSpriteBatch.draw(glm::vec2(left, statsY - 8.0f), glm::vec2(textW, 1.0f), uiUv, kPanelRule);
     mFont.drawText(mSpriteBatch, glm::vec2(left, statsY), fit(stats, 1.0f), dimInk, 1.0f);
 }
 
@@ -514,9 +515,9 @@ void Game::renderRunEndOverlay()
     const bool ready = mDeathStateTimer >= kDeathRestartDelaySeconds;
 
     const glm::vec4 accent = dead ? glm::vec4(0.86f, 0.26f, 0.22f, 1.0f) : legacyLeadColor(legacy::LeadKind::Survivor);
-    const glm::vec4 ink(0.92f, 0.90f, 0.84f, 1.0f);
-    const glm::vec4 dimInk(0.64f, 0.62f, 0.58f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const glm::vec4 ink = kPanelInk;
+    const glm::vec4 dimInk = kPanelDim;
+    const glm::vec4 gold = kPanelAmber;
     const auto faded = [&](glm::vec4 c) { c.a *= fade; return c; };
 
     const glm::vec4 backdrop = dead ? glm::vec4(0.10f, 0.02f, 0.02f, 0.72f) : glm::vec4(0.03f, 0.04f, 0.09f, 0.70f);
@@ -569,7 +570,7 @@ void Game::renderRunEndOverlay()
     contentH += mFont.lineHeight(2.0f) + 8.0f; // prompt or progress bar
     const glm::vec2 panelSize(std::min(w - 24.0f, contentW + 64.0f), contentH + 36.0f);
     const glm::vec2 panelPos(std::floor((w - panelSize.x) * 0.5f), std::floor((h - panelSize.y) * 0.5f));
-    mSpriteBatch.draw(panelPos, panelSize, uiUv, faded(glm::vec4(0.05f, 0.045f, 0.045f, 0.94f)));
+    mSpriteBatch.draw(panelPos, panelSize, uiUv, faded(glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.94f)));
     mSpriteBatch.draw(panelPos, glm::vec2(panelSize.x, 3.0f), uiUv, faded(accent));
 
     const float cx = panelPos.x + panelSize.x * 0.5f;
@@ -605,6 +606,51 @@ void Game::renderRunEndOverlay()
     }
 }
 
+namespace
+{
+const char* itemCategoryLabel(ItemCategory category)
+{
+    switch (category)
+    {
+    case ItemCategory::Food: return "FOOD";
+    case ItemCategory::Drink: return "DRINK";
+    case ItemCategory::Medical: return "MEDICAL";
+    case ItemCategory::Weapon: return "WEAPON";
+    case ItemCategory::Material: return "MATERIAL";
+    }
+    return "";
+}
+} // namespace
+
+void Game::renderDockedHeader(const glm::vec2& pos, float width, bool crafting)
+{
+    const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
+    mSpriteBatch.draw(pos, glm::vec2(width, static_cast<float>(mWindowHeight)), white, kPanelBack);
+
+    // Both panels are named; the open one is underlined.
+    float x = pos.x + InventoryLayout::kPadding;
+    const float y = pos.y + 22.0f;
+    const auto tab = [&](const char* label, const char* key, bool open)
+    {
+        const float w = mFont.measureText(label, 3.0f).x;
+        mFont.drawText(mSpriteBatch, glm::vec2(x, y), label, open ? kPanelInk : kPanelDim, 3.0f);
+        if (open)
+        {
+            mSpriteBatch.draw(glm::vec2(x, y + 27.0f), glm::vec2(w, 3.0f), white, kPanelInk);
+        }
+        else
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(x + w + 6.0f, y + 12.0f), key, kPanelDim, 1.0f);
+            x += mFont.measureText(key, 1.0f).x + 6.0f;
+        }
+        x += w + 24.0f;
+    };
+    tab("PACK", "Tab", !crafting);
+    tab("MAKE", "N", crafting);
+    mSpriteBatch.draw(glm::vec2(pos.x + InventoryLayout::kPadding, pos.y + 64.0f),
+                      glm::vec2(width - InventoryLayout::kPadding * 2.0f, 1.0f), white, kPanelRule);
+}
+
 void Game::renderInventoryPanel()
 {
     if (!mShowInventory || mShowCrafting || mRunState != RunState::Playing ||
@@ -615,157 +661,221 @@ void Game::renderInventoryPanel()
 
     const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
     const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
+    const float left = layout.panelPos.x + InventoryLayout::kPadding;
+    const float right = layout.panelPos.x + layout.panelSize.x - InventoryLayout::kPadding;
+    const float innerW = right - left;
 
-    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.05f, 0.06f, 0.09f, 0.94f));
-    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+    const auto rect = [&](const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color)
+    {
+        mSpriteBatch.draw(pos, size, white, color);
+    };
+    const auto frame = [&](const glm::vec2& pos, float size, float thickness, const glm::vec4& color)
+    {
+        rect(pos, glm::vec2(size, thickness), color);
+        rect(pos + glm::vec2(0.0f, size - thickness), glm::vec2(size, thickness), color);
+        rect(pos + glm::vec2(0.0f, thickness), glm::vec2(thickness, size - thickness * 2.0f), color);
+        rect(pos + glm::vec2(size - thickness, thickness), glm::vec2(thickness, size - thickness * 2.0f), color);
+    };
+    const auto text = [&](const glm::vec2& pos, const std::string& s, const glm::vec4& color, float scale,
+                          TextAlign align = TextAlign::Left)
+    {
+        mFont.drawText(mSpriteBatch, pos, s, color, scale, align);
+    };
+    const auto fit = [&](const std::string& s, float width, float scale)
+    {
+        return truncateHudText(s, static_cast<std::size_t>(std::max(4.0f, width / (6.0f * scale))));
+    };
 
-    // Carry weight bar.
+    renderDockedHeader(layout.panelPos, layout.panelSize.x, false);
+
+    // Carry weight, top right.
     const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
-    const float weightRatio = std::clamp(weight / Inventory::kMaxCarryWeight, 0.0f, 1.0f);
-    const glm::vec2 barPos(layout.panelPos.x + 20.0f, layout.weightY + 14.0f);
-    const float barW = layout.panelSize.x - 40.0f;
-    mSpriteBatch.draw(barPos, glm::vec2(barW, 4.0f), uiUv, glm::vec4(0.12f, 0.12f, 0.13f, 1.0f));
-    mSpriteBatch.draw(barPos, glm::vec2(std::round(barW * weightRatio), 4.0f), uiUv,
-                      weight > Inventory::kMaxCarryWeight ? glm::vec4(0.95f, 0.40f, 0.30f, 1.0f)
-                                                          : glm::vec4(0.72f, 0.66f, 0.50f, 1.0f));
+    const bool over = weight > Inventory::kMaxCarryWeight;
+    {
+        std::ostringstream weightStr;
+        weightStr << std::fixed << std::setprecision(1) << weight << " / " << std::setprecision(0)
+                  << Inventory::kMaxCarryWeight << " kg";
+        text(glm::vec2(right, layout.titleY), weightStr.str(), over ? kPanelBad : kPanelInk, 2.0f, TextAlign::Right);
+        const float barW = 150.0f;
+        rect(glm::vec2(right - barW, layout.titleY + 24.0f), glm::vec2(barW, 3.0f), kPanelTrack);
+        rect(glm::vec2(right - barW, layout.titleY + 24.0f),
+             glm::vec2(std::round(barW * std::clamp(weight / Inventory::kMaxCarryWeight, 0.0f, 1.0f)), 3.0f),
+             over ? kPanelBad : kPanelAmber);
+    }
 
+    text(glm::vec2(left, layout.carriedLabelY), "CARRIED", kPanelDim, 1.0f);
+    text(glm::vec2(left, layout.beltLabelY), "BELT  -  KEYS 1 TO 8", kPanelDim, 1.0f);
+
+    const int cursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
     for (int i = 0; i < Inventory::kMaxSlots; ++i)
     {
         const glm::vec2 pos = layout.slotPos(i);
-        const bool isHotbar = i < 8;
-        const bool isCursor = i == mInventoryCursor;
-        const bool isActive = i == inv.activeSlot;
-        mSpriteBatch.draw(pos, glm::vec2(InventoryLayout::kSlot), uiUv,
-                          isHotbar ? glm::vec4(0.10f, 0.10f, 0.08f, 0.95f) : glm::vec4(0.08f, 0.09f, 0.11f, 0.95f));
-
-        glm::vec4 frame = isHotbar ? glm::vec4(0.50f, 0.46f, 0.36f, 0.7f) : glm::vec4(0.36f, 0.38f, 0.42f, 0.6f);
-        float thickness = 1.0f;
-        if (isActive)
-        {
-            frame = glm::vec4(0.98f, 0.84f, 0.38f, 0.9f);
-            thickness = 2.0f;
-        }
+        const bool isCursor = i == cursor;
         if (isCursor)
         {
-            frame = glm::vec4(1.0f, 1.0f, 0.85f, 1.0f);
-            thickness = 2.0f;
+            rect(pos, glm::vec2(InventoryLayout::kSlot), glm::vec4(kPanelInk.r, kPanelInk.g, kPanelInk.b, 0.14f));
+            frame(pos, InventoryLayout::kSlot, 2.0f, kPanelInk);
         }
-        mSpriteBatch.draw(pos, glm::vec2(InventoryLayout::kSlot, thickness), uiUv, frame);
-        mSpriteBatch.draw(pos + glm::vec2(0.0f, InventoryLayout::kSlot - thickness), glm::vec2(InventoryLayout::kSlot, thickness), uiUv, frame);
-        mSpriteBatch.draw(pos, glm::vec2(thickness, InventoryLayout::kSlot), uiUv, frame);
-        mSpriteBatch.draw(pos + glm::vec2(InventoryLayout::kSlot - thickness, 0.0f), glm::vec2(thickness, InventoryLayout::kSlot), uiUv, frame);
+        else if (i == inv.activeSlot)
+        {
+            frame(pos, InventoryLayout::kSlot, 1.0f, kPanelAmber);
+        }
+        else
+        {
+            frame(pos, InventoryLayout::kSlot, 1.0f, glm::vec4(kPanelInk.r, kPanelInk.g, kPanelInk.b, 0.16f));
+        }
+        if (i < InventoryLayout::kBeltSlots)
+        {
+            text(pos + glm::vec2(5.0f, 5.0f), std::to_string(i + 1), i == inv.activeSlot ? kPanelAmber : kPanelDim, 1.0f);
+        }
 
         const auto& slot = inv.slots[static_cast<std::size_t>(i)];
-        if (slot.itemId < 0 || slot.count <= 0)
-        {
-            continue;
-        }
-        const ItemDef* item = mItemDatabase.find(slot.itemId);
-        if (!item)
+        const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+        if (item == nullptr)
         {
             continue;
         }
         const glm::vec4 iconUv = mSpriteSheet.uvRect(item->sprite);
         if (iconUv.z > 0.0f)
         {
-            mSpriteBatch.draw(pos + glm::vec2(8.0f, 10.0f), glm::vec2(32.0f), iconUv, glm::vec4(1.0f));
+            mSpriteBatch.draw(pos + glm::vec2(10.0f, 10.0f), glm::vec2(32.0f), iconUv, glm::vec4(1.0f));
         }
-        // Freshness strip along the bottom for food that spoils.
-        if (item->spoilHours > 0.0f && slot.condition < 0.999f)
+        else
         {
-            const float fresh = std::clamp(slot.condition, 0.0f, 1.0f);
-            const glm::vec4 color = fresh > 0.5f ? glm::vec4(0.46f, 0.80f, 0.40f, 1.0f)
-                : fresh > 0.2f ? glm::vec4(0.92f, 0.74f, 0.28f, 1.0f) : glm::vec4(0.92f, 0.30f, 0.24f, 1.0f);
-            mSpriteBatch.draw(pos + glm::vec2(4.0f, InventoryLayout::kSlot - 6.0f),
-                              glm::vec2(std::round((InventoryLayout::kSlot - 8.0f) * fresh), 2.0f), uiUv, color);
+            text(pos + glm::vec2(InventoryLayout::kSlot * 0.5f, 22.0f), item->name.substr(0, 3), kPanelInk, 1.0f,
+                 TextAlign::Center);
+        }
+        if (slot.count > 1)
+        {
+            text(pos + glm::vec2(InventoryLayout::kSlot - 5.0f, InventoryLayout::kSlot - 13.0f),
+                 std::to_string(slot.count), kPanelInk, 1.0f, TextAlign::Right);
+        }
+        // Along the bottom: how fresh food is, how worn a weapon is.
+        const bool wears = item->category == ItemCategory::Weapon || item->spoilHours > 0.0f;
+        if (wears && slot.condition < 0.999f)
+        {
+            const float left01 = std::clamp(slot.condition, 0.0f, 1.0f);
+            const glm::vec4 color = left01 > 0.66f ? kPanelInk : left01 > 0.33f ? kPanelAmber : kPanelBad;
+            rect(pos + glm::vec2(5.0f, InventoryLayout::kSlot - 5.0f),
+                 glm::vec2(std::max(1.0f, std::round((InventoryLayout::kSlot - 10.0f) * left01)), 2.0f), color);
+        }
+        if (i == mEquippedWeaponSlot)
+        {
+            rect(pos + glm::vec2(InventoryLayout::kSlot - 11.0f, 5.0f), glm::vec2(6.0f), kPanelAmber);
         }
     }
-}
 
-void Game::renderInventoryOverlay()
-{
-    if (!mShowInventory || mShowCrafting || mRunState != RunState::Playing ||
-        mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
+    // The slot under the cursor.
+    rect(glm::vec2(left, layout.detailY - 18.0f), glm::vec2(innerW, 1.0f), kPanelRule);
+    const auto& slot = inv.slots[static_cast<std::size_t>(cursor)];
+    const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+    if (item == nullptr)
     {
-        return;
+        text(glm::vec2(left, layout.detailY + 4.0f), "Empty slot", kPanelDim, 2.0f);
     }
-
-    const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-    const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
-    const float centerX = layout.panelPos.x + layout.panelSize.x * 0.5f;
-
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + 20.0f, layout.titleY), "INVENTORY",
-                   glm::vec4(0.94f, 0.86f, 0.60f, 1.0f), 2.0f);
-
-    const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
-    std::ostringstream weightStr;
-    weightStr << std::fixed << std::setprecision(1) << weight << " / " << std::setprecision(0) << Inventory::kMaxCarryWeight << " kg";
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + layout.panelSize.x - 20.0f, layout.titleY + 4.0f), weightStr.str(),
-                   weight > Inventory::kMaxCarryWeight ? glm::vec4(0.95f, 0.45f, 0.35f, 1.0f) : glm::vec4(0.72f, 0.72f, 0.68f, 0.95f),
-                   1.0f, TextAlign::Right);
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + 20.0f, layout.weightY), "HOTBAR 1-8  /  BACKPACK",
-                   glm::vec4(0.56f, 0.56f, 0.52f, 0.9f), 1.0f);
-
-    for (int i = 0; i < Inventory::kMaxSlots; ++i)
+    else
     {
-        const glm::vec2 pos = layout.slotPos(i);
-        if (i < 8)
+        const glm::vec4 iconUv = mSpriteSheet.uvRect(item->sprite);
+        if (iconUv.z > 0.0f)
         {
-            mFont.drawText(mSpriteBatch, pos + glm::vec2(4.0f, 4.0f), std::to_string(i + 1),
-                           i == inv.activeSlot ? glm::vec4(0.98f, 0.84f, 0.38f, 1.0f) : glm::vec4(0.66f, 0.64f, 0.56f, 0.9f), 1.0f);
+            mSpriteBatch.draw(glm::vec2(left, layout.detailY), glm::vec2(64.0f), iconUv, glm::vec4(1.0f));
         }
-        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
-        if (slot.itemId >= 0 && slot.count > 1)
+        const float textX = left + 80.0f;
+        std::string title = item->name;
+        if (slot.count > 1) title += " x" + std::to_string(slot.count);
+        text(glm::vec2(textX, layout.detailY + 2.0f), fit(title, right - textX, 3.0f), kPanelInk, 3.0f);
+
+        std::string tag = itemCategoryLabel(item->category);
+        if (cursor == mEquippedWeaponSlot) tag += "  -  IN HAND";
+        text(glm::vec2(textX, layout.detailY + 32.0f), tag, kPanelAmber, 1.0f);
         {
-            mFont.drawText(mSpriteBatch, pos + glm::vec2(InventoryLayout::kSlot - 4.0f, InventoryLayout::kSlot - 14.0f),
-                           std::to_string(slot.count), glm::vec4(0.94f, 0.93f, 0.86f, 1.0f), 1.0f, TextAlign::Right);
+            std::ostringstream kg;
+            kg << std::fixed << std::setprecision(1) << item->weight * static_cast<float>(slot.count) << " kg";
+            text(glm::vec2(textX, layout.detailY + 46.0f), kg.str(), kPanelDim, 2.0f);
         }
-        else if (slot.itemId >= 0 && slot.count > 0)
+
+        float y = layout.detailY + 84.0f;
+        const float barX = left + 124.0f;
+        const float barW = innerW - 124.0f - 84.0f;
+        const auto stat = [&](const std::string& label, float ratio, const std::string& value, const glm::vec4& color)
         {
-            const ItemDef* item = mItemDatabase.find(slot.itemId);
-            if (item && mSpriteSheet.uvRect(item->sprite).z <= 0.0f)
+            text(glm::vec2(left, y), label, kPanelDim, 2.0f);
+            rect(glm::vec2(barX, y + 5.0f), glm::vec2(barW, 4.0f), kPanelTrack);
+            rect(glm::vec2(barX, y + 5.0f), glm::vec2(std::round(barW * std::clamp(ratio, 0.0f, 1.0f)), 4.0f), color);
+            text(glm::vec2(right, y), value, color, 2.0f, TextAlign::Right);
+            y += 24.0f;
+        };
+        const auto metres = [](float pixels)
+        {
+            std::ostringstream m;
+            m << std::fixed << std::setprecision(1) << pixels / 32.0f << " m";
+            return m.str();
+        };
+        const float left01 = std::clamp(slot.condition, 0.0f, 1.0f);
+        const glm::vec4 wearColor = left01 > 0.66f ? kPanelInk : left01 > 0.33f ? kPanelAmber : kPanelBad;
+        const std::string percent = std::to_string(static_cast<int>(std::round(left01 * 100.0f))) + "%";
+
+        if (item->category == ItemCategory::Weapon)
+        {
+            const WeaponStats stats = weaponStatsForItem(*item);
+            stat("Damage", stats.damage / 70.0f, std::to_string(static_cast<int>(std::round(stats.damage))), kPanelInk);
+            stat("Reach", stats.rangePixels / 96.0f, metres(stats.rangePixels), kPanelInk);
+            stat("Condition", left01, percent, wearColor);
+            if (stats.causesBleeding)
             {
-                mFont.drawText(mSpriteBatch, pos + glm::vec2(InventoryLayout::kSlot * 0.5f, 20.0f), item->name.substr(0, 3),
-                               glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 1.0f, TextAlign::Center);
+                text(glm::vec2(left, y), "Leaves them bleeding.", kPanelInk, 2.0f);
+                y += 24.0f;
+            }
+
+            // Against whatever is in hand now.
+            if (cursor != mEquippedWeaponSlot && mWorld.hasComponent<Combat>(mPlayerEntity))
+            {
+                const WeaponStats& held = mWorld.getComponent<Combat>(mPlayerEntity).weapon;
+                const ItemDef* heldItem = held.itemId >= 0 ? mItemDatabase.find(held.itemId) : nullptr;
+                y += 6.0f;
+                rect(glm::vec2(left, y), glm::vec2(innerW, 1.0f), kPanelRule);
+                y += 12.0f;
+                text(glm::vec2(left, y),
+                     fit("Against " + (heldItem != nullptr ? "the " + heldItem->name + " in hand" : std::string("bare hands")),
+                         innerW, 2.0f),
+                     kPanelDim, 2.0f);
+                y += 22.0f;
+                const int damage = static_cast<int>(std::round(stats.damage - held.damage));
+                const float reach = (stats.rangePixels - held.rangePixels) / 32.0f;
+                std::ostringstream reachStr;
+                reachStr << (reach >= 0.0f ? "+" : "") << std::fixed << std::setprecision(1) << reach << " m reach";
+                const std::string damageStr = (damage >= 0 ? "+" : "") + std::to_string(damage) + " damage";
+                text(glm::vec2(left, y), damageStr, damage >= 0 ? kPanelGood : kPanelBad, 2.0f);
+                text(glm::vec2(left + mFont.measureText(damageStr, 2.0f).x + 24.0f, y), reachStr.str(),
+                     reach >= 0.0f ? kPanelGood : kPanelBad, 2.0f);
+                y += 24.0f;
+            }
+        }
+        else
+        {
+            if (item->spoilHours > 0.0f)
+            {
+                stat("Freshness", left01, percent, wearColor);
+            }
+            const std::string effects = itemEffectSummary(*item);
+            if (!effects.empty())
+            {
+                // One effect to a line.
+                std::istringstream parts(effects);
+                std::string part;
+                while (std::getline(parts, part, ','))
+                {
+                    const std::size_t start = part.find_first_not_of(' ');
+                    text(glm::vec2(left, y), fit(part.substr(start == std::string::npos ? 0 : start), innerW, 2.0f),
+                         kPanelInk, 2.0f);
+                    y += 22.0f;
+                }
             }
         }
     }
 
-    // Details for the slot under the cursor.
-    const int cursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
-    const auto& slot = inv.slots[static_cast<std::size_t>(cursor)];
-    const ItemDef* item = (slot.itemId >= 0 && slot.count > 0) ? mItemDatabase.find(slot.itemId) : nullptr;
-    if (item)
-    {
-        std::string title = item->name;
-        if (slot.count > 1) title += " x" + std::to_string(slot.count);
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY), truncateHudText(title, 24),
-                       glm::vec4(1.0f, 0.96f, 0.80f, 1.0f), 2.0f, TextAlign::Center);
-
-        std::ostringstream info;
-        info << std::fixed << std::setprecision(1) << item->weight * static_cast<float>(slot.count) << " kg";
-        if (item->spoilHours > 0.0f)
-        {
-            info << "  |  " << static_cast<int>(std::round(std::clamp(slot.condition, 0.0f, 1.0f) * 100.0f)) << "% fresh";
-        }
-        const std::string effects = itemEffectSummary(*item);
-        if (!effects.empty())
-        {
-            info << "  |  " << effects;
-        }
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY + 24.0f), truncateHudText(info.str(), 52),
-                       glm::vec4(0.70f, 0.74f, 0.70f, 0.95f), 1.0f, TextAlign::Center);
-    }
-    else
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY + 4.0f), "Empty slot",
-                       glm::vec4(0.50f, 0.50f, 0.48f, 0.9f), 2.0f, TextAlign::Center);
-    }
-
-    mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.footerY),
-                   "Click/F use  -  Right click swap  -  Tab close",
-                   glm::vec4(0.54f, 0.54f, 0.50f, 0.9f), 1.0f, TextAlign::Center);
+    text(glm::vec2(left, layout.footerY), fit("F use   Enter swap with belt   Tab close", innerW, 2.0f), kPanelDim, 2.0f);
 }
 
 Game::CraftingLayout Game::craftingLayout() const
@@ -773,26 +883,27 @@ Game::CraftingLayout Game::craftingLayout() const
     CraftingLayout layout;
     const float w = static_cast<float>(mWindowWidth);
     const float h = static_cast<float>(mWindowHeight);
-    layout.size = glm::vec2(std::min(980.0f, w - 32.0f), std::min(620.0f, h - 48.0f));
-    layout.pos = glm::floor((glm::vec2(w, h) - layout.size) * 0.5f);
+    layout.size = glm::vec2(dockedPanelWidth(true, mWindowWidth), h);
+    layout.pos = glm::vec2(w - layout.size.x, 0.0f);
+    const float left = layout.pos.x + InventoryLayout::kPadding;
+    const float right = layout.pos.x + layout.size.x - InventoryLayout::kPadding;
 
-    // Category tabs, right-aligned in the header.
-    float tabRight = layout.pos.x + layout.size.x - 24.0f;
-    for (int i = 2; i >= 0; --i)
+    // Category tabs in a row under the header.
+    float tabX = left;
+    for (int i = 0; i < 3; ++i)
     {
-        const float tabW = mFont.measureText(craftingCategoryLabel(i), 2.0f).x + 24.0f;
-        tabRight -= tabW;
-        layout.tabs[static_cast<std::size_t>(i)] = glm::vec4(tabRight, layout.pos.y + 18.0f, tabW, 30.0f);
-        tabRight -= 6.0f;
+        const float tabW = mFont.measureText(craftingCategoryLabel(i), 2.0f).x;
+        layout.tabs[static_cast<std::size_t>(i)] = glm::vec4(tabX - 6.0f, 74.0f, tabW + 12.0f, 28.0f);
+        tabX += tabW + 22.0f;
     }
 
-    layout.footerY = layout.pos.y + layout.size.y - 44.0f;
-    layout.listPos = glm::vec2(layout.pos.x + 16.0f, layout.pos.y + 76.0f);
-    layout.listW = 330.0f;
-    layout.rowH = 40.0f;
+    layout.footerY = h - 40.0f;
+    layout.listPos = glm::vec2(left, 116.0f);
+    layout.listW = std::min(262.0f, (right - left) * 0.42f);
+    layout.rowH = 44.0f;
     layout.maxRows = std::max(1, static_cast<int>((layout.footerY - 8.0f - layout.listPos.y) / layout.rowH));
-    layout.detailPos = glm::vec2(layout.listPos.x + layout.listW + 24.0f, layout.pos.y + 80.0f);
-    layout.detailW = layout.pos.x + layout.size.x - 24.0f - layout.detailPos.x;
+    layout.detailPos = glm::vec2(layout.listPos.x + layout.listW + 24.0f, 118.0f);
+    layout.detailW = right - layout.detailPos.x;
     layout.detailBottom = layout.footerY - 12.0f;
     return layout;
 }
@@ -816,11 +927,11 @@ void Game::renderCraftingOverlay()
     const CraftingLayout layout = craftingLayout();
 
     const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
-    const glm::vec4 ink(0.90f, 0.88f, 0.80f, 1.0f);
-    const glm::vec4 dimInk(0.62f, 0.60f, 0.55f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
-    const glm::vec4 good(0.50f, 0.86f, 0.48f, 1.0f);
-    const glm::vec4 bad(0.94f, 0.46f, 0.40f, 1.0f);
+    const glm::vec4 ink = kPanelInk;
+    const glm::vec4 dimInk = kPanelDim;
+    const glm::vec4 gold = kPanelAmber;
+    const glm::vec4 good = kPanelGood;
+    const glm::vec4 bad = kPanelBad;
     const float bodyLine = mFont.lineHeight(2.0f) + 6.0f;
 
     const auto rect = [&](const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color)
@@ -861,7 +972,6 @@ void Game::renderCraftingOverlay()
     const auto itemIcon = [&](const glm::vec2& pos, float size, int itemId, float alpha)
     {
         const ItemDef* def = mItemDatabase.find(itemId);
-        rect(pos, glm::vec2(size), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
         if (def != nullptr && !def->sprite.empty())
         {
             mSpriteBatch.draw(pos, glm::vec2(size), mSpriteSheet.uvRect(def->sprite), glm::vec4(1.0f, 1.0f, 1.0f, alpha));
@@ -869,16 +979,15 @@ void Game::renderCraftingOverlay()
     };
     const auto unknownIcon = [&](const glm::vec2& pos, float size)
     {
-        rect(pos, glm::vec2(size), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
         const float scale = size >= 48.0f ? 4.0f : 2.0f;
         const glm::vec2 q = mFont.measureText("?", scale);
         text(glm::floor(pos + (glm::vec2(size) - q) * 0.5f), "?", dimInk, scale);
     };
     const auto heading = [&](float x, float y, float width, const std::string& s)
     {
-        text(glm::vec2(x, y), s, gold, 1.0f);
+        text(glm::vec2(x, y), s, dimInk, 1.0f);
         const float end = x + mFont.measureText(s, 1.0f).x + 10.0f;
-        rect(glm::vec2(end, y + 4.0f), glm::vec2(x + width - end, 1.0f), glm::vec4(gold.r, gold.g, gold.b, 0.35f));
+        rect(glm::vec2(end, y + 4.0f), glm::vec2(x + width - end, 1.0f), kPanelRule);
     };
     const auto isDiscovered = [&](const CraftingRecipe& recipe)
     {
@@ -907,43 +1016,36 @@ void Game::renderCraftingOverlay()
     const bool hasNotebook = notebookDef != nullptr && InventorySystem::countItem(inv, notebookDef->id) > 0;
     const bool nearWorkbench = hasNearbyWorkbench(mWorld, mPlayerEntity);
 
-    // Backdrop and panel.
-    rect(glm::vec2(0.0f), glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
-         glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
-    rect(layout.pos, layout.size, glm::vec4(0.06f, 0.055f, 0.05f, 0.97f));
-    rect(layout.pos, glm::vec2(layout.size.x, 3.0f), gold);
-
-    // Header: title and category tabs (the notebook view has no tabs).
-    text(layout.pos + glm::vec2(24.0f, 20.0f), "CRAFTING", gold, 3.0f);
+    // Backing and header; the world stays in view to the left.
+    renderDockedHeader(layout.pos, layout.size.x, true);
+    for (int i = 0; i < 3; ++i)
     {
-        for (int i = 0; i < 3; ++i)
+        const glm::vec4 tab = layout.tabs[static_cast<std::size_t>(i)];
+        const bool active = i == mCraftingCategory;
+        text(glm::vec2(tab.x + 6.0f, tab.y + 4.0f), craftingCategoryLabel(i), active ? gold : dimInk, 2.0f);
+        if (active)
         {
-            const glm::vec4 tab = layout.tabs[static_cast<std::size_t>(i)];
-            const bool active = i == mCraftingCategory;
-            rect(glm::vec2(tab.x, tab.y), glm::vec2(tab.z, tab.w),
-                 active ? glm::vec4(0.20f, 0.16f, 0.09f, 1.0f) : glm::vec4(0.09f, 0.085f, 0.08f, 1.0f));
-            if (active)
-            {
-                rect(glm::vec2(tab.x, tab.y + tab.w - 2.0f), glm::vec2(tab.z, 2.0f), gold);
-            }
-            text(glm::vec2(tab.x + 12.0f, tab.y + 6.0f), craftingCategoryLabel(i), active ? gold : dimInk, 2.0f);
+            rect(glm::vec2(tab.x + 6.0f, tab.y + 22.0f), glm::vec2(tab.z - 12.0f, 2.0f), gold);
         }
     }
-    rect(glm::vec2(layout.pos.x + 16.0f, layout.pos.y + 64.0f), glm::vec2(layout.size.x - 32.0f, 1.0f),
-         glm::vec4(gold.r, gold.g, gold.b, 0.25f));
 
     // Footer: the keys.
-    rect(glm::vec2(layout.pos.x + 16.0f, layout.footerY), glm::vec2(layout.size.x - 32.0f, 1.0f),
-         glm::vec4(gold.r, gold.g, gold.b, 0.25f));
     {
-        const std::string keys = "W/S choose   A/D tab   Enter craft   +/- amount   X stop   N close";
-        const float scale = mFont.measureText(keys, 2.0f).x <= layout.size.x - 48.0f ? 2.0f : 1.0f;
-        text(glm::vec2(layout.pos.x + 24.0f, layout.footerY + 14.0f), keys, dimInk, scale);
+        const float footW = layout.size.x - InventoryLayout::kPadding * 2.0f;
+        const std::string keys = "W/S choose  A/D kind  Enter make  +/- amount  X stop  N close";
+        const float scale = mFont.measureText(keys, 2.0f).x <= footW ? 2.0f : 1.0f;
+        text(glm::vec2(layout.pos.x + InventoryLayout::kPadding, layout.footerY + (scale > 1.0f ? 4.0f : 8.0f)), keys,
+             dimInk, scale);
     }
 
     const float dx = layout.detailPos.x;
     const float dy = layout.detailPos.y;
     const float dw = layout.detailW;
+    // A name beside the big icon: large if it fits, otherwise the body size.
+    const auto titleScale = [&](const std::string& s)
+    {
+        return mFont.measureText(s, 3.0f).x <= dw - 80.0f ? 3.0f : 2.0f;
+    };
 
     // Recipe list.
     const int count = static_cast<int>(visible.size());
@@ -965,14 +1067,12 @@ void Game::renderCraftingOverlay()
                                (!recipe.requiresWorkbench || nearWorkbench);
         const glm::vec2 rowPos = layout.listPos + glm::vec2(0.0f, static_cast<float>(row) * layout.rowH);
 
-        rect(rowPos, glm::vec2(layout.listW, layout.rowH - 2.0f),
-             selected ? glm::vec4(0.19f, 0.15f, 0.09f, 1.0f) : glm::vec4(0.085f, 0.08f, 0.072f, 1.0f));
         if (selected)
         {
-            rect(rowPos, glm::vec2(3.0f, layout.rowH - 2.0f), gold);
+            rect(rowPos, glm::vec2(layout.listW, layout.rowH - 2.0f), ink);
         }
 
-        const glm::vec2 iconPos = rowPos + glm::vec2(8.0f, 3.0f);
+        const glm::vec2 iconPos = rowPos + glm::vec2(8.0f, 5.0f);
         std::string label;
         if (known)
         {
@@ -985,9 +1085,12 @@ void Game::renderCraftingOverlay()
             std::string clue;
             label = itemName(heldHalf(recipe, clue)) + " + ?";
         }
-        text(rowPos + glm::vec2(50.0f, 11.0f), fit(label, layout.listW - 50.0f - 24.0f, 2.0f), known ? ink : dimInk, 2.0f);
-        rect(rowPos + glm::vec2(layout.listW - 16.0f, 15.0f), glm::vec2(8.0f),
-             craftable ? good : (known ? glm::vec4(0.55f, 0.30f, 0.26f, 1.0f) : glm::vec4(0.32f, 0.31f, 0.29f, 1.0f)));
+        // Name, and under it where the recipe stands.
+        const glm::vec4 nameColor = selected ? kPanelOnInk : (known ? ink : dimInk);
+        const glm::vec4 stateColor = selected ? kPanelOnInk : (craftable ? good : (known ? gold : dimInk));
+        text(rowPos + glm::vec2(50.0f, 6.0f), fit(label, layout.listW - 50.0f - 8.0f, 2.0f), nameColor, 2.0f);
+        text(rowPos + glm::vec2(50.0f, 26.0f), craftable ? "Ready" : (known ? "Missing something" : "A hunch"),
+             stateColor, 1.0f);
     }
     if (first > 0)
     {
@@ -1032,7 +1135,7 @@ void Game::renderCraftingOverlay()
     {
         // Half a recipe: what you hold and a clue to the rest.
         unknownIcon(glm::vec2(dx, dy), 64.0f);
-        text(glm::vec2(dx + 80.0f, dy + 6.0f), "Unknown recipe", ink, 3.0f);
+        text(glm::vec2(dx + 80.0f, dy + 6.0f), "Unknown recipe", ink, titleScale("Unknown recipe"));
         std::string clue;
         const std::string held = itemName(heldHalf(recipe, clue));
         text(glm::vec2(dx + 80.0f, dy + 40.0f), fit("Something goes with your " + held + ".", dw - 80.0f, 2.0f), dimInk, 2.0f);
@@ -1063,7 +1166,8 @@ void Game::renderCraftingOverlay()
 
     // A known recipe: what it makes and what it takes.
     itemIcon(glm::vec2(dx, dy), 64.0f, recipe.outputItemId, 1.0f);
-    text(glm::vec2(dx + 80.0f, dy + 6.0f), fit(recipe.label, dw - 80.0f, 3.0f), ink, 3.0f);
+    text(glm::vec2(dx + 80.0f, dy + (titleScale(recipe.label) > 2.0f ? 6.0f : 12.0f)),
+         fit(recipe.label, dw - 80.0f, titleScale(recipe.label)), ink, titleScale(recipe.label));
     {
         std::string sub = std::string(recipe.category == "MED" ? "Medical" : "Tools") + "  -  " +
                           std::to_string(recipe.craftTimeSeconds) + " s";
@@ -1111,11 +1215,10 @@ void Game::renderCraftingOverlay()
     }
     if (recipe.requiresWorkbench)
     {
-        rect(glm::vec2(dx, y), glm::vec2(32.0f), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
         rect(glm::vec2(dx + 6.0f, y + 12.0f), glm::vec2(20.0f, 4.0f), nearWorkbench ? ink : dimInk);
         rect(glm::vec2(dx + 8.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
         rect(glm::vec2(dx + 21.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
-        text(glm::vec2(dx + 44.0f, y + 8.0f), "Workbench (a supply cache you built)", nearWorkbench ? ink : dimInk, 2.0f);
+        text(glm::vec2(dx + 44.0f, y + 8.0f), "Workbench", nearWorkbench ? ink : dimInk, 2.0f);
         textRight(dx + dw, y + 8.0f, nearWorkbench ? "nearby" : "too far", nearWorkbench ? good : bad, 2.0f);
         if (!nearWorkbench && missing.empty()) missing = "a workbench nearby";
         y += 38.0f;
@@ -1132,22 +1235,24 @@ void Game::renderCraftingOverlay()
         std::string status = "Making " + recipe.label + "...  " + std::to_string(std::max(0, left)) + " s";
         if (mCraftQueue.front().remaining > 1) status += "  (" + std::to_string(mCraftQueue.front().remaining) + " to go)";
         text(glm::vec2(dx, actionY), fit(status, dw, 2.0f), ink, 2.0f);
-        rect(glm::vec2(dx, actionY + 26.0f), glm::vec2(dw, 10.0f), glm::vec4(0.12f, 0.11f, 0.10f, 1.0f));
-        rect(glm::vec2(dx, actionY + 26.0f), glm::vec2(std::floor(dw * progress), 10.0f), gold);
+        rect(glm::vec2(dx, actionY + 28.0f), glm::vec2(dw, 4.0f), kPanelTrack);
+        rect(glm::vec2(dx, actionY + 28.0f), glm::vec2(std::floor(dw * progress), 4.0f), gold);
     }
     else if (missing.empty())
     {
         // Amount, then the craft button.
         const std::string amount = "- " + std::to_string(mCraftingQuantity) + " +";
         const float amountW = mFont.measureText(amount, 2.0f).x + 24.0f;
-        rect(glm::vec2(dx, actionY), glm::vec2(amountW, 36.0f), glm::vec4(0.10f, 0.095f, 0.09f, 1.0f));
-        text(glm::vec2(dx + 12.0f, actionY + 9.0f), amount, ink, 2.0f);
+        rect(glm::vec2(dx, actionY), glm::vec2(amountW, 1.0f), kPanelRule);
+        rect(glm::vec2(dx, actionY + 35.0f), glm::vec2(amountW, 1.0f), kPanelRule);
+        rect(glm::vec2(dx, actionY), glm::vec2(1.0f, 36.0f), kPanelRule);
+        rect(glm::vec2(dx + amountW - 1.0f, actionY), glm::vec2(1.0f, 36.0f), kPanelRule);
+        text(glm::vec2(dx + 12.0f, actionY + 11.0f), amount, ink, 2.0f);
         const float buttonX = dx + amountW + 8.0f;
-        rect(glm::vec2(buttonX, actionY), glm::vec2(dx + dw - buttonX, 36.0f), glm::vec4(0.22f, 0.18f, 0.09f, 1.0f));
-        rect(glm::vec2(buttonX, actionY + 34.0f), glm::vec2(dx + dw - buttonX, 2.0f), gold);
-        const std::string label = "Enter: craft " + std::to_string(mCraftingQuantity) + "x";
-        text(glm::vec2(std::floor(buttonX + (dx + dw - buttonX - mFont.measureText(label, 2.0f).x) * 0.5f), actionY + 9.0f),
-             label, gold, 2.0f);
+        rect(glm::vec2(buttonX, actionY), glm::vec2(dx + dw - buttonX, 36.0f), ink);
+        const std::string label = "Enter  Make " + std::to_string(mCraftingQuantity);
+        text(glm::vec2(std::floor(buttonX + (dx + dw - buttonX - mFont.measureText(label, 2.0f).x) * 0.5f), actionY + 11.0f),
+             label, kPanelOnInk, 2.0f);
     }
     else
     {
@@ -1217,9 +1322,9 @@ void Game::renderContainerOverlay()
     const float listY = panelY + 40.0f;
     const float panelH = 40.0f + static_cast<float>(std::max<std::size_t>(1, lines.size())) * itemLine + 26.0f;
 
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.06f, 0.055f, 0.05f, 0.94f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, 2.0f), uiUv, glm::vec4(0.95f, 0.84f, 0.56f, 1.0f));
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + 12.0f), header, glm::vec4(0.95f, 0.84f, 0.56f, 1.0f), kItemScale);
+    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, kPanelBack);
+    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + 12.0f), header, kPanelInk, kItemScale);
+    mSpriteBatch.draw(glm::vec2(panelX + 16.0f, panelY + 33.0f), glm::vec2(panelW - 32.0f, 1.0f), uiUv, kPanelRule);
 
     float y = listY;
     for (std::size_t i = 0; i < lines.size(); ++i)
@@ -1227,22 +1332,20 @@ void Game::renderContainerOverlay()
         const bool selected = static_cast<int>(i) == mContainerCursor;
         if (selected)
         {
-            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 2.0f), glm::vec2(panelW - 16.0f, itemLine), uiUv,
-                              glm::vec4(0.95f, 0.84f, 0.56f, 0.16f));
-            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 2.0f), glm::vec2(2.0f, itemLine), uiUv,
-                              glm::vec4(0.95f, 0.84f, 0.56f, 0.9f));
+            // The chosen line is inverted, as in the pack and crafting.
+            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 3.0f), glm::vec2(panelW - 16.0f, itemLine), uiUv, kPanelInk);
         }
-        const glm::vec4 color = selected ? glm::vec4(1.0f, 0.97f, 0.86f, 1.0f) : glm::vec4(0.76f, 0.75f, 0.70f, 1.0f);
+        const glm::vec4 color = selected ? kPanelOnInk : kPanelInk;
         mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), lines[i], color, kItemScale);
         y += itemLine;
     }
     if (lines.empty())
     {
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "Empty", glm::vec4(0.56f, 0.55f, 0.52f, 1.0f), kItemScale);
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "Empty", kPanelDim, kItemScale);
     }
 
     mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + panelH - 18.0f), hint,
-                   glm::vec4(0.66f, 0.64f, 0.58f, 1.0f), 1.0f);
+                   kPanelDim, 1.0f);
 }
 
 void Game::renderBuildModeOverlay()
@@ -1252,19 +1355,26 @@ void Game::renderBuildModeOverlay()
         return;
     }
 
-    constexpr float kSmallScale = 1.5f;
-    const float panelX = 12.0f;
-    float y = static_cast<float>(mWindowHeight) - 120.0f;
+    // Top-left, straight on the world like the rest of the HUD (the health
+    // lines have the bottom-left corner).
+    const float panelX = Hud::kEdge;
+    float y = Hud::kEdge + 28.0f;
+    const auto put = [&](const std::string& text, const glm::vec4& color, float scale)
+    {
+        const float offset = scale >= 2.0f ? 2.0f : 1.0f;
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y) + glm::vec2(offset), text,
+                       glm::vec4(0.0f, 0.0f, 0.0f, 0.85f * color.a), scale);
+        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), text, color, scale);
+    };
 
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "BUILD MODE", glm::vec4(0.9f, 0.8f, 0.3f, 1.0f), 2.0f);
-    y += 22.0f;
+    put("BUILD", kPanelAmber, 2.0f);
+    y += 24.0f;
 
     for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
     {
         const auto& recipe = BuildSystem::kRecipes[i];
         const bool selected = (i == mBuildSystem.selectedRecipe());
 
-        // Check if player has enough materials
         bool canAfford = false;
         if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
         {
@@ -1272,21 +1382,17 @@ void Game::renderBuildModeOverlay()
             canAfford = InventorySystem::countItem(inv, recipe.materialId) >= recipe.materialCost;
         }
 
-        std::string line = std::to_string(i + 1) + ": " + std::string(recipe.name) + " (" + std::to_string(recipe.materialCost) + " mat)";
-        glm::vec4 color;
-        if (selected)
-        {
-            color = canAfford ? glm::vec4(0.3f, 1.0f, 0.4f, 1.0f) : glm::vec4(1.0f, 0.5f, 0.4f, 1.0f);
-        }
-        else
-        {
-            color = canAfford ? glm::vec4(0.4f, 0.75f, 0.45f, 0.85f) : glm::vec4(0.5f, 0.5f, 0.5f, 0.6f);
-        }
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), line, color, kSmallScale);
-        y += 16.0f;
+        const std::string line = std::to_string(i + 1) + "  " + std::string(recipe.name) + "  (" +
+                                 std::to_string(recipe.materialCost) + ")";
+        // The chosen one in full colour: green if you can pay for it, red if not.
+        const glm::vec4 color = selected ? (canAfford ? kPanelGood : kPanelBad)
+                                         : (canAfford ? kPanelInk : kPanelDim);
+        put(line, color, 2.0f);
+        y += 20.0f;
     }
 
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y + 2.0f), "Click: Place  |  B/ESC: Cancel", glm::vec4(0.5f, 0.5f, 0.45f, 0.8f), 1.0f);
+    y += 4.0f;
+    put("Click place   B or Esc cancel", kPanelDim, 1.0f);
 }
 
 void Game::renderPauseOverlay()
@@ -1306,20 +1412,19 @@ void Game::renderPauseOverlay()
         glm::vec4(0.0f, 0.0f, 0.0f, 0.65f));
 
     const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight);
-    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.06f, 0.07f, 0.10f, 0.94f));
-    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, kPanelBack);
     mSpriteBatch.draw(
         glm::vec2(layout.panelPos.x + 20.0f, layout.optionsY - 10.0f),
         glm::vec2(layout.panelSize.x - 40.0f, 1.0f),
         uiUv,
-        glm::vec4(0.72f, 0.62f, 0.40f, 0.35f));
+        kPanelRule);
 
-    // Highlight selected option
+    // The chosen option is inverted
     mSpriteBatch.draw(
         glm::vec2(layout.panelPos.x + 60.0f, layout.optionsY + static_cast<float>(mPauseSelection) * PauseLayout::kOptionH),
         glm::vec2(layout.panelSize.x - 120.0f, PauseLayout::kOptionH - 2.0f),
         uiUv,
-        glm::vec4(0.25f, 0.4f, 0.55f, 0.5f));
+        kPanelInk);
 }
 
 void Game::renderTitleScreen()
@@ -1334,9 +1439,9 @@ void Game::renderTitleScreen()
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
     const float w = static_cast<float>(mWindowWidth);
     const float h = static_cast<float>(mWindowHeight);
-    const glm::vec4 ink(0.92f, 0.90f, 0.84f, 1.0f);
-    const glm::vec4 dimInk(0.62f, 0.61f, 0.57f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const glm::vec4 ink = kPanelInk;
+    const glm::vec4 dimInk = kPanelDim;
+    const glm::vec4 gold = kPanelAmber;
     const glm::vec4 red(0.90f, 0.30f, 0.24f, 1.0f);
 
     constexpr int kStrips = 48;
@@ -1407,19 +1512,18 @@ void Game::renderTitleScreen()
         const bool disabled = i == 0 && !mTitleHasCheckpoint;
         if (selected)
         {
-            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 5.0f), glm::vec2(rowW, rowH - 2.0f), uiUv,
-                              glm::vec4(gold.r, gold.g, gold.b, 0.13f));
-            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 5.0f), glm::vec2(3.0f, rowH - 2.0f), uiUv, gold);
+            // The chosen row is inverted.
+            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 6.0f), glm::vec2(rowW, rowH - 2.0f), uiUv, ink);
         }
-        glm::vec4 color = selected ? glm::vec4(1.0f, 0.97f, 0.86f, 1.0f) : glm::vec4(0.78f, 0.77f, 0.72f, 1.0f);
-        if (disabled) color = glm::vec4(0.42f, 0.41f, 0.39f, 1.0f);
+        glm::vec4 color = selected ? kPanelOnInk : ink;
+        if (disabled) color = selected ? glm::vec4(0.40f, 0.40f, 0.40f, 1.0f) : glm::vec4(0.42f, 0.41f, 0.39f, 1.0f);
         mFont.drawText(mSpriteBatch, glm::vec2(left, rowY), kTitleMenuItems[static_cast<std::size_t>(i)], color, 2.0f);
 
         const std::string value = valueOf(i);
         if (!value.empty())
         {
             mFont.drawText(mSpriteBatch, glm::vec2(valueX, rowY), selected ? "< " + value + " >" : value,
-                           selected ? gold : dimInk, 2.0f);
+                           selected ? kPanelOnInk : dimInk, 2.0f);
         }
     }
     y += static_cast<float>(kTitleMenuItems.size()) * rowH + 12.0f;
@@ -1506,9 +1610,8 @@ void Game::renderTitleScreen()
         const float cardY = h - 56.0f - cardH;
         if (cardX > left + rowW + 24.0f || cardY > y + 12.0f)
         {
-            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, cardH), uiUv, glm::vec4(0.04f, 0.04f, 0.045f, 0.86f));
-            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, 2.0f), uiUv, gold);
-            mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, cardY + 14.0f), "THE TOWN REMEMBERS", gold, 1.0f);
+            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, cardH), uiUv, kPanelBack);
+            mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, cardY + 14.0f), "THE TOWN REMEMBERS", dimInk, 1.0f);
             float ly = cardY + 34.0f;
             for (const auto& [text, color] : lines)
             {
@@ -1534,7 +1637,7 @@ void Game::renderTitleScreen()
         const float alpha = std::clamp(mTitleStatusTimer / 0.4f, 0.0f, 1.0f);
         const glm::vec2 size = mFont.measureText(mTitleStatusMessage, 2.0f);
         const glm::vec2 pos(std::floor((w - size.x) * 0.5f), h - 92.0f);
-        mSpriteBatch.draw(pos - glm::vec2(14.0f, 8.0f), size + glm::vec2(28.0f, 16.0f), uiUv, glm::vec4(0.04f, 0.04f, 0.045f, 0.9f * alpha));
+        mSpriteBatch.draw(pos - glm::vec2(14.0f, 8.0f), size + glm::vec2(28.0f, 16.0f), uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.9f * alpha));
         mFont.drawText(mSpriteBatch, pos, mTitleStatusMessage, glm::vec4(gold.r, gold.g, gold.b, alpha), 2.0f);
     }
 
@@ -1542,10 +1645,9 @@ void Game::renderTitleScreen()
     {
         const glm::vec2 size(std::min(560.0f, w - 40.0f), 220.0f);
         const glm::vec2 pos(std::floor((w - size.x) * 0.5f), std::floor((h - size.y) * 0.5f));
-        mSpriteBatch.draw(pos, size, uiUv, glm::vec4(0.05f, 0.045f, 0.045f, 0.97f));
-        mSpriteBatch.draw(pos, glm::vec2(size.x, 3.0f), uiUv, gold);
+        mSpriteBatch.draw(pos, size, uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.97f));
         const float cx = pos.x + size.x * 0.5f;
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 24.0f), "CREDITS", gold, 3.0f, TextAlign::Center);
+        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 24.0f), "CREDITS", ink, 3.0f, TextAlign::Center);
         mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 74.0f), "Dead Pixel Survival", ink, 2.0f, TextAlign::Center);
         mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 102.0f), "Design and code: L. Bartolome", dimInk, 2.0f, TextAlign::Center);
         mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 128.0f), "C++20, SDL2, OpenGL", dimInk, 2.0f, TextAlign::Center);
@@ -1562,13 +1664,12 @@ void Game::renderControlsPanel()
 
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
     const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
-    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.05f, 0.06f, 0.09f, 0.94f));
-    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.95f));
     mSpriteBatch.draw(
         glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.rowsY),
         glm::vec2(1.0f, ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) - 4.0f),
         uiUv,
-        glm::vec4(0.72f, 0.62f, 0.40f, 0.3f));
+        kPanelRule);
 }
 
 void Game::renderControlsOverlay()
@@ -1579,9 +1680,9 @@ void Game::renderControlsOverlay()
     }
 
     const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
-    const glm::vec4 headerColor(0.94f, 0.86f, 0.60f, 1.0f);
-    const glm::vec4 keyColor(0.98f, 0.84f, 0.38f, 1.0f);
-    const glm::vec4 textColor(0.80f, 0.80f, 0.76f, 0.95f);
+    const glm::vec4 headerColor = kPanelInk;
+    const glm::vec4 keyColor = kPanelAmber;
+    const glm::vec4 textColor = kPanelInk;
 
     mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.panelPos.y + 18.0f),
                    "CONTROLS", headerColor, 3.0f, TextAlign::Center);

@@ -412,35 +412,87 @@ inline ThreatBehaviorTuning computeThreatBehaviorTuning(
     return tuning;
 }
 
-// Inventory grid geometry shared by input hit-testing and both render passes.
-// Slots 1-8 (the first two rows) are the hotbar.
+// The interface's colours: off-white on near-black, amber for what needs
+// attention, nothing edged in gold.
+inline const glm::vec4 kPanelBack(0.04f, 0.047f, 0.055f, 0.90f);
+inline const glm::vec4 kPanelInk(0.96f, 0.95f, 0.93f, 1.0f);
+inline const glm::vec4 kPanelDim(0.66f, 0.65f, 0.61f, 1.0f);
+inline const glm::vec4 kPanelAmber(0.94f, 0.71f, 0.30f, 1.0f);
+inline const glm::vec4 kPanelGood(0.62f, 0.86f, 0.60f, 1.0f);
+inline const glm::vec4 kPanelBad(1.0f, 0.54f, 0.44f, 1.0f);
+inline const glm::vec4 kPanelRule(0.96f, 0.95f, 0.93f, 0.22f);
+inline const glm::vec4 kPanelTrack(0.96f, 0.95f, 0.93f, 0.20f);
+inline const glm::vec4 kPanelOnInk(0.05f, 0.06f, 0.07f, 1.0f); // text on a selected (inverted) row
+
+// How wide the panel docked to the right edge is: the pack, or the wider
+// crafting panel. The world stays visible to its left.
+inline float dockedPanelWidth(bool crafting, int windowWidth)
+{
+    return std::min(crafting ? 700.0f : 540.0f, std::max(320.0f, static_cast<float>(windowWidth) - 220.0f));
+}
+
+// Pack geometry shared by input hit-testing and drawing. The panel is docked
+// to the right edge. Slots 8-19 are what is carried, in two rows of six;
+// slots 0-7 are the belt (keys 1-8), in one row under them.
 struct InventoryLayout
 {
     glm::vec2 panelPos{0.0f};
     glm::vec2 panelSize{0.0f};
-    glm::vec2 gridPos{0.0f};
+    glm::vec2 gridPos{0.0f}; // top-left of the first carried row
     float titleY = 0.0f;
-    float weightY = 0.0f;
+    float carriedLabelY = 0.0f;
+    float beltLabelY = 0.0f;
     float detailY = 0.0f;
     float footerY = 0.0f;
-    static constexpr int kColumns = 4;
-    static constexpr int kRows = 5;
-    static constexpr float kSlot = 48.0f;
+    static constexpr int kBeltSlots = 8;
+    static constexpr int kCarriedColumns = 6;
+    static constexpr int kVisualRows = 3; // two carried rows, then the belt
+    static constexpr float kSlot = 52.0f;
     static constexpr float kGap = 6.0f;
+    static constexpr float kPadding = 28.0f;
+    static constexpr float kBeltOffset = 2.0f * (kSlot + kGap) + 32.0f; // belt row, below the carried rows
+
+    // Which row a slot is drawn in, top to bottom, and where along it.
+    [[nodiscard]] static int visualRow(int index) { return index < kBeltSlots ? 2 : (index - kBeltSlots) / kCarriedColumns; }
+    [[nodiscard]] static int visualColumn(int index)
+    {
+        return index < kBeltSlots ? index : (index - kBeltSlots) % kCarriedColumns;
+    }
+    [[nodiscard]] static int rowLength(int row) { return row == 2 ? kBeltSlots : kCarriedColumns; }
+    [[nodiscard]] static int slotIn(int row, int column)
+    {
+        return row == 2 ? column : kBeltSlots + row * kCarriedColumns + column;
+    }
+
+    // The slot one step from `index`: left/right wrap along the row, up/down
+    // go to the slot directly above or below (the rows differ in length).
+    [[nodiscard]] static int neighbour(int index, int dx, int dy)
+    {
+        int row = visualRow(index);
+        int column = visualColumn(index);
+        if (dx != 0)
+        {
+            const int length = rowLength(row);
+            column = (column + dx % length + length) % length;
+        }
+        if (dy != 0)
+        {
+            row = (row + dy % kVisualRows + kVisualRows) % kVisualRows;
+            column = std::min(column, rowLength(row) - 1);
+        }
+        return slotIn(row, column);
+    }
 
     [[nodiscard]] glm::vec2 slotPos(int index) const
     {
-        const int column = index % kColumns;
-        const int row = index / kColumns;
-        // A little extra space separates the hotbar rows from the backpack.
-        const float hotbarGap = row >= 2 ? 10.0f : 0.0f;
-        return gridPos + glm::vec2(static_cast<float>(column) * (kSlot + kGap),
-                                   static_cast<float>(row) * (kSlot + kGap) + hotbarGap);
+        const float x = static_cast<float>(visualColumn(index)) * (kSlot + kGap);
+        const int row = visualRow(index);
+        return gridPos + glm::vec2(x, row == 2 ? kBeltOffset : static_cast<float>(row) * (kSlot + kGap));
     }
 
     [[nodiscard]] int slotAt(const glm::vec2& point) const
     {
-        for (int i = 0; i < kColumns * kRows; ++i)
+        for (int i = 0; i < kBeltSlots + 2 * kCarriedColumns; ++i)
         {
             const glm::vec2 pos = slotPos(i);
             if (point.x >= pos.x && point.x < pos.x + kSlot && point.y >= pos.y && point.y < pos.y + kSlot)
@@ -455,18 +507,14 @@ struct InventoryLayout
 inline InventoryLayout computeInventoryLayout(int windowWidth, int windowHeight)
 {
     InventoryLayout layout;
-    const float gridW = InventoryLayout::kColumns * InventoryLayout::kSlot + (InventoryLayout::kColumns - 1) * InventoryLayout::kGap;
-    const float gridH = InventoryLayout::kRows * InventoryLayout::kSlot + (InventoryLayout::kRows - 1) * InventoryLayout::kGap + 10.0f;
-    layout.panelSize = glm::vec2(340.0f, 20.0f + 26.0f + 22.0f + 12.0f + gridH + 14.0f + 44.0f + 18.0f + 12.0f);
-    layout.panelPos = glm::vec2(
-        std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
-        std::round(std::max(96.0f, (static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f - 40.0f)));
-    layout.titleY = layout.panelPos.y + 20.0f;
-    layout.weightY = layout.titleY + 26.0f;
-    layout.gridPos = glm::vec2(std::round(layout.panelPos.x + (layout.panelSize.x - gridW) * 0.5f),
-                               layout.weightY + 22.0f + 12.0f);
-    layout.detailY = layout.gridPos.y + gridH + 14.0f;
-    layout.footerY = layout.detailY + 44.0f;
+    layout.panelSize = glm::vec2(dockedPanelWidth(false, windowWidth), static_cast<float>(windowHeight));
+    layout.panelPos = glm::vec2(static_cast<float>(windowWidth) - layout.panelSize.x, 0.0f);
+    layout.titleY = 22.0f;
+    layout.carriedLabelY = 80.0f;
+    layout.gridPos = glm::vec2(layout.panelPos.x + InventoryLayout::kPadding, layout.carriedLabelY + 16.0f);
+    layout.beltLabelY = layout.gridPos.y + InventoryLayout::kBeltOffset - 16.0f;
+    layout.detailY = layout.gridPos.y + InventoryLayout::kBeltOffset + InventoryLayout::kSlot + 34.0f;
+    layout.footerY = static_cast<float>(windowHeight) - 36.0f;
     return layout;
 }
 

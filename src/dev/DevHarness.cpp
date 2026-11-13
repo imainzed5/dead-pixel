@@ -637,6 +637,11 @@ void DevHarness::execute(Game& game, const Command& command)
         game.mCamera.snapTo(glm::vec2(t.x + kSpriteSizeForHarness * 0.5f, t.y + kSpriteSizeForHarness * 0.5f));
         game.mCamera.clampToBounds(game.mTileMap.pixelSize());
     }
+    else if (op == "ui")
+    {
+        // ui off|on: hide the whole interface, for shots of the bare world.
+        if (need(1)) game.mHideUi = lower(a[1]) == "off";
+    }
     else if (op == "lamp")
     {
         // lamp: stand beside the nearest street lamp that still burns.

@@ -17,6 +17,17 @@ tap 2
 waits 0.3
 shot 03_hotbar
 
+# The pack, docked to the right: a carried item, then a weapon on the belt.
+give Baseball Bat
+tap Tab
+waits 0.3
+shot 03b_pack
+tap Left
+waits 0.2
+shot 03c_pack_weapon
+tap Tab
+waits 0.2
+
 set hunger 18
 set thirst 8
 set sleepdebt 75

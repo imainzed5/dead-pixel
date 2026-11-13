@@ -14,11 +14,15 @@ class SpriteSheet;
 // The in-play HUD: vitals, status conditions, clock, objective, hotbar and
 // messages. Game builds a HudState snapshot each frame; Hud only draws it.
 //
+// Nothing is boxed in: text and thin lines sit straight on the world, each
+// with a dark edge so it reads over anything.
+//
 // Layout (anchored to window edges):
-//   top-left      health and stamina bars, then active conditions
+//   bottom-left   health and stamina lines, active conditions stacked above
 //   top-center    district toast when entering a new district
-//   top-right     day, time, weather; objective below
-//   bottom-center hotbar with item icons, selected item name, messages
+//   top-right     time, day and weather; objective below
+//   bottom-center belt of bare item icons, the one in use drawn large
+//   top-left      vehicle readout
 //
 // Conditions follow the "only show problems" rule: nothing is listed while
 // the character is fine, and each entry is colored by severity.
@@ -119,6 +123,10 @@ struct HudState
     std::string districtToast;
     float districtToastAlpha = 0.0f;
     bool districtDanger = false;
+
+    // Width of a panel open down the right edge (pack, crafting), or 0. The
+    // panel carries the belt and covers the clock, so the HUD leaves them out.
+    float dockedWidth = 0.0f;
 };
 
 class Hud
@@ -136,12 +144,14 @@ public:
     [[nodiscard]] static std::string slotLabel(const HudSlot& slot);
 
     // Layout constants (pixels at 1x).
-    static constexpr float kMargin = 16.0f;
-    static constexpr float kVitalsWidth = 260.0f;
-    static constexpr float kBarHeight = 12.0f;
-    static constexpr float kConditionRowHeight = 24.0f;
+    static constexpr float kEdge = 24.0f;          // gap to the window edge
+    static constexpr float kBarsWidth = 220.0f;    // health and stamina lines
+    static constexpr float kHealthHeight = 6.0f;
+    static constexpr float kStaminaHeight = 3.0f;
+    static constexpr float kConditionRowHeight = 22.0f;
     static constexpr std::size_t kMaxConditionRows = 9;
-    static constexpr float kSlotSize = 48.0f;
-    static constexpr float kSlotGap = 6.0f;
-    static constexpr float kClockWidth = 236.0f;
+    static constexpr float kSlotSize = 40.0f;      // a belt slot not in use
+    static constexpr float kBeltIcon = 32.0f;
+    static constexpr float kActiveIcon = 64.0f;    // the item in use, drawn double size
+    static constexpr float kSlotGap = 8.0f;
 };

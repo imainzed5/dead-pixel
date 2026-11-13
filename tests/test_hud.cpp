@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "systems/NeedsSystem.h"
+#include "core/GameShared.h"
 #include "ui/Hud.h"
 
 namespace
@@ -133,4 +134,25 @@ DP_TEST(hud_weapon_slot_label_shows_wear_and_hand)
     food.empty = false;
     food.name = "Canned Food";
     DP_CHECK(Hud::slotLabel(food) == "Canned Food");
+}
+
+DP_TEST(pack_cursor_moves_between_carried_rows_and_the_belt)
+{
+    using namespace gameshared;
+    // Carried slots 8-19 sit in two rows of six above the belt (slots 0-7).
+    DP_CHECK_EQ(InventoryLayout::neighbour(8, 1, 0), 9);
+    DP_CHECK_EQ(InventoryLayout::neighbour(13, 1, 0), 8);   // wraps along its row
+    DP_CHECK_EQ(InventoryLayout::neighbour(0, -1, 0), 7);
+    DP_CHECK_EQ(InventoryLayout::neighbour(9, 0, 1), 15);   // down a carried row
+    DP_CHECK_EQ(InventoryLayout::neighbour(15, 0, 1), 1);   // then onto the belt
+    DP_CHECK_EQ(InventoryLayout::neighbour(1, 0, 1), 9);    // and round to the top
+    DP_CHECK_EQ(InventoryLayout::neighbour(7, 0, -1), 19);  // the belt is longer: clamp to the row's end
+    // Every slot is somewhere, and no two share a place.
+    const InventoryLayout layout = computeInventoryLayout(1280, 720);
+    for (int i = 0; i < Inventory::kMaxSlots; ++i)
+    {
+        const glm::vec2 centre = layout.slotPos(i) + glm::vec2(InventoryLayout::kSlot * 0.5f);
+        DP_CHECK_EQ(layout.slotAt(centre), i);
+        DP_CHECK(centre.x > layout.panelPos.x && centre.x < 1280.0f);
+    }
 }

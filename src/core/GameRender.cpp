@@ -113,6 +113,11 @@ void Game::render()
         mSpriteBatch.flush();
     };
 
+    if (mHideUi)
+    {
+        return;
+    }
+
     uiLayer(
         [&]
         {
@@ -150,7 +155,6 @@ void Game::render()
             {
                 renderTextOverlays();
             }
-            renderInventoryOverlay();
             renderBuildModeOverlay();
             if (!mShowCrafting)
             {
@@ -163,6 +167,8 @@ void Game::renderMinimapOverlay()
 {
     if (mRunState != RunState::Playing ||
         mShowWorldMap ||
+        mShowInventory ||
+        mShowCrafting || // a docked panel covers this corner
         mPlayerEntity == kInvalidEntity ||
         !mWorld.hasComponent<Transform>(mPlayerEntity))
     {
@@ -173,15 +179,17 @@ void Game::renderMinimapOverlay()
 
     const float mapWidth = 220.0f;
     const float mapHeight = 140.0f;
-    const float margin = 16.0f;
+    const float margin = Hud::kEdge;
     const float mapX = static_cast<float>(mWindowWidth) - mapWidth - margin;
     const float mapY = static_cast<float>(mWindowHeight) - mapHeight - margin;
 
-    mSpriteBatch.draw(glm::vec2(mapX, mapY), glm::vec2(mapWidth, mapHeight), uiUv, glm::vec4(0.02f, 0.03f, 0.05f, 0.78f));
-    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY - 1.0f), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.65f));
-    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY + mapHeight), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.45f));
-    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY), glm::vec2(1.0f, mapHeight), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.45f));
-    mSpriteBatch.draw(glm::vec2(mapX + mapWidth, mapY), glm::vec2(1.0f, mapHeight), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.65f));
+    mSpriteBatch.draw(glm::vec2(mapX, mapY), glm::vec2(mapWidth, mapHeight), uiUv, glm::vec4(0.04f, 0.047f, 0.055f, 0.60f));
+    // A faint edge, like the rest of the HUD: nothing boxed in hard.
+    const glm::vec4 mapEdge(0.96f, 0.95f, 0.93f, 0.22f);
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY - 1.0f), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, mapEdge);
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY + mapHeight), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, mapEdge);
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY), glm::vec2(1.0f, mapHeight), uiUv, mapEdge);
+    mSpriteBatch.draw(glm::vec2(mapX + mapWidth, mapY), glm::vec2(1.0f, mapHeight), uiUv, mapEdge);
 
     const int tileW = std::max(1, mTileMap.tileWidth());
     const int tileH = std::max(1, mTileMap.tileHeight());
@@ -624,7 +632,7 @@ void Game::renderWorldMapOverlay()
     }
 
     // Header.
-    mFont.drawText(mSpriteBatch, glm::vec2(pad, 14.0f), "TOWN MAP", glm::vec4(0.95f, 0.86f, 0.60f, 1.0f), 2.0f);
+    mFont.drawText(mSpriteBatch, glm::vec2(pad, 14.0f), "TOWN MAP", kPanelInk, 2.0f);
     const std::string sub = "Day " + std::to_string(mCurrentDay) + "  -  Run " + std::to_string(mSaveManager.runNumber());
     mFont.drawText(mSpriteBatch, glm::vec2(pad + 150.0f, 21.0f), sub, glm::vec4(0.74f, 0.74f, 0.70f, 0.96f), 1.0f);
     const std::string closeHint = "M to close";
@@ -844,8 +852,8 @@ void Game::renderTextOverlays()
                 return a.infection > b.infection;
             });
 
-        const float debugX = Hud::kMargin + Hud::kVitalsWidth + 16.0f;
-        float debugY = Hud::kMargin;
+        const float debugX = Hud::kEdge;
+        float debugY = Hud::kEdge + 28.0f;
         mFont.drawText(
             mSpriteBatch,
             glm::vec2(debugX, debugY),
@@ -893,11 +901,11 @@ void Game::renderTextOverlays()
         const float centerX = layout.panelPos.x + layout.panelSize.x * 0.5f;
 
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.titleY), "PAUSED",
-                        glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 3.0f, TextAlign::Center);
+                        kPanelInk, 3.0f, TextAlign::Center);
 
         // Who you are and how the run is going.
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.nameY), mCurrentCharacterName,
-                        glm::vec4(0.94f, 0.88f, 0.70f, 1.0f), 2.0f, TextAlign::Center);
+                        kPanelAmber, 2.0f, TextAlign::Center);
         const std::string runLine = std::string(kTitleGameModeNames[static_cast<std::size_t>(
                 wrapIndex(mTitleGameModeIndex, static_cast<int>(kTitleGameModeNames.size())))])
             + " run  |  Threat: "
@@ -905,12 +913,12 @@ void Game::renderTextOverlays()
             + "  |  Tone: "
             + kTitleToneNames[static_cast<std::size_t>(wrapIndex(mTitleToneIndex, static_cast<int>(kTitleToneNames.size())))];
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.runLineY), runLine,
-                        glm::vec4(0.66f, 0.72f, 0.80f, 0.95f), 1.0f, TextAlign::Center);
+                        kPanelDim, 1.0f, TextAlign::Center);
         const std::string statsLine = "Day " + std::to_string(mCurrentDay)
             + "  |  Kills " + std::to_string(mRunStats.kills)
             + "  |  Items looted " + std::to_string(mRunStats.itemsLooted);
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.statsLineY), statsLine,
-                        glm::vec4(0.66f, 0.72f, 0.80f, 0.95f), 1.0f, TextAlign::Center);
+                        kPanelDim, 1.0f, TextAlign::Center);
         if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
         {
             const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
@@ -924,16 +932,14 @@ void Game::renderTextOverlays()
             if (traits.negative != NegativeTrait::None) append(traits.negativeName());
             if (traits.bloodline != BloodlineTrait::None) append(std::string("Bloodline: ") + traits.bloodlineName());
             mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.traitsLineY), traitLine,
-                            glm::vec4(0.62f, 0.82f, 0.58f, 0.95f), 1.0f, TextAlign::Center);
+                            kPanelGood, 1.0f, TextAlign::Center);
         }
 
         static const char* options[] = {"Resume", "Save", "Back to Menu", "Restart", "Quit"};
         for (int i = 0; i < PauseLayout::kOptionCount; ++i)
         {
             const bool selected = (i == mPauseSelection);
-            const glm::vec4 color = selected
-                ? glm::vec4(1.0f, 1.0f, 0.7f, 1.0f)
-                : glm::vec4(0.6f, 0.6f, 0.6f, 0.8f);
+            const glm::vec4 color = selected ? kPanelOnInk : kPanelInk;
             mFont.drawText(mSpriteBatch,
                 glm::vec2(centerX, layout.optionsY + static_cast<float>(i) * PauseLayout::kOptionH + 5.0f),
                 options[i], color, kTextScale, TextAlign::Center);

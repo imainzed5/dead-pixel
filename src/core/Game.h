@@ -212,7 +212,8 @@ private:
     void renderNoiseDebugOverlay();
     void updateWindowTitle(double frameSeconds);
     void renderInventoryPanel();
-    void renderInventoryOverlay();
+    // Backing and the PACK / MAKE names shared by the panels docked to the right edge.
+    void renderDockedHeader(const glm::vec2& pos, float width, bool crafting);
     void renderCraftingOverlay();
     void renderBuildModeOverlay();
     void renderContainerOverlay();
@@ -305,6 +306,7 @@ private:
     std::vector<SceneryCanopy> mCanopies;
     float mLeafDebt = 0.0f;
     float mMuzzleFlash = 0.0f; // seconds of muzzle light left
+    bool mHideUi = false;      // dev harness: screenshots of the bare world
     glm::vec2 mMuzzleWorld{0.0f};
     // Combat weight: a landed blow slows time for a few frames (mHitStop,
     // real seconds left) and shakes the view (mShakeTrauma, 0..1).

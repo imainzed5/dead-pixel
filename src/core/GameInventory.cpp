@@ -557,23 +557,23 @@ void Game::updateInventoryInput(bool drivingVehicle)
             }
         }
 
-        // Grid navigation: W/S or Up/Down move a row, Left/Right move a slot.
-        constexpr int kRowStep = InventoryLayout::kColumns;
+        // Up/Down (or W/S) move between the rows, Left/Right along one.
+        mInventoryCursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
         if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
         {
-            mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - kRowStep) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 0, -1);
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
         {
-            mInventoryCursor = (mInventoryCursor + kRowStep) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 0, 1);
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
         {
-            mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - 1) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, -1, 0);
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
         {
-            mInventoryCursor = (mInventoryCursor + 1) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 1, 0);
         }
 
         // Enter key: swap cursor slot with active hotbar slot
