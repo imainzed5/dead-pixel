@@ -18,9 +18,13 @@
 #include "components/MentalState.h"
 #include "components/Needs.h"
 #include "components/Stamina.h"
+#include "components/Traits.h"
+#include "components/Wounds.h"
 #include "components/Transform.h"
 #include "components/ZombieAI.h"
 #include "core/Game.h"
+#include "core/Tuning.h"
+#include "world/Storage.h"
 #include "systems/InventorySystem.h"
 #include "systems/ZombieAISystem.h"
 #include "world/EntityFactory.h"
@@ -58,6 +62,33 @@ Uint8 mouseButtonFromName(const std::string& name)
     if (n == "right") return SDL_BUTTON_RIGHT;
     if (n == "middle") return SDL_BUTTON_MIDDLE;
     return 0;
+}
+
+// "NAME WORDS [COUNT]" from args[first..]: the name, and the count (default 1).
+std::string itemArgs(const std::vector<std::string>& a, std::size_t first, int& count)
+{
+    std::size_t nameEnd = a.size();
+    count = 1;
+    if (a.size() > first + 1 &&
+        std::all_of(a.back().begin(), a.back().end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+    {
+        count = std::stoi(a.back());
+        nameEnd = a.size() - 1;
+    }
+    std::string name;
+    for (std::size_t i = first; i < nameEnd; ++i)
+    {
+        if (!name.empty()) name += ' ';
+        name += a[i];
+    }
+    return name;
+}
+
+std::string csvSafe(std::string text)
+{
+    std::replace(text.begin(), text.end(), ',', ';');
+    std::replace(text.begin(), text.end(), '\n', ' ');
+    return text;
 }
 
 const char* runStateName(int state)
@@ -135,7 +166,9 @@ bool DevHarness::loadScript(std::string& error)
         }
         mMetrics << "tick,seconds,day,hour,state,hp,hp_max,hunger,thirst,fatigue,sleep_debt,"
                     "body_temp,illness,stamina,panic,depression,zombies,zombies_near,kills,"
-                    "inventory_items,z_investigate,z_chase,z_attack,z_migrating,indoors,pop_target\n";
+                    "inventory_items,z_investigate,z_chase,z_attack,z_migrating,indoors,pop_target,"
+                    "cause,food,drink,medical,weapons,materials,containers_searched,boards_up,"
+                    "callers_tonight,noise_per_hour,bot\n";
     }
 
     std::error_code ec;
@@ -172,7 +205,26 @@ void DevHarness::beforeTick(Game& game)
         }
     }
 
-    while (mWaitRemaining == 0 && mPc < mCommands.size() && !mFinished)
+    // The bot plays until its days are up or the run ends; the script waits.
+    if (mBot.running())
+    {
+        mBot.tick(game);
+        if (!mBot.stuckMessage().empty() && !mBotFailReported)
+        {
+            mBotFailReported = true;
+            ++mFailures;
+            std::cerr << "[harness] FAIL " << mBot.stuckMessage() << '\n';
+        }
+        if (mBot.running())
+        {
+            return;
+        }
+        std::cout << "[harness] tick " << mTick << ": bot stopped on day " << game.mCurrentDay << " hour "
+                  << static_cast<int>(game.mGameHours) << " (" << runStateName(static_cast<int>(game.mRunState))
+                  << "), containers searched " << mBot.containersSearched() << '\n';
+    }
+
+    while (mWaitRemaining == 0 && mPc < mCommands.size() && !mFinished && !mBot.running())
     {
         execute(game, mCommands[mPc++]);
     }
@@ -181,7 +233,7 @@ void DevHarness::beforeTick(Game& game)
     {
         --mWaitRemaining;
     }
-    else if (mPc >= mCommands.size())
+    else if (mPc >= mCommands.size() && !mBot.running())
     {
         mFinished = true;
     }
@@ -430,7 +482,9 @@ void DevHarness::execute(Game& game, const Command& command)
             }
             const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
             const glm::vec2 from((pt.x + 16.0f) / 32.0f, (pt.y + 16.0f) / 32.0f);
-            const std::string want = a.size() > 2 && lower(a[2]) != "any" ? "furn_" + lower(a[2]) : std::string{};
+            const bool wantContainer = a.size() > 2 && lower(a[2]) == "container";
+            const std::string want = a.size() > 2 && lower(a[2]) != "any" && !wantContainer ? "furn_" + lower(a[2])
+                                                                                                : std::string{};
             const bool wantStocked = a.size() > 3 && lower(a[3]) == "stocked";
             // Pickups lying on a tile would take the E press first.
             std::vector<glm::ivec2> pickups;
@@ -458,6 +512,11 @@ void DevHarness::execute(Game& game, const Command& command)
             for (const FurniturePiece& piece : game.mFurniture)
             {
                 if (!want.empty() && want != furniture::info(piece.kind).sprite) continue;
+                if (wantContainer && (furniture::info(piece.kind).loot == FurnitureLoot::None ||
+                                      furniture::info(piece.kind).prompt == nullptr || piece.kind == FurnitureKind::Bed))
+                {
+                    continue;
+                }
                 if (wantStocked && std::find(stocked.begin(), stocked.end(), piece.tile) == stocked.end()) continue;
                 const glm::vec2 d = glm::vec2(piece.tile) + glm::vec2(0.5f) - from;
                 if (best == nullptr || glm::dot(d, d) < bestD)
@@ -485,6 +544,16 @@ void DevHarness::execute(Game& game, const Command& command)
                 return;
             }
             fail(command, "no free tile beside the nearest piece");
+            return;
+        }
+        if (kind == "mark")
+        {
+            if (mMark.x < 0)
+            {
+                fail(command, "no mark");
+                return;
+            }
+            execute(game, Command{command.line, {"teleport", std::to_string(mMark.x), std::to_string(mMark.y)}});
             return;
         }
         if (kind == "home")
@@ -677,6 +746,19 @@ void DevHarness::execute(Game& game, const Command& command)
         if (need(1))
         {
             const std::string kind = lower(a[1]);
+            if (kind == "mark")
+            {
+                mWeatherMark = static_cast<int>(game.mWeatherState.condition);
+                std::cout << "[harness] tick " << mTick << ": weather " << mWeatherMark << ", "
+                          << game.mWeatherSystem.hoursLeft() << " game hours left\n";
+                return;
+            }
+            if (kind == "roll")
+            {
+                // Let go of any held weather: a new condition is rolled next tick.
+                game.mWeatherSystem.hold(game.mWeatherState, game.mWeatherState.condition, 0.0f);
+                return;
+            }
             WeatherCondition condition = WeatherCondition::Clear;
             if (kind == "cloudy") condition = WeatherCondition::Cloudy;
             else if (kind == "rain") condition = WeatherCondition::Rain;
@@ -755,12 +837,162 @@ void DevHarness::execute(Game& game, const Command& command)
             world.getComponent<Health>(player).current = value;
             applied = true;
         }
+        if (stat == "wounds")
+        {
+            if (!world.hasComponent<Wounds>(player)) world.addComponent<Wounds>(player, Wounds{});
+            Wounds& wounds = world.getComponent<Wounds>(player);
+            wounds.active.clear();
+            for (int i = 0; i < static_cast<int>(value); ++i)
+            {
+                Wound wound;
+                wound.type = WoundType::Cut;
+                wound.severity = 0.5f;
+                wounds.active.push_back(wound);
+            }
+            if (world.hasComponent<Health>(player))
+            {
+                Health& health = world.getComponent<Health>(player);
+                health.maximum = woundedMaximum(health.baseMaximum, wounds.active.size());
+                health.current = std::min(health.current, health.maximum);
+            }
+            applied = true;
+        }
         if (stat == "stamina" && world.hasComponent<Stamina>(player))
         {
             world.getComponent<Stamina>(player).current = value;
             applied = true;
         }
         if (!applied) fail(command, "unknown stat '" + stat + "'");
+    }
+    else if (op == "trait")
+    {
+        // trait tough: the player is Tough (120 maximum health).
+        if (!need(1)) return;
+        const Entity player = game.mPlayerEntity;
+        if (lower(a[1]) != "tough" || player == kInvalidEntity || !game.mWorld.hasComponent<Health>(player))
+        {
+            fail(command, "cannot give trait '" + a[1] + "'");
+            return;
+        }
+        if (!game.mWorld.hasComponent<Traits>(player)) game.mWorld.addComponent<Traits>(player, Traits{});
+        game.mWorld.getComponent<Traits>(player).positive = PositiveTrait::Tough;
+        Health& health = game.mWorld.getComponent<Health>(player);
+        health.baseMaximum = 120.0f;
+        const std::size_t wounds =
+            game.mWorld.hasComponent<Wounds>(player) ? game.mWorld.getComponent<Wounds>(player).active.size() : 0;
+        health.maximum = woundedMaximum(health.baseMaximum, wounds);
+        health.current = health.maximum;
+    }
+    else if (op == "tune")
+    {
+        if (!need(2)) return;
+        Tuning::set(a[1], std::stof(a[2]));
+        std::cout << "[harness] tune " << a[1] << " = " << Tuning::get(a[1], 0.0f) << '\n';
+    }
+    else if (op == "mark")
+    {
+        if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+        {
+            fail(command, "no player");
+            return;
+        }
+        const Transform& t = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+        mMark = glm::ivec2(static_cast<int>(t.x + 16.0f) / 32, static_cast<int>(t.y + 16.0f) / 32);
+    }
+    else if (op == "stash")
+    {
+        // stash ITEM NAME [COUNT]: from the pack into the open container.
+        if (!need(1)) return;
+        int count = 1;
+        const std::string name = itemArgs(a, 1, count);
+        const ItemDef* item = game.mItemDatabase.findByName(name);
+        if (!game.mContainerOpen || game.mOpenContainerEntity == kInvalidEntity || item == nullptr ||
+            game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+        {
+            fail(command, "cannot stash '" + name + "' (is a container open?)");
+            return;
+        }
+        Inventory& pack = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        Inventory& box = game.mWorld.getComponent<Inventory>(game.mOpenContainerEntity);
+        int moved = 0;
+        for (int i = 0; i < Inventory::kMaxSlots && moved < count; ++i)
+        {
+            if (pack.slots[static_cast<std::size_t>(i)].itemId != item->id) continue;
+            moved += storage::moveItem(pack, i, box, game.mItemDatabase, count - moved);
+        }
+        if (moved < count)
+        {
+            fail(command, "stashed " + std::to_string(moved) + " of " + std::to_string(count) + " " + name);
+        }
+        game.recordContainer(game.mOpenContainerEntity);
+    }
+    else if (op == "open")
+    {
+        // open: open the nearest container within reach, as E at it would.
+        if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+        {
+            fail(command, "no player");
+            return;
+        }
+        const Transform& pt = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+        const glm::vec2 here(pt.x + 16.0f, pt.y + 16.0f);
+        Entity best = kInvalidEntity;
+        float bestD = 1.6f * 32.0f;
+        game.mWorld.forEach<Interactable, Inventory, Transform>(
+            [&](Entity e, Interactable& inter, Inventory&, Transform& t)
+            {
+                if (inter.type != InteractableType::Container || e == game.mPlayerEntity) return;
+                const float d = glm::length(glm::vec2(t.x + 16.0f, t.y + 16.0f) - here);
+                if (d < bestD)
+                {
+                    best = e;
+                    bestD = d;
+                }
+            });
+        if (best == kInvalidEntity)
+        {
+            fail(command, "no container within reach");
+            return;
+        }
+        game.openContainer(best);
+    }
+    else if (op == "container")
+    {
+        if (!game.mContainerOpen || game.mOpenContainerEntity == kInvalidEntity ||
+            !game.mWorld.hasComponent<Inventory>(game.mOpenContainerEntity))
+        {
+            std::cout << "[harness] tick " << mTick << ": no container open\n";
+            return;
+        }
+        const Inventory& box = game.mWorld.getComponent<Inventory>(game.mOpenContainerEntity);
+        std::cout << "[harness] tick " << mTick << ": " << game.containerName(game.mOpenContainerEntity) << " holds";
+        for (const InventorySlot& slot : box.slots)
+        {
+            if (slot.itemId < 0 || slot.count <= 0) continue;
+            const ItemDef* def = game.mItemDatabase.find(slot.itemId);
+            std::cout << " [" << (def != nullptr ? def->name : "?") << " x" << slot.count << "]";
+        }
+        std::cout << " (" << storage::filledSlots(box) << " of " << box.maxSlots << ")\n";
+    }
+    else if (op == "bot")
+    {
+        // bot PROFILE [DAYS]: the bot plays; the script resumes when it stops.
+        if (!need(1)) return;
+        Autoplayer::Profile profile = Autoplayer::Profile::Normal;
+        if (!Autoplayer::parseProfile(lower(a[1]), profile))
+        {
+            fail(command, "unknown bot profile '" + a[1] + "' (careful, normal, bold)");
+            return;
+        }
+        if (game.mRunState != Game::RunState::Playing)
+        {
+            fail(command, "no run in progress");
+            return;
+        }
+        const int days = a.size() > 2 ? std::max(1, std::stoi(a[2])) : 7;
+        mBot.start(game, profile, days);
+        mBotFailReported = false;
+        std::cout << "[harness] tick " << mTick << ": bot " << lower(a[1]) << " for " << days << " day(s)\n";
     }
     else if (op == "metrics")
     {
@@ -776,6 +1008,56 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         if (!need(1)) return;
         const std::string want = lower(a[1]);
+        if (want == "maxhp")
+        {
+            if (!need(2)) return;
+            const float wantHp = std::stof(a[2]);
+            const float hasHp = game.mPlayerEntity != kInvalidEntity && game.mWorld.hasComponent<Health>(game.mPlayerEntity)
+                                    ? game.mWorld.getComponent<Health>(game.mPlayerEntity).maximum
+                                    : -1.0f;
+            if (std::abs(hasHp - wantHp) > 0.01f)
+            {
+                fail(command, "expected max health " + a[2] + ", it is " + std::to_string(hasHp));
+            }
+            else
+            {
+                std::cout << "[harness] tick " << mTick << ": max health " << hasHp << '\n';
+            }
+            return;
+        }
+        if (want == "weather")
+        {
+            const int now = static_cast<int>(game.mWeatherState.condition);
+            if (mWeatherMark < 0 || now != mWeatherMark)
+            {
+                fail(command, "weather changed from " + std::to_string(mWeatherMark) + " to " + std::to_string(now));
+            }
+            else
+            {
+                std::cout << "[harness] tick " << mTick << ": weather held at " << now << '\n';
+            }
+            return;
+        }
+        if (want == "container")
+        {
+            // expect container ITEM NAME COUNT
+            if (!need(3)) return;
+            int count = 1;
+            const std::string name = itemArgs(a, 2, count);
+            const ItemDef* item = game.mItemDatabase.findByName(name);
+            int have = 0;
+            if (game.mContainerOpen && game.mOpenContainerEntity != kInvalidEntity && item != nullptr &&
+                game.mWorld.hasComponent<Inventory>(game.mOpenContainerEntity))
+            {
+                have = InventorySystem::countItem(game.mWorld.getComponent<Inventory>(game.mOpenContainerEntity), item->id);
+            }
+            if (have < count)
+            {
+                fail(command, "expected " + std::to_string(count) + " " + name + " in the open container, found " +
+                                  std::to_string(have));
+            }
+            return;
+        }
         const std::string have = runStateName(static_cast<int>(game.mRunState));
         bool ok = false;
         if (want == "alive") ok = game.mRunState == Game::RunState::Playing || game.mRunState == Game::RunState::Paused;
@@ -959,6 +1241,41 @@ void DevHarness::writeMetricsRow(Game& game)
              << ',' << stamina << ',' << panic << ',' << depression << ',' << zombies << ',' << zombiesNear << ','
              << game.mRunStats.kills << ',' << inventoryItems << ',' << zInvestigate << ',' << zChase << ','
              << zAttack << ',' << zMigrating << ',' << (indoors ? 1 : 0) << ','
-             << game.mThreatDirector.populationTarget() << '\n';
+             << game.mThreatDirector.populationTarget() << ',';
+
+    // Items carried by category, boards on doors, tonight's callers, noise.
+    int byCategory[5] = {0, 0, 0, 0, 0};
+    if (hasPlayer && world.hasComponent<Inventory>(player))
+    {
+        for (const auto& slot : world.getComponent<Inventory>(player).slots)
+        {
+            if (slot.itemId < 0 || slot.count <= 0) continue;
+            if (const ItemDef* def = game.mItemDatabase.find(slot.itemId))
+            {
+                byCategory[std::clamp(static_cast<int>(def->category), 0, 4)] += slot.count;
+            }
+        }
+    }
+    int boards = 0;
+    for (const auto& door : game.mDoors.all())
+    {
+        boards += game.mTileMap.doorBoards(door.tile.x, door.tile.y);
+    }
+    int callers = 0;
+    world.forEach<ZombieAI, Health>([&](Entity, ZombieAI& ai, Health& h) { if (ai.nightCaller && h.current > 0.0f) ++callers; });
+    const double clock = static_cast<double>(game.mCurrentDay) * 24.0 + game.mGameHours;
+    const std::uint64_t noise = game.mNoiseModel.emittedTotal();
+    double noisePerHour = 0.0;
+    if (mClockAtLastRow >= 0.0 && clock > mClockAtLastRow && noise >= mNoiseAtLastRow)
+    {
+        noisePerHour = static_cast<double>(noise - mNoiseAtLastRow) / (clock - mClockAtLastRow);
+    }
+    mClockAtLastRow = clock;
+    mNoiseAtLastRow = noise;
+    const bool ended = game.mRunState == Game::RunState::Dead || game.mRunState == Game::RunState::Retired;
+    mMetrics << (ended ? csvSafe(game.mDeathCause) : std::string{}) << ',' << byCategory[0] << ',' << byCategory[1]
+             << ',' << byCategory[2] << ',' << byCategory[3] << ',' << byCategory[4] << ','
+             << game.mContainersOpened << ',' << boards << ',' << callers << ',' << noisePerHour << ','
+             << (mBot.running() ? mBot.activity() : "") << '\n';
     mMetrics.flush();
 }

@@ -1,0 +1,16 @@
+{
+  "_comment": "Tuned numbers. Every key has a default in code (src/core/Tuning.h lists them); a value here overrides it.",
+  "night.callers.base": 2,
+  "night.callers.growth": 1,
+  "doors.board.hp": 450,
+  "threat.migration.dayInterval": 70,
+  "threat.migration.nightInterval": 35,
+  "threat.spawn.interval": 90,
+  "threat.growth.daily": 0.18,
+  "needs.hunger.perSecond": 0.025,
+  "needs.thirst.perSecond": 0.045,
+  "needs.sleepDebt.perSecond": 0.058,
+  "zombie.attack.damage": 7,
+  "zombie.attack.hitChance": 0.6,
+  "loot.stocked.scale": 1
+}

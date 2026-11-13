@@ -39,7 +39,7 @@ public:
 
 private:
     SurvivorInteractionMode mMode = SurvivorInteractionMode::None;
-    Entity mTargetSurvivor = 0;
+    Entity mTargetSurvivor = kInvalidEntity;
     float mApproachTimer = 0.0f;
 
     static constexpr float kObserveRange = 192.0f;

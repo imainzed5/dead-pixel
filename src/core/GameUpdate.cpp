@@ -8,14 +8,17 @@ void Game::update(float dtSeconds)
     handleEscapeKey();
 
     // Combat weight runs on real time: the shake dies away, and a landed
-    // blow holds the world almost still for a few frames.
+    // blow holds the bodies almost still for a few frames. Only what is seen
+    // moving slows (feelDt: combat, zombies, movement, animation, particles);
+    // the clock, needs, wounds, weather and fire keep game time (dtSeconds).
     mShakeClock += dtSeconds;
     mShakeTrauma = std::max(0.0f, mShakeTrauma - dtSeconds * 2.6f);
     mPlayerHurtTimer = std::max(0.0f, mPlayerHurtTimer - dtSeconds);
+    float feelDt = dtSeconds;
     if (mHitStop > 0.0f && mRunState == RunState::Playing)
     {
         mHitStop -= dtSeconds;
-        dtSeconds *= 0.06f;
+        feelDt = dtSeconds * 0.06f;
     }
 
     mMouseWorld =screenToWorld(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
@@ -130,9 +133,9 @@ void Game::update(float dtSeconds)
         mActiveVehicleEntity = kInvalidEntity;
     }
 
-    if (playerAlive && !mShowCrafting)
+    if (playerAlive && !mShowCrafting && !mContainerOpen)
     {
-        mInputSystem.update(mWorld, mInput, mMouseWorld, dtSeconds);
+        mInputSystem.update(mWorld, mInput, mMouseWorld, feelDt);
     }
     else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
     {
@@ -164,6 +167,7 @@ void Game::update(float dtSeconds)
         const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
         InventorySystem::degradeFood(inv, mItemDatabase, gameHoursThisTick);
+        spoilContainers(gameHoursThisTick);
     }
 
     // Mental state system
@@ -176,7 +180,7 @@ void Game::update(float dtSeconds)
     // Flashlight toggle (Q). Needs a flashlight in the pack.
     if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
     {
-        if (playerHasItem("Flashlight"))
+        if (playerHasItem(mItems.flashlight))
         {
             mFlashlightOn = !mFlashlightOn;
             mInteractionMessage = mFlashlightOn ? "Flashlight on. It will be seen." : "Flashlight off.";
@@ -187,7 +191,7 @@ void Game::update(float dtSeconds)
         }
         mInteractionMessageTimer = 2.0f;
     }
-    if (mFlashlightOn && !playerHasItem("Flashlight"))
+    if (mFlashlightOn && !playerHasItem(mItems.flashlight))
     {
         mFlashlightOn = false;
     }
@@ -378,7 +382,7 @@ void Game::update(float dtSeconds)
 
     mProximityPrompt.clear();
 
-    if (playerAlive && !mShowCrafting && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    if (playerAlive && !mShowCrafting && !mContainerOpen && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         // Update proximity prompt for HUD display
         const ProximityPrompt prompt = mInteractionSystem.getProximityPrompt(mWorld, mPlayerEntity);
@@ -396,10 +400,7 @@ void Game::update(float dtSeconds)
             const Interactable& inter = mWorld.getComponent<Interactable>(prompt.entity);
             if (inter.type == InteractableType::Container && mWorld.hasComponent<Inventory>(prompt.entity))
             {
-                mContainerOpen = true;
-                mOpenContainerEntity = prompt.entity;
-                mContainerCursor = 0;
-                noteContainerSearched(prompt.entity, false);
+                openContainer(prompt.entity);
                 mProximityPrompt.clear();
                 interceptedContainer = true;
             }
@@ -501,11 +502,11 @@ void Game::update(float dtSeconds)
         ? mWorld.getComponent<Combat>(mPlayerEntity).phase
         : AttackPhase::Idle;
 
-    if (!mShowCrafting && !drivingVehicle)
+    if (!mShowCrafting && !mContainerOpen && !drivingVehicle)
     {
         int shotsBefore = 0;
         mWorld.forEach<Projectile>([&](Entity, Projectile&) { ++shotsBefore; });
-        mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, dtSeconds);
+        mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, feelDt);
         syncEquippedWeapon();
 
         // A shot: a flash at the muzzle and a spent case thrown out to the side.
@@ -533,7 +534,7 @@ void Game::update(float dtSeconds)
         combat.grabTimer = 0.0f;
     }
 
-    updateBlowFeedback(dtSeconds);
+    updateBlowFeedback(feelDt);
 
     // Desensitisation gain: check for zombie deaths after combat
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<MentalState>(mPlayerEntity))
@@ -626,11 +627,11 @@ void Game::update(float dtSeconds)
                         const float cy = y + kSpriteSize * 0.5f + 6.0f;
                         return mTileMap.isSolidAtWorldDiamond(cx, cy, 9.0f, 9.0f);
                     };
-                    const float nx = t.x + c.slideX * dtSeconds;
+                    const float nx = t.x + c.slideX * feelDt;
                     if (!blocked(nx, t.y)) t.x = nx; else c.slideX = 0.0f;
-                    const float ny = t.y + c.slideY * dtSeconds;
+                    const float ny = t.y + c.slideY * feelDt;
                     if (!blocked(t.x, ny)) t.y = ny; else c.slideY = 0.0f;
-                    const float keep = std::max(0.0f, 1.0f - 7.0f * dtSeconds);
+                    const float keep = std::max(0.0f, 1.0f - 7.0f * feelDt);
                     c.slideX *= keep;
                     c.slideY *= keep;
                     if (c.slideX * c.slideX + c.slideY * c.slideY < 4.0f)
@@ -704,7 +705,7 @@ void Game::update(float dtSeconds)
         mTileMap,
         mNoiseModel,
         mPlayerEntity,
-        dtSeconds,
+        feelDt,
         mGameHours,
         mCurrentDay,
         &mDistrictInfectionSystem,
@@ -762,11 +763,11 @@ void Game::update(float dtSeconds)
         vel.dy = 0.0f;
     }
 
-    mMovementSystem.update(mWorld, dtSeconds);
-    mProjectileSystem.update(mWorld, mTileMap, mNoiseModel, dtSeconds);
-    mCollisionSystem.update(mWorld, mTileMap, dtSeconds);
+    mMovementSystem.update(mWorld, feelDt);
+    mProjectileSystem.update(mWorld, mTileMap, mNoiseModel, feelDt);
+    mCollisionSystem.update(mWorld, mTileMap, feelDt);
 
-    updateVehicleAfterPhysics(dtSeconds);
+    updateVehicleAfterPhysics(feelDt);
     drivingVehicle = mActiveVehicleEntity != kInvalidEntity;
 
     if (mRunState == RunState::Playing &&
@@ -779,8 +780,9 @@ void Game::update(float dtSeconds)
             mCampaignObjective.infectionDeadlineDay > 0 &&
             mCurrentDay > mCampaignObjective.infectionDeadlineDay)
         {
-            mCampaignObjective.active = false;
-            mCampaignObjective.completed = false;
+            // The deadline passing no longer ends the run: it is said once,
+            // and the objective stays where it is.
+            mCampaignObjective.infectionDeadlineDay = 0;
             syncPresentationSettingsToSave();
 
             WorldMemoryEventRecord event;
@@ -789,11 +791,11 @@ void Game::update(float dtSeconds)
             event.tileY = mCampaignObjective.tileY;
             event.day = mCurrentDay;
             event.runIndex = mSaveManager.runNumber();
-            event.detail = "campaign objective expired";
+            event.detail = "campaign deadline passed";
             mSaveManager.addWorldMemoryEvent(event);
 
-            beginDeathState("Campaign failed: infection deadline reached on Day " + std::to_string(mCurrentDay));
-            return;
+            mInteractionMessage = "The far side of town has gone quiet.";
+            mInteractionMessageTimer = 5.0f;
         }
 
         if (mCampaignObjective.active)
@@ -853,9 +855,9 @@ void Game::update(float dtSeconds)
     }
 
     updateLegacy(dtSeconds);
-    updateAnimations(dtSeconds);
+    updateAnimations(feelDt);
 
-    updateParticles(dtSeconds, prevPlayerHp);
+    updateParticles(feelDt, prevPlayerHp);
 
     updateNoiseModel(dtSeconds);
 }
@@ -955,7 +957,8 @@ void Game::updateSleep(float dtSeconds)
                 if (mPlayerEntity != kInvalidEntity)
                 {
                     mSaveManager.saveCheckpoint(buildRunCheckpoint());
-                    mSaveManager.saveLootedPositions();
+                    refreshContainerRecords();
+                    mSaveManager.saveWorldMemory();
                 }
             }
             mInteractionMessageTimer = 3.0f;

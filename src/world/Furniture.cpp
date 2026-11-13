@@ -488,4 +488,17 @@ std::vector<FurniturePiece> furnish(const LayoutData& layout, std::uint32_t seed
 {
     return Furnisher(layout, seed).run();
 }
+bool kindWithin(const std::vector<FurniturePiece>& pieces, FurnitureKind kind, const glm::ivec2& tile, float radiusTiles)
+{
+    for (const FurniturePiece& piece : pieces)
+    {
+        if (piece.kind != kind) continue;
+        const glm::ivec2 d = piece.tile - tile;
+        if (static_cast<float>(d.x * d.x + d.y * d.y) <= radiusTiles * radiusTiles)
+        {
+            return true;
+        }
+    }
+    return false;
+}
 } // namespace furniture

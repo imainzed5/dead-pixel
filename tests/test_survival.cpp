@@ -24,6 +24,8 @@
 #include "ecs/World.h"
 #include "map/TileMap.h"
 #include "noise/NoiseModel.h"
+#include "components/Projectile.h"
+#include "systems/ProjectileSystem.h"
 #include "systems/MentalStateSystem.h"
 #include "systems/NeedsSystem.h"
 #include "systems/ThreatDirectorSystem.h"
@@ -505,4 +507,63 @@ DP_TEST(weapon_condition_bands_follow_durability)
     DP_CHECK(weaponConditionFor(3, 12) == WeaponCondition::Damaged);
     DP_CHECK(weaponConditionFor(0, 12) == WeaponCondition::Broken);
     DP_CHECK(weaponConditionFor(1, 0) == WeaponCondition::Good); // no divide by zero
+}
+
+// ------------------------------------------------------------------ Phase 1 fixes
+
+DP_TEST(one_bullet_stops_in_the_first_body)
+{
+    SurvivalWorld w;
+    w.world.registerComponent<Projectile>();
+    // Two zombies standing on top of each other, the shot passing through both.
+    const Entity a = w.addZombie(10, 10, ZombieState::Chase);
+    const Entity b = w.addZombie(10, 10, ZombieState::Chase);
+    const float before = w.world.getComponent<Health>(a).current + w.world.getComponent<Health>(b).current;
+
+    const Entity shot = w.world.createEntity();
+    Transform t{};
+    t.x = 10.0f * kTile + 16.0f - 40.0f;
+    t.y = 10.0f * kTile + 16.0f;
+    w.world.addComponent(shot, t);
+    Projectile projectile{};
+    projectile.vx = 1.0f;
+    projectile.vy = 0.0f;
+    projectile.damage = 20.0f;
+    projectile.speed = 600.0f;
+    projectile.rangeRemaining = 400.0f;
+    w.world.addComponent(shot, projectile);
+
+    ProjectileSystem system;
+    for (int i = 0; i < 30; ++i)
+    {
+        system.update(w.world, w.map, w.noise, 1.0f / 60.0f);
+    }
+    const float after = w.world.getComponent<Health>(a).current + w.world.getComponent<Health>(b).current;
+    DP_CHECK_NEAR(before - after, 20.0f, 0.01);
+    int shots = 0;
+    w.world.forEach<Projectile>([&](Entity, Projectile&) { ++shots; });
+    DP_CHECK_EQ(shots, 0);
+}
+
+DP_TEST(tough_keeps_its_extra_health_through_a_wound)
+{
+    SurvivalWorld w;
+    Health& health = w.world.getComponent<Health>(w.player);
+    health.baseMaximum = 120.0f;
+    health.maximum = 120.0f;
+    health.current = 120.0f;
+
+    Wound cut{};
+    cut.type = WoundType::Cut;
+    w.world.getComponent<Wounds>(w.player).active.push_back(cut);
+    WoundSystem wounds;
+    wounds.update(w.world, w.player, 1.0f / 60.0f, 12.0);
+    DP_CHECK_NEAR(health.maximum, 115.0f, 0.01);
+
+    // A bandage closes it: back to 120, not 100.
+    w.world.getComponent<Wounds>(w.player).active.clear();
+    health.maximum = woundedMaximum(health.baseMaximum, 0);
+    DP_CHECK_NEAR(health.maximum, 120.0f, 0.01);
+    // Never below 20, however many wounds.
+    DP_CHECK_NEAR(woundedMaximum(100.0f, 50), 20.0f, 0.01);
 }

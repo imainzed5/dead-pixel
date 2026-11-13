@@ -226,18 +226,8 @@ bool Game::initialize()
     }
     mAudioManager.playAmbient(AmbientId::Wind, 0.15f);
 
-    const std::filesystem::path itemsJson = assetsRoot / "data" / "items.json";
-    if (!mItemDatabase.loadFromFile(itemsJson.string()))
+    if (!loadContent(assetsRoot))
     {
-        std::cerr << "Failed to load item database.\n";
-        shutdown();
-        return false;
-    }
-
-    const std::filesystem::path recipesJson = assetsRoot / "data" / "recipes.json";
-    if (!mCraftingSystem.loadRecipesFromFile(recipesJson.string()))
-    {
-        std::cerr << "Failed to load crafting recipes.\n";
         shutdown();
         return false;
     }
@@ -340,6 +330,10 @@ RunCheckpoint Game::buildRunCheckpoint()
     cp.characterName = mCurrentCharacterName;
     cp.currentDay = mCurrentDay;
     cp.gameHours = mGameHours;
+    cp.weather.saved = true;
+    cp.weather.condition = static_cast<int>(mWeatherState.condition);
+    cp.weather.hoursLeft = mWeatherSystem.hoursLeft();
+    cp.weather.rngState = mWeatherSystem.rngState();
 
     if (mPlayerEntity != kInvalidEntity)
     {
@@ -354,6 +348,7 @@ RunCheckpoint Game::buildRunCheckpoint()
             const auto& h = mWorld.getComponent<Health>(mPlayerEntity);
             cp.healthCurrent = h.current;
             cp.healthMaximum = h.maximum;
+            cp.healthBase = h.baseMaximum;
         }
         if (mWorld.hasComponent<Needs>(mPlayerEntity))
             cp.needs = mWorld.getComponent<Needs>(mPlayerEntity);
@@ -424,7 +419,8 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
     const bool ok = mSaveManager.saveCheckpoint(buildRunCheckpoint());
     if (ok)
     {
-        mSaveManager.saveLootedPositions();
+        refreshContainerRecords();
+        mSaveManager.saveWorldMemory();
         mInteractionMessage = statusMessage;
         mInteractionMessageTimer = 2.0f;
     }
@@ -582,6 +578,7 @@ void Game::startNewRun()
     mActiveCraftProgressSeconds = 0.0f;
 
     mRunStats = RunStats{};
+    mContainersOpened = 0;
 
     mCurrentCharacterName = generateCharacterName(mSaveManager.currentRunSeed());
 
@@ -716,7 +713,7 @@ void Game::startNewRun()
         if (mWorld.hasComponent<Health>(mPlayerEntity))
         {
             auto& h = mWorld.getComponent<Health>(mPlayerEntity);
-            h.current = cp.healthCurrent; h.maximum = cp.healthMaximum;
+            h.current = cp.healthCurrent; h.maximum = cp.healthMaximum; h.baseMaximum = cp.healthBase;
         }
         if (mWorld.hasComponent<Needs>(mPlayerEntity))
             mWorld.getComponent<Needs>(mPlayerEntity) = cp.needs;
@@ -741,6 +738,11 @@ void Game::startNewRun()
         mRunStats.structuresBuilt = cp.structuresBuilt;
         mRunStats.distanceWalked = cp.distanceWalked;
         restoreTownFromCheckpoint(cp);
+        if (cp.weather.saved)
+        {
+            mWeatherSystem.restore(mWeatherState, static_cast<WeatherCondition>(cp.weather.condition),
+                                   cp.weather.hoursLeft, cp.weather.rngState);
+        }
         if (cp.firstDaysSaved)
         {
             restoreFirstDays(cp.firstDays);
@@ -809,6 +811,7 @@ void Game::returnToTitleScreen()
     mShowWorldMap = false;
     mShowNotebook = false;
     mRunStats = RunStats{};
+    mContainersOpened = 0;
 
     mInteractionMessage.clear();
     mInteractionMessageTimer = 0.0f;
@@ -1047,35 +1050,17 @@ NeedsEnvironment Game::buildNeedsEnvironment()
             environment.heatSources.emplace_back(ft.x + kSpriteSize * 0.5f, ft.y + kSpriteSize * 0.5f);
         });
 
-    // Clothing: a jacket in the pack counts as worn.
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
-    {
-        constexpr float kJacketInsulation = 5.0f;
+    // Clothing: the warmest thing in the pack counts as worn.
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity) && mWorld.hasComponent<Inventory>(mPlayerEntity))
         mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation =
-            playerHasItem("Jacket") ? kJacketInsulation : 0.0f;
-    }
+            InventorySystem::bestWarmth(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
     return environment;
 }
 
-bool Game::playerHasItem(const char* itemName) const
+bool Game::playerHasItem(int itemId) const
 {
-    if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
-    {
-        return false;
-    }
-    const ItemDef* item = mItemDatabase.findByName(itemName);
-    if (item == nullptr)
-    {
-        return false;
-    }
-    for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
-    {
-        if (slot.itemId == item->id && slot.count > 0)
-        {
-            return true;
-        }
-    }
-    return false;
+    return itemId >= 0 && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity) &&
+           InventorySystem::countItem(mWorld.getComponent<Inventory>(mPlayerEntity), itemId) > 0;
 }
 
 void Game::updateWindowTitle(double frameSeconds)

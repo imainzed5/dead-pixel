@@ -28,7 +28,6 @@ float healSecondsFor(WoundType type)
     }
     return kCutHealSeconds;
 }
-constexpr float kMaxHpPenaltyPerWound = 5.0f;
 constexpr float kStableRecoveryPerSecond = 0.02f;
 }
 
@@ -79,8 +78,7 @@ void WoundSystem::update(World& world, Entity playerEntity, float dtSeconds, dou
     if (world.hasComponent<Health>(playerEntity))
     {
         Health& health = world.getComponent<Health>(playerEntity);
-        const float penalty = static_cast<float>(wounds.active.size()) * kMaxHpPenaltyPerWound;
-        health.maximum = std::max(20.0f, 100.0f - penalty);
+        health.maximum = woundedMaximum(health.baseMaximum, wounds.active.size());
         health.current = std::min(health.current, health.maximum);
 
         if (world.hasComponent<Needs>(playerEntity) && !world.hasComponent<Bleeding>(playerEntity))

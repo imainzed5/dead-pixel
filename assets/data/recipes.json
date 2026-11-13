@@ -2,84 +2,84 @@
   "recipes": [
     {
       "name": "Disinfected Bandage",
-      "a": 4,
-      "b": 15,
-      "out": 24,
+      "inputA": "bandage",
+      "inputB": "antibiotics",
+      "output": "disinfected_bandage",
       "count": 1,
       "category": "MED",
       "tools": [],
+      "station": "none",
       "craftTimeSeconds": 6,
       "notes": "Dresses two wounds at once and kills any infection in them.",
       "hintA": "a clean dressing",
       "hintB": "pills from a medicine cabinet",
-      "startsKnown": false,
-      "requiresWorkbench": false
+      "startsKnown": false
     },
     {
       "name": "Soaked Rag",
-      "a": 4,
-      "b": 12,
-      "out": 25,
+      "inputA": "bandage",
+      "inputB": "fuel_can",
+      "output": "soaked_rag",
       "count": 1,
       "category": "TOOLS",
       "tools": [],
+      "station": "none",
       "craftTimeSeconds": 4,
       "notes": "Burns long and bright. Half of a firebomb.",
       "hintA": "a strip of cloth",
       "hintB": "something that burns",
-      "startsKnown": false,
-      "requiresWorkbench": false
+      "startsKnown": false
     },
     {
       "name": "Molotov",
-      "a": 3,
-      "b": 25,
-      "out": 26,
+      "inputA": "empty_bottle",
+      "inputB": "soaked_rag",
+      "output": "molotov",
       "count": 1,
       "category": "TOOLS",
       "tools": [
-        19
+        "matches"
       ],
+      "station": "none",
       "craftTimeSeconds": 6,
       "notes": "Select it and press L to set the ground you aim at alight. Fire draws the dead from far off.",
-      "hintA": "a bottle",
+      "hintA": "an empty bottle",
       "hintB": "a rag soaked in fuel",
-      "startsKnown": false,
-      "requiresWorkbench": false
+      "startsKnown": false
     },
     {
       "name": "Spiked Bat",
-      "a": 6,
-      "b": 10,
-      "out": 27,
+      "inputA": "baseball_bat",
+      "inputB": "scrap_metal",
+      "output": "spiked_bat",
       "count": 1,
       "category": "TOOLS",
       "tools": [
-        17
+        "tool:hammer"
       ],
+      "station": "workbench",
       "craftTimeSeconds": 10,
       "notes": "Hits harder, lasts longer and opens wounds that bleed.",
       "hintA": "a sturdy club",
       "hintB": "scraps of metal",
-      "startsKnown": false,
-      "requiresWorkbench": true
+      "startsKnown": false
     },
     {
       "name": "Spear",
-      "a": 5,
-      "b": 9,
-      "out": 28,
+      "inputA": "knife",
+      "inputB": "wood_planks",
+      "output": "spear",
       "count": 1,
       "category": "TOOLS",
       "tools": [
-        11
+        "rope"
       ],
+      "station": "none",
       "craftTimeSeconds": 8,
       "notes": "A blade lashed to a pole. Keeps them at a distance: longer reach, lighter blows.",
       "hintA": "a blade",
       "hintB": "a long piece of wood",
-      "startsKnown": false,
-      "requiresWorkbench": false
+      "startsKnown": false
     }
   ]
 }

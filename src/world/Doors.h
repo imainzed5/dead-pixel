@@ -24,7 +24,9 @@ public:
     // Up to three boards. One zombie on its own gives up (after 90 s) having
     // split about one; the two or three its banging draws in take the rest.
     static constexpr int kMaxBoards = 3;
-    static constexpr float kBoardHp = 450.0f;
+    static constexpr float kBoardHp = 450.0f; // default; tuned as doors.board.hp
+    // Health of one board (kBoardHp unless tuned).
+    [[nodiscard]] static float boardHpEach();
 
     struct Door
     {

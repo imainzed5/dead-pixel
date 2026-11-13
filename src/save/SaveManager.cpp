@@ -1,5 +1,7 @@
 #include "save/SaveManager.h"
 
+#include "systems/CraftingSystem.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -258,6 +260,7 @@ WorldMemoryEventType parseWorldMemoryEventType(const nlohmann::json& value)
 bool SaveManager::loadOrCreateSlot(const std::string& slotName)
 {
     mSlotName = slotName;
+    mMigratedFrom = 0;
     mSaveDir = "save";
     mMetaPath = mSaveDir + "/" + mSlotName + ".json";
     mMetaBackupPath = mMetaPath + ".backup";
@@ -293,9 +296,40 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
         return false;
     }
 
-    loadLootedPositions();
+    const bool migrating = mSaveVersion < kCurrentSaveVersion;
+    if (migrating)
+    {
+        // Keep the old files, then write everything back in the new form.
+        mMigratedFrom = mSaveVersion;
+        backupSlotFiles(mSaveVersion);
+        std::cout << "Save: migrating slot '" << mSlotName << "' from version " << mSaveVersion << " to "
+                  << kCurrentSaveVersion << '\n';
+    }
+
+    loadWorldMemory();
+
+    if (migrating)
+    {
+        mSaveVersion = kCurrentSaveVersion;
+        writeMeta();
+        saveWorldMemory();
+    }
 
     return true;
+}
+
+void SaveManager::backupSlotFiles(int version) const
+{
+    const std::string suffix = ".v" + std::to_string(version) + ".backup";
+    for (const std::string& path : {mMetaPath, mLegacyPath, mStructurePath, mLayoutPath, mCheckpointPath,
+                                    mWorldMemoryPath, mSurvivorPath})
+    {
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec))
+        {
+            std::filesystem::copy_file(path, path + suffix, std::filesystem::copy_options::overwrite_existing, ec);
+        }
+    }
 }
 
 bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
@@ -317,7 +351,7 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     mGraves.clear();
     mRetirements.clear();
     mStructures.clear();
-    mLootedPositions.clear();
+    mContainers.clear();
     mDiscoveredRecipes.clear();
     mVehicles.clear();
     mFireTiles.clear();
@@ -349,7 +383,7 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
         return false;
     }
 
-    if (!saveLootedPositions())
+    if (!saveWorldMemory())
     {
         return false;
     }
@@ -467,7 +501,7 @@ bool SaveManager::addWorldMemoryEvent(const WorldMemoryEventRecord& record)
     }
 
     mWorldEvents.push_back(record);
-    return saveLootedPositions();
+    return saveWorldMemory();
 }
 
 bool SaveManager::savePresentationSettings()
@@ -486,9 +520,9 @@ bool SaveManager::loadMeta()
         }
 
         const int version = json.value("saveVersion", 0);
-        if (version < kCurrentSaveVersion)
+        if (version < 1)
         {
-            // Legacy save — incompatible. Create fresh slot.
+            // Older than the revival: incompatible. Create fresh slot.
             std::cerr << "Save version " << version << " is outdated (current: "
                       << kCurrentSaveVersion << "). Creating fresh slot.\n";
             return false;
@@ -1140,6 +1174,7 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["playerY"] = cp.playerY;
     json["healthCurrent"] = cp.healthCurrent;
     json["healthMaximum"] = cp.healthMaximum;
+    json["healthBase"] = cp.healthBase;
 
     // Needs
     json["hunger"] = cp.needs.hunger;
@@ -1230,6 +1265,11 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
                              {"slept", fd.sleptNight}, {"night", fd.night}, {"sent", fd.groupsSent},
                              {"card", fd.cardDay}};
     }
+    if (cp.weather.saved)
+    {
+        json["weather"] = {{"condition", cp.weather.condition}, {"hoursLeft", cp.weather.hoursLeft},
+                           {"rng", cp.weather.rngState}};
+    }
 
     const std::string tempPath = mCheckpointPath + ".tmp";
     {
@@ -1270,6 +1310,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
     cp.playerY = json.value("playerY", 0.0f);
     cp.healthCurrent = json.value("healthCurrent", 100.0f);
     cp.healthMaximum = json.value("healthMaximum", 100.0f);
+    cp.healthBase = std::max(cp.healthMaximum, json.value("healthBase", 100.0f));
 
     cp.needs.hunger = json.value("hunger", 80.0f);
     cp.needs.thirst = json.value("thirst", 80.0f);
@@ -1410,6 +1451,14 @@ RunCheckpoint SaveManager::loadCheckpoint() const
         fd.cardDay = std::max(1, fj.value("card", 1));
         cp.firstDaysSaved = true;
     }
+    if (json.contains("weather") && json["weather"].is_object())
+    {
+        const auto& wj = json["weather"];
+        cp.weather.condition = wj.value("condition", 0);
+        cp.weather.hoursLeft = wj.value("hoursLeft", 0.0f);
+        cp.weather.rngState = wj.value("rng", std::string{});
+        cp.weather.saved = !cp.weather.rngState.empty();
+    }
 
     return cp;
 }
@@ -1420,19 +1469,32 @@ void SaveManager::deleteCheckpoint()
     std::filesystem::remove(mCheckpointPath, ec);
 }
 
-bool SaveManager::addLootedPosition(int tileX, int tileY)
+const ContainerRecord* SaveManager::containerRecord(int tileX, int tileY) const
 {
-    for (const auto& [x, y] : mLootedPositions)
+    for (const ContainerRecord& record : mContainers)
     {
-        if (x == tileX && y == tileY) return false; // already tracked
+        if (record.tileX == tileX && record.tileY == tileY) return &record;
     }
-    mLootedPositions.emplace_back(tileX, tileY);
-    return true;
+    return nullptr;
+}
+
+void SaveManager::setContainerRecord(const ContainerRecord& record)
+{
+    for (ContainerRecord& existing : mContainers)
+    {
+        if (existing.tileX == record.tileX && existing.tileY == record.tileY)
+        {
+            existing = record;
+            return;
+        }
+    }
+    mContainers.push_back(record);
 }
 
 bool SaveManager::addDiscoveredRecipe(int itemA, int itemB)
 {
-    if (itemA < 0 || itemB < 0)
+    // itemB may be -1: a one-input recipe.
+    if (std::max(itemA, itemB) < 0 || std::min(itemA, itemB) < -1)
     {
         return false;
     }
@@ -1452,7 +1514,7 @@ bool SaveManager::addDiscoveredRecipe(int itemA, int itemB)
 
 bool SaveManager::isRecipeDiscovered(int itemA, int itemB) const
 {
-    if (itemA < 0 || itemB < 0)
+    if (std::max(itemA, itemB) < 0 || std::min(itemA, itemB) < -1)
     {
         return false;
     }
@@ -1507,13 +1569,19 @@ void SaveManager::setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles)
     }
 }
 
-bool SaveManager::saveLootedPositions()
+bool SaveManager::saveWorldMemory()
 {
     nlohmann::json json;
-    json["looted"] = nlohmann::json::array();
-    for (const auto& [x, y] : mLootedPositions)
+    json["version"] = kCurrentSaveVersion;
+    json["containers"] = nlohmann::json::array();
+    for (const ContainerRecord& record : mContainers)
     {
-        json["looted"].push_back({{"x", x}, {"y", y}});
+        nlohmann::json items = nlohmann::json::array();
+        for (const ContainerItemRecord& item : record.items)
+        {
+            items.push_back({{"id", item.itemId}, {"count", item.count}, {"condition", item.condition}});
+        }
+        json["containers"].push_back({{"x", record.tileX}, {"y", record.tileY}, {"run", record.runIndex}, {"items", items}});
     }
 
     json["recipes"] = nlohmann::json::array();
@@ -1603,12 +1671,12 @@ bool SaveManager::saveLootedPositions()
 
 bool SaveManager::saveDiscoveredRecipes()
 {
-    return saveLootedPositions();
+    return saveWorldMemory();
 }
 
-bool SaveManager::loadLootedPositions()
+bool SaveManager::loadWorldMemory()
 {
-    mLootedPositions.clear();
+    mContainers.clear();
     mDiscoveredRecipes.clear();
     mVehicles.clear();
     mFireTiles.clear();
@@ -1622,13 +1690,38 @@ bool SaveManager::loadLootedPositions()
     nlohmann::json json = nlohmann::json::parse(contents, nullptr, false);
     if (json.is_discarded()) return false;
 
+    // Version 1 kept only where something had been taken: each such place
+    // becomes an empty container record.
     if (json.contains("looted") && json["looted"].is_array())
     {
         for (const auto& lj : json["looted"])
         {
-            int x = lj.value("x", 0);
-            int y = lj.value("y", 0);
-            mLootedPositions.emplace_back(x, y);
+            ContainerRecord record;
+            record.tileX = lj.value("x", 0);
+            record.tileY = lj.value("y", 0);
+            if (containerRecord(record.tileX, record.tileY) == nullptr) mContainers.push_back(record);
+        }
+    }
+    if (json.contains("containers") && json["containers"].is_array())
+    {
+        for (const auto& cj : json["containers"])
+        {
+            ContainerRecord record;
+            record.tileX = cj.value("x", 0);
+            record.tileY = cj.value("y", 0);
+            record.runIndex = cj.value("run", 0);
+            if (cj.contains("items") && cj["items"].is_array())
+            {
+                for (const auto& ij : cj["items"])
+                {
+                    ContainerItemRecord item;
+                    item.itemId = ij.value("id", -1);
+                    item.count = ij.value("count", 0);
+                    item.condition = std::clamp(ij.value("condition", 1.0f), 0.0f, 1.0f);
+                    if (item.itemId >= 0 && item.count > 0) record.items.push_back(item);
+                }
+            }
+            setContainerRecord(record);
         }
     }
 
@@ -1638,12 +1731,13 @@ bool SaveManager::loadLootedPositions()
         {
             const int a = rj.value("a", -1);
             const int b = rj.value("b", -1);
-            if (a < 0 || b < 0)
+            if (std::max(a, b) < 0 || std::min(a, b) < -1)
             {
                 continue;
             }
 
-            const auto normalized = normalizeRecipePair(a, b);
+            // Recipes whose inputs changed are rewritten to the new pair.
+            const auto normalized = CraftingSystem::migrateKnownPair(a, b);
             bool seen = false;
             for (const auto& [ea, eb] : mDiscoveredRecipes)
             {

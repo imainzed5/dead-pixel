@@ -58,4 +58,11 @@ shot 07_pause
 tap Esc
 waits 0.2
 expect playing
+
+# Tough: 120 health, less 5 for each open wound.
+trait tough
+expect maxhp 120
+set wounds 1
+expect maxhp 115
+set wounds 0
 quit

@@ -31,6 +31,7 @@ void NoiseModel::emitNoise(
     {
         return;
     }
+    ++mEmittedTotal;
 
     NoiseEvent event;
     event.worldPosition = worldPosition;

@@ -662,6 +662,39 @@ Not built: compass, noise meter, worn slots, a Body tab.
 ![Pack](shots/ui_pack.png)
 ![Make](shots/ui_make.png)
 
+## Overhaul phase 1: foundations (2026-11-13)
+
+The groundwork the other thirteen phases stand on. Items, loot and tuning
+numbers are data (`assets/data/items.json`, `loot.json`, `tuning.json`); the
+code names items through `ItemIds`, never by number. Containers are real
+storage now: open one with E, move things between pack and container, and
+what you leave stays there across saves and into the next life. Saves are
+version 2 (older slots migrate, with backups). Ten defects fixed, among
+them weather that rolled every minute, hit-stop that slowed the clock, one
+bullet passing through a crowd, and a campaign deadline that killed you.
+
+A bot (`bot PROFILE DAYS` in the harness) plays the game through the same
+input a player uses, and `tools/soak.py` runs it over seeds 1 to 10. The
+baseline, `bot_week.txt`, seed per row:
+
+| Seed | Normal: days | Kills | Searched | Careful: days | Kills | Searched |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.2 | 4 | 10 | 0.4 | 7 | 7 |
+| 2 | 0.3 | 5 | 13 | 0.7 | 5 | 10 |
+| 3 | 0.5 | 5 | 20 | 0.2 | 3 | 8 |
+| 4 | 0.5 | 9 | 10 | 0.2 | 3 | 14 |
+| 5 | 0.2 | 8 | 16 | 0.1 | 1 | 3 |
+| 6 | 0.1 | 4 | 22 | 0.5 | 3 | 22 |
+| 7 | 0.4 | 3 | 8 | 0.3 | 1 | 6 |
+| 8 | 0.1 | 7 | 7 | 0.2 | 3 | 8 |
+| 9 | 0.2 | 8 | 21 | 0.5 | 3 | 8 |
+| 10 | 0.5 | 4 | 20 | 0.1 | 2 | 10 |
+
+Every run is clean (no crash, no stuck bot) and every run ends "Killed by
+zombies on Day 1": median 0.3 days for both profiles. The bot is not yet a
+good player, and day one is hard for anyone who goes out searching; both are
+noted in `docs/overhaul/DECISIONS.md` for phases 3 and 14.
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -795,3 +828,6 @@ Candidates for the next stretch, roughly in order. None is started.
   wind in the trees, kicked litter, spent cases, street lamps.
 - 2026-11-13: Interface redrawn in the chosen "bare hands" style: HUD, pack and
   crafting docked to the right edge.
+- 2026-11-13: Overhaul phase 1, foundations: items, loot and tuning as data,
+  container storage, save version 2, ten defects fixed, the bot and
+  `tools/soak.py` with a seeds 1-10 baseline.

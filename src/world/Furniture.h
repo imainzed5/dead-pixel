@@ -77,6 +77,11 @@ namespace furniture
 // The tile in front of an oriented piece (where you stand to use it).
 [[nodiscard]] glm::ivec2 frontTile(const FurniturePiece& piece);
 
+// True when a piece of `kind` stands within `radiusTiles` of `tile`
+// (centre to centre).
+[[nodiscard]] bool kindWithin(const std::vector<FurniturePiece>& pieces, FurnitureKind kind, const glm::ivec2& tile,
+                              float radiusTiles);
+
 // Furnishes every building in the layout. Doorways, the tiles around them
 // and the player start stay clear, every room stays walkable end to end and
 // every piece can be reached. Deterministic for a given layout and seed.

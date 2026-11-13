@@ -1,4 +1,6 @@
 /build/
+/build-local/
+/build*/
 /compile_commands.json
 /save/
 /.vs/

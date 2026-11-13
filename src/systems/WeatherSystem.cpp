@@ -2,9 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 
 namespace
 {
+// One real second is one game minute (core/GameShared.h).
+constexpr float kGameHoursPerRealSecond = 1.0f / 60.0f;
+
 float baseTemperature(Season season)
 {
     switch (season)
@@ -27,16 +31,80 @@ Season nextSeason(Season s)
     return static_cast<Season>((static_cast<int>(s) + 1) % 4);
 }
 
-// Deterministic pseudo-random from seed
-int pseudoRandom(int seed)
+// A float in [0, 1), the same on every compiler.
+float unit(std::mt19937& rng)
 {
-    seed = (seed ^ 61) ^ (seed >> 16);
-    seed = seed + (seed << 3);
-    seed = seed ^ (seed >> 4);
-    seed = seed * 0x27d4eb2d;
-    seed = seed ^ (seed >> 15);
-    return seed & 0x7FFFFFFF;
+    return static_cast<float>(rng() >> 8) * (1.0f / 16777216.0f);
 }
+}
+
+void WeatherSystem::reset(std::uint32_t seed)
+{
+    mRng.seed(seed);
+    mHoursLeft = 0.0f;
+}
+
+WeatherCondition WeatherSystem::rollCondition(Season season, std::mt19937& rng)
+{
+    const int roll = static_cast<int>(unit(rng) * 100.0f);
+    switch (season)
+    {
+    case Season::Spring:
+        if (roll < 30) return WeatherCondition::Clear;
+        if (roll < 55) return WeatherCondition::Cloudy;
+        if (roll < 80) return WeatherCondition::Rain;
+        if (roll < 90) return WeatherCondition::Fog;
+        return WeatherCondition::Thunderstorm;
+    case Season::Summer:
+        if (roll < 45) return WeatherCondition::Clear;
+        if (roll < 65) return WeatherCondition::Cloudy;
+        if (roll < 80) return WeatherCondition::Heatwave;
+        if (roll < 90) return WeatherCondition::Rain;
+        return WeatherCondition::Thunderstorm;
+    case Season::Autumn:
+        if (roll < 20) return WeatherCondition::Clear;
+        if (roll < 45) return WeatherCondition::Cloudy;
+        if (roll < 70) return WeatherCondition::Rain;
+        if (roll < 85) return WeatherCondition::HeavyRain;
+        if (roll < 95) return WeatherCondition::Fog;
+        return WeatherCondition::Thunderstorm;
+    case Season::Winter:
+        if (roll < 25) return WeatherCondition::Clear;
+        if (roll < 50) return WeatherCondition::Cloudy;
+        if (roll < 70) return WeatherCondition::Fog;
+        if (roll < 85) return WeatherCondition::Rain;
+        return WeatherCondition::Blizzard;
+    }
+    return WeatherCondition::Clear;
+}
+
+float WeatherSystem::rollHours(std::mt19937& rng)
+{
+    return 2.0f + unit(rng) * 4.0f;
+}
+
+std::string WeatherSystem::rngState() const
+{
+    std::ostringstream out;
+    out << mRng;
+    return out.str();
+}
+
+bool WeatherSystem::restore(WeatherState& weather, WeatherCondition condition, float hoursLeft,
+                            const std::string& rngState)
+{
+    std::mt19937 rng;
+    std::istringstream in(rngState);
+    in >> rng;
+    if (in.fail())
+    {
+        return false;
+    }
+    mRng = rng;
+    mHoursLeft = hoursLeft;
+    weather.condition = condition;
+    weather.conditionDuration = hoursLeft;
+    return true;
 }
 
 void WeatherSystem::update(WeatherState& weather, float dtSeconds, double gameHours, int currentDay)
@@ -65,50 +133,14 @@ void WeatherSystem::update(WeatherState& weather, float dtSeconds, double gameHo
     const float dayNightFactor = std::cos(hourOffset * 3.14159f / 12.0f);
     weather.temperature = base + dayNightFactor * kDayNightSwing;
 
-    // --- Weather condition state machine ---
-    mConditionTimer -= dtSeconds;
-    if (mConditionTimer <= 0.0f)
+    // --- Weather condition state machine (counted in game hours) ---
+    (void)gameHours;
+    mHoursLeft -= dtSeconds * kGameHoursPerRealSecond;
+    if (mHoursLeft <= 0.0f)
     {
-        // Pick new condition based on season and pseudo-random
-        const int seed = currentDay * 7919 + static_cast<int>(gameHours * 100.0);
-        const int roll = pseudoRandom(seed) % 100;
-
-        switch (weather.season)
-        {
-        case Season::Spring:
-            if (roll < 30) weather.condition = WeatherCondition::Clear;
-            else if (roll < 55) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 80) weather.condition = WeatherCondition::Rain;
-            else if (roll < 90) weather.condition = WeatherCondition::Fog;
-            else weather.condition = WeatherCondition::Thunderstorm;
-            break;
-        case Season::Summer:
-            if (roll < 45) weather.condition = WeatherCondition::Clear;
-            else if (roll < 65) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 80) weather.condition = WeatherCondition::Heatwave;
-            else if (roll < 90) weather.condition = WeatherCondition::Rain;
-            else weather.condition = WeatherCondition::Thunderstorm;
-            break;
-        case Season::Autumn:
-            if (roll < 20) weather.condition = WeatherCondition::Clear;
-            else if (roll < 45) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 70) weather.condition = WeatherCondition::Rain;
-            else if (roll < 85) weather.condition = WeatherCondition::HeavyRain;
-            else if (roll < 95) weather.condition = WeatherCondition::Fog;
-            else weather.condition = WeatherCondition::Thunderstorm;
-            break;
-        case Season::Winter:
-            if (roll < 25) weather.condition = WeatherCondition::Clear;
-            else if (roll < 50) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 70) weather.condition = WeatherCondition::Fog;
-            else if (roll < 85) weather.condition = WeatherCondition::Rain;
-            else weather.condition = WeatherCondition::Blizzard;
-            break;
-        }
-
-        // Duration: 2-6 game hours
-        mConditionTimer = static_cast<float>(2.0f + (pseudoRandom(seed + 1) % 40) * 0.1f);
-        weather.conditionDuration = mConditionTimer;
+        weather.condition = rollCondition(weather.season, mRng);
+        mHoursLeft = rollHours(mRng);
+        weather.conditionDuration = mHoursLeft;
     }
 
     // --- Apply condition effects ---

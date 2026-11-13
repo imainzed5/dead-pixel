@@ -1,4 +1,5 @@
 #include "world/Doors.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,13 +24,18 @@ void Doors::reset(TileMap& map, const LayoutData& layout)
     }
 }
 
+float Doors::boardHpEach()
+{
+    return Tuning::get("doors.board.hp", kBoardHp);
+}
+
 int Doors::boardsFor(float boardHp)
 {
     if (boardHp <= 0.0f)
     {
         return 0;
     }
-    return std::clamp(static_cast<int>(std::ceil(boardHp / kBoardHp - 0.001f)), 1, kMaxBoards);
+    return std::clamp(static_cast<int>(std::ceil(boardHp / boardHpEach() - 0.001f)), 1, kMaxBoards);
 }
 
 DoorState Doors::toggle(TileMap& map, const glm::ivec2& tile)
@@ -124,7 +130,7 @@ bool Doors::addBoard(TileMap& map, const glm::ivec2& tile)
         return false;
     }
     // A fresh board on top; a split one underneath still counts for what is left of it.
-    door->boardHp = std::min(door->boardHp + kBoardHp, kBoardHp * static_cast<float>(kMaxBoards));
+    door->boardHp = std::min(door->boardHp + boardHpEach(), boardHpEach() * static_cast<float>(kMaxBoards));
     map.setDoorBoards(tile.x, tile.y, boardsFor(door->boardHp));
     return true;
 }
@@ -136,7 +142,7 @@ bool Doors::removeBoard(TileMap& map, const glm::ivec2& tile)
     {
         return false;
     }
-    door->boardHp = kBoardHp * static_cast<float>(boardsFor(door->boardHp) - 1);
+    door->boardHp = boardHpEach() * static_cast<float>(boardsFor(door->boardHp) - 1);
     map.setDoorBoards(tile.x, tile.y, boardsFor(door->boardHp));
     return true;
 }
@@ -148,7 +154,7 @@ void Doors::setBoards(TileMap& map, const glm::ivec2& tile, float boardHp)
     {
         return;
     }
-    door->boardHp = std::clamp(boardHp, 0.0f, kBoardHp * static_cast<float>(kMaxBoards));
+    door->boardHp = std::clamp(boardHp, 0.0f, boardHpEach() * static_cast<float>(kMaxBoards));
     map.setDoorBoards(tile.x, tile.y, boardsFor(door->boardHp));
 }
 

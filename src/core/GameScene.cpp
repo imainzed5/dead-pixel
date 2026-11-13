@@ -1,5 +1,6 @@
 // Builds the world for a run: map, entities, loot, survivors and legacy traces.
 #include "core/GameShared.h"
+#include "world/Storage.h"
 
 using namespace gameshared;
 
@@ -169,10 +170,10 @@ void Game::setupScene()
             startWater = 2;
         }
 
-        InventorySystem::addItem(inv, mItemDatabase, 5, 1);  // knife
-        InventorySystem::addItem(inv, mItemDatabase, 4, startBandages);
-        InventorySystem::addItem(inv, mItemDatabase, 0, startFood);
-        InventorySystem::addItem(inv, mItemDatabase, 3, startWater);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.knife, 1);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.bandage, startBandages);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.cannedFood, startFood);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, startWater);
     }
     equipStartingWeapon(-1); // the knife, in hand from the start
     mWorld.addComponent<MentalState>(mPlayerEntity, MentalState{});
@@ -190,7 +191,8 @@ void Game::setupScene()
         if (traits.positive == PositiveTrait::Tough)
         {
             Health& h = mWorld.getComponent<Health>(mPlayerEntity);
-            h.maximum += 20.0f;
+            h.baseMaximum = 120.0f;
+            h.maximum = h.baseMaximum;
             h.current = h.maximum;
         }
         // Quick and LightSleeper are applied dynamically in movement/sleep systems
@@ -328,8 +330,8 @@ void Game::setupScene()
         if (traits.bloodline == BloodlineTrait::Scavenger && mWorld.hasComponent<Inventory>(mPlayerEntity))
         {
             Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-            InventorySystem::addItem(inv, mItemDatabase, 0, 1);
-            InventorySystem::addItem(inv, mItemDatabase, 3, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.cannedFood, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, 1);
         }
 
         if (traits.bloodline == BloodlineTrait::Vigilant && mWorld.hasComponent<MentalState>(mPlayerEntity))
@@ -340,8 +342,11 @@ void Game::setupScene()
     }
 
     // Initialize district infection system
-    mDistrictInfectionSystem.initialize(mMapGenerator.layoutData());
+    mDistrictInfectionSystem.initialize(mMapGenerator.layoutData(), mTileMap.tileWidth(), mTileMap.tileHeight());
     mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(saveThreatModeFromIndex(mTitleModeIndex)));
+    // Weather and combat rolls follow the run seed too, so a seed replays.
+    mWeatherSystem.reset(mSaveManager.currentRunSeed() ^ 0x5EA7u);
+    mCombatSystem.reseed(mSaveManager.currentRunSeed() ^ 0xC0B7u);
     mFlashlightOn = false;
     mHudDistrictId = -1;
     mDistrictToastTimer = 0.0f;
@@ -662,14 +667,12 @@ void Game::setupScene()
         {
             std::uniform_real_distribution<float> fuelDist(8.0f, 24.0f);
             std::uniform_real_distribution<float> conditionDist(45.0f, 95.0f);
-            std::uniform_int_distribution<int> trunkRoll(0, 100);
+            std::mt19937 trunkRng(mSaveManager.currentRunSeed() ^ 0x7A11u);
 
             for (const auto& tile : mSpawnData.vehicleSpawns)
             {
                 std::vector<std::pair<int, int>> trunkItems;
-                if (trunkRoll(runRng) < 45) trunkItems.emplace_back(12, 1); // fuel can
-                if (trunkRoll(runRng) < 40) trunkItems.emplace_back(3, 1);  // water bottle
-                if (trunkRoll(runRng) < 30) trunkItems.emplace_back(4, 1);  // bandage
+                mLoot.roll("trunk", trunkRng, tone.suppliesScale, trunkItems);
 
                 spawnSedan(
                     tile.x,
@@ -685,35 +688,6 @@ void Game::setupScene()
     // --- Furniture: containers to search, beds to sleep in ---
     {
         std::mt19937 lootRng(mSaveManager.currentRunSeed() ^ 0xF00Du);
-        std::uniform_real_distribution<float> roll(0.0f, 1.0f);
-        // Most cupboards are already bare; tone scales how many are not.
-        const float stocked = std::clamp(0.45f * tone.suppliesScale, 0.0f, 0.9f);
-
-        const auto lootTable = [](FurnitureLoot loot) -> std::vector<int>
-        {
-            switch (loot)
-            {
-            case FurnitureLoot::Fridge: return {0, 1, 2, 3};
-            case FurnitureLoot::Kitchen: return {0, 3, 19, 5, 2};
-            case FurnitureLoot::Bathroom: return {4, 16, 15};
-            case FurnitureLoot::Bedroom: return {20, 23, 18, 16, 19};
-            case FurnitureLoot::Living: return {23, 19, 18};
-            case FurnitureLoot::Store: return {0, 3, 2, 4, 16, 19};
-            case FurnitureLoot::Checkout: return {23, 19, 18, 16};
-            case FurnitureLoot::Storage: return {9, 10, 11, 12, 13};
-            case FurnitureLoot::Workshop: return {17, 10, 11, 9, 7, 8};
-            case FurnitureLoot::None: break;
-            }
-            return {};
-        };
-
-        const auto& lootedPos = mSaveManager.lootedPositions();
-        const auto isLooted = [&](int tx, int ty)
-        {
-            return std::any_of(lootedPos.begin(), lootedPos.end(),
-                               [&](const std::pair<int, int>& p) { return p.first == tx && p.second == ty; });
-        };
-
         for (const FurniturePiece& piece : mFurniture)
         {
             const FurnitureInfo& def = furniture::info(piece.kind);
@@ -738,18 +712,21 @@ void Game::setupScene()
             }
             inter.type = InteractableType::Container;
             mWorld.addComponent<Interactable>(entity, inter);
-            mWorld.addComponent<Inventory>(entity, Inventory{});
+            mWorld.addComponent<Inventory>(entity, storage::emptyContainer(piece.kind));
 
-            // Picked over in an earlier life: still empty.
-            if (isLooted(piece.tile.x, piece.tile.y)) continue;
-            const std::vector<int> table = lootTable(def.loot);
-            if (table.empty()) continue;
+            // What the world remembers of it (taken from, filled by the player)
+            // stands; otherwise it is rolled fresh from its loot class.
             Inventory& inv = mWorld.getComponent<Inventory>(entity);
-            for (int stack = 0; stack < 2; ++stack)
+            if (const ContainerRecord* record = mSaveManager.containerRecord(piece.tile.x, piece.tile.y))
             {
-                if (roll(lootRng) > (stack == 0 ? stocked : 0.25f)) break;
-                const int itemId = table[lootRng() % table.size()];
-                InventorySystem::addItem(inv, mItemDatabase, itemId, (lootRng() % 4) == 0 ? 2 : 1);
+                storage::fillFromRecord(inv, *record, mItemDatabase);
+                continue;
+            }
+            std::vector<std::pair<int, int>> stacks;
+            mLoot.roll(storage::lootClassFor(def.loot), lootRng, tone.suppliesScale, stacks);
+            for (const auto& [itemId, count] : stacks)
+            {
+                InventorySystem::addItem(inv, mItemDatabase, itemId, count);
             }
         }
     }
@@ -764,7 +741,6 @@ void Game::setupScene()
 
         // Unsearched furniture containers, so a cache can go into the
         // nearest one in its building.
-        const auto& lootedPos = mSaveManager.lootedPositions();
         struct Stash
         {
             Entity entity;
@@ -779,9 +755,7 @@ void Game::setupScene()
                 if (inter.type != InteractableType::Container) return;
                 const glm::ivec2 tile(static_cast<int>(t.x) / mTileMap.tileWidth(), static_cast<int>(t.y) / mTileMap.tileHeight());
                 if (!mTileMap.hasFurniture(tile.x, tile.y)) return;
-                const bool looted = std::any_of(lootedPos.begin(), lootedPos.end(), [&](const std::pair<int, int>& p)
-                                                { return p.first == tile.x && p.second == tile.y; });
-                if (looted) return;
+                if (mSaveManager.containerRecord(tile.x, tile.y) != nullptr) return;
                 const auto piece = std::find_if(mFurniture.begin(), mFurniture.end(),
                                                 [&](const FurniturePiece& p) { return p.tile == tile; });
                 const FurnitureLoot loot = piece != mFurniture.end() ? furniture::info(piece->kind).loot : FurnitureLoot::None;
@@ -847,19 +821,19 @@ void Game::setupScene()
         {
             if (mTileMap.isSolid(tile.x, tile.y)) continue;
             Inventory& inv = cacheAt(tile, true, "env_shelf", glm::vec4(0.85f, 0.9f, 0.95f, 1.0f), "Raid med cache");
-            InventorySystem::addItem(inv, mItemDatabase, 22, 1);
-            InventorySystem::addItem(inv, mItemDatabase, 4, extraBandageDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 15, extraAntibioticDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.firstAidKit, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.bandage, extraBandageDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.antibiotics, extraAntibioticDist(runRng));
         }
 
         for (const auto& tile : mSpawnData.supplyCacheSpawns)
         {
             if (mTileMap.isSolid(tile.x, tile.y)) continue;
             Inventory& inv = cacheAt(tile, false, "env_crate", glm::vec4(0.95f, 0.85f, 0.65f, 1.0f), "Raid supply cache");
-            InventorySystem::addItem(inv, mItemDatabase, 0, foodQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 3, waterQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 9, materialQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 11, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.cannedFood, foodQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, waterQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.woodPlanks, materialQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.rope, 1);
         }
         std::cout << "[World] caches: " << usedStashes.size() << " in furniture, " << props << " stand-alone\n";
     }

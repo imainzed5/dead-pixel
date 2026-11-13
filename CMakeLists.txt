@@ -43,6 +43,9 @@ add_library(dead_pixel_core STATIC
     src/core/GameDoors.cpp
     src/core/GameFurniture.cpp
     src/core/GameFirstDays.cpp
+    src/core/GameContent.cpp
+    src/core/GameStorage.cpp
+    src/core/Tuning.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
     src/ecs/EntityManager.cpp
@@ -75,10 +78,12 @@ add_library(dead_pixel_core STATIC
     src/world/EntityFactory.cpp
     src/world/Doors.cpp
     src/world/Furniture.cpp
+    src/world/Storage.cpp
     src/world/Scenery.cpp
     src/systems/Atmosphere.cpp
     src/world/FirstDays.cpp
     src/items/ItemDatabase.cpp
+    src/items/LootTables.cpp
     src/rendering/Camera.cpp
     src/rendering/Shader.cpp
     src/rendering/Texture.cpp
@@ -95,6 +100,7 @@ add_library(dead_pixel_core STATIC
     src/audio/AudioManager.cpp
     src/dev/DevHarness.cpp
     src/dev/LaunchOptions.cpp
+    src/dev/Autoplayer.cpp
 )
 
 target_include_directories(dead_pixel_core PUBLIC src)
@@ -144,6 +150,9 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_feel.cpp
         tests/test_scenery.cpp
         tests/test_atmosphere.cpp
+        tests/test_content.cpp
+        tests/test_weather.cpp
+        tests/test_storage.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

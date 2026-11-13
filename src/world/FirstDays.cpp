@@ -1,4 +1,5 @@
 #include "world/FirstDays.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -48,8 +49,11 @@ int planDay(int day, double hours)
 int nightCallers(int night)
 {
     if (night <= 0) return 0;
-    if (night <= 3) return night * 2;
-    return 6 + (night - 3);
+    // Tuned: callers per night over the first three nights, then added each night.
+    const int perNight = static_cast<int>(Tuning::get("night.callers.base", 2.0f));
+    const int growth = static_cast<int>(Tuning::get("night.callers.growth", 1.0f));
+    if (night <= 3) return night * perNight;
+    return 3 * perNight + (night - 3) * growth;
 }
 
 std::vector<CallerGroup> callerSchedule(int callers)

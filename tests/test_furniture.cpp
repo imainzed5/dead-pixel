@@ -235,3 +235,21 @@ DP_TEST(furniture_is_deterministic)
     DP_CHECK(furniture::spriteName(FurniturePiece{{0, 0}, FurnitureKind::Fridge, true, 1}) == "furn_fridge_l");
     DP_CHECK(furniture::spriteName(FurniturePiece{{0, 0}, FurnitureKind::Plant, true, 1}) == "furn_plant");
 }
+
+DP_TEST(a_workbench_counts_within_three_tiles)
+{
+    std::vector<FurniturePiece> pieces;
+    FurniturePiece bench{};
+    bench.kind = FurnitureKind::Workbench;
+    bench.tile = glm::ivec2(10, 10);
+    pieces.push_back(bench);
+    FurniturePiece shelf{};
+    shelf.kind = FurnitureKind::Bookshelf;
+    shelf.tile = glm::ivec2(30, 30);
+    pieces.push_back(shelf);
+
+    DP_CHECK(furniture::kindWithin(pieces, FurnitureKind::Workbench, glm::ivec2(12, 11), 3.0f));
+    DP_CHECK(furniture::kindWithin(pieces, FurnitureKind::Workbench, glm::ivec2(13, 10), 3.0f));
+    DP_CHECK(!furniture::kindWithin(pieces, FurnitureKind::Workbench, glm::ivec2(14, 10), 3.0f));
+    DP_CHECK(!furniture::kindWithin(pieces, FurnitureKind::Workbench, glm::ivec2(30, 31), 3.0f));
+}

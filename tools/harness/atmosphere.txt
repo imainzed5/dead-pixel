@@ -47,5 +47,12 @@ hold A 45
 shot 08_running
 key LShift up
 waits 0.5
+
+# Weather left to itself lasts hours: one condition holds for a real minute.
+weather roll
+waits 0.5
+weather mark
+waits 60
+expect weather same
 expect alive
 quit

@@ -34,7 +34,7 @@ float angleDelta(float a, float b)
 }
 
 CombatSystem::CombatSystem()
-    : mRng(std::random_device{}())
+    : mRng(0xC0B7u) // reseeded from the run seed at each run start
     , mDist(0.0f, 1.0f)
 {
 }

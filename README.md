@@ -49,7 +49,8 @@ done, what is next, and known issues.
 | WASD | Move (screen directions) |
 | Shift / C | Run / crouch |
 | Mouse, left click, right click | Aim, attack, grab |
-| E | Interact: open and close doors, search containers, sleep in a bed |
+| E | Interact: open and close doors, open containers, sleep in a bed |
+| In a container: A/D or Left/Right, W/S, E or Enter, Shift+E, Esc | Pick the pack or the container side, move the cursor, move one across, move the whole stack, close (the mouse works too: click moves one, Shift+click the stack) |
 | R / X at a closed door | Board it up (hammer and a plank) / pry a board off |
 | R at a kitchen counter or sink | Drink from the tap and fill empty bottles (until day 3) |
 | F | Use the selected item, or take a weapon in hand |
@@ -135,17 +136,30 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   `day N`.
 - **Runs:** `newrun`, `save`, `resume`, `kill [cause]`, `retire`, `quit`.
 - **Moving and setup:**
-  - `teleport X Y`, `enter N` (a building);
-  - `goto home|risen|pack|grave|door [outside]|furniture [KIND|any] [stocked]`;
-  - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE`, `zoom Z`.
+  - `teleport X Y`, `enter N` (a building), `mark` (remember this tile);
+  - `goto home|mark|risen|pack|grave|door [outside]|furniture [KIND|any|container] [stocked]`;
+  - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE` (also
+    `set wounds N`), `trait tough`, `zoom Z`;
+  - `tune KEY VALUE` overrides a number from `assets/data/tuning.json` for
+    the run;
+  - `weather KIND` holds a condition, `weather roll` lets it roll a new one,
+    `weather mark` remembers the current one.
+- **Containers:** `open` (the nearest in reach), `container` (print what
+  the open one holds), `stash ITEM NAME [COUNT]` (from the pack into it).
+- **The bot:** `bot careful|normal|bold [DAYS]` plays the game through the
+  keyboard and mouse until DAYS days pass or the run ends; the script waits.
+  A bot that stands on one tile for 3 game hours while awake prints `FAIL`.
 - **The dead:** `zombie DX DY`, `slay RADIUS`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
   - `plan` prints the day's plan, the home's doors and boards, and the
     night's callers;
-  - `expect alive|dead`, `shot NAME`, `metrics INTERVAL` (game seconds),
-    `log TEXT`.
+  - `expect alive|dead`, `expect maxhp N`, `expect weather same`,
+    `expect container ITEM NAME COUNT`;
+  - `shot NAME`, `metrics INTERVAL` (ticks), `log TEXT`. Metrics rows add the
+    cause of death, items carried by category, containers searched, boards
+    up, tonight's callers, zombies within 10 tiles and noises per game hour.
 
 **Scripts in `tools/harness/`**
 
@@ -166,6 +180,16 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `corpses` | Melee kills count and leave a body |
 | `facing` | Characters face the four screen diagonals |
 | `legacy` | Graves, the risen, packs, laying the dead to rest |
+| `atmosphere` | Each kind of weather, a storm at night, lamps; weather left alone holds for hours |
+| `storage` | Putting things in a cupboard; they stay through a save, a resume and the next life |
+| `bot_week` | The bot plays a week with metrics (what `tools/soak.py` runs) |
+| `bare_world`, `world_tour`, `combat_feel` | The town without the interface, a tour of it, the weight of a blow |
+
+**Soak runs.** `python tools/soak.py --exe build/dead_pixel_survival.exe`
+runs `bot_week` for seeds 1 to 10, each in a fresh directory, and prints a
+table: days survived, how the run ended, kills, food and drink carried,
+containers searched. `--seeds 1-3`, `--jobs N` and `--profile careful` change
+what it runs. Later phases read balance from it.
 
 ## Assets
 
@@ -180,9 +204,9 @@ and the image scripts also need Pillow.
 | `tools/generate_font_atlas.py` | The pixel font in `assets/fonts/` |
 | `tools/generate_sounds.py` | Placeholder sound effects in `assets/sounds/` |
 
-The item and recipe data in `assets/data/` is edited by hand.
-`tools/generate_items.py` is the original generator and is out of date: it
-would overwrite `items.json` with an older, shorter list.
+The game's content is data in `assets/data/`, edited by hand: `items.json`
+(items, by key), `recipes.json` (recipes by item key), `loot.json` (what each
+kind of container holds) and `tuning.json` (numbers balance runs adjust).
 
 ## Project layout
 
@@ -194,7 +218,7 @@ would overwrite `items.json` with an older, shorter list.
 | `src/world`, `src/map` | Town generation, furniture, doors, tile map |
 | `src/rendering`, `src/ui` | Sprite batching, structures, furniture, HUD |
 | `src/save` | Save slots, checkpoints, world memory |
-| `src/dev` | Launch options and the dev harness |
+| `src/dev` | Launch options, the dev harness and the bot (`Autoplayer`) |
 | `tests` | Unit tests |
 | `tools` | Asset generators and harness scripts |
 | `docs` | Revival plan, GDD, style guide, older audits and backlog |

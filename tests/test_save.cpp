@@ -140,7 +140,12 @@ DP_TEST(save_world_memory_round_trips)
 
     SaveManager save;
     DP_CHECK(save.loadOrCreateSlot("memory_slot"));
-    DP_CHECK(save.addLootedPosition(10, 12));
+    ContainerRecord cupboard;
+    cupboard.tileX = 10;
+    cupboard.tileY = 12;
+    cupboard.runIndex = 1;
+    cupboard.items = {{0, 2, 0.5f}};
+    save.setContainerRecord(cupboard);
     DP_CHECK(save.addDiscoveredRecipe(3, 5));
 
     VehicleRecord sedan;
@@ -152,12 +157,14 @@ DP_TEST(save_world_memory_round_trips)
     save.setVehicleRecords({sedan});
     save.setBurnedTiles({{1, 2}, {3, 4}, {1, 2}});
     save.setBrokenDoors({{7, 8}});
-    DP_CHECK(save.saveLootedPositions());
+    DP_CHECK(save.saveWorldMemory());
 
     SaveManager reloaded;
     DP_CHECK(reloaded.loadOrCreateSlot("memory_slot"));
-    DP_CHECK(reloaded.loadLootedPositions());
-    DP_CHECK_EQ(reloaded.lootedPositions().size(), std::size_t{1});
+    DP_CHECK(reloaded.loadWorldMemory());
+    DP_CHECK_EQ(reloaded.containerRecords().size(), std::size_t{1});
+    DP_CHECK(reloaded.containerRecord(10, 12) != nullptr);
+    DP_CHECK_EQ(reloaded.containerRecord(10, 12)->items.size(), std::size_t{1});
     DP_CHECK(reloaded.isRecipeDiscovered(3, 5));
     DP_CHECK_EQ(reloaded.vehicles().size(), std::size_t{1});
     DP_CHECK_NEAR(reloaded.vehicles()[0].condition, 55.0f, 0.001);

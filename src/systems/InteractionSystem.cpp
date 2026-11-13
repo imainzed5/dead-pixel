@@ -201,13 +201,14 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
         {
             Inventory& inv = world.getComponent<Inventory>(playerEntity);
             // Map weapon category to item ID
-            int weaponItemId = 5; // default: knife
+            const char* weaponKey = "pipe";
             switch (static_cast<WeaponCategory>(interactable.weaponCategory))
             {
-            case WeaponCategory::Bladed: weaponItemId = 5; break;  // knife
-            case WeaponCategory::Blunt: weaponItemId = 6; break;   // bat
-            default: weaponItemId = 7; break;                       // pipe
+            case WeaponCategory::Bladed: weaponKey = "knife"; break;
+            case WeaponCategory::Blunt: weaponKey = "baseball_bat"; break;
+            default: break;
             }
+            const int weaponItemId = itemDb->idOf(weaponKey);
             auto result = InventorySystem::addItem(inv, *itemDb, weaponItemId, 1);
             if (result.added > 0)
             {
@@ -239,7 +240,7 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
         if (hasInventory)
         {
             Inventory& inv = world.getComponent<Inventory>(playerEntity);
-            auto result = InventorySystem::addItem(inv, *itemDb, 4, 1); // bandage id = 4
+            auto result = InventorySystem::addItem(inv, *itemDb, itemDb->idOf("bandage"), 1);
             if (result.added > 0)
             {
                 world.destroyEntity(bestEntity);
@@ -256,41 +257,8 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
     }
 
     case InteractableType::Container:
-    {
-        if (!hasInventory || !world.hasComponent<Inventory>(bestEntity))
-        {
-            return "Nothing useful inside.";
-        }
-        Inventory& playerInv = world.getComponent<Inventory>(playerEntity);
-        Inventory& containerInv = world.getComponent<Inventory>(bestEntity);
-
-        int totalTransferred = 0;
-        for (auto& slot : containerInv.slots)
-        {
-            if (slot.itemId < 0 || slot.count <= 0)
-            {
-                continue;
-            }
-            auto result = InventorySystem::addItem(playerInv, *itemDb, slot.itemId, slot.count);
-            if (result.added > 0)
-            {
-                slot.count -= result.added;
-                if (slot.count <= 0)
-                {
-                    slot.itemId = -1;
-                    slot.count = 0;
-                    slot.condition = 1.0f;
-                }
-                totalTransferred += result.added;
-            }
-        }
-
-        if (totalTransferred == 0)
-        {
-            return "Stash picked clean or inventory full.";
-        }
-        return "Recovered " + std::to_string(totalTransferred) + " supplies.";
-    }
+        // The game opens the container panel before this system sees the key.
+        return {};
 
     case InteractableType::GraveMarker:
         return interactable.message.empty() ? "An old grave marker." : interactable.message;

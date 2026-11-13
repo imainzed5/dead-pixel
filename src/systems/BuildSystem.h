@@ -16,7 +16,7 @@ struct BuildRecipe
     StructureType type;
     const char* name;
     const char* sprite;
-    int materialId;      // item ID consumed
+    const char* materialKey; // item consumed, by key
     int materialCost;
     float hp;
 };

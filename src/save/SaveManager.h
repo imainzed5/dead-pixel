@@ -99,6 +99,32 @@ struct FirstDaysRecord
     int cardDay = 1;     // the last day whose dawn card has shown
 };
 
+// What a container holds, as the world remembers it. A container with a
+// record is filled from it in every later life instead of being rolled.
+struct ContainerItemRecord
+{
+    int itemId = -1;
+    int count = 0;
+    float condition = 1.0f;
+};
+
+struct ContainerRecord
+{
+    int tileX = 0;
+    int tileY = 0;
+    int runIndex = 0; // the run that last changed it
+    std::vector<ContainerItemRecord> items;
+};
+
+// Weather as a checkpoint leaves it, so a resume continues the same weather.
+struct WeatherRecord
+{
+    bool saved = false;
+    int condition = 0;          // WeatherCondition
+    float hoursLeft = 0.0f;     // game hours until the next condition
+    std::string rngState;       // the weather generator, as text
+};
+
 struct FireTileRecord
 {
     int tileX = 0;
@@ -211,6 +237,7 @@ struct RunCheckpoint
     float playerY = 0.0f;
     float healthCurrent = 100.0f;
     float healthMaximum = 100.0f;
+    float healthBase = 100.0f; // maximum with no wounds (Tough: 120)
     Needs needs{};
     MentalState mental{};
     std::vector<Wound> wounds;
@@ -237,6 +264,7 @@ struct RunCheckpoint
     std::vector<CorpseRecord> corpses;
     bool firstDaysSaved = false;
     FirstDaysRecord firstDays;
+    WeatherRecord weather;
 };
 
 class SaveManager
@@ -245,7 +273,10 @@ public:
     // Dev/test hook: newly created slots use this world seed instead of a random one.
     static void setSeedOverride(std::uint32_t seed);
 
-    static constexpr int kCurrentSaveVersion = 1;
+    // 1: the first revival saves. 2: container records replace looted
+    // positions; known molotov recipes use the Empty Bottle. Version 1 slots
+    // are migrated on load and their old files kept as *.v1.backup.
+    static constexpr int kCurrentSaveVersion = 2;
 
     bool loadOrCreateSlot(const std::string& slotName);
     bool resetCurrentSlotWorld(bool keepPresentationSettings = true);
@@ -277,15 +308,20 @@ public:
     [[nodiscard]] RunCheckpoint loadCheckpoint() const;
     void deleteCheckpoint();
 
-    // World memory (looted containers)
-    [[nodiscard]] const std::vector<std::pair<int,int>>& lootedPositions() const { return mLootedPositions; }
+    // World memory: what each changed container holds, recipes written down.
+    [[nodiscard]] const std::vector<ContainerRecord>& containerRecords() const { return mContainers; }
+    [[nodiscard]] const ContainerRecord* containerRecord(int tileX, int tileY) const;
+    // Adds or replaces the record for (record.tileX, record.tileY). Call
+    // saveWorldMemory() to write it.
+    void setContainerRecord(const ContainerRecord& record);
     [[nodiscard]] const std::vector<std::pair<int,int>>& discoveredRecipes() const { return mDiscoveredRecipes; }
-    bool addLootedPosition(int tileX, int tileY);
+    // The version this slot had on disk before it was migrated (0: not migrated).
+    [[nodiscard]] int migratedFromVersion() const { return mMigratedFrom; }
     bool addDiscoveredRecipe(int itemA, int itemB);
     [[nodiscard]] bool isRecipeDiscovered(int itemA, int itemB) const;
-    bool saveLootedPositions();
+    bool saveWorldMemory();
     bool saveDiscoveredRecipes();
-    bool loadLootedPositions();
+    bool loadWorldMemory();
     void setVehicleRecords(std::vector<VehicleRecord> vehicles);
     void setFireTileRecords(std::vector<FireTileRecord> fireTiles);
     void setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles);
@@ -327,6 +363,8 @@ private:
     bool writeMeta() const;
     bool writeLegacy() const;
     bool writeStructures() const;
+    // Copies every file of this slot to <file>.v<version>.backup.
+    void backupSlotFiles(int version) const;
     bool writeJsonAtomic(const std::string& targetPath, const std::string& backupPath, const std::string& jsonText) const;
 
     std::string mSlotName;
@@ -352,7 +390,8 @@ private:
     std::vector<GraveRecord> mGraves;
     std::vector<RetirementRecord> mRetirements;
     std::vector<StructureRecord> mStructures;
-    std::vector<std::pair<int,int>> mLootedPositions;
+    std::vector<ContainerRecord> mContainers;
+    int mMigratedFrom = 0;
     std::vector<std::pair<int,int>> mDiscoveredRecipes;
     std::vector<VehicleRecord> mVehicles;
     std::vector<FireTileRecord> mFireTiles;

@@ -17,9 +17,9 @@ void Game::buildHudState()
     }
 
     hud.timeSeconds = mHudClock;
-    if (mShowCrafting || mShowInventory)
+    if (mShowCrafting || mShowInventory || mContainerOpen)
     {
-        hud.dockedWidth = dockedPanelWidth(mShowCrafting, mWindowWidth);
+        hud.dockedWidth = dockedPanelWidth(mShowCrafting || mContainerOpen, mWindowWidth);
     }
 
     if (mWorld.hasComponent<Health>(mPlayerEntity))
@@ -1012,9 +1012,12 @@ void Game::renderCraftingOverlay()
         clue = recipe.hintA;
         return recipe.inputB;
     };
-    const ItemDef* notebookDef = mItemDatabase.findByName("Notebook");
-    const bool hasNotebook = notebookDef != nullptr && InventorySystem::countItem(inv, notebookDef->id) > 0;
-    const bool nearWorkbench = hasNearbyWorkbench(mWorld, mPlayerEntity);
+    const bool hasNotebook = InventorySystem::countItem(inv, mItems.notebook) > 0;
+    const glm::ivec2 standingOn = playerTile();
+    const auto stationOk = [&](const CraftingRecipe& recipe)
+    {
+        return craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, standingOn);
+    };
 
     // Backing and header; the world stays in view to the left.
     renderDockedHeader(layout.pos, layout.size.x, true);
@@ -1063,8 +1066,8 @@ void Game::renderCraftingOverlay()
         const CraftingRecipe& recipe = recipes[visible[static_cast<std::size_t>(listIndex)]];
         const bool selected = listIndex == mCraftingRecipeCursor;
         const bool known = isDiscovered(recipe);
-        const bool craftable = known && hasCraftIngredients(inv, recipe, 1) && hasCraftTools(inv, recipe) &&
-                               (!recipe.requiresWorkbench || nearWorkbench);
+        const bool craftable = known && hasCraftIngredients(inv, recipe, 1) && hasCraftTools(inv, mItemDatabase, recipe) &&
+                               stationOk(recipe);
         const glm::vec2 rowPos = layout.listPos + glm::vec2(0.0f, static_cast<float>(row) * layout.rowH);
 
         if (selected)
@@ -1196,31 +1199,30 @@ void Game::renderCraftingOverlay()
     };
     for (int itemId : {recipe.inputA, recipe.inputB})
     {
+        if (itemId < 0) continue;
         const int have = InventorySystem::countItem(inv, itemId);
-        const int need = recipe.inputA == recipe.inputB ? 2 : 1;
+        const int need = craftInputNeed(recipe, itemId);
         needRow(itemId, std::to_string(have) + " / " + std::to_string(need), have >= need);
         if (recipe.inputA == recipe.inputB) break;
     }
-    for (int toolId : recipe.requiredTools)
+    for (const CraftTool& tool : recipe.tools)
     {
-        float condition = -1.0f;
-        for (const auto& slot : inv.slots)
-        {
-            if (slot.itemId == toolId && slot.count > 0) condition = std::max(condition, slot.condition);
-        }
+        const float condition = craftToolCondition(inv, mItemDatabase, tool);
         const bool ok = condition >= 0.0f;
-        needRow(toolId, ok ? "tool, " + std::to_string(static_cast<int>(std::round(std::clamp(condition, 0.0f, 1.0f) * 100.0f))) + "%"
-                           : "tool, missing",
+        needRow(tool.iconItemId, ok ? "tool, " + std::to_string(static_cast<int>(std::round(std::clamp(condition, 0.0f, 1.0f) * 100.0f))) + "%"
+                                    : "tool, missing",
                 ok);
     }
-    if (recipe.requiresWorkbench)
+    if (recipe.station != CraftStation::None)
     {
+        const bool nearWorkbench = stationOk(recipe);
         rect(glm::vec2(dx + 6.0f, y + 12.0f), glm::vec2(20.0f, 4.0f), nearWorkbench ? ink : dimInk);
         rect(glm::vec2(dx + 8.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
         rect(glm::vec2(dx + 21.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
-        text(glm::vec2(dx + 44.0f, y + 8.0f), "Workbench", nearWorkbench ? ink : dimInk, 2.0f);
+        text(glm::vec2(dx + 44.0f, y + 8.0f), craftStationName(recipe.station), nearWorkbench ? ink : dimInk, 2.0f);
         textRight(dx + dw, y + 8.0f, nearWorkbench ? "nearby" : "too far", nearWorkbench ? good : bad, 2.0f);
-        if (!nearWorkbench && missing.empty()) missing = "a workbench nearby";
+        if (!nearWorkbench && missing.empty())
+            missing = recipe.station == CraftStation::Workbench ? "a workbench nearby" : "a fire nearby";
         y += 38.0f;
     }
 
@@ -1269,85 +1271,6 @@ void Game::renderCraftingOverlay()
     drawMessage(actionY - (mCraftQueue.empty() || makingThis ? 10.0f : 32.0f));
 }
 
-void Game::renderContainerOverlay()
-{
-    if (!mContainerOpen || mOpenContainerEntity == kInvalidEntity || mRunState != RunState::Playing)
-    {
-        return;
-    }
-
-    if (!mWorld.hasComponent<Inventory>(mOpenContainerEntity))
-    {
-        return;
-    }
-
-    const Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    constexpr float kItemScale = 2.0f;
-    const float itemLine = mFont.lineHeight(kItemScale) + 4.0f;
-
-    std::string header = "Container";
-    if (mWorld.hasComponent<Interactable>(mOpenContainerEntity))
-    {
-        const Interactable& inter = mWorld.getComponent<Interactable>(mOpenContainerEntity);
-        if (!inter.prompt.empty()) header = inter.prompt;
-        std::string thing = searchedThing(inter.prompt);
-        if (!thing.empty())
-        {
-            thing[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(thing[0])));
-            header = thing;
-        }
-    }
-
-    std::vector<std::string> lines;
-    for (const auto& slot : containerInv.slots)
-    {
-        if (slot.itemId < 0 || slot.count <= 0) continue;
-        const ItemDef* item = mItemDatabase.find(slot.itemId);
-        std::string line = item ? item->name : ("Item #" + std::to_string(slot.itemId));
-        if (slot.count > 1) line += " x" + std::to_string(slot.count);
-        lines.push_back(std::move(line));
-    }
-    const std::string hint = lines.empty() ? "Esc close" : "W/S select   E take   Esc close";
-
-    // Wide enough for the header and every line, never off screen.
-    float contentW = std::max(mFont.measureText(header, kItemScale).x, mFont.measureText(hint, 1.0f).x);
-    for (const std::string& line : lines)
-    {
-        contentW = std::max(contentW, mFont.measureText(line, kItemScale).x + 8.0f);
-    }
-    const float panelW = std::min(static_cast<float>(mWindowWidth) - 24.0f, std::max(300.0f, contentW + 32.0f));
-    const float panelX = std::floor((static_cast<float>(mWindowWidth) - panelW) * 0.5f);
-    const float panelY = 110.0f;
-    const float listY = panelY + 40.0f;
-    const float panelH = 40.0f + static_cast<float>(std::max<std::size_t>(1, lines.size())) * itemLine + 26.0f;
-
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, kPanelBack);
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + 12.0f), header, kPanelInk, kItemScale);
-    mSpriteBatch.draw(glm::vec2(panelX + 16.0f, panelY + 33.0f), glm::vec2(panelW - 32.0f, 1.0f), uiUv, kPanelRule);
-
-    float y = listY;
-    for (std::size_t i = 0; i < lines.size(); ++i)
-    {
-        const bool selected = static_cast<int>(i) == mContainerCursor;
-        if (selected)
-        {
-            // The chosen line is inverted, as in the pack and crafting.
-            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 3.0f), glm::vec2(panelW - 16.0f, itemLine), uiUv, kPanelInk);
-        }
-        const glm::vec4 color = selected ? kPanelOnInk : kPanelInk;
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), lines[i], color, kItemScale);
-        y += itemLine;
-    }
-    if (lines.empty())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "Empty", kPanelDim, kItemScale);
-    }
-
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + panelH - 18.0f), hint,
-                   kPanelDim, 1.0f);
-}
-
 void Game::renderBuildModeOverlay()
 {
     if (mShowCrafting || !mBuildSystem.isBuildMode() || mRunState != RunState::Playing)
@@ -1379,7 +1302,7 @@ void Game::renderBuildModeOverlay()
         if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
         {
             const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-            canAfford = InventorySystem::countItem(inv, recipe.materialId) >= recipe.materialCost;
+            canAfford = InventorySystem::countItem(inv, mItemDatabase.idOf(recipe.materialKey)) >= recipe.materialCost;
         }
 
         const std::string line = std::to_string(i + 1) + "  " + std::string(recipe.name) + "  (" +

@@ -15,12 +15,12 @@
 #include "systems/InventorySystem.h"
 
 const BuildRecipe BuildSystem::kRecipes[kRecipeCount] = {
-    {StructureType::Barricade,     "Barricade",      "env_barricade",     9,  3, 120.0f},  // 3 wood planks
-    {StructureType::NoiseTrap,     "Noise Trap",     "env_noise_trap",    13, 2, 30.0f},   // 2 glass shards
-    {StructureType::Campfire,      "Campfire",       "env_campfire",      9,  2, 60.0f},   // 2 wood planks
-    {StructureType::SleepingArea,  "Sleeping Area",  "env_sleeping_area", 11, 2, 80.0f},   // 2 rope
-    {StructureType::SupplyCache,   "Supply Cache",   "env_crate",         9,  3, 150.0f},  // 3 wood planks
-    {StructureType::RainCollector, "Rain Collector", "env_crate",         10, 2, 100.0f},  // 2 scrap metal
+    {StructureType::Barricade,     "Barricade",      "env_barricade",     "wood_planks",  3, 120.0f},
+    {StructureType::NoiseTrap,     "Noise Trap",     "env_noise_trap",    "glass_shards", 2, 30.0f},
+    {StructureType::Campfire,      "Campfire",       "env_campfire",      "wood_planks",  2, 60.0f},
+    {StructureType::SleepingArea,  "Sleeping Area",  "env_sleeping_area", "rope",         2, 80.0f},
+    {StructureType::SupplyCache,   "Supply Cache",   "env_crate",         "wood_planks",  3, 150.0f},
+    {StructureType::RainCollector, "Rain Collector", "env_crate",         "scrap_metal",  2, 100.0f},
 };
 
 namespace
@@ -77,9 +77,9 @@ std::string BuildSystem::update(World& world, const Input& input, const TileMap&
                 if (recipeIdx >= 0 && recipeIdx < kRecipeCount)
                 {
                     const auto& recipe = kRecipes[recipeIdx];
-                    if (InventorySystem::countItem(inv, recipe.materialId) >= 1)
+                    if (InventorySystem::countItem(inv, db.idOf(recipe.materialKey)) >= 1)
                     {
-                        InventorySystem::removeItem(inv, recipe.materialId, 1);
+                        InventorySystem::removeItem(inv, db.idOf(recipe.materialKey), 1);
                         structure.hp = std::min(structure.maxHp, structure.hp + structure.maxHp * 0.4f);
                         resultMessage = "Repaired " + std::string(recipe.name) + ".";
                     }
@@ -97,7 +97,7 @@ std::string BuildSystem::update(World& world, const Input& input, const TileMap&
                 if (recipeIdx >= 0 && recipeIdx < kRecipeCount)
                 {
                     const auto& recipe = kRecipes[recipeIdx];
-                    InventorySystem::addItem(inv, db, recipe.materialId, 1);
+                    InventorySystem::addItem(inv, db, db.idOf(recipe.materialKey), 1);
                     world.destroyEntity(nearStruct);
                     resultMessage = "Dismantled " + std::string(recipe.name) + ". Recovered 1 material.";
                 }
@@ -162,9 +162,9 @@ std::string BuildSystem::update(World& world, const Input& input, const TileMap&
         const BuildRecipe& recipe = kRecipes[mSelectedRecipe];
         Inventory& inv = world.getComponent<Inventory>(playerEntity);
 
-        if (InventorySystem::countItem(inv, recipe.materialId) >= recipe.materialCost)
+        if (InventorySystem::countItem(inv, db.idOf(recipe.materialKey)) >= recipe.materialCost)
         {
-            InventorySystem::removeItem(inv, recipe.materialId, recipe.materialCost);
+            InventorySystem::removeItem(inv, db.idOf(recipe.materialKey), recipe.materialCost);
 
             Entity structEntity = world.createEntity();
 
@@ -316,7 +316,7 @@ std::string BuildSystem::update(World& world, const Input& input, const TileMap&
                     if (world.hasComponent<Inventory>(entity))
                     {
                         Inventory& inv = world.getComponent<Inventory>(entity);
-                        InventorySystem::addItem(inv, db, 3, 1); // water bottle (id 3)
+                        InventorySystem::addItem(inv, db, db.idOf("water_bottle"), 1);
                     }
                 }
             }

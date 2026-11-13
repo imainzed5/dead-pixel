@@ -289,7 +289,8 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
     }
 
     mSaveManager.deleteCheckpoint();
-    mSaveManager.saveLootedPositions();
+    refreshContainerRecords();
+    mSaveManager.saveWorldMemory();
 
     {
         std::vector<SurvivorRecord> survivorRecords;

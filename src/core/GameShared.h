@@ -926,9 +926,7 @@ inline int treatWorstWounds(Wounds& wounds, int treatCount)
 
 inline void syncHealthWithWounds(Health& health, const Wounds& wounds)
 {
-    constexpr float kMaxHpPenaltyPerWound = 5.0f;
-    const float penalty = static_cast<float>(wounds.active.size()) * kMaxHpPenaltyPerWound;
-    health.maximum = std::max(20.0f, 100.0f - penalty);
+    health.maximum = woundedMaximum(health.baseMaximum, wounds.active.size());
     health.current = std::min(health.current, health.maximum);
 }
 
@@ -1124,7 +1122,7 @@ inline std::vector<std::size_t> buildVisibleRecipeList(
         }
 
         const bool hasA = InventorySystem::countItem(inventory, recipe.inputA) > 0;
-        const bool hasB = InventorySystem::countItem(inventory, recipe.inputB) > 0;
+        const bool hasB = recipe.inputB >= 0 && InventorySystem::countItem(inventory, recipe.inputB) > 0;
         if (hasA || hasB)
         {
             visible.push_back(i);
@@ -1134,43 +1132,83 @@ inline std::vector<std::size_t> buildVisibleRecipeList(
     return visible;
 }
 
-inline bool hasNearbyWorkbench(World& world, Entity playerEntity)
+// A recipe's station in reach: a workbench, or a fire, within 3 tiles.
+inline bool craftStationNearby(CraftStation station, const std::vector<FurniturePiece>& furniturePieces, World& world,
+                               const TileMap& tileMap, const glm::ivec2& playerTile)
 {
-    if (playerEntity == kInvalidEntity || !world.hasComponent<Transform>(playerEntity))
+    constexpr float kStationReachTiles = 3.0f;
+    switch (station)
     {
-        return false;
-    }
-
-    const Transform& playerTransform = world.getComponent<Transform>(playerEntity);
-    const glm::vec2 playerCenter(playerTransform.x + kSpriteSize * 0.5f, playerTransform.y + kSpriteSize * 0.5f);
-    constexpr float kWorkbenchRange = 96.0f;
-
-    bool found = false;
-    world.forEach<Structure, Transform>(
-        [&](Entity, Structure& structure, Transform& st)
-        {
-            if (found) return;
-            if (structure.type != StructureType::SupplyCache) return;
-            const glm::vec2 center(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
-            if (glm::distance(playerCenter, center) <= kWorkbenchRange)
+    case CraftStation::None:
+        return true;
+    case CraftStation::Workbench:
+        return furniture::kindWithin(furniturePieces, FurnitureKind::Workbench, playerTile, kStationReachTiles);
+    case CraftStation::Fire:
+    {
+        bool found = false;
+        const float tileW = static_cast<float>(std::max(1, tileMap.tileWidth()));
+        world.forEach<Fire, Transform>(
+            [&](Entity, Fire& fire, Transform& t)
             {
-                found = true;
-            }
-        });
-
-    return found;
+                if (found || fire.intensity <= 0.1f) return;
+                const glm::vec2 d = glm::vec2(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f) / tileW -
+                                    (glm::vec2(playerTile) + glm::vec2(0.5f));
+                found = glm::dot(d, d) <= kStationReachTiles * kStationReachTiles;
+            });
+        return found;
+    }
+    }
+    return false;
 }
 
-inline bool hasCraftTools(const Inventory& inv, const CraftingRecipe& recipe)
+inline const char* craftStationName(CraftStation station)
 {
-    for (int toolId : recipe.requiredTools)
+    switch (station)
     {
-        if (InventorySystem::countItem(inv, toolId) <= 0)
+    case CraftStation::Workbench: return "Workbench";
+    case CraftStation::Fire: return "A fire";
+    case CraftStation::None: break;
+    }
+    return "";
+}
+
+// The best condition (0..1) of an item in the pack that meets the tool, or -1.
+inline float craftToolCondition(const Inventory& inv, const ItemDatabase& db, const CraftTool& tool)
+{
+    float condition = -1.0f;
+    for (const auto& slot : inv.slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+        bool meets = slot.itemId == tool.itemId;
+        if (!meets && !tool.tag.empty())
+        {
+            const ItemDef* def = db.find(slot.itemId);
+            meets = def != nullptr && def->hasTag(tool.tag);
+        }
+        if (meets) condition = std::max(condition, slot.condition);
+    }
+    return condition;
+}
+
+inline bool hasCraftTools(const Inventory& inv, const ItemDatabase& db, const CraftingRecipe& recipe)
+{
+    for (const CraftTool& tool : recipe.tools)
+    {
+        if (craftToolCondition(inv, db, tool) < 0.0f)
         {
             return false;
         }
     }
     return true;
+}
+
+// How many of `itemId` one craft of the recipe uses (0 if it is not an input).
+inline int craftInputNeed(const CraftingRecipe& recipe, int itemId)
+{
+    int need = 0;
+    if (recipe.inputA == itemId) need += recipe.countA;
+    if (recipe.inputB >= 0 && recipe.inputB == itemId) need += recipe.countB;
+    return need;
 }
 
 inline bool hasCraftIngredients(const Inventory& inv, const CraftingRecipe& recipe, int count)
@@ -1179,10 +1217,14 @@ inline bool hasCraftIngredients(const Inventory& inv, const CraftingRecipe& reci
     {
         return true;
     }
-
-    const int needA = count;
-    const int needB = count;
-    return InventorySystem::countItem(inv, recipe.inputA) >= needA &&
-           InventorySystem::countItem(inv, recipe.inputB) >= needB;
+    for (int itemId : {recipe.inputA, recipe.inputB})
+    {
+        if (itemId < 0) continue;
+        if (InventorySystem::countItem(inv, itemId) < craftInputNeed(recipe, itemId) * count)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 } // namespace gameshared

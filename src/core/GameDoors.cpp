@@ -19,11 +19,6 @@ constexpr float kBangHearingTiles = 18.0f;
 constexpr float kBreakMessageTiles = 14.0f;
 // Asleep within this, the banging wakes you.
 constexpr float kWakeTiles = 12.0f;
-
-// Boarding up takes a plank per board and something to drive the nails with.
-constexpr int kPlankItem = 9;
-constexpr int kHammerItem = 17;
-constexpr int kAxeItem = 8;
 } // namespace
 
 std::vector<BoardedDoorRecord> Game::boardedDoorRecords() const
@@ -181,7 +176,7 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
         {
             if (mWorld.hasComponent<Inventory>(mPlayerEntity))
             {
-                InventorySystem::addItem(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase, kPlankItem, 1);
+                InventorySystem::addItem(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase, mItems.woodPlanks, 1);
             }
             mNoiseModel.emitNoise(centre, NoiseTier::Medium, 0.8f, mPlayerEntity);
             mAudioManager.playSound(SoundId::WeaponHit, 0.45f);
@@ -250,17 +245,18 @@ void Game::boardUpDoor(const glm::ivec2& tile)
     {
         message = "It won't take another board.";
     }
-    else if (InventorySystem::countItem(inventory, kHammerItem) == 0 && InventorySystem::countItem(inventory, kAxeItem) == 0)
+    // A plank per board, and something to drive the nails with.
+    else if (InventorySystem::countTagged(inventory, mItemDatabase, "tool:hammer") == 0)
     {
         message = "You need a hammer to board it up.";
     }
-    else if (InventorySystem::countItem(inventory, kPlankItem) == 0)
+    else if (InventorySystem::countItem(inventory, mItems.woodPlanks) == 0)
     {
         message = "You need planks to board it up.";
     }
     else if (mDoors.addBoard(mTileMap, tile))
     {
-        InventorySystem::removeItem(inventory, kPlankItem, 1);
+        InventorySystem::removeItem(inventory, mItems.woodPlanks, 1);
         // Hammering carries: the dead will hear it.
         mNoiseModel.emitNoise(doorCentre(mTileMap, tile), NoiseTier::Loud, 1.0f, mPlayerEntity);
         mAudioManager.playSound(SoundId::WeaponHit, 0.7f);

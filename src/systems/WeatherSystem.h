@@ -2,16 +2,33 @@
 
 #include "components/Weather.h"
 
+#include <cstdint>
+#include <random>
+#include <string>
+
 class WeatherSystem
 {
 public:
+    // A new run: the weather follows its own generator, seeded from the run.
+    void reset(std::uint32_t seed);
     void update(WeatherState& weather, float dtSeconds, double gameHours, int currentDay);
-    // Set the weather and keep it for `seconds` (dev harness and tests).
-    void hold(WeatherState& weather, WeatherCondition condition, float seconds)
+    // Set the weather and keep it for `gameHours` (dev harness and tests).
+    void hold(WeatherState& weather, WeatherCondition condition, float gameHours)
     {
         weather.condition = condition;
-        mConditionTimer = seconds;
+        mHoursLeft = gameHours;
+        weather.conditionDuration = gameHours;
     }
+
+    // The next condition for `season`, and how long it lasts (2-6 game hours).
+    static WeatherCondition rollCondition(Season season, std::mt19937& rng);
+    static float rollHours(std::mt19937& rng);
+
+    // For the checkpoint: hours left on this condition and the generator.
+    [[nodiscard]] float hoursLeft() const { return mHoursLeft; }
+    [[nodiscard]] std::string rngState() const;
+    // Back to a saved state. False (and nothing changed) if `rngState` is unreadable.
+    bool restore(WeatherState& weather, WeatherCondition condition, float hoursLeft, const std::string& rngState);
 
 private:
     // Season base temperatures (Celsius)
@@ -28,5 +45,6 @@ private:
     static constexpr float kFogVisibility = 0.4f;
     static constexpr float kStormVisibility = 0.6f;
 
-    float mConditionTimer = 0.0f;
+    float mHoursLeft = 0.0f; // game hours until the next condition
+    std::mt19937 mRng{0x5EA7u};
 };

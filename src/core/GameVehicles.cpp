@@ -60,7 +60,7 @@ void Game::handleVehicleKey(bool playerAlive)
                         mInteractionMessage = "Sedan tank is already full.";
                         mInteractionMessageTimer = 2.0f;
                     }
-                    else if (InventorySystem::removeItem(playerInv, 12, 1))
+                    else if (InventorySystem::removeItem(playerInv, mItems.fuelCan, 1))
                     {
                         vehicle.fuel = std::min(vehicle.maxFuel, vehicle.fuel + kVehicleRefuelAmount);
                         mInteractionMessage = "Refueled sedan.";

@@ -12,15 +12,6 @@ using namespace gameshared;
 
 namespace
 {
-constexpr int kWaterItem = 3;
-constexpr int kEmptyBottleItem = 29;
-constexpr int kPlankItem = 9;
-constexpr int kHammerItem = 17;
-constexpr int kCannedFoodItem = 0;
-constexpr int kBreadItem = 2;
-constexpr int kBandageItem = 4;
-constexpr int kPainkillerItem = 16;
-
 constexpr float kDayCardSeconds = 6.0f;
 
 // Callers come from the far wanderers, or rise out of sight when there are
@@ -115,6 +106,9 @@ void Game::placeHomeKit()
             if (!hasTile(mFirstDays.homeContainers, tile.x, tile.y)) return;
             // Taken from before a resume: what was in it went with you.
             if (hasTile(mFirstDays.record.taken, tile.x, tile.y)) return;
+            // Already remembered this life: the kit is in it, or was moved out.
+            const ContainerRecord* remembered = mSaveManager.containerRecord(tile.x, tile.y);
+            if (remembered != nullptr && remembered->runIndex == mSaveManager.runNumber()) return;
             const auto piece = std::find_if(mFurniture.begin(), mFurniture.end(),
                                             [&](const FurniturePiece& p) { return p.tile == tile; });
             spots.push_back(Spot{e, tile, piece != mFurniture.end() ? furniture::info(piece->kind).loot : FurnitureLoot::None});
@@ -180,10 +174,10 @@ void Game::placeHomeKit()
     }
 
     using L = FurnitureLoot;
-    place({L::Storage, L::Workshop, L::Bedroom, L::Living}, {{kHammerItem, 1}, {kPlankItem, 4}});
-    place({L::Fridge, L::Kitchen}, {{kCannedFoodItem, cans}, {kBreadItem, 1}});
-    place({L::Kitchen, L::Fridge}, {{kWaterItem, water}, {kEmptyBottleItem, empties}});
-    place({L::Bathroom, L::Bedroom}, {{kBandageItem, 1}, {kPainkillerItem, 1}});
+    place({L::Storage, L::Workshop, L::Bedroom, L::Living}, {{mItems.hammer, 1}, {mItems.woodPlanks, 4}});
+    place({L::Fridge, L::Kitchen}, {{mItems.cannedFood, cans}, {mItems.bread, 1}});
+    place({L::Kitchen, L::Fridge}, {{mItems.waterBottle, water}, {mItems.emptyBottle, empties}});
+    place({L::Bathroom, L::Bedroom}, {{mItems.bandage, 1}, {mItems.painkillers, 1}});
 
     int used = 0;
     for (const Spot& spot : spots) used += spot.used > 0 ? 1 : 0;
@@ -232,8 +226,8 @@ firstdays::Facts Game::firstDaysFacts()
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-        facts.waterBottles = InventorySystem::countItem(inv, kWaterItem);
-        facts.planks = InventorySystem::countItem(inv, kPlankItem);
+        facts.waterBottles = InventorySystem::countItem(inv, mItems.waterBottle);
+        facts.planks = InventorySystem::countItem(inv, mItems.woodPlanks);
         for (const auto& slot : inv.slots)
         {
             if (slot.itemId < 0 || slot.count <= 0) continue;
@@ -290,14 +284,14 @@ bool Game::handleTapInteraction(const ProximityPrompt& entityPrompt)
     if (mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-        const int empties = InventorySystem::countItem(inv, kEmptyBottleItem);
+        const int empties = InventorySystem::countItem(inv, mItems.emptyBottle);
         if (empties > 0)
         {
-            InventorySystem::removeItem(inv, kEmptyBottleItem, empties);
-            filled = InventorySystem::addItem(inv, mItemDatabase, kWaterItem, empties).added;
+            InventorySystem::removeItem(inv, mItems.emptyBottle, empties);
+            filled = InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, empties).added;
             if (filled < empties)
             {
-                InventorySystem::addItem(inv, mItemDatabase, kEmptyBottleItem, empties - filled);
+                InventorySystem::addItem(inv, mItemDatabase, mItems.emptyBottle, empties - filled);
             }
         }
     }

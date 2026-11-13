@@ -1,4 +1,5 @@
 #include "systems/NeedsSystem.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -175,11 +176,11 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
                 const Traits& traits = world.getComponent<Traits>(entity);
                 if (traits.negative == NegativeTrait::Hungry) traitHungerMul = 1.5f;
             }
-            const float hungerDecay = needs.hungerDecayPerSecond * hungerDecayMultiplier * illnessMultiplier * traitHungerMul * dtSeconds;
+            const float hungerDecay = Tuning::get("needs.hunger.perSecond", needs.hungerDecayPerSecond) * hungerDecayMultiplier * illnessMultiplier * traitHungerMul * dtSeconds;
             needs.hunger = std::max(0.0f, needs.hunger - hungerDecay);
 
             // --- Thirst decay ---
-            const float thirstDecay = needs.thirstDecayPerSecond * thirstDecayMultiplier * illnessMultiplier * dtSeconds;
+            const float thirstDecay = Tuning::get("needs.thirst.perSecond", needs.thirstDecayPerSecond) * thirstDecayMultiplier * illnessMultiplier * dtSeconds;
             needs.thirst = std::max(0.0f, needs.thirst - thirstDecay);
 
             // --- Fatigue ---
@@ -203,7 +204,7 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
             // --- Sleep debt (grows while awake; sleeping recovers it in Game) ---
             if (!sleeping)
             {
-                needs.sleepDebt = std::min(needs.maxSleepDebt, needs.sleepDebt + needs.sleepDebtGainPerSecond * illnessMultiplier * dtSeconds);
+                needs.sleepDebt = std::min(needs.maxSleepDebt, needs.sleepDebt + Tuning::get("needs.sleepDebt.perSecond", needs.sleepDebtGainPerSecond) * illnessMultiplier * dtSeconds);
             }
 
             // --- Illness: cold, starvation and dehydration wear the body down ---

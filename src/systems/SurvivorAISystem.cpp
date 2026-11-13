@@ -191,19 +191,26 @@ void SurvivorAISystem::update(World& world, const TileMap& tileMap, const NoiseM
 
                     if (ai.attackCooldown <= 0.0f)
                     {
-                        // Attack nearest zombie
+                        // One blow, at the nearest zombie in reach.
+                        Entity nearest = kInvalidEntity;
+                        float nearestDistance = kAttackRange * 1.5f;
                         world.forEach<ZombieAI, Transform, Health>(
-                            [&](Entity, ZombieAI& zai, Transform& zt, Health& zh)
+                            [&](Entity zombie, ZombieAI&, Transform& zt, Health& zh)
                             {
                                 if (zh.current <= 0.0f) return;
-                                const glm::vec2 zc = entityCenter(zt);
-                                if (glm::distance(myCenter, zc) < kAttackRange * 1.5f)
+                                const float d = glm::distance(myCenter, entityCenter(zt));
+                                if (d < nearestDistance)
                                 {
-                                    zh.current -= kAttackDamage;
-                                    zai.lastDamagedBy = entity;
-                                    ai.attackCooldown = kAttackCooldown;
+                                    nearest = zombie;
+                                    nearestDistance = d;
                                 }
                             });
+                        if (nearest != kInvalidEntity)
+                        {
+                            world.getComponent<Health>(nearest).current -= kAttackDamage;
+                            world.getComponent<ZombieAI>(nearest).lastDamagedBy = entity;
+                            ai.attackCooldown = kAttackCooldown;
+                        }
                     }
                 }
                 break;

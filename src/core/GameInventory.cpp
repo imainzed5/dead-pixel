@@ -41,8 +41,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
         // Discovery trigger: holding both ingredients together reveals recipe entry.
-        const ItemDef* notebookItem = mItemDatabase.findByName("Notebook");
-        const bool hasNotebook = notebookItem != nullptr && InventorySystem::countItem(inv, notebookItem->id) > 0;
+        const bool hasNotebook = InventorySystem::countItem(inv, mItems.notebook) > 0;
 
         // With a notebook in hand, write down what this life already worked out.
         if (hasNotebook)
@@ -70,7 +69,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 continue;
             }
 
-            if (InventorySystem::countItem(inv, recipe.inputA) > 0 && InventorySystem::countItem(inv, recipe.inputB) > 0)
+            if (InventorySystem::countItem(inv, recipe.inputA) > 0 &&
+                (recipe.inputB < 0 || InventorySystem::countItem(inv, recipe.inputB) > 0))
             {
                 const auto normalized = CraftingSystem::normalizePair(recipe.inputA, recipe.inputB);
                 if (std::find(mSessionDiscoveredRecipes.begin(), mSessionDiscoveredRecipes.end(), normalized) == mSessionDiscoveredRecipes.end())
@@ -227,9 +227,9 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 mInteractionMessage = "Recipe is still undiscovered.";
                 mInteractionMessageTimer = 2.0f;
             }
-            else if (recipe.requiresWorkbench && !hasNearbyWorkbench(mWorld, mPlayerEntity))
+            else if (!craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile()))
             {
-                mInteractionMessage = "Need nearby workbench surface.";
+                mInteractionMessage = recipe.station == CraftStation::Workbench ? "Needs a workbench nearby." : "Needs a fire nearby.";
                 mInteractionMessageTimer = 2.5f;
             }
             else
@@ -239,7 +239,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                     mInput.isKeyDown(SDL_SCANCODE_LSHIFT) ||
                     mInput.isKeyDown(SDL_SCANCODE_RSHIFT);
 
-                if (!hasCraftTools(inv, recipe))
+                if (!hasCraftTools(inv, mItemDatabase, recipe))
                 {
                     mInteractionMessage = "Missing required tools.";
                     mInteractionMessageTimer = 2.0f;
@@ -299,13 +299,13 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                     }
                 }
 
-                if (!interrupted && recipe.requiresWorkbench && !hasNearbyWorkbench(mWorld, mPlayerEntity))
+                if (!interrupted && !craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile()))
                 {
                     interrupted = true;
-                    interruptReason = "Crafting interrupted: left workbench range.";
+                    interruptReason = "Crafting interrupted: walked away from it.";
                 }
 
-                if (!interrupted && !hasCraftTools(inv, recipe))
+                if (!interrupted && !hasCraftTools(inv, mItemDatabase, recipe))
                 {
                     interrupted = true;
                     interruptReason = "Crafting interrupted: required tool unavailable.";
@@ -334,8 +334,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                         mActiveCraftProgressSeconds = 0.0f;
 
                         Inventory preview = inv;
-                        if (!InventorySystem::removeItem(preview, recipe.inputA, 1) ||
-                            !InventorySystem::removeItem(preview, recipe.inputB, 1))
+                        if (!InventorySystem::removeItem(preview, recipe.inputA, recipe.countA) ||
+                            (recipe.inputB >= 0 && !InventorySystem::removeItem(preview, recipe.inputB, recipe.countB)))
                         {
                             mCraftQueue.clear();
                             mInteractionMessage = "Crafting failed: ingredients changed.";
@@ -361,8 +361,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                                     mSessionDiscoveredRecipes.push_back(normalized);
                                 }
 
-                                const ItemDef* notebook = mItemDatabase.findByName("Notebook");
-                                const bool hasNotebook = notebook != nullptr && InventorySystem::countItem(inv, notebook->id) > 0;
+                                const bool hasNotebook = InventorySystem::countItem(inv, mItems.notebook) > 0;
                                 if (hasNotebook)
                                 {
                                     if (mSaveManager.addDiscoveredRecipe(recipe.inputA, recipe.inputB))
@@ -430,102 +429,8 @@ void Game::updateInventoryInput(bool drivingVehicle)
         }
     }
 
-    // Container view input
-    if (mContainerOpen && mOpenContainerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Inventory>(mOpenContainerEntity) &&
-        mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
-    {
-        Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
-        Inventory& playerInv = mWorld.getComponent<Inventory>(mPlayerEntity);
-
-        // Count filled slots for cursor bounds
-        int filledSlots = 0;
-        for (const auto& slot : containerInv.slots)
-        {
-            if (slot.itemId >= 0 && slot.count > 0) ++filledSlots;
-        }
-
-        if (filledSlots == 0)
-        {
-            std::string thing;
-            if (mWorld.hasComponent<Interactable>(mOpenContainerEntity))
-            {
-                thing = searchedThing(mWorld.getComponent<Interactable>(mOpenContainerEntity).prompt);
-            }
-            mContainerOpen = false;
-            mOpenContainerEntity = kInvalidEntity;
-            mInteractionMessage = thing.empty() ? "Container empty." : "The " + thing + " is empty.";
-            mInteractionMessageTimer = 2.0f;
-        }
-        else
-        {
-            if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
-            {
-                mContainerCursor = (mContainerCursor + filledSlots - 1) % filledSlots;
-            }
-            if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
-            {
-                mContainerCursor = (mContainerCursor + 1) % filledSlots;
-            }
-            mContainerCursor = std::clamp(mContainerCursor, 0, filledSlots - 1);
-
-            // E or Enter: take selected item
-            if (mInput.wasKeyPressed(SDL_SCANCODE_E) || mInput.wasKeyPressed(SDL_SCANCODE_RETURN))
-            {
-                // Find the Nth filled slot
-                int idx = 0;
-                for (auto& slot : containerInv.slots)
-                {
-                    if (slot.itemId < 0 || slot.count <= 0) continue;
-                    if (idx == mContainerCursor)
-                    {
-                        auto result = InventorySystem::addItem(playerInv, mItemDatabase, slot.itemId, 1);
-                        if (result.added > 0)
-                        {
-                            const ItemDef* item = mItemDatabase.find(slot.itemId);
-                            std::string name = item ? item->name : "item";
-                            slot.count -= 1;
-                            if (slot.count <= 0)
-                            {
-                                slot.itemId = -1;
-                                slot.count = 0;
-                                slot.condition = 1.0f;
-                            }
-                            mInteractionMessage = "Took " + name + ".";
-                            mInteractionMessageTimer = 2.0f;
-                            mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
-                            ++mRunStats.itemsLooted;
-
-                            noteContainerSearched(mOpenContainerEntity, true);
-
-                            // Track looted position for world memory
-                            if (mWorld.hasComponent<Transform>(mOpenContainerEntity))
-                            {
-                                const auto& ct = mWorld.getComponent<Transform>(mOpenContainerEntity);
-                                const int tx = static_cast<int>(ct.x) / mTileMap.tileWidth();
-                                const int ty = static_cast<int>(ct.y) / mTileMap.tileHeight();
-                                mSaveManager.addLootedPosition(tx, ty);
-                            }
-                        }
-                        else
-                        {
-                            mInteractionMessage = "Inventory full.";
-                            mInteractionMessageTimer = 2.0f;
-                        }
-                        break;
-                    }
-                    ++idx;
-                }
-            }
-
-            // Escape: close container
-            if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
-            {
-                mContainerOpen = false;
-                mOpenContainerEntity = kInvalidEntity;
-            }
-        }
-    }
+    // Container view input (GameStorage.cpp)
+    handleContainerInput();
 
     // Inventory cursor navigation (when inventory is open)
     if (mShowInventory && !mShowCrafting && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
@@ -625,7 +530,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
                             mInteractionMessage = "Ate " + item->name + ".";
                         }
 
-                        InventorySystem::removeItem(inv, slot.itemId, 1);
+                        InventorySystem::consumeOne(inv, mItemDatabase, useSlot);
                         mInteractionMessageTimer = 3.0f;
                         mAudioManager.playSound(SoundId::FoodEat, 0.5f);
                     }
@@ -633,16 +538,9 @@ void Game::updateInventoryInput(bool drivingVehicle)
                     {
                         Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
                         needs.thirst = std::min(needs.maxThirst, needs.thirst + item->thirstRestore);
-                        const int drunkId = slot.itemId;
-                        InventorySystem::removeItem(inv, drunkId, 1);
                         mInteractionMessage = "Drank " + item->name + ".";
-                        // Keep the bottle: a tap can fill it again.
-                        constexpr int kWaterBottleItem = 3;
-                        constexpr int kEmptyBottleItem = 29;
-                        if (drunkId == kWaterBottleItem)
-                        {
-                            InventorySystem::addItem(inv, mItemDatabase, kEmptyBottleItem, 1);
-                        }
+                        // What is left (an empty bottle a tap can fill again) stays in the pack.
+                        InventorySystem::consumeOne(inv, mItemDatabase, useSlot);
                         mInteractionMessageTimer = 3.0f;
                         mAudioManager.playSound(SoundId::FoodEat, 0.4f);
                     }

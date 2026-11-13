@@ -3,11 +3,14 @@
 #include <GL/glew.h>
 #include <SDL.h>
 
+#include <glm/vec2.hpp>
+
 #include <cstdint>
 #include <fstream>
 #include <string>
 #include <vector>
 
+#include "dev/Autoplayer.h"
 #include "dev/LaunchOptions.h"
 
 class Game;
@@ -31,10 +34,21 @@ class Game;
 //   zoom Z                        set camera zoom
 //   god on|off                    keep the player's health topped up
 //   give ITEM NAME [COUNT]        add items to the player's inventory
-//   set STAT VALUE                hp|stamina|hunger|thirst|sleepdebt|fatigue|temp|illness|panic|depression
+//   set STAT VALUE                hp|stamina|hunger|thirst|sleepdebt|fatigue|temp|illness|panic|depression|wounds
+//   trait tough                   give the player the Tough trait (120 max health)
+//   tune KEY VALUE                override a tuning value (assets/data/tuning.json) for the run
+//   stash ITEM NAME [COUNT]       move items from the pack into the open container
+//   open                          open the nearest container in reach
+//   container                     print what the open container holds
+//   mark | goto mark              remember the player's tile / go back to it
+//   weather mark|roll             remember the condition / let the weather roll a new one now
+//   bot PROFILE [DAYS]            careful|normal|bold: the bot plays DAYS days (default 7)
 //   metrics TICKS                 metrics row every TICKS ticks (0 = off)
 //   shot NAME                     save shots/NAME.png
 //   expect alive|dead|playing|title
+//   expect maxhp VALUE            the player's maximum health
+//   expect weather same           the condition is the one `weather mark` saw
+//   expect container ITEM NAME COUNT   the open container holds at least COUNT
 //   log TEXT                      print a line
 //   quit                          end the run
 class DevHarness
@@ -86,6 +100,12 @@ private:
     int mFailures = 0;
 
     bool mGodMode = false;
+    Autoplayer mBot;
+    bool mBotFailReported = false;
+    glm::ivec2 mMark{-1, -1};
+    int mWeatherMark = -1;
+    std::uint64_t mNoiseAtLastRow = 0;
+    double mClockAtLastRow = -1.0;
     int mMetricsInterval = 0;
     std::ofstream mMetrics;
     bool mWasAlive = true;

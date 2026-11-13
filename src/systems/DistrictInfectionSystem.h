@@ -15,7 +15,8 @@ struct DistrictInfection
 class DistrictInfectionSystem
 {
 public:
-    void initialize(const LayoutData& layout);
+    // `tileWidth`/`tileHeight`: world pixels per tile, to place zombies.
+    void initialize(const LayoutData& layout, int tileWidth = 32, int tileHeight = 32);
     void dailyUpdate(World& world, const LayoutData& layout, int currentDay);
 
     [[nodiscard]] float getInfection(int districtId) const;
@@ -29,5 +30,8 @@ private:
     static constexpr float kZombieDensityWeight = 5.0f;    // infection gain per zombie density unit
 
     std::vector<DistrictInfection> mDistricts;
+    std::vector<float> mWalkableArea; // walkable tiles per district, from initialize
+    int mTileWidth = 32;
+    int mTileHeight = 32;
     int mLastUpdateDay = -1;
 };

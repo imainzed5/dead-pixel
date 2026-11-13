@@ -45,22 +45,35 @@ void ProjectileSystem::update(World& world, const TileMap& tileMap, NoiseModel& 
                 return;
             }
 
-            // Zombie collision
+            // Zombie collision: the nearest zombie in reach takes the shot, and
+            // the shot stops there.
             const glm::vec2 projCenter(pt.x, pt.y);
+            Entity hit = kInvalidEntity;
+            float hitDistance = kHitRadius;
             world.forEach<ZombieAI, Transform, Health>(
-                [&](Entity, ZombieAI& zai, Transform& zt, Health& zh)
+                [&](Entity zombie, ZombieAI&, Transform& zt, Health& zh)
                 {
                     if (zh.current <= 0.0f) return;
                     const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
-                    if (glm::distance(projCenter, zc) < kHitRadius)
+                    const float d = glm::distance(projCenter, zc);
+                    if (d < hitDistance)
                     {
-                        zh.current = std::max(0.0f, zh.current - proj.damage);
-                        zai.lastDamagedBy = proj.source;
-                        ZombieBlow::land(zai, glm::vec2(proj.vx, proj.vy), 10.0f);
-                        noiseModel.emitNoise(zc, NoiseTier::Medium, 0.5f, proj.source);
-                        toDestroy.push_back(projEntity);
+                        hit = zombie;
+                        hitDistance = d;
                     }
                 });
+            if (hit != kInvalidEntity)
+            {
+                ZombieAI& zai = world.getComponent<ZombieAI>(hit);
+                const Transform& zt = world.getComponent<Transform>(hit);
+                Health& zh = world.getComponent<Health>(hit);
+                const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
+                zh.current = std::max(0.0f, zh.current - proj.damage);
+                zai.lastDamagedBy = proj.source;
+                ZombieBlow::land(zai, glm::vec2(proj.vx, proj.vy), 10.0f);
+                noiseModel.emitNoise(zc, NoiseTier::Medium, 0.5f, proj.source);
+                toDestroy.push_back(projEntity);
+            }
         });
 
     for (Entity e : toDestroy)

@@ -1,4 +1,5 @@
 #include "systems/ThreatDirectorSystem.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -132,7 +133,8 @@ void ThreatDirectorSystem::update(World& world,
 
     // --- 1. Migration ---
     mMigrationTimer += dtSeconds * mTuning.migrationScale;
-    const float interval = isNight ? kNightMigrationInterval : kDayMigrationInterval;
+    const float interval = isNight ? ::Tuning::get("threat.migration.nightInterval", kNightMigrationInterval)
+                                   : ::Tuning::get("threat.migration.dayInterval", kDayMigrationInterval);
     if (mMigrationTimer >= interval)
     {
         mMigrationTimer = 0.0f;
@@ -170,13 +172,13 @@ void ThreatDirectorSystem::update(World& world,
     // --- 2. Population growth ---
     mPopulationTarget = static_cast<int>(
         static_cast<float>(mInitialPopulation) *
-        (1.0f + dayFactor * kDailyGrowth) *
+        (1.0f + dayFactor * ::Tuning::get("threat.growth.daily", kDailyGrowth)) *
         (1.0f + infectionGrowth / 100.0f) *
         mTuning.populationScale);
     mPopulationTarget = std::min(mPopulationTarget, kMaxPopulation);
 
     mSpawnTimer += dtSeconds;
-    if (mSpawnTimer >= kSpawnInterval && alive < mPopulationTarget)
+    if (mSpawnTimer >= ::Tuning::get("threat.spawn.interval", kSpawnInterval) && alive < mPopulationTarget)
     {
         mSpawnTimer = 0.0f;
         const int batch = std::min(3, mPopulationTarget - alive);

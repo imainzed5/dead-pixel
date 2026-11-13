@@ -168,7 +168,7 @@ void Game::renderMinimapOverlay()
     if (mRunState != RunState::Playing ||
         mShowWorldMap ||
         mShowInventory ||
-        mShowCrafting || // a docked panel covers this corner
+        mShowCrafting || mContainerOpen || // a docked panel covers this corner
         mPlayerEntity == kInvalidEntity ||
         !mWorld.hasComponent<Transform>(mPlayerEntity))
     {

@@ -20,7 +20,7 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle)
         const int activeSlot = std::clamp(inv.activeSlot, 0, Inventory::kMaxSlots - 1);
         const InventorySlot& slot = inv.slots[static_cast<std::size_t>(activeSlot)];
 
-        if (slot.itemId == 26 && slot.count > 0)
+        if (slot.itemId == mItems.molotov && slot.count > 0)
         {
             const glm::ivec2 targetTile = worldToTile(mTileMap, mMouseWorld);
             if (targetTile.x >= 0 && targetTile.x < mTileMap.width() &&
@@ -64,7 +64,7 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle)
                     mWorld.addComponent<Fire>(fireEntity, fire);
                 }
 
-                InventorySystem::removeItem(inv, 26, 1);
+                InventorySystem::removeItem(inv, mItems.molotov, 1);
                 const glm::vec2 noisePos(
                     (static_cast<float>(targetTile.x) + 0.5f) * static_cast<float>(mTileMap.tileWidth()),
                     (static_cast<float>(targetTile.y) + 0.5f) * static_cast<float>(mTileMap.tileHeight()));
@@ -78,7 +78,7 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle)
                 mInteractionMessageTimer = 1.8f;
             }
         }
-        else if (slot.itemId == 3 && slot.count > 0)
+        else if (slot.itemId == mItems.waterBottle && slot.count > 0)
         {
             const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
             const glm::vec2 playerCenter(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
@@ -103,7 +103,7 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle)
                 Fire& fire = mWorld.getComponent<Fire>(nearestFire);
                 fire.intensity = std::max(0.0f, fire.intensity - 0.9f);
                 fire.lifeRemaining = std::max(0.0f, fire.lifeRemaining - 14.0f);
-                InventorySystem::removeItem(inv, 3, 1);
+                InventorySystem::consumeOne(inv, mItemDatabase, activeSlot);
                 mInteractionMessage = "Doused nearby fire.";
                 mInteractionMessageTimer = 1.8f;
             }

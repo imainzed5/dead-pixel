@@ -3,6 +3,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
+#include <cstdint>
 #include <vector>
 
 #include "ecs/Types.h"
@@ -39,6 +40,8 @@ public:
 
     [[nodiscard]] float getNoiseAtPosition(const glm::vec2& worldPosition) const;
     [[nodiscard]] const std::vector<NoiseEvent>& activeEvents() const { return mActiveEvents; }
+    // Every noise ever emitted (for the harness metrics).
+    [[nodiscard]] std::uint64_t emittedTotal() const { return mEmittedTotal; }
 
     [[nodiscard]] static int tierRadiusTiles(NoiseTier tier);
     [[nodiscard]] static NoiseTier adjustTier(NoiseTier tier, int delta);
@@ -47,4 +50,5 @@ public:
 
 private:
     std::vector<NoiseEvent> mActiveEvents;
+    std::uint64_t mEmittedTotal = 0;
 };

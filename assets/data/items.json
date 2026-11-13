@@ -2,6 +2,7 @@
   "items": [
     {
       "id": 0,
+      "key": "canned_food",
       "name": "Canned Food",
       "category": "food",
       "weight": 0.5,
@@ -13,6 +14,7 @@
     },
     {
       "id": 1,
+      "key": "apple",
       "name": "Apple",
       "category": "food",
       "weight": 0.2,
@@ -24,6 +26,7 @@
     },
     {
       "id": 2,
+      "key": "bread",
       "name": "Bread",
       "category": "food",
       "weight": 0.3,
@@ -35,6 +38,7 @@
     },
     {
       "id": 3,
+      "key": "water_bottle",
       "name": "Water Bottle",
       "category": "drink",
       "weight": 0.4,
@@ -42,10 +46,12 @@
       "sprite": "item_water_bottle",
       "hungerRestore": 0.0,
       "thirstRestore": 40.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "leaves": "empty_bottle"
     },
     {
       "id": 4,
+      "key": "bandage",
       "name": "Bandage",
       "category": "medical",
       "weight": 0.1,
@@ -59,6 +65,7 @@
     },
     {
       "id": 5,
+      "key": "knife",
       "name": "Knife",
       "category": "weapon",
       "weight": 0.8,
@@ -68,6 +75,7 @@
     },
     {
       "id": 6,
+      "key": "baseball_bat",
       "name": "Baseball Bat",
       "category": "weapon",
       "weight": 1.5,
@@ -77,6 +85,7 @@
     },
     {
       "id": 7,
+      "key": "pipe",
       "name": "Pipe",
       "category": "weapon",
       "weight": 1.2,
@@ -86,15 +95,20 @@
     },
     {
       "id": 8,
+      "key": "axe",
       "name": "Axe",
       "category": "weapon",
       "weight": 2.0,
       "maxStack": 1,
       "sprite": "item_axe",
-      "weaponCategory": 1
+      "weaponCategory": 1,
+      "tags": [
+        "tool:hammer"
+      ]
     },
     {
       "id": 9,
+      "key": "wood_planks",
       "name": "Wood Planks",
       "category": "material",
       "weight": 1.0,
@@ -106,6 +120,7 @@
     },
     {
       "id": 10,
+      "key": "scrap_metal",
       "name": "Scrap Metal",
       "category": "material",
       "weight": 1.5,
@@ -117,6 +132,7 @@
     },
     {
       "id": 11,
+      "key": "rope",
       "name": "Rope",
       "category": "material",
       "weight": 0.5,
@@ -128,6 +144,7 @@
     },
     {
       "id": 12,
+      "key": "fuel_can",
       "name": "Fuel Can",
       "category": "material",
       "weight": 2.0,
@@ -135,10 +152,14 @@
       "sprite": "item_fuel",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "fuel"
+      ]
     },
     {
       "id": 13,
+      "key": "glass_shards",
       "name": "Glass Shards",
       "category": "material",
       "weight": 0.3,
@@ -150,6 +171,7 @@
     },
     {
       "id": 14,
+      "key": "pistol_ammo",
       "name": "Pistol Ammo",
       "category": "material",
       "weight": 0.3,
@@ -157,10 +179,14 @@
       "sprite": "item_ammo",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "ammo:pistol"
+      ]
     },
     {
       "id": 15,
+      "key": "antibiotics",
       "name": "Antibiotics",
       "category": "medical",
       "weight": 0.1,
@@ -174,6 +200,7 @@
     },
     {
       "id": 16,
+      "key": "painkillers",
       "name": "Painkillers",
       "category": "medical",
       "weight": 0.1,
@@ -186,15 +213,20 @@
     },
     {
       "id": 17,
+      "key": "hammer",
       "name": "Hammer",
       "category": "weapon",
       "weight": 1.8,
       "maxStack": 1,
       "sprite": "item_hammer",
-      "weaponCategory": 2
+      "weaponCategory": 2,
+      "tags": [
+        "tool:hammer"
+      ]
     },
     {
       "id": 18,
+      "key": "flashlight",
       "name": "Flashlight",
       "category": "material",
       "weight": 0.4,
@@ -202,10 +234,14 @@
       "sprite": "item_flashlight",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "light"
+      ]
     },
     {
       "id": 19,
+      "key": "matches",
       "name": "Matches",
       "category": "material",
       "weight": 0.05,
@@ -217,6 +253,7 @@
     },
     {
       "id": 20,
+      "key": "jacket",
       "name": "Jacket",
       "category": "material",
       "weight": 1.5,
@@ -224,11 +261,16 @@
       "sprite": "item_jacket",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "warm"
+      ],
+      "warmth": 5.0
     },
     {
       "id": 21,
-      "name": "Rat Meat",
+      "key": "rat_meat",
+      "name": "Raw Meat",
       "category": "food",
       "weight": 0.3,
       "maxStack": 5,
@@ -239,6 +281,7 @@
     },
     {
       "id": 22,
+      "key": "first_aid_kit",
       "name": "First Aid Kit",
       "category": "medical",
       "weight": 0.5,
@@ -254,6 +297,7 @@
     },
     {
       "id": 23,
+      "key": "notebook",
       "name": "Notebook",
       "category": "material",
       "weight": 0.2,
@@ -265,6 +309,7 @@
     },
     {
       "id": 24,
+      "key": "disinfected_bandage",
       "name": "Disinfected Bandage",
       "category": "medical",
       "weight": 0.1,
@@ -280,6 +325,7 @@
     },
     {
       "id": 25,
+      "key": "soaked_rag",
       "name": "Soaked Rag",
       "category": "material",
       "weight": 0.1,
@@ -287,10 +333,14 @@
       "sprite": "item_rag",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "fuel"
+      ]
     },
     {
       "id": 26,
+      "key": "molotov",
       "name": "Molotov",
       "category": "material",
       "weight": 1.1,
@@ -298,10 +348,14 @@
       "sprite": "item_molotov",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "throwable"
+      ]
     },
     {
       "id": 27,
+      "key": "spiked_bat",
       "name": "Spiked Bat",
       "category": "weapon",
       "weight": 1.8,
@@ -314,6 +368,7 @@
     },
     {
       "id": 28,
+      "key": "spear",
       "name": "Spear",
       "category": "weapon",
       "weight": 1.6,
@@ -325,6 +380,7 @@
     },
     {
       "id": 29,
+      "key": "empty_bottle",
       "name": "Empty Bottle",
       "category": "material",
       "weight": 0.05,

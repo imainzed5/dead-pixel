@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -42,6 +43,8 @@ bool ItemDatabase::loadFromFile(const std::string& jsonPath)
     mItems.clear();
     mIdIndex.clear();
     mNameIndex.clear();
+    mKeyIndex.clear();
+    mMissingLogged.clear();
 
     for (const auto& obj : root["items"])
     {
@@ -66,11 +69,68 @@ bool ItemDatabase::loadFromFile(const std::string& jsonPath)
         def.weaponRangeScale = obj.value("rangeScale", 1.0f);
         def.weaponDurabilityScale = obj.value("durabilityScale", 1.0f);
         def.weaponCausesBleeding = obj.value("causesBleeding", false);
+        def.key = obj.value("key", std::string{});
+        if (obj.contains("tags") && obj["tags"].is_array())
+        {
+            for (const auto& tag : obj["tags"])
+            {
+                if (tag.is_string()) def.tags.push_back(tag.get<std::string>());
+            }
+        }
+        def.leavesKey = obj.value("leaves", std::string{});
+        def.warmth = obj.value("warmth", 0.0f);
+        def.depressionRelief = obj.value("depressionRelief", 0.0f);
+        def.sleepDebtMask = obj.value("sleepDebtMask", 0.0f);
+        def.rawIllness = obj.value("rawIllness", 0.0f);
+        if (obj.contains("weapon") && obj["weapon"].is_object())
+        {
+            const auto& w = obj["weapon"];
+            def.weapon.arc = w.value("arc", -1.0f);
+            def.weapon.range = w.value("range", -1.0f);
+            def.weapon.damage = w.value("damage", -1.0f);
+            def.weapon.stamina = w.value("stamina", -1.0f);
+            def.weapon.knockback = w.value("knockback", -1.0f);
+            def.weapon.durability = w.value("durability", -1);
+            def.weapon.windup = w.value("windup", -1.0f);
+            def.weapon.recovery = w.value("recovery", -1.0f);
+            def.weapon.magazine = w.value("magazine", -1);
+            def.weapon.ammo = w.value("ammo", std::string{});
+            def.weapon.pellets = w.value("pellets", -1);
+            def.weapon.noise = w.value("noise", -1);
+        }
+        if (obj.contains("throw") && obj["throw"].is_object())
+        {
+            const auto& t = obj["throw"];
+            def.throwDef.throwable = true;
+            def.throwDef.rangeTiles = t.value("range", 0.0f);
+            def.throwDef.damage = t.value("damage", 0.0f);
+            def.throwDef.noiseTier = t.value("noiseTier", 0);
+            def.throwDef.noiseSeconds = t.value("noiseSeconds", 0.0f);
+            def.throwDef.effect = t.value("effect", std::string("none"));
+        }
+        if (def.key.empty())
+        {
+            std::cerr << "ItemDatabase: item " << def.id << " (" << def.name << ") has no key\n";
+        }
 
         const std::size_t idx = mItems.size();
         mIdIndex[def.id] = idx;
         mNameIndex[def.name] = idx;
+        if (!def.key.empty())
+        {
+            if (mKeyIndex.count(def.key) > 0)
+            {
+                std::cerr << "ItemDatabase: duplicate key '" << def.key << "'\n";
+            }
+            mKeyIndex[def.key] = idx;
+        }
         mItems.push_back(std::move(def));
+    }
+
+    for (ItemDef& def : mItems)
+    {
+        if (def.leavesKey.empty()) continue;
+        def.leavesId = idOf(def.leavesKey);
     }
 
     std::cout << "ItemDatabase: Loaded " << mItems.size() << " items.\n";
@@ -89,4 +149,31 @@ const ItemDef* ItemDatabase::findByName(const std::string& name) const
     auto it = mNameIndex.find(name);
     if (it == mNameIndex.end()) return nullptr;
     return &mItems[it->second];
+}
+
+const ItemDef* ItemDatabase::findByKey(std::string_view key) const
+{
+    auto it = mKeyIndex.find(std::string(key));
+    if (it == mKeyIndex.end()) return nullptr;
+    return &mItems[it->second];
+}
+
+int ItemDatabase::idOf(std::string_view key) const
+{
+    if (const ItemDef* def = findByKey(key))
+    {
+        return def->id;
+    }
+    const std::string missing(key);
+    if (std::find(mMissingLogged.begin(), mMissingLogged.end(), missing) == mMissingLogged.end())
+    {
+        mMissingLogged.push_back(missing);
+        std::cerr << "ItemDatabase: no item with key '" << missing << "'\n";
+    }
+    return -1;
+}
+
+bool ItemDef::hasTag(std::string_view tag) const
+{
+    return std::find(tags.begin(), tags.end(), tag) != tags.end();
 }

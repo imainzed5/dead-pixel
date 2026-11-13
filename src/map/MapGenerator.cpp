@@ -1339,28 +1339,6 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
         true,
         SpawnTileBias::NearWall);
 
-    // Home furniture dressing pass: mostly residential, with a near-wall bias.
-    const int homeFurnitureCount = static_cast<int>(std::uniform_int_distribution<int>(18, 30)(mRng) * areaScale);
-    const int homeNearWallCount = (homeFurnitureCount * 7) / 10;
-    pickBuildingTiles(
-        homeNearWallCount,
-        outSpawns.homeFurnitureSpawns,
-        false,
-        static_cast<int>(DistrictType::Residential),
-        true,
-        SpawnTileBias::NearWall);
-    pickBuildingTiles(
-        homeFurnitureCount - homeNearWallCount,
-        outSpawns.homeFurnitureSpawns,
-        false,
-        static_cast<int>(DistrictType::Residential),
-        true,
-        SpawnTileBias::OpenSpace);
-
-    // Containers
-    const int containerCount = static_cast<int>(std::uniform_int_distribution<int>(10, 16)(mRng) * areaScale);
-    pickBuildingTiles(containerCount, outSpawns.containerSpawns, true, -1, true, SpawnTileBias::NearWall);
-
     // Indoor decor: ambient utility and distress dressing inside buildings
     const int indoorDecorCount = static_cast<int>(std::uniform_int_distribution<int>(12, 24)(mRng) * areaScale);
     pickBuildingTiles(indoorDecorCount, outSpawns.decorIndoorSpawns, false, -1, true, SpawnTileBias::NearWall);

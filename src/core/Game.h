@@ -8,6 +8,7 @@
 #include <glm/vec2.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <deque>
 #include <memory>
 #include <string>
@@ -20,6 +21,8 @@
 #include "ecs/Types.h"
 #include "ecs/World.h"
 #include "items/ItemDatabase.h"
+#include "items/ItemIds.h"
+#include "items/LootTables.h"
 #include "legacy/LegacyRules.h"
 #include "world/Doors.h"
 #include "world/FirstDays.h"
@@ -67,6 +70,21 @@
 
 class DevHarness;
 
+// The container panel: docked right at the crafting width, pack on the
+// left, the container on the right.
+struct ContainerLayout
+{
+    static constexpr float kPadding = 24.0f;
+    static constexpr float kListY = 112.0f;
+    static constexpr float kRowH = 24.0f;
+    float panelX = 0.0f;
+    float panelW = 0.0f;
+    float panelH = 0.0f;
+    float columnW = 0.0f;
+    float packX = 0.0f;
+    float boxX = 0.0f;
+};
+
 class Game
 {
 public:
@@ -80,6 +98,7 @@ public:
 
 private:
     friend class DevHarness;
+    friend class Autoplayer;
 
     enum class RunState
     {
@@ -91,6 +110,8 @@ private:
     };
 
     bool initialize();
+    // Items, recipes, loot classes and tuning from assets/data (GameContent.cpp).
+    bool loadContent(const std::filesystem::path& assetsRoot);
     bool loadSlotAndWorld(const std::string& slotName);
     void registerComponents();
     void startNewRun();
@@ -204,7 +225,7 @@ private:
     void setupLightingUniforms();
     [[nodiscard]] float nightFactor() const;
     [[nodiscard]] glm::ivec2 playerTile() const;
-    [[nodiscard]] bool playerHasItem(const char* itemName) const;
+    [[nodiscard]] bool playerHasItem(int itemId) const;
     void snapshotPositions();
     void updateNoiseModel(float dtSeconds);
     [[nodiscard]] NeedsEnvironment buildNeedsEnvironment();
@@ -217,6 +238,20 @@ private:
     void renderCraftingOverlay();
     void renderBuildModeOverlay();
     void renderContainerOverlay();
+    // Containers (GameStorage.cpp): the two-column panel, world memory, spoilage.
+    void openContainer(Entity container);
+    void closeContainer();
+    void handleContainerInput();
+    // Moves the `row`th thing (one, or the stack) between pack and container.
+    int containerMove(bool fromPack, int row, bool wholeStack);
+    [[nodiscard]] ContainerLayout containerLayout() const;
+    [[nodiscard]] std::string containerName(Entity container) const;
+    [[nodiscard]] FurnitureKind containerKindAt(const glm::ivec2& tile) const;
+    // Writes this container's contents to world memory (and saves it).
+    void recordContainer(Entity container);
+    // Brings every remembered container's record up to date (before a save).
+    void refreshContainerRecords();
+    void spoilContainers(float gameHours);
     void syncPresentationSettingsFromSave();
     void syncPresentationSettingsToSave();
     void ensureCampaignObjective();
@@ -280,6 +315,8 @@ private:
     SaveManager mSaveManager;
     AudioManager mAudioManager;
     ItemDatabase mItemDatabase;
+    ItemIds mItems;     // the items code names, resolved by key
+    LootTables mLoot;
 
     World mWorld;
     InputSystem mInputSystem;
@@ -430,6 +467,10 @@ private:
     bool mContainerOpen = false;
     Entity mOpenContainerEntity = kInvalidEntity;
     int mContainerCursor = 0;
+    int mPackCursor = 0;
+    bool mContainerPackSide = false;
+    float mContainerSpoilHours = 0.0f;
+    int mContainersOpened = 0; // this run, for the harness metrics
 
     // M8 narrow slice state
     Entity mActiveVehicleEntity = kInvalidEntity;

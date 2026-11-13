@@ -1,4 +1,5 @@
 #include "systems/ZombieAISystem.h"
+#include "core/Tuning.h"
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -458,12 +459,12 @@ void ZombieAISystem::update(
                 }
                 zombieAI.attackCooldown = kZombieAttackCooldownSeconds * (0.85f + nextRandom(zombieAI, zombieEntity) * 0.3f);
                 const bool stillInReach = playerValid && distanceToPlayer <= kZombieAttackRange * kZombieAttackReachScale;
-                if (!stillInReach || playerHealth == nullptr || nextRandom(zombieAI, zombieEntity) >= kZombieHitChance)
+                if (!stillInReach || playerHealth == nullptr || nextRandom(zombieAI, zombieEntity) >= Tuning::get("zombie.attack.hitChance", kZombieHitChance))
                 {
                     break; // dodged or missed
                 }
 
-                playerHealth->current = std::max(0.0f, playerHealth->current - kZombieAttackDamage * damageMultiplier);
+                playerHealth->current = std::max(0.0f, playerHealth->current - Tuning::get("zombie.attack.damage", kZombieAttackDamage) * damageMultiplier);
                 if (playerHits != nullptr)
                 {
                     playerHits->push_back(zombieAI.strikeDir);
