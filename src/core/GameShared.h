@@ -551,10 +551,12 @@ constexpr std::array<ControlBinding, 26> kControlBindings = {{
     {"Shift", "Run"},
     {"C", "Crouch"},
     {"Mouse", "Aim"},
-    {"LClick", "Attack"},
-    {"RClick", "Grab"},
-    {"E", "Interact; hold: push"},
-    {"R", "Board door, window / tap"},
+    {"LClick", "Attack / fire"},
+    {"RClick", "Take down (from behind)"},
+    {"Space", "Shove / struggle"},
+    {"G", "Throw (hold, aim)"},
+    {"E", "Interact, talk; hold: push"},
+    {"R", "Board, tap / reload"},
     {"X", "Pry board / break up"},
     {"F", "Use item / set down"},
     {"Q", "Flashlight"},
@@ -564,9 +566,7 @@ constexpr std::array<ControlBinding, 26> kControlBindings = {{
     {"Enter", "Swap to hotbar"},
     {"N", "Crafting"},
     {"B", "Build wheel"},
-    {"L", "Fire action"},
-    {"V", "Enter/exit car"},
-    {"Shift+V", "Refuel car"},
+    {"V", "Car in-out; Shift: refuel"},
     {"M", "World map"},
     {"J", "Notebook"},
     {"+/-", "Minimap zoom"},
@@ -1051,15 +1051,40 @@ inline std::string searchedThing(const std::string& prompt)
     return prompt.rfind(prefix, 0) == 0 ? prompt.substr(prefix.size()) : std::string{};
 }
 
-// A weapon item's stats: its category's, improved by the item's own scales.
-inline WeaponStats weaponStatsForItem(const ItemDef& item)
+// A weapon item's stats: its class defaults, then the item's own scales,
+// then its `weapon` overrides from items.json (these win).
+inline WeaponStats weaponStatsForItem(const ItemDef& item, const ItemDatabase* db = nullptr)
 {
     WeaponStats stats = makeWeaponStats(static_cast<WeaponCategory>(std::max(0, item.weaponCategory)));
     stats.damage *= item.weaponDamageScale;
     stats.rangePixels *= item.weaponRangeScale;
     stats.maxDurability = std::max(1, static_cast<int>(std::round(static_cast<float>(stats.maxDurability) * item.weaponDurabilityScale)));
-    stats.durability = stats.maxDurability;
     stats.causesBleeding = stats.causesBleeding || item.weaponCausesBleeding;
+
+    const WeaponOverrides& o = item.weapon;
+    if (o.arc >= 0.0f) stats.arcDegrees = o.arc;
+    if (o.range >= 0.0f) stats.rangePixels = o.range;
+    if (o.damage >= 0.0f) stats.damage = o.damage;
+    if (o.stamina >= 0.0f) stats.staminaCost = o.stamina;
+    if (o.knockback >= 0.0f) stats.knockbackPixels = o.knockback;
+    if (o.durability > 0) stats.maxDurability = o.durability;
+    if (o.windup >= 0.0f) stats.windupSeconds = o.windup;
+    if (o.recovery >= 0.0f) stats.recoverySeconds = o.recovery;
+    if (o.magazine >= 0) stats.magazine = o.magazine;
+    if (o.pellets > 0) stats.pellets = o.pellets;
+    if (o.noise >= 0) stats.noiseTier = o.noise;
+    stats.canStick = o.stick;
+    stats.knocksDown = o.knockdown;
+    stats.reach = o.reach;
+    if (db != nullptr && !o.ammo.empty())
+    {
+        stats.ammoItemId = db->idOf(o.ammo);
+    }
+    if (stats.category == WeaponCategory::Ranged)
+    {
+        stats.ammo = 0; // what is loaded comes from the slot
+    }
+    stats.durability = stats.maxDurability;
     stats.itemId = item.id;
     return stats;
 }

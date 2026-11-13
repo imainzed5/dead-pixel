@@ -1,5 +1,6 @@
 // HUD snapshot and the menu and overlay panels (inventory, crafting, pause, title...).
 #include "core/GameShared.h"
+#include "world/CombatRules.h"
 
 using namespace gameshared;
 
@@ -34,6 +35,13 @@ void Game::buildHudState()
         hud.stamina = stamina.current;
         hud.staminaMax = stamina.maximum;
         hud.staminaBaseMax = stamina.baseMaximum > 0.0f ? stamina.baseMaximum : stamina.maximum;
+    }
+    if (mWorld.hasComponent<Combat>(mPlayerEntity) && playerHeld())
+    {
+        const Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
+        hud.held = true;
+        hud.struggleTicksTotal = static_cast<int>(std::round(combatrules::struggleNeeded(std::max(1, combat.holders))));
+        hud.struggleTicks = std::clamp(static_cast<int>(combat.struggle), 0, hud.struggleTicksTotal);
     }
 
     // Conditions.
@@ -818,13 +826,22 @@ void Game::renderInventoryPanel()
 
         if (item->category == ItemCategory::Weapon)
         {
-            const WeaponStats stats = weaponStatsForItem(*item);
+            const WeaponStats stats = weaponStatsForItem(*item, &mItemDatabase);
             stat("Damage", stats.damage / 70.0f, std::to_string(static_cast<int>(std::round(stats.damage))), kPanelInk);
             stat("Reach", stats.rangePixels / 96.0f, metres(stats.rangePixels), kPanelInk);
+            const float speed = combatrules::speedRating(stats);
+            stat("Speed", speed, speed > 0.66f ? "quick" : speed > 0.33f ? "steady" : "slow", kPanelInk);
             stat("Condition", left01, percent, wearColor);
-            if (stats.causesBleeding)
+            if (stats.magazine > 0)
             {
-                text(glm::vec2(left, y), "Leaves them bleeding.", kPanelInk, 2.0f);
+                text(glm::vec2(left, y), "Loaded " + std::to_string(slot.loaded) + " of " + std::to_string(stats.magazine),
+                     kPanelInk, 2.0f);
+                y += 24.0f;
+            }
+            const std::string special = combatrules::specialLine(stats);
+            if (!special.empty())
+            {
+                text(glm::vec2(left, y), fit(special, innerW, 2.0f), kPanelInk, 2.0f);
                 y += 24.0f;
             }
 

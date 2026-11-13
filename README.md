@@ -31,7 +31,13 @@ done, what is next, and known issues.
   how hard the town pushes back. Their lunges are telegraphed, and a well-timed blow breaks one off. They batter
   closed doors down, and the bodies stay where they fall.
 - **Fighting back:**
-  - melee weapons that wear out, plus firearms, grabs and molotovs;
+  - weapons that each fight differently (wind-up, reach, weight, noise) and
+    wear with every blow that lands;
+  - the shove, being grabbed and tearing free, knockdowns and the stomp,
+    blades that stick, the take-down from behind;
+  - throwing (rocks, alarm clocks, flares, bottles, molotovs) to draw the
+    dead away; a pistol and a shotgun that are loud, rare and short of
+    rounds;
   - crafting, with recipes you discover;
   - doors you can board up.
 - **The legacy layer:**
@@ -48,8 +54,11 @@ done, what is next, and known issues.
 |---|---|
 | WASD | Move (screen directions) |
 | Shift / C | Run / crouch |
-| Mouse, left click, right click | Aim, attack, grab |
-| E | Interact: open and close doors, open containers, sleep in a bed or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern |
+| Mouse, left click | Aim, attack (on one lying down: stomp; with a gun: fire) |
+| Right click, then left click | Take down one turned away or on the floor |
+| Space | Shove (a crowd back, one hurt or from behind off its feet); when held, tap fast to tear free |
+| Hold G, aim, let go | Throw the selected item (rock, alarm clock, flare, bottle, molotov) |
+| E | Interact: talk to a survivor (with nothing else in reach), open and close doors, open containers, sleep in a bed or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern |
 | Hold E beside furniture, then walk | Grab and push it (heavy pieces slowly, a tile at a time; through an open doorway; onto the floor inside a door to block it) |
 | In a container: A/D or Left/Right, W/S, E or Enter, Shift+E, Esc | Pick the pack or the container side, move the cursor, move one across, move the whole stack, close (the mouse works too: click moves one, Shift+click the stack) |
 | R / X at a closed door or a window (from inside) | Board it up (hammer, a plank and 2 nails) / pry a board off (a crowbar saves the nails) |
@@ -57,13 +66,13 @@ done, what is next, and known issues.
 | Click at a window in reach / crouch + F with duct tape | Smash the glass (loud) / break it quietly |
 | R at a kitchen counter or sink, or a rain collector | Drink from the tap and fill empty bottles (taps until day 3) |
 | R at a worn station | Repair it with one of what it is made of |
-| F | Use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern |
+| R with a gun in hand (nothing else in reach) | Reload from the pack, or clear a jam |
+| F | Use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead |
 | Q | Flashlight |
 | 1-8 | Hotbar slot |
 | Tab, arrows, Enter | Inventory, cursor, swap to hotbar |
 | N | Crafting |
 | B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll (click one, then click where it goes; right click puts it away) |
-| L | Fire action |
 | V / Shift+V | Enter or exit a car / refuel |
 | M / J | Town map / notebook |
 | +/- | Minimap zoom |
@@ -167,8 +176,16 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   the pack's materials), `light` (the nearest candle, lantern or campfire),
   `window intact|broken|boarded1|boarded|curtained|open [all]` (the nearest
   window, or every window of this building), `windows` (how they stand).
-- **The dead:** `zombie DX DY [idle]`, `zombie mark [idle]` (heading for
-  the player, or wandering), `slay RADIUS`.
+- **The dead:** `zombie DX DY [idle] [down] [lunging] [away] [close]
+  [exact] [hp N]`, `zombie mark [idle]` (heading for the player, or
+  wandering; `down` on the floor; `lunging` with a lunge winding up; `away`
+  with its back to the player, reeling so it cannot turn; `close` 20 px
+  from the player toward the spot; `exact` at a fractional DX, DY; `hp N`
+  below 60 is a hurt one), `slay RADIUS` (counts as the player's kills).
+- **Fighting:** `shove` (Space for a tick: a shove, or a struggle tap when
+  held), `reload` (R for a tick), `select ITEM NAME` (make it the active
+  slot, in hand if a weapon), `throw DX DY [ITEM NAME]` (the selected or
+  named item at the spot DX, DY tiles off).
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
@@ -180,7 +197,15 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
     no faster than V pixels a second), `expect pack ITEM NAME COUNT`,
     `expect blocked` (furniture blocks a door of this house),
     `expect window glass|broken|boarded [N]|curtained|clear` (the nearest),
-    `expect zombies coming|calm|inside R` (within R tiles);
+    `expect zombies coming|all|calm|inside R` (within R tiles: some or
+    every one after something, none, or some in the player's building),
+    `expect held|free` (the dead hold the player or not),
+    `expect down N` / `expect lured N` (at least N of the dead on the floor,
+    or drawn to a thrown thing), `expect lunging N` (exactly N winding up a
+    lunge), `expect kills N` (the run's kills), `expect loaded N` (rounds in
+    the gun in hand), `expect landed DX DY` (the last throw came down within
+    a tile of the spot), `expect burning DX DY` (a fire on or beside that
+    tile);
   - `shot NAME`, `metrics INTERVAL` (ticks), `log TEXT`. Metrics rows add the
     cause of death, items carried by category, containers searched, boards
     up (doors and windows), tonight's callers, zombies within 10 tiles,
@@ -202,7 +227,10 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `crafting` | The crafting screen and discovering recipes |
 | `doors`, `doors_memory` | Doors open and shut, the dead break them down, broken doors are remembered |
 | `boards` | Boarding up, splintering boards, boards remembered by checkpoints and the next life |
-| `weapon_wear` | Weapon wear kept on the item through re-equip and resume |
+| `weapon_wear` | Blows that land wear the weapon; wear kept through re-equip and resume |
+| `fighting` | A shove breaks a lunge and fells the hurt and one from behind; a bat's stomp kills one down; the take-down; grabbed within three lunges, four taps free; the sledgehammer's knockdown |
+| `throwing` | The aim arc; a rock at 8 tiles turns two of the dead to it; a wound clock holds three for 20 s; a flare at night; a molotov lights its tile; a bottle |
+| `guns` | Reload from the pack; a pistol shot kills at 6 tiles, costs a round, brings every wanderer in earshot; the empty click; the shotgun a shell at a time drops two side by side |
 | `resume` | Checkpoints keep the walking dead and the bodies |
 | `corpses` | Melee kills count and leave a body |
 | `facing` | Characters face the four screen diagonals |

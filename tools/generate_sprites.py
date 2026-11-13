@@ -2559,6 +2559,83 @@ def draw_item_icon(name):
                 ic.set(x + 1, y, (252, 206, 110))
         ic.line(10, 9, 16, 4, (90, 92, 98), 1)
         ic.line(16, 4, 22, 9, (90, 92, 98), 1)
+    elif name == "item_rock":
+        stone = (132, 128, 120)
+        ic.poly([(8, 20), (11, 13), (18, 10), (24, 13), (25, 20), (20, 24), (12, 24)], stone)
+        ic.light(26, -30)
+        ic.line(14, 15, 17, 18, shade(stone, -26), 1)
+        ic.set(20, 15, shade(stone, 24))
+    elif name == "item_alarm_clock":
+        case = (196, 58, 48)
+        ic.ellipse(9, 8, 3.2, 3.2, (210, 190, 120))           # the bells
+        ic.ellipse(23, 8, 3.2, 3.2, (210, 190, 120))
+        ic.ellipse(16, 17, 9.0, 9.0, case)
+        ic.light(24, -30)
+        ic.ellipse(16, 17, 6.5, 6.5, (238, 234, 222))         # the face
+        ic.line(16, 17, 16, 12, (40, 36, 34), 1)
+        ic.line(16, 17, 19, 18, (40, 36, 34), 1)
+        ic.line(10, 25, 8, 28, case, 1)                        # feet
+        ic.line(22, 25, 24, 28, case, 1)
+    elif name == "item_flare":
+        ic.line(8, 25, 22, 9, (198, 44, 40), 4)
+        ic.light(24, -30)
+        ic.line(21, 10, 24, 7, (236, 228, 214), 4)             # the striker cap
+        ic.line(6, 27, 9, 24, (90, 30, 28), 3)
+        ic.line(13, 20, 17, 16, (236, 210, 120), 1)            # the label band
+    elif name == "item_pistol":
+        steel = (70, 74, 80)
+        ic.rect(6, 10, 26, 15, steel)                          # slide and barrel
+        ic.poly([(14, 15), (21, 15), (19, 26), (13, 26)], (58, 50, 46))  # grip
+        ic.light(28, -24)
+        ic.line(15, 15, 17, 19, steel, 1)                      # trigger guard
+        ic.line(17, 19, 20, 17, steel, 1)
+        ic.set(7, 9, steel)
+        ic.line(9, 11, 24, 11, shade(steel, 30), 1)
+    elif name == "item_shotgun":
+        wood = (128, 86, 50)
+        steel = (74, 78, 84)
+        ic.line(3, 26, 12, 19, wood, 4)                        # stock
+        ic.line(11, 19, 29, 5, steel, 3)                       # barrels
+        ic.line(13, 20, 20, 14, wood, 3)                       # fore-end
+        ic.light(28, -26)
+        ic.line(12, 17, 28, 4, shade(steel, 34), 1)
+    elif name == "item_shells":
+        for i, x in enumerate((9, 15, 21)):
+            ic.rect(x, 10 + (i % 2) * 2, x + 5, 22 + (i % 2) * 2, (196, 44, 40))
+            ic.rect(x, 22 + (i % 2) * 2, x + 5, 26 + (i % 2) * 2, (206, 168, 72))
+        ic.light(26, -28)
+    elif name == "item_machete":
+        ic.poly([(10, 21), (25, 6), (28, 6), (27, 10), (13, 24)], (186, 190, 196))
+        ic.light(30, -24)
+        ic.line(12, 23, 26, 8, (146, 150, 156), 1)
+        ic.line(4, 28, 10, 22, (52, 44, 40), 3)                # handle
+        ic.line(9, 20, 13, 24, (40, 36, 34), 1)
+    elif name == "item_sledgehammer":
+        ic.line(6, 27, 20, 11, (154, 110, 64), 2)              # long haft
+        ic.poly([(15, 7), (19, 3), (28, 12), (24, 16)], (92, 96, 102))  # the head, across the haft
+        ic.light(28, -30)
+        ic.line(19, 3, 28, 12, shade((92, 96, 102), 40), 1)
+    elif name == "item_chair_leg":
+        wood = (146, 98, 56)
+        ic.line(8, 25, 22, 9, wood, 3)
+        ic.ellipse(22.5, 8.5, 2.6, 2.6, wood)                  # the turned top
+        ic.ellipse(15, 17, 2.4, 2.4, wood)                     # a bead halfway
+        ic.light(26, -30)
+        ic.line(21, 6, 25, 4, (222, 196, 150), 1)              # where it broke off
+    elif name == "item_frying_pan":
+        iron = (58, 60, 64)
+        ic.ellipse(13, 15, 9.0, 8.0, iron)
+        ic.line(20, 20, 28, 27, (40, 40, 44), 3)               # handle
+        ic.light(26, -24)
+        ic.ellipse(13, 15, 6.5, 5.5, shade(iron, -14))
+        ic.ellipse(11, 13, 2.0, 1.4, shade(iron, 20))
+    elif name == "item_glass_shiv":
+        ic.poly([(14, 18), (22, 5), (24, 6), (19, 19)], (178, 214, 222))
+        ic.light(30, -20)
+        ic.line(22, 6, 18, 15, (232, 246, 250), 1)
+        ic.line(8, 26, 15, 18, (200, 188, 160), 4)             # rag wrapped round
+        ic.line(9, 23, 12, 26, shade((200, 188, 160), -30), 1)
+        ic.line(11, 21, 14, 24, shade((200, 188, 160), -30), 1)
     else:
         ic.rect(9, 9, 23, 23, (150, 150, 150))
     ic.grain(3)
@@ -2586,6 +2663,12 @@ ITEM_ICONS_BASE = [
     "item_rags", "item_candle", "item_can_alarm", "item_spike_board", "item_can_lantern",
 ]
 BASE_ICON_Y = 944
+# Phase 3: fighting, on the same row after the base icons.
+ITEM_ICONS_FIGHT = [
+    "item_rock", "item_alarm_clock", "item_flare", "item_pistol", "item_shotgun",
+    "item_shells", "item_machete", "item_sledgehammer", "item_chair_leg",
+    "item_frying_pan", "item_glass_shiv",
+]
 
 
 def add_item_icons(img, sprites):
@@ -2598,6 +2681,10 @@ def add_item_icons(img, sprites):
         sprites[name] = {"x": x, "y": 160, "w": ITEM_SIZE, "h": ITEM_SIZE}
     for i, name in enumerate(ITEM_ICONS_BASE):
         x = i * ITEM_SIZE
+        draw_item_icon(name).paste(img, x, BASE_ICON_Y)
+        sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    for i, name in enumerate(ITEM_ICONS_FIGHT):
+        x = (len(ITEM_ICONS_BASE) + i) * ITEM_SIZE
         draw_item_icon(name).paste(img, x, BASE_ICON_Y)
         sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
 

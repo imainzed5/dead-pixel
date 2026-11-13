@@ -20,8 +20,7 @@
 //   needs.hunger.perSecond        0.025 hunger lost per real second
 //   needs.thirst.perSecond        0.045 thirst lost per real second
 //   needs.sleepDebt.perSecond     0.058 sleep debt gained per real second awake
-//   zombie.attack.damage          7     health a landed blow takes
-//   zombie.attack.hitChance       0.6   chance a blow that reaches lands
+//   zombie.attack.damage          7     health a claw takes (a grab bites instead)
 //   loot.stocked.scale            1     multiplies every loot class's stockedChance
 class Tuning
 {

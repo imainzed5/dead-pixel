@@ -1,4 +1,5 @@
 #include "dev/Autoplayer.h"
+#include "world/CombatRules.h"
 
 #include <glm/geometric.hpp>
 
@@ -543,6 +544,13 @@ bool Autoplayer::armSelf(Game& game)
 
 bool Autoplayer::handleDanger(Game& game)
 {
+    // Held by the dead: nothing matters but tearing free.
+    if (game.playerHeld())
+    {
+        mActivity = "struggle";
+        tap(SDL_SCANCODE_SPACE);
+        return true;
+    }
     const glm::vec2 here = playerCentre(game);
     struct Near
     {
@@ -586,6 +594,32 @@ bool Autoplayer::handleDanger(Game& game)
     {
         tap(SDL_SCANCODE_ESCAPE); // the dead first, the cupboard later
         return true;
+    }
+
+    // Two or more within arm's reach and a little breath: shove them back
+    // to make room (it never uses a gun).
+    {
+        glm::vec2 middle(0.0f);
+        int crowd = 0;
+        for (const Near& n : close)
+        {
+            if (n.distance <= 1.5f * kTile)
+            {
+                middle += n.centre;
+                ++crowd;
+            }
+        }
+        const bool breath = game.mWorld.hasComponent<Stamina>(game.mPlayerEntity) &&
+                            game.mWorld.getComponent<Stamina>(game.mPlayerEntity).current >= combatrules::kShoveStamina;
+        const bool idle = !game.mWorld.hasComponent<Combat>(game.mPlayerEntity) ||
+                          game.mWorld.getComponent<Combat>(game.mPlayerEntity).phase == AttackPhase::Idle;
+        if (crowd >= 2 && breath && idle)
+        {
+            mActivity = "shove";
+            mouseAt(game, game.mCamera.worldToScreen(middle / static_cast<float>(crowd)));
+            tap(SDL_SCANCODE_SPACE);
+            return true;
+        }
     }
 
     int fleeAt = mProfile == Profile::Careful ? 2 : mProfile == Profile::Bold ? 4 : 3;

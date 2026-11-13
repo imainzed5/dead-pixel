@@ -691,6 +691,9 @@ void Game::setupScene()
     // --- Furniture: containers to search, beds to sleep in ---
     {
         std::mt19937 lootRng(mSaveManager.currentRunSeed() ^ 0xF00Du);
+        const std::vector<storage::RareFind> rare = storage::rareFinds(
+            mFurniture, glm::vec2(static_cast<float>(mTileMap.width()) * 0.5f, static_cast<float>(mTileMap.height()) * 0.5f),
+            static_cast<std::uint32_t>(mSaveManager.worldSeed()));
         for (const FurniturePiece& piece : mFurniture)
         {
             const FurnitureInfo& def = furniture::info(piece.kind);
@@ -730,6 +733,12 @@ void Game::setupScene()
             for (const auto& [itemId, count] : stacks)
             {
                 InventorySystem::addItem(inv, mItemDatabase, itemId, count);
+            }
+            for (const storage::RareFind& find : rare)
+            {
+                if (find.tile != piece.tile) continue;
+                InventorySystem::addItemWithCondition(inv, mItemDatabase, mItemDatabase.idOf(find.item), find.count, 1.0f,
+                                                      find.loaded);
             }
         }
     }

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <utility>
+#include <vector>
+
 #include "components/Inventory.h"
 #include "items/ItemDatabase.h"
 
@@ -24,7 +27,11 @@ public:
     static float bestWarmth(const Inventory& inv, const ItemDatabase& db);
     // Adds items that keep a condition of their own (moved between packs and
     // containers). Stacking averages the condition by count.
-    static AddItemResult addItemWithCondition(Inventory& inv, const ItemDatabase& db, int itemId, int count, float condition);
+    // What an inventory holds as (item, count) pairs, for the records that
+    // keep no per-item state (packs by graves, car trunks, crates): a gun's
+    // loaded rounds come out as loose ammunition beside it.
+    static std::vector<std::pair<int, int>> itemsUnloaded(const Inventory& inv, const ItemDatabase& db);
+    static AddItemResult addItemWithCondition(Inventory& inv, const ItemDatabase& db, int itemId, int count, float condition, int loaded = 0);
     // Uses up one item in `slotIndex`, leaving behind what its data says it
     // leaves (a Water Bottle leaves an Empty Bottle).
     static void consumeOne(Inventory& inv, const ItemDatabase& db, int slotIndex);

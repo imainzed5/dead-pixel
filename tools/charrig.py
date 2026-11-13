@@ -410,7 +410,7 @@ def base_pose(zombie=False):
         head_yaw=0.0,
         nod=0.0,
         mouth_open=False,
-        weapon=None,          # None, "club", "blade", "gun"
+        weapon=None,          # None, "club", "blade", "gun", "long"
         weapon_dir=(0.0, 0.3, 1.0),
         flash=False,          # muzzle flash
         pitch=0.0,            # the whole body falling backward (radians)
@@ -801,6 +801,15 @@ def draw(look, pose, view):
         elif weapon == "blade":
             fr.capsule(add(hand_r, mul(d, -0.8)), add(hand_r, mul(d, 1.4)), 0.8, GUNMETAL, G_WEAPON)
             fr.capsule(add(hand_r, mul(d, 1.6)), add(hand_r, mul(d, 6.4)), 0.75, STEEL, G_WEAPON, r_end=0.5)
+        elif weapon == "long":
+            # A shotgun at the shoulder: the stock back into it, the barrels
+            # well out past the hands.
+            fr.capsule(add(hand_r, mul(d, -5.5)), add(hand_r, mul(d, -0.4)), 0.95, WOOD, G_WEAPON)
+            fr.capsule(add(hand_r, mul(d, -0.4)), add(hand_r, mul(d, 9.5)), 0.7, GUNMETAL, G_WEAPON)
+            if pose["flash"]:
+                muzzle = add(hand_r, mul(d, 11.2))
+                fr.ball(muzzle, 2.8, ((255, 236, 150),) * 3, G_WEAPON, flat=True)
+                fr.ball(add(muzzle, mul(d, 2.4)), 1.6, ((255, 250, 220),) * 3, G_WEAPON, flat=True)
         elif weapon == "gun":
             fr.capsule(add(hand_r, (0.0, 0.0, -1.6)), add(hand_r, (0.0, 0.0, 0.6)), 0.8, GUNMETAL, G_WEAPON)
             fr.capsule(add(hand_r, (0.0, 0.0, 0.9)), add(add(hand_r, (0.0, 0.0, 0.9)), mul(d, 4.6)),
@@ -846,6 +855,7 @@ PLAYER_ATTACKS = {
     "stab": (pose_stab, 5, "blade"),
     "punch": (pose_stab, 5, None),
     "shoot": (pose_shoot, 3, "gun"),
+    "shootlong": (pose_shoot, 3, "long"),
 }
 ZOMBIE_MOVES = {
     "idle": (zpose_idle, 2),

@@ -38,6 +38,7 @@ add_library(dead_pixel_core STATIC
     src/core/GameMenus.cpp
     src/core/GameVehicles.cpp
     src/core/GameFire.cpp
+    src/core/GameFighting.cpp
     src/core/GameInventory.cpp
     src/core/GameLegacy.cpp
     src/core/GameDoors.cpp
@@ -59,6 +60,7 @@ add_library(dead_pixel_core STATIC
     src/save/SaveManager.cpp
     src/systems/InputSystem.cpp
     src/systems/CombatSystem.cpp
+    src/systems/ThrownSystem.cpp
     src/systems/CollisionSystem.cpp
     src/systems/InteractionSystem.cpp
     src/systems/MovementSystem.cpp
@@ -83,6 +85,7 @@ add_library(dead_pixel_core STATIC
     src/world/FurnitureUse.cpp
     src/world/Windows.cpp
     src/world/Storage.cpp
+    src/world/CombatRules.cpp
     src/world/Scenery.cpp
     src/systems/Atmosphere.cpp
     src/world/FirstDays.cpp
@@ -159,6 +162,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_storage.cpp
         tests/test_base.cpp
         tests/test_windows.cpp
+        tests/test_combat_rules.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

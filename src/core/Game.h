@@ -58,6 +58,7 @@
 #include "systems/MentalStateSystem.h"
 #include "systems/ParticleSystem.h"
 #include "systems/ProjectileSystem.h"
+#include "systems/ThrownSystem.h"
 #include "systems/RenderSystem.h"
 #include "systems/WoundSystem.h"
 #include "systems/ZombieAISystem.h"
@@ -202,6 +203,27 @@ private:
     void updatePauseMenu();
     void handleVehicleKey(bool playerAlive);
     void updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle);
+    bool igniteTile(const glm::ivec2& tile);
+    bool douseFireAhead();
+
+    // --- Fighting (phase 3, GameFighting.cpp) ---
+    // Before combat: held by the dead, throwing (G), reloading (R), wound
+    // clocks and flares, things in flight.
+    void updateFighting(float dtSeconds, bool playerAlive, bool drivingVehicle);
+    // After combat: what the swing, shove or shot did, shown and heard.
+    void afterCombat();
+    [[nodiscard]] bool playerHeld() const;
+    // Throw the selected belt item at a world point (clamped to its range).
+    bool throwSelected(const glm::vec2& targetWorld);
+    void onThrowLanded(const ThrowLanding& landing);
+    // The dead in `radiusTiles` (and in sight of it, if `needSight`) go to
+    // `where` and stay near it for `seconds`.
+    int lureTo(const glm::vec2& where, float radiusTiles, float seconds, bool needSight);
+    // F on a fighting item: wind an alarm clock, douse a fire. True if used.
+    bool useFightingItem(int slotIndex);
+    // A gun's prompt and reload (R), when nothing in reach takes R.
+    void handleReloadKey();
+    void renderFightingOverlay();
     void updateCraftingPanel(float dtSeconds, bool drivingVehicle);
     void updateInventoryInput(bool drivingVehicle);
     void applyVehicleDriving();
@@ -440,6 +462,31 @@ private:
     float mShakeClock = 0.0f;
     float mPlayerHurtTimer = 0.0f;
     std::vector<glm::vec2> mPlayerHits; // directions of blows the player took this tick
+
+    // Fighting (phase 3). Not saved: things in flight, burning flares and
+    // ringing clocks end with the session (a checkpoint drops them).
+    ThrownSystem mThrownSystem;
+    bool mThrowAiming = false;             // G held with a throwable selected
+    float mArmedAlarm = -1.0f;             // a wound clock in the pack: seconds before it rings
+    struct Lure
+    {
+        glm::vec2 position{0.0f};
+        float delay = 0.0f;      // seconds before it starts (a clock still ticking)
+        float remaining = 0.0f;  // seconds it rings or burns
+        float noiseTimer = 0.0f;
+        float pullTimer = 0.0f;  // seconds before it pulls the dead again
+        bool flare = false;
+        bool clockSurvives = false;
+        bool carried = false;    // a wound clock still in the pack: it rings where you are
+        Entity marker = kInvalidEntity; // what lies on the ground (a flare, a clock)
+    };
+    std::vector<Lure> mLures;
+    std::vector<std::pair<glm::vec2, glm::vec2>> mShotLines; // the last shot's lines, drawn for a frame
+    float mShotLineTimer = 0.0f;
+    float mShoveArcTimer = 0.0f;           // the white arc of a shove
+    float mShoveArcAngle = 0.0f;
+    glm::vec2 mLastThrowLanding{-1.0f};    // for the harness
+    bool mHeldZoomed = false;              // the view pulled in while held
     SurvivorAISystem mSurvivorAISystem;
     SurvivorInteractionSystem mSurvivorInteractionSystem;
     WeatherSystem mWeatherSystem;

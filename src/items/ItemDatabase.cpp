@@ -97,6 +97,9 @@ bool ItemDatabase::loadFromFile(const std::string& jsonPath)
             def.weapon.ammo = w.value("ammo", std::string{});
             def.weapon.pellets = w.value("pellets", -1);
             def.weapon.noise = w.value("noise", -1);
+            def.weapon.stick = w.value("stick", false);
+            def.weapon.knockdown = w.value("knockdown", false);
+            def.weapon.reach = w.value("reach", false);
         }
         if (obj.contains("throw") && obj["throw"].is_object())
         {

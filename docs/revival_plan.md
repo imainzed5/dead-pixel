@@ -802,6 +802,61 @@ through; day one's lethality is phases 3, 4 and 14's to settle, and phase 2
 did not retune it. Four seeds put up no boards at all (why is not yet
 looked into).
 
+## Overhaul phase 3: fighting (2026-11-14)
+
+Fighting with the body, not just the click. Every weapon has its own speed,
+reach, wear and special from the data (a spear reaches, a blade can stick,
+heavy tools knock down). Space shoves: one thrown back loses its lunge, and
+one hurt or shoved from behind goes down; one on the floor can be stomped
+(any swing aimed at it, double damage) or taken down (right click, then
+left). The dead grab: a lunge that reaches you is a claw or a hold (always a
+hold from behind unless your back is to a wall, or when you are out of
+breath); held, the view closes in and shakes, each holder bites, and quick
+taps of Space (four per holder) tear you free. G throws, with an arc while
+held: rocks, cans and bottles draw the dead to where they land, a wound
+alarm clock rings for 20 s and holds them there, a flare burns red at night,
+a molotov lights the ground (the L key is gone). Guns cost you: the pistol
+and shotgun load from the pack with R, are heard far off, jam when worn and
+click empty. New weapons: frying pan, machete, sledgehammer, spiked bat,
+glass shiv, chair leg; two pistols, a shotgun, machetes and sledgehammers
+wait in the town's outer wardrobes. Hits feel different by kind (a shove,
+a blade, a shot, a heavy blow).
+
+Harness: `fighting.txt` (a shove breaks a lunge; the hurt and one shoved
+from behind fall; a bat's stomp kills a downed 50-health one; the
+take-down; one walking up grabs within three lunges and four taps free; a
+sledgehammer fells a full-health one), `throwing.txt` (a rock at 8 tiles
+turns two to the spot; a clock holds three for 20 s; a flare at night; a
+molotov lights its tile; a bottle breaks), `guns.txt` (reload; a pistol
+shot kills at 6 tiles, costs one round and brings every wanderer in
+earshot; the empty click; the shotgun drops two side by side). Every older
+script still passes; `weapon_wear` now wears on hits only.
+
+The bot shoves when two of the dead are within 1.5 tiles, struggles when
+held, and never uses guns. `bot_week`, seeds 1 to 10, next to phases 1
+and 2:
+
+| Seed | P01: days | P02: days | P03: days | Kills | Searched | Boards | Died at home, night 1 |
+|---:|---:|---:|---:|---:|---:|---:|---|
+| 1 | 0.3 | 1.2 | 0.1 | 5 | 10 | 0 | - |
+| 2 | 1.5 | 0.5 | 0.9 | 27 | 52 | 5 | - |
+| 3 | 0.7 | 1.0 | 1.7 | 29 | 75 | 5 | - |
+| 4 | 2.2 | 1.1 | 2.1 | 49 | 42 | 3 | - |
+| 5 | 1.1 | 1.2 | 1.7 | 17 | 5 | 3 | - |
+| 6 | 1.3 | 1.7 | 0.4 | 15 | 60 | 2 | - |
+| 7 | 1.5 | 1.1 | 0.6 | 14 | 8 | 3 | - |
+| 8 | 0.7 | 0.5 | 1.3 | 16 | 17 | 3 | - |
+| 9 | 1.3 | 0.5 | 0.8 | 21 | 8 | 5 | - |
+| 10 | 1.0 | 0.4 | 0.1 | 6 | 26 | 0 | - |
+
+Normal bot, median 0.9 days (phase 2: 1.0), mean 1.0, none lives the week,
+none dies at home on night 1 (phase 2: 2), every run clean. The phase's
+bar, a median no more than one day below phase 2's, is met. The spread is
+wider: three runs reach day 3, and two (seeds 1 and 10) die within hours
+of the start, with 5 and 6 kills (why is not yet looked into; the hold is
+the new danger to check first). Day one's lethality stays phases 4 and
+14's to settle.
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -947,3 +1002,8 @@ Candidates for the next stretch, roughly in order. None is started.
   nails; the build wheel's stations; alarms, spike boards and lights; sleep
   by safety; callers at the weakest way in; the base kept for the next
   life. Bot boards windows; night 1 at home 2 of 10 (bar 1, not met).
+- 2026-11-14: Overhaul phase 3, fighting: per-weapon stats, the shove, the
+  dead's grab and the struggle, knockdown and stomp, the take-down,
+  throwing on G (lures, clocks, flares), guns with reloads and jams, six new
+  weapons and rare finds; bot shoves and struggles; median 0.9 days
+  (bar: at least 0.0, met).

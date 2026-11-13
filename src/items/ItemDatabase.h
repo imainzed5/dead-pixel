@@ -29,6 +29,9 @@ struct WeaponOverrides
     std::string ammo;         // item key of the ammunition
     int pellets = -1;
     int noise = -1;           // noise tier
+    bool stick = false;       // a heavy blow may lodge it
+    bool knockdown = false;   // any hit puts them on the floor
+    bool reach = false;       // hits before a lunge lands
 };
 
 // How an item flies when thrown (phase 3).

@@ -7,6 +7,7 @@ struct InventorySlot
     int itemId = -1;         // -1 = empty
     int count = 0;
     float condition = 1.0f;  // 1.0 = fresh, 0.0 = spoiled/broken
+    int loaded = 0;          // a gun: rounds in it (phase 3)
 };
 
 struct Inventory

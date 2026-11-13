@@ -1,5 +1,5 @@
-# Weapon wear: the run starts with the knife in hand; swinging wears it, and
-# taking it out again (F) does not mend it.
+# Weapon wear: the run starts with the knife in hand; blows that land wear
+# it (a miss does not), and taking it out again (F) does not mend it.
 # Run in a fresh directory:
 #   dead_pixel_survival.exe --script tools/harness/weapon_wear.txt --hidden --world-seed 1234 --shots shots/weapon_wear
 
@@ -7,6 +7,11 @@ newrun
 god on
 waits 1
 shot 01_knife_in_hand
+# One of the dead in front that will not go down: every swing lands.
+zoom 2.5
+mouse 760 420
+zombie 1 0 hp 1000
+waits 0.1
 click left
 waits 0.9
 click left

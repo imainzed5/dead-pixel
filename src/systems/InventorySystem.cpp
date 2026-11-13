@@ -178,7 +178,7 @@ float InventorySystem::bestWarmth(const Inventory& inv, const ItemDatabase& db)
     return best;
 }
 
-AddItemResult InventorySystem::addItemWithCondition(Inventory& inv, const ItemDatabase& db, int itemId, int count, float condition)
+AddItemResult InventorySystem::addItemWithCondition(Inventory& inv, const ItemDatabase& db, int itemId, int count, float condition, int loaded)
 {
     // Remember what each slot held, add, then blend the condition into the
     // slots that grew.
@@ -196,6 +196,8 @@ AddItemResult InventorySystem::addItemWithCondition(Inventory& inv, const ItemDa
         const float kept = static_cast<float>(before[i]);
         const float previous = before[i] > 0 ? slot.condition : condition;
         slot.condition = (previous * kept + condition * added) / (kept + added);
+        // A gun keeps its rounds when it moves (guns do not stack).
+        if (loaded > 0 && before[i] == 0) slot.loaded = loaded;
     }
     return result;
 }
@@ -215,4 +217,19 @@ void InventorySystem::consumeOne(Inventory& inv, const ItemDatabase& db, int slo
     {
         addItem(inv, db, def->leavesId, 1);
     }
+}
+
+std::vector<std::pair<int, int>> InventorySystem::itemsUnloaded(const Inventory& inv, const ItemDatabase& db)
+{
+    std::vector<std::pair<int, int>> items;
+    for (const auto& slot : inv.slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+        items.emplace_back(slot.itemId, slot.count);
+        if (slot.loaded <= 0) continue;
+        const ItemDef* def = db.find(slot.itemId);
+        const int ammo = def != nullptr && !def->weapon.ammo.empty() ? db.idOf(def->weapon.ammo) : -1;
+        if (ammo >= 0) items.emplace_back(ammo, slot.loaded);
+    }
+    return items;
 }

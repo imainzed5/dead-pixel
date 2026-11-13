@@ -44,7 +44,19 @@ struct ItemIds
     X(candle, "candle")                     \
     X(canAlarm, "can_alarm")                \
     X(spikeBoard, "spike_board")            \
-    X(canLantern, "can_lantern")
+    X(canLantern, "can_lantern")            \
+    X(rock, "rock")                         \
+    X(alarmClock, "alarm_clock")            \
+    X(flare, "flare")                       \
+    X(pistol, "pistol")                     \
+    X(pistolAmmo, "pistol_ammo")            \
+    X(shotgun, "shotgun")                   \
+    X(shotgunShells, "shotgun_shells")      \
+    X(machete, "machete")                   \
+    X(sledgehammer, "sledgehammer")         \
+    X(chairLeg, "chair_leg")                \
+    X(fryingPan, "frying_pan")              \
+    X(glassShiv, "glass_shiv")
 
 #define DEAD_PIXEL_ITEM_FIELD(field, key) int field = -1;
     DEAD_PIXEL_ITEM_IDS(DEAD_PIXEL_ITEM_FIELD)

@@ -43,6 +43,21 @@ struct ZombieAI
     glm::vec2 knock{0.0f, 0.0f};
     float hitFlash = 0.0f;     // > 0: drawn bright for a moment after a hit
 
+    // On the floor (phase 3): lying for `downTimer` seconds, then getting up
+    // for `riseTimer`. It cannot attack or grab until it stands.
+    float downTimer = 0.0f;
+    float riseTimer = 0.0f;
+    // Holding the player: it bites every so often until shaken off.
+    bool holding = false;
+    float biteTimer = 0.0f;
+    // The kind of the last blow that landed (WeaponCategory as int; -1 a
+    // shove), so the game can show blunt, bladed and heavy blows apart.
+    int lastBlow = -1;
+    bool lastBlowHeavy = false;
+    // Drawn to a thrown thing or a flare: it stays near `targetWorld` for
+    // this long before it wanders again.
+    float lureTimer = 0.0f;
+
     // Which of the zombie looks (clothes, hair) this one wears.
     int look = 0;
 
@@ -99,9 +114,25 @@ inline constexpr float kFlashSeconds = 0.12f;
 inline void land(ZombieAI& zombie, const glm::vec2& direction, float knockbackPixels)
 {
     zombie.knock = direction * (knockbackPixels * kKnockDecay);
-    zombie.stagger = std::clamp(0.14f + knockbackPixels * 0.006f, 0.18f, 0.45f);
+    zombie.stagger = std::max(zombie.stagger, std::clamp(0.14f + knockbackPixels * 0.006f, 0.18f, 0.45f));
     zombie.hitFlash = kFreshHit;
     zombie.attackWindup = 0.0f;
     zombie.strikeTimer = 0.0f;
+    zombie.holding = false;
+}
+
+// Put it on the floor for `seconds` (it lets go of anything it held).
+inline void knockDown(ZombieAI& zombie, float seconds)
+{
+    zombie.downTimer = std::max(zombie.downTimer, seconds);
+    zombie.riseTimer = 0.0f;
+    zombie.attackWindup = 0.0f;
+    zombie.strikeTimer = 0.0f;
+    zombie.holding = false;
+}
+
+[[nodiscard]] inline bool isDown(const ZombieAI& zombie)
+{
+    return zombie.downTimer > 0.0f || zombie.riseTimer > 0.0f;
 }
 } // namespace ZombieBlow

@@ -1,5 +1,6 @@
 // Per-tick simulation: input, systems, combat, sleep, animation and particles.
 #include "core/GameShared.h"
+#include "world/CombatRules.h"
 
 using namespace gameshared;
 
@@ -219,7 +220,11 @@ void Game::update(float dtSeconds)
 
     updateCraftingPanel(dtSeconds, drivingVehicle);
 
-    updateInventoryInput(drivingVehicle);
+    // Held, hands are busy: no pack, no belt.
+    if (!(playerAlive && playerHeld()))
+    {
+        updateInventoryInput(drivingVehicle);
+    }
 
     // Panic drift: add random velocity jitter proportional to panic level
     if (mPlayerEntity != kInvalidEntity &&
@@ -374,7 +379,9 @@ void Game::update(float dtSeconds)
 
     mProximityPrompt.clear();
 
-    if (playerAlive && !mShowCrafting && !mContainerOpen && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    // Held by the dead, there is no reaching for anything.
+    const bool heldNow = playerAlive && playerHeld();
+    if (playerAlive && !heldNow && !mShowCrafting && !mContainerOpen && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         // Update proximity prompt for HUD display
         const ProximityPrompt prompt = mInteractionSystem.getProximityPrompt(mWorld, mPlayerEntity);
@@ -470,8 +477,9 @@ void Game::update(float dtSeconds)
             }
         }
 
-        // G key: approach nearest survivor
-        if (mInput.wasKeyPressed(SDL_SCANCODE_G))
+        // E with nothing else in reach: approach the nearest survivor (G
+        // throws now).
+        if (mInput.wasKeyPressed(SDL_SCANCODE_E) && mProximityPrompt.empty())
         {
             auto result = mSurvivorInteractionSystem.tryApproach(mWorld, mPlayerEntity);
             if (!result.message.empty())
@@ -506,6 +514,9 @@ void Game::update(float dtSeconds)
         }
     }
 
+    // Held, throwing, reloading, clocks and flares, things in flight.
+    updateFighting(feelDt, playerAlive, drivingVehicle);
+
     // Track pre-combat state for audio triggers
     const float prevPlayerHp = (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
         ? mWorld.getComponent<Health>(mPlayerEntity).current
@@ -517,23 +528,9 @@ void Game::update(float dtSeconds)
     if (!mShowCrafting && !mContainerOpen && !drivingVehicle && !mBuildWheelOpen && mBuildChoice < 0 &&
         mBaseAction.kind == BaseAction::Kind::None)
     {
-        int shotsBefore = 0;
-        mWorld.forEach<Projectile>([&](Entity, Projectile&) { ++shotsBefore; });
         mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, feelDt);
         syncEquippedWeapon();
-
-        // A shot: a flash at the muzzle and a spent case thrown out to the side.
-        int shotsAfter = 0;
-        mWorld.forEach<Projectile>([&](Entity, Projectile&) { ++shotsAfter; });
-        if (shotsAfter > shotsBefore && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Facing>(mPlayerEntity))
-        {
-            const float angle = mWorld.getComponent<Facing>(mPlayerEntity).angleRadians;
-            const glm::vec2 aim(std::cos(angle), std::sin(angle));
-            const glm::vec2 centre = playerWorldCenter();
-            mMuzzleFlash = 0.07f;
-            mMuzzleWorld = centre + aim * 16.0f;
-            mParticleSystem.spawnCasing(centre + aim * 6.0f, glm::vec2(-aim.y, aim.x));
-        }
+        afterCombat();
     }
     else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Combat>(mPlayerEntity))
     {
@@ -736,10 +733,14 @@ void Game::update(float dtSeconds)
     {
         Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
         const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
+        const bool pinned = playerHeld(); // a bite while held does not throw you clear
         for (const glm::vec2& direction : mPlayerHits)
         {
-            vel.dx += direction.x * 230.0f;
-            vel.dy += direction.y * 230.0f;
+            if (!pinned)
+            {
+                vel.dx += direction.x * 230.0f;
+                vel.dy += direction.y * 230.0f;
+            }
             mParticleSystem.spawnBloodSpray(
                 glm::vec2(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f), direction, 9);
         }
@@ -1098,7 +1099,9 @@ AttackFrames attackFrames(const Combat& combat)
     {
     case WeaponCategory::Unarmed: return {"player_punch", 2, 1, 2};
     case WeaponCategory::Bladed: return {"player_stab", 2, 1, 2};
-    case WeaponCategory::Ranged: return {"player_shoot", 1, 1, 1};
+    case WeaponCategory::Ranged:
+        // A shotgun goes to the shoulder; a pistol is held out.
+        return combat.weapon.pellets > 1 ? AttackFrames{"player_shootlong", 1, 1, 1} : AttackFrames{"player_shoot", 1, 1, 1};
     default: return {"player_swing", 2, 2, 2};
     }
 }
@@ -1162,13 +1165,37 @@ void Game::updateBlowFeedback(float dtSeconds)
             const glm::vec2 centre(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f);
             const float speed = glm::length(zombie.knock);
             const glm::vec2 direction = speed > 1.0f ? zombie.knock / speed : glm::vec2(0.0f);
-            mParticleSystem.spawnBloodSpray(centre, direction, killed ? 22 : 10, killed ? 1.25f : 1.0f);
+
+            // Each kind of blow reads differently: a blunt one stops the
+            // world for a beat, a blade cuts straight through and leaves more
+            // blood, a heavy one shakes the ground and raises dust, a shot
+            // never pauses, and a shove draws no blood at all.
+            const bool shove = zombie.lastBlow < 0;
+            const bool bladed = zombie.lastBlow == static_cast<int>(WeaponCategory::Bladed);
+            const bool shot = zombie.lastBlow == static_cast<int>(WeaponCategory::Ranged);
+            const bool heavy = zombie.lastBlowHeavy;
+            if (!shove || killed)
+            {
+                const int drops = bladed ? (killed ? 30 : 16) : (killed ? 22 : 10);
+                mParticleSystem.spawnBloodSpray(centre, direction, drops, killed ? 1.25f : 1.0f);
+            }
+            if (heavy)
+            {
+                mParticleSystem.spawnDustRing(centre + glm::vec2(0.0f, 8.0f), 70.0f);
+            }
 
             if (zombie.lastDamagedBy == mPlayerEntity)
             {
-                mHitStop = std::max(mHitStop, killed ? 0.085f : 0.05f);
-                mShakeTrauma = std::min(1.0f, mShakeTrauma + (killed ? 0.45f : 0.3f));
-                mAudioManager.playSound(SoundId::WeaponHit, killed ? 0.75f : 0.55f);
+                float stop = killed ? 0.085f : 0.05f;
+                if (shot || (bladed && killed)) stop = 0.0f;
+                else if (shove) stop = 0.02f;
+                else if (heavy) stop = 0.10f;
+                mHitStop = std::max(mHitStop, stop);
+                float trauma = killed ? 0.45f : 0.3f;
+                if (heavy) trauma *= 2.0f;
+                if (shove) trauma = 0.15f;
+                mShakeTrauma = std::min(1.0f, mShakeTrauma + trauma);
+                mAudioManager.playSound(SoundId::WeaponHit, shove ? 0.35f : killed ? 0.75f : 0.55f);
             }
         });
 }
@@ -1210,11 +1237,12 @@ void Game::updateAnimations(float dtSeconds)
         else if (combat != nullptr && combat->phase != AttackPhase::Idle)
         {
             // The swing follows the combat phases frame for frame.
-            const AttackFrames frames = attackFrames(*combat);
+            // A shove is a two-handed push: the punch frames serve.
+            const AttackFrames frames = combat->shoving ? AttackFrames{"player_punch", 2, 1, 2} : attackFrames(*combat);
             int frame = 0;
             if (combat->phase == AttackPhase::Windup)
             {
-                frame = partFrame(combat->phaseTimer, CombatSystem::kWindupSeconds, frames.windup);
+                frame = partFrame(combat->phaseTimer, combat->windupTotal, frames.windup);
             }
             else if (combat->phase == AttackPhase::Active)
             {
@@ -1223,7 +1251,7 @@ void Game::updateAnimations(float dtSeconds)
             else
             {
                 frame = frames.windup + frames.active +
-                        partFrame(combat->phaseTimer, CombatSystem::kRecoverySeconds, frames.recovery);
+                        partFrame(combat->phaseTimer, combat->recoveryTotal, frames.recovery);
             }
             showFrame(anim, frames.name + view, frame);
         }
@@ -1260,6 +1288,21 @@ void Game::updateAnimations(float dtSeconds)
             const float speed2 = vel.dx * vel.dx + vel.dy * vel.dy;
             const bool lunging = ai.attackWindup > 0.0f || ai.strikeTimer > 0.0f;
 
+            if (ZombieBlow::isDown(ai))
+            {
+                // On the floor: the fall is the death fall held on its last
+                // frame; getting up plays it backwards, slower.
+                const std::string fall = set + "_death" + viewSuffix(anim.dir);
+                const int frames = std::max(1, mSpriteSheet.frameCount(fall));
+                int frame = frames - 1;
+                if (ai.downTimer <= 0.0f)
+                {
+                    const float progress = 1.0f - std::clamp(ai.riseTimer / combatrules::kRiseSeconds, 0.0f, 1.0f);
+                    frame = std::clamp(static_cast<int>((1.0f - progress) * static_cast<float>(frames) * 0.8f), 0, frames - 1);
+                }
+                showFrame(anim, fall, frame);
+                return;
+            }
             if (ai.stagger > 0.0f)
             {
                 // Thrown back: it keeps facing whoever hit it.

@@ -42,7 +42,7 @@
       ],
       "station": "none",
       "craftTimeSeconds": 6,
-      "notes": "Select it and press L to set the ground you aim at alight. Fire draws the dead from far off.",
+      "notes": "Select it, hold G and let go to throw it where you aim. Fire draws the dead from far off.",
       "hintA": "an empty bottle",
       "hintB": "a rag soaked in fuel",
       "startsKnown": false
@@ -145,6 +145,39 @@
       "hintA": "",
       "hintB": "",
       "startsKnown": true
+    },
+    {
+      "name": "Spiked Bat",
+      "inputA": "baseball_bat",
+      "inputB": "nails",
+      "countB": 6,
+      "output": "spiked_bat",
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [
+        "tool:hammer"
+      ],
+      "station": "none",
+      "craftTimeSeconds": 10,
+      "notes": "Nails driven through the end. Bleeds.",
+      "hintA": "something to swing",
+      "hintB": "something sharp and small",
+      "startsKnown": false
+    },
+    {
+      "name": "Glass Shiv",
+      "inputA": "glass_shards",
+      "inputB": "rags",
+      "output": "glass_shiv",
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 4,
+      "notes": "Quick and nasty. It will not last.",
+      "hintA": "something sharp",
+      "hintB": "something to hold it by",
+      "startsKnown": false
     }
   ]
 }

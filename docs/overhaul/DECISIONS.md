@@ -146,6 +146,93 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
 - 2026-11-14, P02: soak rows gain "Boards" (the most boards up at once,
   doors and windows) and "Night 1 at home" (died between 18:00 on day 1 and
   08:00 on day 2, standing in the home); metrics rows gain `at_home`.
+- 2026-11-14, P03: gun shots -> hitscan, with the shot's line drawn for a
+  frame. A bullet that flies would let one step through it at 60 Hz; the
+  Projectile component stays for survivors' bullets and things thrown.
+- 2026-11-14, P03: down and getting up -> the death fall held on its last
+  frame, and played backwards (at 0.8 of its length) to rise. No new rig
+  frames; the read is clear enough.
+- 2026-11-14, P03: the spear's reach -> its wind-up is 0.06 s shorter, and a
+  blow on one winding up a lunge pushes it out to the spear's range.
+- 2026-11-14, P03: a wall at your back covers it -> no back claw (x1.5) and
+  no certain grab from behind; the check samples the tiles behind the
+  player's facing out to one tile.
+- 2026-11-14, P03: the second after tearing free -> a lunge that lands is a
+  claw, never a grab, so the dead cannot chain holds.
+- 2026-11-14, P03: stabbing while held -> short blades only (reach 34 px or
+  less: Knife, Glass Shiv), as the phase says; a Machete or Axe cannot.
+- 2026-11-14, P03: "from behind" -> the take-down reads the zombie's drawn
+  facing; the melee backstab bonus stays as it was (the swing's direction
+  against the zombie's movement).
+- 2026-11-14, P03: R -> reloads only when nothing in reach shows an "R:"
+  prompt (boards, taps, repairs keep it). With a gun empty or jammed and
+  nothing else in reach, the prompt says "R: Reload" / "R: Clear the jam".
+- 2026-11-14, P03: G was "approach a survivor" -> that moved to E with
+  nothing else in reach. O and T are unchanged.
+- 2026-11-14, P03: loaded rounds -> a grave pack, a retirement pack, a
+  car's trunk or a crate holds a gun's rounds as loose ammo beside it
+  (`InventorySystem::itemsUnloaded`); a cupboard keeps them in the gun
+  (slot `loaded`, an optional save field, no version bump).
+- 2026-11-14, P03: the chair leg -> only a Table gives one (there is no
+  chair furniture yet), in place of one plank, when no weapon is carried.
+- 2026-11-14, P03: flares, ringing clocks and things in flight -> not
+  saved; a checkpoint drops them (they last seconds to a minute and a half).
+- 2026-11-14, P03: the fixed rare finds -> two Pistols (3 and 5 rounds in),
+  a Shotgun with 4 shells beside it, two Machetes, two Sledgehammers, each in
+  a different wardrobe from the outer third of the town's wardrobes (by
+  distance from the map centre), shuffled by the world seed. Rolled loot
+  goes in beside them; the container record keeps them gone once taken.
+  Radios, Backpacks and Keepsakes wait for their items (P05, P07).
+- 2026-11-14, P03: loot until P06's classes -> pistol_ammo in `bedroom`,
+  alarm_clock in `living`, frying_pan in `kitchen`, flare in `trunk` and
+  `storage`, rock in `storage`, all at weight 1. Rocks have no other source
+  yet.
+- 2026-11-14, P03: a wound clock -> F winds it (8 s); thrown, it keeps
+  counting in the air and rings where it lands; left in the pack it rings
+  where you are (and the dead come to you). An unwound clock thrown lands
+  like a rock. A thrown one survives 1 time in 3 (dropped where it fell
+  after ringing); one rung in the pack is never lost.
+- 2026-11-14, P03: a thrown bottle -> leaves one Glass Shards where it
+  breaks (the Glass Shiv's material). A rock, a can or an unwound clock is
+  left where it fell, to be picked up again.
+- 2026-11-14, P03: a lure -> the dead within the noise's reach (a flare:
+  15 tiles and in sight of it) go there and stand for 20 s (`lureTimer`);
+  the ones already after the player do not turn. A clock or flare pulls
+  again every 5 s while it rings or burns.
+- 2026-11-14, P03: being held -> the view pulls in 6 % and shakes; the
+  pack, crafting and any open container shut, and nothing in reach can be
+  used. Bites while held do not push the player about.
+- 2026-11-14, P03: the shotgun's two-handed pose -> only for the shot
+  (`player_shootlong`, 24 frames); carrying it uses the pistol's loadout.
+  A full long-gun loadout (216 frames) does not fit the character block
+  under the scenery.
+- 2026-11-14, P03: the yellow swing-arc overlay -> not drawn for a shove;
+  the shove has its own short white arc.
+- 2026-11-14, P03: the Controls panel keeps 26 rows -> L went, Space and G
+  came in, and V / Shift+V share a row.
+- 2026-11-14, P03: harness -> `shove`, `reload`, `select ITEM NAME`,
+  `throw DX DY [ITEM NAME]`, `zombie DX DY [idle] [down] [lunging] [away]
+  [close] [exact] [hp N]`, and `expect held|free|down N|lured N|lunging N|
+  kills N|loaded N|landed DX DY|burning DX DY`, `expect zombies all R`.
+  "Facing away" is staged (`away`: drawn facing away and reeling 3 s so it
+  cannot turn), since the dead see all round (8 tiles by day) and turn at
+  once; the take-down itself is tested on one lying down. `slay` counts
+  toward `expect kills` (the run's kill count), so scripts count it in.
+- 2026-11-14, P03: the struggle meter -> it holds for 0.5 s after each tap
+  before draining at 1.5/s. Draining all the time, four quick taps (one
+  every 4 ticks) reached only 3.7 of 4, against the acceptance "four Space
+  taps free the player"; a pause of half a second still lets the hold
+  close again on one who stops.
+- 2026-11-14, P03: a stomp's 30 px -> a body on the next tile (32 px) is
+  just out of reach: you step onto it to stomp (the dead do not block the
+  player's feet). `fighting.txt` stages it at 20 px (`close`).
+- 2026-11-14, P03: a shotgun "drops two" at 1.5 tiles -> only side by side:
+  pellets stop at the first body and there are five, so two in a line
+  shield each other. `guns.txt` puts them 18 px apart across the aim.
+- 2026-11-14, P03: two older unit tests (`zombie_attacks_are_survivable_lunges`)
+  needed the Combat component registered, and the lone-zombie test now
+  tears free of each grab at once: with nobody struggling a hold bites
+  every 1.4 s, which the old "survivable in 10 s" bound did not allow.
 
 ## Moved to "Later"
 
@@ -155,6 +242,16 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   normal bot's median is 1.2 days (careful 0.9, so careful is still worse
   than normal); the bar is not met. A better fighter (shove, timing, doors
   closed behind it) fits phase 3, and the pressure itself is phase 14's.
+
+- 2026-11-14, P03: a take-down from behind on a standing zombie is rare in
+  play: the dead have no field of view (they see all round), so one rarely
+  stands with its back to you. P04's senses should give them a facing that
+  matters (and the crouch should count).
+- 2026-11-14, P03: a Loud noise (the pistol, 30 tiles) is heard only to
+  about 27.6 tiles: the dead investigate when its strength (falling
+  linearly to 0 at the edge) is at least 0.08, so the last stretch is
+  silent. `guns.txt` checks every wanderer within 27 tiles comes. P04's
+  hearing should decide whether a tier's radius is where it is heard.
 
 ## Balance: needs a design change
 

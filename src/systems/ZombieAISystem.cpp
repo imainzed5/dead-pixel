@@ -9,11 +9,15 @@
 #include <vector>
 
 #include "ai/Pathfinder.h"
+#include "components/Combat.h"
+#include "components/Facing.h"
 #include "components/Health.h"
+#include "components/Stamina.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
 #include "components/Wounds.h"
 #include "systems/DistrictInfectionSystem.h"
+#include "world/CombatRules.h"
 
 namespace
 {
@@ -99,11 +103,45 @@ void ZombieAISystem::update(
     Health* playerHealth = nullptr;
     glm::vec2 playerCenter(0.0f, 0.0f);
 
+    // What a lunge that reaches needs to know of the player: which way they
+    // face, whether their back is to a wall, their breath, and whether they
+    // have just shaken the dead off.
+    glm::vec2 playerFacing(0.0f);
+    bool playerExhausted = false;
+    bool playerImmune = false;
+    bool playerHeld = false;
     if (playerValid)
     {
         playerHealth = &world.getComponent<Health>(playerEntity);
         playerCenter = entityCenter(world.getComponent<Transform>(playerEntity));
+        if (world.hasComponent<Facing>(playerEntity))
+        {
+            const float a = world.getComponent<Facing>(playerEntity).angleRadians;
+            playerFacing = glm::vec2(std::cos(a), std::sin(a));
+        }
+        if (world.hasComponent<Stamina>(playerEntity))
+        {
+            const Stamina& st = world.getComponent<Stamina>(playerEntity);
+            playerExhausted = combatrules::exhausted(st.current, st.maximum);
+        }
+        if (world.hasComponent<Combat>(playerEntity))
+        {
+            const Combat& pc = world.getComponent<Combat>(playerEntity);
+            playerImmune = pc.grabImmunity > 0.0f;
+            playerHeld = pc.holders > 0;
+        }
     }
+    // The player's back against a wall: nothing comes at it.
+    const auto backCovered = [&]()
+    {
+        if (glm::dot(playerFacing, playerFacing) < 0.5f) return false;
+        for (float t = 10.0f; t <= tileSize; t += 6.0f)
+        {
+            const glm::ivec2 behind = worldToTile(tileMap, playerCenter - playerFacing * t);
+            if (tileMap.isSolid(behind.x, behind.y)) return true;
+        }
+        return false;
+    };
 
     // Snapshot living zombie positions for separation.
     std::vector<std::pair<Entity, glm::vec2>> zombieCenters;
@@ -124,9 +162,36 @@ void ZombieAISystem::update(
                 return;
             }
 
+            // On the floor: it slides on what is left of the blow, lies a
+            // while, then takes its time getting up. It can do nothing else.
+            if (ZombieBlow::isDown(zombieAI))
+            {
+                zombieAI.holding = false;
+                zombieAI.attackWindup = 0.0f;
+                zombieAI.stagger = 0.0f;
+                zombieVelocity.dx = zombieAI.knock.x;
+                zombieVelocity.dy = zombieAI.knock.y;
+                zombieAI.knock *= std::max(0.0f, 1.0f - ZombieBlow::kKnockDecay * dtSeconds);
+                if (zombieAI.downTimer > 0.0f)
+                {
+                    zombieAI.downTimer -= dtSeconds;
+                    if (zombieAI.downTimer <= 0.0f)
+                    {
+                        zombieAI.downTimer = 0.0f;
+                        zombieAI.riseTimer = combatrules::kRiseSeconds;
+                    }
+                }
+                else
+                {
+                    zombieAI.riseTimer = std::max(0.0f, zombieAI.riseTimer - dtSeconds);
+                }
+                return;
+            }
+
             // Reeling from a blow: carried by the knockback, unable to act.
             if (zombieAI.stagger > 0.0f)
             {
+                zombieAI.holding = false;
                 zombieAI.stagger -= dtSeconds;
                 zombieVelocity.dx = zombieAI.knock.x;
                 zombieVelocity.dy = zombieAI.knock.y;
@@ -135,6 +200,48 @@ void ZombieAISystem::update(
             }
             zombieAI.knock = glm::vec2(0.0f);
             zombieAI.strikeTimer = std::max(0.0f, zombieAI.strikeTimer - dtSeconds);
+            zombieAI.lureTimer = std::max(0.0f, zombieAI.lureTimer - dtSeconds);
+
+            // Holding on: it keeps its grip and bites until it is shaken off,
+            // hit, or the player is somehow out of its hands.
+            if (zombieAI.holding)
+            {
+                zombieVelocity.dx = 0.0f;
+                zombieVelocity.dy = 0.0f;
+                const glm::vec2 here = entityCenter(zombieTransform);
+                if (!playerValid || playerHealth == nullptr || playerHealth->current <= 0.0f ||
+                    glm::length(playerCenter - here) > kZombieAttackRange * 1.8f)
+                {
+                    zombieAI.holding = false;
+                    return;
+                }
+                zombieAI.state = ZombieState::Attack;
+                zombieAI.targetWorld = playerCenter;
+                zombieAI.biteTimer -= dtSeconds;
+                if (zombieAI.biteTimer > 0.0f)
+                {
+                    return;
+                }
+                zombieAI.biteTimer = combatrules::kBiteIntervalSeconds;
+                zombieAI.strikeTimer = kZombieStrikeSeconds;
+                zombieAI.strikeDir = glm::length(playerCenter - here) > 0.01f ? glm::normalize(playerCenter - here) : glm::vec2(0.0f);
+                const int age = currentDay - zombieAI.spawnDay;
+                const float stageDamage = age <= 3 ? 1.0f : age <= 10 ? 0.9f : age <= 20 ? 0.6f : 0.35f;
+                playerHealth->current = std::max(0.0f, playerHealth->current - combatrules::kBiteDamage * stageDamage);
+                if (playerHits != nullptr)
+                {
+                    playerHits->push_back(zombieAI.strikeDir);
+                }
+                if (world.hasComponent<Wounds>(playerEntity) && nextRandom(zombieAI, zombieEntity) < combatrules::kBiteWoundChance)
+                {
+                    Wound w{};
+                    w.type = WoundType::Bite;
+                    w.contaminated = nextRandom(zombieAI, zombieEntity) < kBiteContaminationChance;
+                    w.severity = 0.5f + nextRandom(zombieAI, zombieEntity) * 0.5f;
+                    world.getComponent<Wounds>(playerEntity).active.push_back(w);
+                }
+                return;
+            }
 
             zombieAI.stateTimer += dtSeconds;
             zombieAI.boredTimer = std::max(0.0f, zombieAI.boredTimer - dtSeconds);
@@ -245,6 +352,14 @@ void ZombieAISystem::update(
             {
             case ZombieState::Wander:
             {
+                // Drawn to a thrown thing or a flare: it stands there staring
+                // at it until the pull wears off.
+                if (zombieAI.lureTimer > 0.0f)
+                {
+                    zombieVelocity.dx = 0.0f;
+                    zombieVelocity.dy = 0.0f;
+                    break;
+                }
                 if (zombieAI.idleTimer > 0.0f)
                 {
                     zombieAI.idleTimer -= dtSeconds;
@@ -459,12 +574,32 @@ void ZombieAISystem::update(
                 }
                 zombieAI.attackCooldown = kZombieAttackCooldownSeconds * (0.85f + nextRandom(zombieAI, zombieEntity) * 0.3f);
                 const bool stillInReach = playerValid && distanceToPlayer <= kZombieAttackRange * kZombieAttackReachScale;
-                if (!stillInReach || playerHealth == nullptr || nextRandom(zombieAI, zombieEntity) >= Tuning::get("zombie.attack.hitChance", kZombieHitChance))
+                if (!stillInReach || playerHealth == nullptr)
                 {
-                    break; // dodged or missed
+                    break; // dodged: feet, a shove or a blow did it
                 }
 
-                playerHealth->current = std::max(0.0f, playerHealth->current - Tuning::get("zombie.attack.damage", kZombieAttackDamage) * damageMultiplier);
+                // A lunge that reaches lands: a claw, or a grab that holds on.
+                // From behind (back not to a wall), out of breath or already
+                // held, it grabs.
+                const bool fromBehindUncovered =
+                    combatrules::fromBehind(playerFacing, playerCenter - zombieCenter) && !backCovered();
+                combatrules::LungeResult result = combatrules::lungeResult(
+                    nextRandom(zombieAI, zombieEntity), fromBehindUncovered, playerExhausted, playerHeld);
+                if (playerImmune)
+                {
+                    result = combatrules::LungeResult::Claw; // just shaken free: no hold yet
+                }
+                if (result == combatrules::LungeResult::Grab)
+                {
+                    zombieAI.holding = true;
+                    zombieAI.biteTimer = combatrules::kBiteIntervalSeconds;
+                    playerHeld = true;
+                    break;
+                }
+
+                playerHealth->current = std::max(0.0f, playerHealth->current -
+                    combatrules::clawDamage(Tuning::get("zombie.attack.damage", kZombieAttackDamage), fromBehindUncovered) * damageMultiplier);
                 if (playerHits != nullptr)
                 {
                     playerHits->push_back(zombieAI.strikeDir);

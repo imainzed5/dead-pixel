@@ -157,6 +157,7 @@ struct ContainerItemRecord
     int itemId = -1;
     int count = 0;
     float condition = 1.0f;
+    int loaded = 0; // a gun's rounds (phase 3; absent in older files)
 };
 
 struct ContainerRecord

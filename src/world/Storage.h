@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
+#include <glm/vec2.hpp>
+
 #include "components/Inventory.h"
 #include "save/SaveManager.h"
 #include "world/Furniture.h"
@@ -31,4 +36,19 @@ void fillFromRecord(Inventory& inv, const ContainerRecord& record, const ItemDat
 // How fast food spoils in a container: half speed in a fridge with the power
 // on (phase 6 turns the power off; until then it is always on).
 [[nodiscard]] float spoilScale(FurnitureKind kind, bool powerOn);
+
+// The town's rare, fixed finds (phase 3): two pistols with a few rounds in
+// them, a shotgun with shells beside it, two machetes, two sledgehammers,
+// each in a bedroom wardrobe of a house far from the centre. The same world
+// seed puts them in the same places; the container record keeps them gone
+// once taken.
+struct RareFind
+{
+    glm::ivec2 tile{0};
+    const char* item = "";
+    int count = 1;
+    int loaded = 0; // a gun's rounds
+};
+[[nodiscard]] std::vector<RareFind> rareFinds(const std::vector<FurniturePiece>& pieces, const glm::vec2& centreTile,
+                                              std::uint32_t worldSeed);
 } // namespace storage

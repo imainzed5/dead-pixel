@@ -81,6 +81,22 @@ void ParticleSystem::spawnDust(const glm::vec2& worldPosition, int count)
     }
 }
 
+void ParticleSystem::spawnDustRing(const glm::vec2& worldPosition, float speed, int count)
+{
+    for (int i = 0; i < count; ++i)
+    {
+        const float a = 6.2831853f * (static_cast<float>(i) + randFloat(0.0f, 0.6f)) / static_cast<float>(count);
+        ParticleData p;
+        p.position = worldPosition;
+        p.velocity = glm::vec2(std::cos(a), std::sin(a)) * speed * randFloat(0.7f, 1.1f);
+        p.color = glm::vec4(0.58f, 0.53f, 0.44f, 0.6f);
+        p.size = randFloat(1.5f, 2.5f);
+        p.lifetime = randFloat(0.35f, 0.6f);
+        p.fadeRate = 1.8f;
+        spawn(p);
+    }
+}
+
 void ParticleSystem::spawnEmbers(const glm::vec2& worldPosition, int count)
 {
     for (int i = 0; i < count; ++i)

@@ -453,8 +453,30 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
             batch.draw(glm::vec2(capX, pos.y), glm::vec2(pos.x + Hud::kBarsWidth - capX, Hud::kStaminaHeight), white,
                        kStaminaLostColor);
         }
+        // Out of breath (a fifth or less left): the line pulses.
+        glm::vec4 staminaColor = kStaminaColor;
+        if (ratio(state.stamina, state.staminaMax) <= 0.2f)
+        {
+            staminaColor.a = 0.45f + 0.55f * pulse;
+        }
         batch.draw(pos, glm::vec2(std::round(Hud::kBarsWidth * staminaRatio), Hud::kStaminaHeight), white,
-                   kStaminaColor);
+                   staminaColor);
+    }
+
+    // Held: the struggle meter as a row of ticks under the call to struggle.
+    if (state.held && state.struggleTicksTotal > 0)
+    {
+        constexpr float kTick = 8.0f;
+        constexpr float kGap = 4.0f;
+        const float width = static_cast<float>(state.struggleTicksTotal) * (kTick + kGap) - kGap;
+        const float x0 = std::round(layout.centreX - width * 0.5f);
+        const float y = layout.messageY - 36.0f;
+        for (int i = 0; i < state.struggleTicksTotal; ++i)
+        {
+            const bool filled = i < state.struggleTicks;
+            line(glm::vec2(x0 + static_cast<float>(i) * (kTick + kGap), y), glm::vec2(kTick),
+                 filled ? kAmber : kTrackColor);
+        }
     }
 
     // Conditions: a dot for each, coloured by how bad it is.
@@ -615,6 +637,12 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
         const glm::vec4 color = state.districtDanger ? glm::vec4(1.0f, 0.54f, 0.44f, 1.0f) : kTextColor;
         put(glm::vec2(layout.centreX, layout.toastY), state.districtToast, withAlpha(color, state.districtToastAlpha),
             kLabelScale, TextAlign::Center);
+    }
+
+    if (state.held)
+    {
+        put(glm::vec2(layout.centreX, layout.messageY - 62.0f), "HELD - SPACE",
+            glm::mix(kAmber, glm::vec4(1.0f), 0.3f * pulse), kLabelScale, TextAlign::Center);
     }
 
     // Message (transient) wins over the standing interaction prompt.

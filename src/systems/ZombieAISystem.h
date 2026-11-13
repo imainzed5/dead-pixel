@@ -59,12 +59,11 @@ public:
 private:
     static constexpr float kSpriteSize = 32.0f;
     static constexpr float kZombieAttackRange = 28.0f;
-    // A zombie attack is a telegraphed lunge: it winds up, then hits only if
-    // the player is still within reach, and only some of the time.
+    // A zombie attack is a telegraphed lunge: it winds up, then lands only if
+    // the player is still within reach: a claw, or a grab (CombatRules).
     static constexpr float kZombieAttackDamage = 7.0f;
     static constexpr float kZombieAttackCooldownSeconds = 1.5f;
     static constexpr float kZombieAttackReachScale = 1.25f; // reach at resolve, relative to attack range
-    static constexpr float kZombieHitChance = 0.6f;
     static constexpr float kZombieWoundChance = 0.35f;     // per landed hit
     static constexpr float kZombieBiteShare = 0.3f;         // of wounds
     static constexpr float kBiteContaminationChance = 0.5f;

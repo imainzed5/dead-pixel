@@ -10,6 +10,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
+#include "components/Animation.h"
+#include "components/Combat.h"
+#include "components/Fire.h"
 #include "components/Corpse.h"
 #include "components/Structure.h"
 #include "components/Health.h"
@@ -28,6 +31,7 @@
 #include "core/GameShared.h"
 #include "core/Tuning.h"
 #include "world/Storage.h"
+#include "world/CombatRules.h"
 #include "world/FurnitureUse.h"
 #include "systems/BuildSystem.h"
 #include "systems/InventorySystem.h"
@@ -415,7 +419,30 @@ void DevHarness::execute(Game& game, const Command& command)
             return;
         }
         if (!atMark && !need(2)) return;
-        const bool idle = lower(a.back()) == "idle";
+        // Options after the place: idle, down (on the floor), lunging (its
+        // lunge already winding up), away (its back to the player, reeling
+        // so it cannot turn), close (at your feet, 20 px from you toward the
+        // place, for a stomp's 30 px), exact (DX DY may be fractions: the
+        // body's centre goes there, not to a tile's), hp N (below 60 it is
+        // hurt: 60 stays its maximum).
+        bool idle = false;
+        bool down = false; // already on the floor
+        bool lunging = false;
+        bool away = false;
+        bool close = false;
+        bool exact = false;
+        float hp = 60.0f;
+        for (std::size_t k = atMark ? 2 : 3; k < a.size(); ++k)
+        {
+            const std::string opt = lower(a[k]);
+            if (opt == "idle") idle = true;
+            else if (opt == "down") down = idle = true;
+            else if (opt == "lunging") lunging = idle = true;
+            else if (opt == "close") close = true;
+            else if (opt == "exact") exact = !atMark;
+            else if (opt == "away") away = idle = true;
+            else if (opt == "hp" && k + 1 < a.size()) hp = std::stof(a[++k]);
+        }
         const int tx = atMark ? mMark.x : static_cast<int>(playerCentre.x / static_cast<float>(tileW)) + std::stoi(a[1]);
         const int ty = atMark ? mMark.y : static_cast<int>(playerCentre.y / static_cast<float>(tileH)) + std::stoi(a[2]);
         if (game.mTileMap.isSolid(tx, ty))
@@ -425,14 +452,126 @@ void DevHarness::execute(Game& game, const Command& command)
         }
         EntityFactory::ZombieParams params;
         params.topLeftWorld = glm::vec2(static_cast<float>(tx * tileW), static_cast<float>(ty * tileH));
-        params.health = 60.0f;
+        if (exact)
+        {
+            params.topLeftWorld = playerCentre + glm::vec2(std::stof(a[1]) * static_cast<float>(tileW),
+                                                           std::stof(a[2]) * static_cast<float>(tileH)) - glm::vec2(16.0f);
+        }
+        if (close)
+        {
+            const glm::vec2 toward = glm::vec2(params.topLeftWorld) + glm::vec2(16.0f) - playerCentre;
+            const glm::vec2 dir = glm::length(toward) > 0.01f ? glm::normalize(toward) : glm::vec2(1.0f, 0.0f);
+            params.topLeftWorld = playerCentre + dir * 20.0f - glm::vec2(16.0f);
+        }
+        params.health = hp;
         params.baseMoveSpeed = 112.0f;
         params.spawnDay = game.mCurrentDay;
         const Entity zombie = EntityFactory::spawnZombie(game.mWorld, game.mSpriteSheet, params);
+        if (down && zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
+        {
+            ZombieBlow::knockDown(game.mWorld.getComponent<ZombieAI>(zombie), combatrules::kDownSeconds);
+        }
+        if (lunging && zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
+        {
+            ZombieAI& ai = game.mWorld.getComponent<ZombieAI>(zombie);
+            ai.state = ZombieState::Attack;
+            ai.attackWindup = ZombieAISystem::kZombieAttackWindupSeconds;
+        }
+        if (away && zombie != kInvalidEntity && game.mWorld.hasComponent<Animation>(zombie) &&
+            game.mWorld.hasComponent<ZombieAI>(zombie))
+        {
+            // The dead see all round and turn at once, so a back can only be
+            // staged: drawn facing away, and reeling so it does not turn.
+            const glm::vec2 off = params.topLeftWorld + glm::vec2(16.0f) - playerCentre;
+            const glm::vec2 want = glm::length(off) > 0.01f ? glm::normalize(off) : glm::vec2(1.0f, 0.0f);
+            int best = 0;
+            for (int d = 1; d < 8; ++d)
+            {
+                if (glm::dot(combatrules::dirToWorld(d), want) > glm::dot(combatrules::dirToWorld(best), want)) best = d;
+            }
+            game.mWorld.getComponent<Animation>(zombie).dir = best;
+            game.mWorld.getComponent<ZombieAI>(zombie).stagger = 3.0f;
+        }
+        if (zombie != kInvalidEntity && game.mWorld.hasComponent<Health>(zombie) && hp < 60.0f)
+        {
+            // Hurt: below the usual 60, so a shove can put it over.
+            game.mWorld.getComponent<Health>(zombie).maximum = 60.0f;
+        }
         if (!idle && zombie != kInvalidEntity && game.mWorld.hasComponent<ZombieAI>(zombie))
         {
             ZombieAISystem::sendTo(game.mWorld.getComponent<ZombieAI>(zombie), playerCentre, false);
         }
+    }
+    else if (op == "shove")
+    {
+        // shove: Space for one tick (a shove, or a struggle tap when held).
+        game.mInput.setKeyState(SDL_SCANCODE_SPACE, true);
+        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_SPACE, 0});
+    }
+    else if (op == "select")
+    {
+        // select ITEM NAME: make the pack slot holding it the active one, and
+        // take it in hand if it is a weapon.
+        if (!need(1)) return;
+        std::string name;
+        for (std::size_t i = 1; i < a.size(); ++i) name += (name.empty() ? "" : " ") + a[i];
+        const ItemDef* item = game.mItemDatabase.findByName(name);
+        if (item == nullptr || game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+        {
+            fail(command, "cannot select '" + name + "'");
+            return;
+        }
+        Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        int slot = -1;
+        for (int i = 0; i < Inventory::kMaxSlots && slot < 0; ++i)
+        {
+            if (inv.slots[static_cast<std::size_t>(i)].itemId == item->id && inv.slots[static_cast<std::size_t>(i)].count > 0) slot = i;
+        }
+        if (slot < 0)
+        {
+            fail(command, "no '" + name + "' in the pack");
+            return;
+        }
+        inv.activeSlot = slot;
+        if (item->category == ItemCategory::Weapon) game.equipWeaponFromSlot(slot);
+    }
+    else if (op == "reload")
+    {
+        // reload: R for one tick.
+        game.mInput.setKeyState(SDL_SCANCODE_R, true);
+        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_R, 0});
+    }
+    else if (op == "throw")
+    {
+        // throw DX DY [ITEM NAME]: throw the selected item (or the named one,
+        // selected first) at the spot DX, DY tiles from the player.
+        if (!need(2)) return;
+        if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+        {
+            fail(command, "no player");
+            return;
+        }
+        Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        if (a.size() > 3)
+        {
+            std::string name;
+            for (std::size_t i = 3; i < a.size(); ++i) name += (name.empty() ? "" : " ") + a[i];
+            const ItemDef* item = game.mItemDatabase.findByName(name);
+            int slot = -1;
+            for (int i = 0; item != nullptr && i < Inventory::kMaxSlots && slot < 0; ++i)
+            {
+                if (inv.slots[static_cast<std::size_t>(i)].itemId == item->id && inv.slots[static_cast<std::size_t>(i)].count > 0) slot = i;
+            }
+            if (slot < 0)
+            {
+                fail(command, "no '" + name + "' in the pack");
+                return;
+            }
+            inv.activeSlot = slot;
+        }
+        const float tile = static_cast<float>(game.mTileMap.tileWidth());
+        const glm::vec2 target = game.playerWorldCenter() + glm::vec2(std::stof(a[1]), std::stof(a[2])) * tile;
+        if (!game.throwSelected(target)) fail(command, "nothing throwable selected");
     }
     else if (op == "plan")
     {
@@ -1280,9 +1419,9 @@ void DevHarness::execute(Game& game, const Command& command)
         }
         if (want == "zombies")
         {
-            // expect zombies coming|calm|inside R: within R tiles of the
+            // expect zombies coming|all|calm|inside R: within R tiles of the
             // player, some are after something (investigate, chase, attack),
-            // none are, or some stand in the player's building.
+            // every one is, none are, or some stand in the player's building.
             if (!need(3)) return;
             const std::string mood = lower(a[2]);
             const float range = std::stof(a[3]) * 32.0f;
@@ -1307,11 +1446,106 @@ void DevHarness::execute(Game& game, const Command& command)
                     const glm::ivec2 zt = gameshared::worldToTile(game.mTileMap, c);
                     if (building > 0 && game.mTileMap.getBuildingId(zt.x, zt.y) == building) ++inside;
                 });
-            const bool ok = mood == "coming" ? busy > 0 : mood == "calm" ? busy == 0 : mood == "inside" ? inside > 0 : false;
+            const bool ok = mood == "coming" ? busy > 0 : mood == "all" ? near > 0 && busy == near : mood == "calm" ? busy == 0 : mood == "inside" ? inside > 0 : false;
             const std::string have = std::to_string(near) + " near, " + std::to_string(busy) + " after something, " +
                                      std::to_string(inside) + " inside";
             if (!ok) fail(command, "expected zombies " + mood + ": " + have);
             else std::cout << "[harness] tick " << mTick << ": zombies " << have << '\n';
+            return;
+        }
+        if (want == "held" || want == "free")
+        {
+            const bool held = game.playerHeld();
+            if (held != (want == "held")) fail(command, std::string("expected ") + want + ", the player is " + (held ? "held" : "free"));
+            else std::cout << "[harness] tick " << mTick << ": player " << want << '\n';
+            return;
+        }
+        if (want == "down" || want == "lured")
+        {
+            // expect down N / expect lured N: at least N of the dead on the
+            // floor, or drawn to a thrown thing or a flare.
+            if (!need(2)) return;
+            const int wantCount = std::stoi(a[2]);
+            int have = 0;
+            game.mWorld.forEach<ZombieAI, Health>(
+                [&](Entity, ZombieAI& ai, Health& h)
+                {
+                    if (h.current <= 0.0f) return;
+                    if (want == "down" ? ZombieBlow::isDown(ai) : ai.lureTimer > 0.0f) ++have;
+                });
+            if (have < wantCount) fail(command, "expected " + a[2] + " " + want + ", found " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << have << " " << want << '\n';
+            return;
+        }
+        if (want == "lunging")
+        {
+            // expect lunging N: exactly N of the dead winding up a lunge.
+            if (!need(2)) return;
+            int have = 0;
+            game.mWorld.forEach<ZombieAI, Health>(
+                [&](Entity, ZombieAI& ai, Health& h)
+                {
+                    if (h.current > 0.0f && ai.attackWindup > 0.0f) ++have;
+                });
+            if (have != std::stoi(a[2])) fail(command, "expected " + a[2] + " lunging, found " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << have << " lunging" << '\n';
+            return;
+        }
+        if (want == "kills")
+        {
+            // expect kills N: the player has killed N of the dead this run.
+            if (!need(2)) return;
+            if (game.mRunStats.kills != std::stoi(a[2]))
+            {
+                fail(command, "expected " + a[2] + " kills, the run has " + std::to_string(game.mRunStats.kills));
+            }
+            else std::cout << "[harness] tick " << mTick << ": kills " << game.mRunStats.kills << '\n';
+            return;
+        }
+        if (want == "burning")
+        {
+            // expect burning DX DY: a fire on that tile or one beside it.
+            if (!need(3)) return;
+            const glm::ivec2 me = game.playerTile();
+            const glm::ivec2 at(me.x + std::stoi(a[2]), me.y + std::stoi(a[3]));
+            bool found = false;
+            game.mWorld.forEach<Fire, Transform>(
+                [&](Entity, Fire&, Transform& ft)
+                {
+                    const glm::ivec2 t = gameshared::worldToTile(game.mTileMap, glm::vec2(ft.x, ft.y));
+                    if (std::abs(t.x - at.x) <= 1 && std::abs(t.y - at.y) <= 1) found = true;
+                });
+            if (!found) fail(command, "no fire at " + a[2] + "," + a[3]);
+            else std::cout << "[harness] tick " << mTick << ": burning at " << a[2] << "," << a[3] << '\n';
+            return;
+        }
+        if (want == "loaded")
+        {
+            // expect loaded N: the gun in hand holds N rounds.
+            if (!need(2)) return;
+            const int have = game.mPlayerEntity != kInvalidEntity && game.mWorld.hasComponent<Combat>(game.mPlayerEntity)
+                                 ? game.mWorld.getComponent<Combat>(game.mPlayerEntity).weapon.ammo
+                                 : -1;
+            if (have != std::stoi(a[2])) fail(command, "expected " + a[2] + " loaded, it holds " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": loaded " << have << '\n';
+            return;
+        }
+        if (want == "landed")
+        {
+            // expect landed DX DY: the last throw came down within a tile of
+            // the spot DX, DY tiles from the player.
+            if (!need(3)) return;
+            const float tile = static_cast<float>(game.mTileMap.tileWidth());
+            const glm::vec2 spot = game.playerWorldCenter() + glm::vec2(std::stof(a[2]), std::stof(a[3])) * tile;
+            const float off = glm::length(game.mLastThrowLanding - spot);
+            if (game.mLastThrowLanding.x < 0.0f || off > tile)
+            {
+                fail(command, "the last throw landed " + std::to_string(off / tile) + " tiles from the spot");
+            }
+            else
+            {
+                std::cout << "[harness] tick " << mTick << ": landed " << off / tile << " tiles from the spot" << '\n';
+            }
             return;
         }
         if (want == "speed")

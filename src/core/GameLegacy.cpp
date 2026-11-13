@@ -71,18 +71,6 @@ const char* causeHint(const std::string& cause)
     return nullptr;
 }
 
-std::vector<std::pair<int, int>> inventoryItems(const Inventory& inv)
-{
-    std::vector<std::pair<int, int>> items;
-    for (const auto& slot : inv.slots)
-    {
-        if (slot.itemId >= 0 && slot.count > 0)
-        {
-            items.emplace_back(slot.itemId, slot.count);
-        }
-    }
-    return items;
-}
 } // namespace
 
 DistrictType Game::districtTypeAt(int tileX, int tileY) const
@@ -354,7 +342,7 @@ void Game::syncLegacyToSave()
             if (link.kind == LegacyLinkKind::Pack && link.graveIndex >= 0 &&
                 link.graveIndex < static_cast<int>(mLegacyGraves.size()))
             {
-                auto items = inventoryItems(inv);
+                auto items = InventorySystem::itemsUnloaded(inv, mItemDatabase);
                 auto& target = mLegacyGraves[static_cast<std::size_t>(link.graveIndex)].items;
                 target.insert(target.end(), items.begin(), items.end());
             }

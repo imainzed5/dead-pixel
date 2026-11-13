@@ -1,0 +1,94 @@
+# Guns (phase 3): a pistol loaded from the pack with R, a shot that drops one
+# of the dead and is heard far off, the empty click, then the shotgun loaded
+# a shell at a time and its spread that puts the close ones on the floor.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/guns.txt --hidden --world-seed 1234 --shots shots/guns
+
+newrun
+god on
+waits 1
+# Open grass, so a shot at six tiles has a clear line.
+teleport 62 66
+waits 0.3
+zoom 2.5
+mouse 760 420
+
+# The pistol comes empty; R loads it from the rounds in the pack.
+give Pistol
+give Pistol Ammo 9
+select Pistol
+expect loaded 0
+waits 0.2
+shot pistol_empty_prompt
+reload
+waits 2
+expect loaded 8
+shot pistol_loaded
+
+# A shot at six tiles: the line, the flash, the case; it kills the one in
+# front (50 health), costs one round, and every wanderer in earshot comes to
+# look. (A Loud noise reaches 30 tiles, but the hearing threshold leaves its
+# faint last stretch unheard: in practice about 27.6 tiles.)
+zombie 6 0 idle hp 50
+waits 0.2
+click left
+wait 8
+shot pistol_shot
+waits 0.4
+expect loaded 7
+expect kills 1
+zombies
+expect zombies all 27
+slay 40
+set panic 0
+waits 0.5
+
+# Seven more, then the empty click.
+click left
+waits 0.6
+click left
+waits 0.6
+click left
+waits 0.6
+click left
+waits 0.6
+click left
+waits 0.6
+click left
+waits 0.6
+click left
+waits 0.6
+expect loaded 0
+click left
+waits 0.2
+shot pistol_dry
+reload
+waits 2
+expect loaded 1
+
+# The shotgun: two shells, one at a time.
+give Shotgun
+give Shotgun Shells 6
+select Shotgun
+reload
+waits 2.2
+expect loaded 2
+shot shotgun_loaded
+# Two side by side at a tile and a half: the spread drops both. (Pellets
+# stop at the first body, so two in a line would shield each other. The
+# kill count includes the six slain above: slay counts as yours.)
+expect kills 7
+zombie 1.5 0.28 idle exact
+zombie 1.5 -0.28 idle exact
+waits 0.1
+click left
+wait 13
+shot shotgun_blast
+waits 0.3
+expect loaded 1
+expect kills 9
+shot shotgun_down
+slay 40
+waits 1
+expect alive
+quit

@@ -72,7 +72,17 @@
       "weight": 0.8,
       "maxStack": 1,
       "sprite": "item_knife",
-      "weaponCategory": 1
+      "weaponCategory": 1,
+      "weapon": {
+        "arc": 60,
+        "range": 32,
+        "damage": 42,
+        "stamina": 12,
+        "knockback": 12,
+        "durability": 12,
+        "windup": 0.16,
+        "recovery": 0.24
+      }
     },
     {
       "id": 6,
@@ -82,7 +92,17 @@
       "weight": 1.5,
       "maxStack": 1,
       "sprite": "item_bat",
-      "weaponCategory": 2
+      "weaponCategory": 2,
+      "weapon": {
+        "arc": 120,
+        "range": 48,
+        "damage": 32,
+        "stamina": 20,
+        "knockback": 48,
+        "durability": 14,
+        "windup": 0.22,
+        "recovery": 0.32
+      }
     },
     {
       "id": 7,
@@ -92,7 +112,17 @@
       "weight": 1.2,
       "maxStack": 1,
       "sprite": "item_pipe",
-      "weaponCategory": 2
+      "weaponCategory": 2,
+      "weapon": {
+        "arc": 100,
+        "range": 46,
+        "damage": 30,
+        "stamina": 18,
+        "knockback": 44,
+        "durability": 16,
+        "windup": 0.22,
+        "recovery": 0.32
+      }
     },
     {
       "id": 8,
@@ -106,7 +136,18 @@
       "tags": [
         "tool:hammer",
         "tool:axe"
-      ]
+      ],
+      "weapon": {
+        "arc": 80,
+        "range": 44,
+        "damage": 55,
+        "stamina": 22,
+        "knockback": 30,
+        "durability": 18,
+        "windup": 0.28,
+        "recovery": 0.4,
+        "stick": true
+      }
     },
     {
       "id": 9,
@@ -224,7 +265,17 @@
       "weaponCategory": 2,
       "tags": [
         "tool:hammer"
-      ]
+      ],
+      "weapon": {
+        "arc": 70,
+        "range": 34,
+        "damage": 28,
+        "stamina": 14,
+        "knockback": 26,
+        "durability": 24,
+        "windup": 0.18,
+        "recovery": 0.28
+      }
     },
     {
       "id": 18,
@@ -353,7 +404,14 @@
       "spoilHours": 0.0,
       "tags": [
         "throwable"
-      ]
+      ],
+      "throw": {
+        "range": 7,
+        "damage": 0,
+        "noiseTier": 5,
+        "noiseSeconds": 0.8,
+        "effect": "fire"
+      }
     },
     {
       "id": 27,
@@ -364,9 +422,17 @@
       "maxStack": 1,
       "sprite": "item_bat_spiked",
       "weaponCategory": 2,
-      "damageScale": 1.35,
-      "durabilityScale": 1.5,
-      "causesBleeding": true
+      "causesBleeding": true,
+      "weapon": {
+        "arc": 120,
+        "range": 48,
+        "damage": 43,
+        "stamina": 20,
+        "knockback": 48,
+        "durability": 21,
+        "windup": 0.22,
+        "recovery": 0.32
+      }
     },
     {
       "id": 28,
@@ -377,8 +443,18 @@
       "maxStack": 1,
       "sprite": "item_spear",
       "weaponCategory": 1,
-      "rangeScale": 1.6,
-      "damageScale": 0.85
+      "weapon": {
+        "arc": 30,
+        "range": 64,
+        "damage": 34,
+        "stamina": 14,
+        "knockback": 20,
+        "durability": 10,
+        "windup": 0.2,
+        "recovery": 0.34,
+        "reach": true,
+        "stick": true
+      }
     },
     {
       "id": 29,
@@ -387,7 +463,17 @@
       "category": "material",
       "weight": 0.05,
       "maxStack": 5,
-      "sprite": "item_empty_bottle"
+      "sprite": "item_empty_bottle",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 8,
+        "damage": 6,
+        "noiseTier": 4,
+        "noiseSeconds": 0.7,
+        "effect": "shatter"
+      }
     },
     {
       "id": 30,
@@ -409,7 +495,17 @@
       "weaponCategory": 2,
       "tags": [
         "tool:pry"
-      ]
+      ],
+      "weapon": {
+        "arc": 90,
+        "range": 46,
+        "damage": 34,
+        "stamina": 20,
+        "knockback": 40,
+        "durability": 30,
+        "windup": 0.24,
+        "recovery": 0.34
+      }
     },
     {
       "id": 32,
@@ -430,7 +526,17 @@
       "category": "material",
       "weight": 0.05,
       "maxStack": 10,
-      "sprite": "item_tin_can"
+      "sprite": "item_tin_can",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 8,
+        "damage": 6,
+        "noiseTier": 3,
+        "noiseSeconds": 0.5,
+        "effect": "none"
+      }
     },
     {
       "id": 34,
@@ -462,6 +568,209 @@
         "placeable",
         "light"
       ]
+    },
+    {
+      "id": 37,
+      "key": "rock",
+      "name": "Rock",
+      "category": "material",
+      "weight": 0.3,
+      "maxStack": 5,
+      "sprite": "item_rock",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 9,
+        "damage": 6,
+        "noiseTier": 3,
+        "noiseSeconds": 0.5,
+        "effect": "none"
+      }
+    },
+    {
+      "id": 38,
+      "key": "alarm_clock",
+      "name": "Alarm Clock",
+      "category": "material",
+      "weight": 0.3,
+      "maxStack": 1,
+      "sprite": "item_alarm_clock",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 6,
+        "damage": 6,
+        "noiseTier": 4,
+        "noiseSeconds": 20,
+        "effect": "ring"
+      }
+    },
+    {
+      "id": 39,
+      "key": "flare",
+      "name": "Flare",
+      "category": "material",
+      "weight": 0.2,
+      "maxStack": 3,
+      "sprite": "item_flare",
+      "tags": [
+        "throwable",
+        "light"
+      ],
+      "throw": {
+        "range": 8,
+        "damage": 0,
+        "noiseTier": 3,
+        "noiseSeconds": 90,
+        "effect": "flare"
+      }
+    },
+    {
+      "id": 40,
+      "key": "pistol",
+      "name": "Pistol",
+      "category": "weapon",
+      "weight": 0.9,
+      "maxStack": 1,
+      "sprite": "item_pistol",
+      "weaponCategory": 3,
+      "weapon": {
+        "arc": 6,
+        "range": 384,
+        "damage": 55,
+        "stamina": 3,
+        "knockback": 10,
+        "durability": 200,
+        "windup": 0.1,
+        "recovery": 0.25,
+        "magazine": 8,
+        "ammo": "pistol_ammo",
+        "noise": 4
+      }
+    },
+    {
+      "id": 41,
+      "key": "shotgun",
+      "name": "Shotgun",
+      "category": "weapon",
+      "weight": 3.2,
+      "maxStack": 1,
+      "sprite": "item_shotgun",
+      "weaponCategory": 3,
+      "weapon": {
+        "arc": 24,
+        "range": 224,
+        "damage": 30,
+        "stamina": 6,
+        "knockback": 40,
+        "durability": 120,
+        "windup": 0.18,
+        "recovery": 0.7,
+        "magazine": 2,
+        "ammo": "shotgun_shells",
+        "pellets": 5,
+        "noise": 5
+      }
+    },
+    {
+      "id": 42,
+      "key": "shotgun_shells",
+      "name": "Shotgun Shells",
+      "category": "material",
+      "weight": 0.05,
+      "maxStack": 12,
+      "sprite": "item_shells",
+      "tags": [
+        "ammo:shotgun"
+      ]
+    },
+    {
+      "id": 43,
+      "key": "machete",
+      "name": "Machete",
+      "category": "weapon",
+      "weight": 0.9,
+      "maxStack": 1,
+      "sprite": "item_machete",
+      "weaponCategory": 1,
+      "weapon": {
+        "arc": 80,
+        "range": 46,
+        "damage": 48,
+        "stamina": 16,
+        "knockback": 16,
+        "durability": 16,
+        "windup": 0.2,
+        "recovery": 0.3,
+        "stick": true
+      }
+    },
+    {
+      "id": 44,
+      "key": "sledgehammer",
+      "name": "Sledgehammer",
+      "category": "weapon",
+      "weight": 4.5,
+      "maxStack": 1,
+      "sprite": "item_sledgehammer",
+      "weaponCategory": 2,
+      "weapon": {
+        "arc": 110,
+        "range": 52,
+        "damage": 70,
+        "stamina": 38,
+        "knockback": 80,
+        "durability": 20,
+        "windup": 0.42,
+        "recovery": 0.6,
+        "knockdown": true
+      }
+    },
+    {
+      "id": 45,
+      "key": "chair_leg",
+      "name": "Chair Leg",
+      "category": "weapon",
+      "weight": 0.6,
+      "maxStack": 1,
+      "sprite": "item_chair_leg",
+      "weaponCategory": 0,
+      "weapon": {
+        "arc": 90,
+        "range": 44,
+        "damage": 20,
+        "stamina": 12,
+        "knockback": 22,
+        "durability": 8,
+        "windup": 0.18,
+        "recovery": 0.28
+      }
+    },
+    {
+      "id": 46,
+      "key": "frying_pan",
+      "name": "Frying Pan",
+      "category": "weapon",
+      "weight": 1.0,
+      "maxStack": 1,
+      "sprite": "item_frying_pan",
+      "weaponCategory": 0,
+      "tags": [
+        "tool:pot"
+      ],
+      "weapon": {
+        "arc": 80,
+        "range": 40,
+        "damage": 24,
+        "stamina": 14,
+        "knockback": 30,
+        "durability": 14,
+        "windup": 0.2,
+        "recovery": 0.3,
+        "noise": 4
+      }
     },
     {
       "id": 81,
@@ -499,6 +808,26 @@
         "placeable",
         "light"
       ]
+    },
+    {
+      "id": 84,
+      "key": "glass_shiv",
+      "name": "Glass Shiv",
+      "category": "weapon",
+      "weight": 0.2,
+      "maxStack": 1,
+      "sprite": "item_glass_shiv",
+      "weaponCategory": 1,
+      "weapon": {
+        "arc": 40,
+        "range": 28,
+        "damage": 26,
+        "stamina": 8,
+        "knockback": 6,
+        "durability": 4,
+        "windup": 0.12,
+        "recovery": 0.2
+      }
     }
   ]
 }

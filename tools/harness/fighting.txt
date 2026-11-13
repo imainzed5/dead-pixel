@@ -1,0 +1,106 @@
+# Fighting (phase 3): the shove, the stomp on one that is down, the
+# take-down, being held and tearing free, and a heavy blow that puts one on
+# the floor.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/fighting.txt --hidden --world-seed 1234 --shots shots/fighting
+
+newrun
+god on
+waits 1
+zoom 2.5
+# Aim east (down-right on screen).
+mouse 760 420
+
+# The shove: Space throws one back and breaks the lunge it was winding up.
+zombie 1 0 lunging
+expect lunging 1
+shove
+wait 9
+shot shove
+expect lunging 0
+expect free
+waits 0.3
+slay 6
+waits 0.5
+
+# One already hurt goes off its feet.
+zombie 1 0 hp 15
+waits 0.2
+shove
+waits 0.3
+expect down 1
+shot down
+slay 6
+waits 0.5
+
+# Shoved from behind, a whole one falls too.
+zombie 1 0 away
+waits 0.1
+shove
+waits 0.3
+expect down 1
+shot shove_behind
+slay 6
+waits 0.5
+
+# The stomp: a bat brought down on one on the floor ends it in one blow.
+# (The kill count includes the three slain above: slay counts as yours.)
+give Baseball Bat
+select Baseball Bat
+expect kills 3
+zombie 1 0 down close hp 50
+waits 0.1
+click left
+waits 0.6
+expect kills 4
+shot stomp
+slay 6
+waits 0.5
+
+# The take-down: right click takes hold of one on the floor (or turned
+# away), left click ends it.
+zombie 1 0 down hp 200
+waits 0.2
+click right
+waits 0.4
+shot takedown_hold
+click left
+waits 1
+expect kills 5
+shot takedown
+slay 6
+waits 1
+
+# Grabbed: one walking up to a player standing still takes hold within three
+# lunges (here, from the front).
+zombie 2 0
+waits 4.5
+expect held
+shot held
+# Four quick taps of Space tear you free.
+shove
+wait 6
+shove
+wait 6
+shove
+wait 6
+shove
+wait 2
+expect free
+shot torn_free
+slay 6
+waits 1.5
+
+# A heavy blow: the sledgehammer puts a full-health one down on any hit
+# (300 health, so the blow cannot simply kill it).
+give Sledgehammer
+select Sledgehammer
+zombie 1 0 hp 300
+waits 0.1
+click left
+waits 0.7
+expect down 1
+shot sledge_down
+waits 3
+expect alive
+quit

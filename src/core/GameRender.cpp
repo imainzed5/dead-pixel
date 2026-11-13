@@ -1,5 +1,6 @@
 // World rendering: ground, entities, lighting, minimap, world map and text passes.
 #include "core/GameShared.h"
+#include "world/CombatRules.h"
 
 using namespace gameshared;
 
@@ -121,6 +122,7 @@ void Game::render()
             mHud.drawShapes(mSpriteBatch, mSpriteSheet, mFont, mHudState, viewport);
             renderMinimapOverlay();
             renderAttackArcOverlay();
+            renderFightingOverlay();
             renderNoiseDebugOverlay();
             renderLegacyCardShapes();
             renderBaseActionBar();
@@ -777,6 +779,14 @@ void Game::setupLightingUniforms()
         addLight(mMuzzleWorld, glm::vec3(1.0f, 0.86f, 0.55f) * (0.5f + 0.5f * (1.0f - night)), 3.5f);
     }
 
+    // A burning flare: a hard red light that gutters.
+    for (const Lure& lure : mLures)
+    {
+        if (!lure.flare || lure.delay > 0.0f) continue;
+        const float flicker = 0.85f + 0.15f * std::sin(mHudClock * 23.0f + lure.position.x * 0.1f);
+        addLight(lure.position, glm::vec3(1.0f, 0.28f, 0.22f) * flicker, combatrules::kFlareLightTiles);
+    }
+
     // Street lamps: some still burn, and some of those are on their way out.
     if (night > 0.05f)
     {
@@ -1112,7 +1122,8 @@ void Game::renderAttackArcOverlay()
     const Facing& facing = mWorld.getComponent<Facing>(mPlayerEntity);
     const Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
 
-    if (combat.phase != AttackPhase::Windup)
+    // A shove draws its own white sweep (renderFightingOverlay).
+    if (combat.phase != AttackPhase::Windup || combat.shoving)
     {
         return;
     }

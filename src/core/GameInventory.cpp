@@ -509,8 +509,9 @@ void Game::updateInventoryInput(bool drivingVehicle)
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
             // Alarms, spike boards and lights are set down, not used up.
-            if (placeItem(useSlot))
+            if (placeItem(useSlot) || useFightingItem(useSlot))
             {
+                // Set down, wound, or poured on a fire.
             }
             else if (slot.itemId >= 0 && slot.count > 0)
             {
@@ -654,7 +655,8 @@ void Game::equipWeaponFromSlot(int slotIndex)
     {
         return;
     }
-    WeaponStats stats = weaponStatsForItem(*item);
+    WeaponStats stats = weaponStatsForItem(*item, &mItemDatabase);
+    stats.ammo = std::clamp(slot.loaded, 0, std::max(0, stats.magazine));
     stats.durability = std::clamp(static_cast<int>(std::round(static_cast<float>(stats.maxDurability) * slot.condition)),
                                   0, stats.maxDurability);
     stats.condition = weaponConditionFor(stats.durability, stats.maxDurability);
@@ -710,6 +712,10 @@ void Game::syncEquippedWeapon()
         combat.weapon = makeWeaponStats(WeaponCategory::Unarmed);
         return;
     }
-    inv.slots[static_cast<std::size_t>(mEquippedWeaponSlot)].condition =
-        static_cast<float>(combat.weapon.durability) / static_cast<float>(std::max(1, combat.weapon.maxDurability));
+    InventorySlot& held = inv.slots[static_cast<std::size_t>(mEquippedWeaponSlot)];
+    held.condition = static_cast<float>(combat.weapon.durability) / static_cast<float>(std::max(1, combat.weapon.maxDurability));
+    if (combat.weapon.category == WeaponCategory::Ranged)
+    {
+        held.loaded = combat.weapon.ammo;
+    }
 }

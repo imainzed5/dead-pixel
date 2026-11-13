@@ -124,6 +124,11 @@ struct HudState
     float districtToastAlpha = 0.0f;
     bool districtDanger = false;
 
+    // Held by the dead: a call to struggle, and the meter as ticks to fill.
+    bool held = false;
+    int struggleTicks = 0;
+    int struggleTicksTotal = 0;
+
     // Width of a panel open down the right edge (pack, crafting), or 0. The
     // panel carries the belt and covers the clock, so the HUD leaves them out.
     float dockedWidth = 0.0f;

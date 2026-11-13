@@ -1,6 +1,10 @@
 #include "world/Storage.h"
 
 #include <algorithm>
+#include <random>
+#include <string>
+
+#include <glm/geometric.hpp>
 
 #include "items/ItemDatabase.h"
 #include "systems/InventorySystem.h"
@@ -52,7 +56,7 @@ int moveItem(Inventory& from, int fromSlot, Inventory& to, const ItemDatabase& d
         return 0;
     }
     const int wanted = std::min(count, slot.count);
-    const AddItemResult result = InventorySystem::addItemWithCondition(to, db, slot.itemId, wanted, slot.condition);
+    const AddItemResult result = InventorySystem::addItemWithCondition(to, db, slot.itemId, wanted, slot.condition, slot.loaded);
     slot.count -= result.added;
     if (slot.count <= 0)
     {
@@ -93,7 +97,7 @@ ContainerRecord toRecord(const Inventory& inv, int tileX, int tileY, int runInde
     for (const InventorySlot& slot : inv.slots)
     {
         if (slot.itemId < 0 || slot.count <= 0) continue;
-        record.items.push_back(ContainerItemRecord{slot.itemId, slot.count, slot.condition});
+        record.items.push_back(ContainerItemRecord{slot.itemId, slot.count, slot.condition, slot.loaded});
     }
     return record;
 }
@@ -107,12 +111,55 @@ void fillFromRecord(Inventory& inv, const ContainerRecord& record, const ItemDat
     inv.maxWeight = maxWeight;
     for (const ContainerItemRecord& item : record.items)
     {
-        InventorySystem::addItemWithCondition(inv, db, item.itemId, item.count, item.condition);
+        InventorySystem::addItemWithCondition(inv, db, item.itemId, item.count, item.condition, item.loaded);
     }
 }
 
 float spoilScale(FurnitureKind kind, bool powerOn)
 {
     return kind == FurnitureKind::Fridge && powerOn ? 0.5f : 1.0f;
+}
+std::vector<RareFind> rareFinds(const std::vector<FurniturePiece>& pieces, const glm::vec2& centreTile,
+                                std::uint32_t worldSeed)
+{
+    std::vector<glm::ivec2> wardrobes;
+    for (const FurniturePiece& piece : pieces)
+    {
+        if (piece.kind == FurnitureKind::Wardrobe) wardrobes.push_back(piece.tile);
+    }
+    // Farthest first; the tile breaks ties so the order never depends on
+    // the order pieces were made in.
+    const auto distance = [&](const glm::ivec2& t) { return glm::length(glm::vec2(t) - centreTile); };
+    std::sort(wardrobes.begin(), wardrobes.end(),
+              [&](const glm::ivec2& a, const glm::ivec2& b)
+              {
+                  const float da = distance(a);
+                  const float db = distance(b);
+                  if (da != db) return da > db;
+                  return a.x != b.x ? a.x < b.x : a.y < b.y;
+              });
+
+    // The outer third of the town's wardrobes (at least enough for all).
+    const std::vector<RareFind> wanted = {
+        {{}, "pistol", 1, 3},  {{}, "pistol", 1, 5},   {{}, "shotgun", 1, 0}, {{}, "machete", 1, 0},
+        {{}, "machete", 1, 0}, {{}, "sledgehammer", 1, 0}, {{}, "sledgehammer", 1, 0},
+    };
+    const std::size_t pool = std::min(wardrobes.size(), std::max(wanted.size(), wardrobes.size() / 3));
+    wardrobes.resize(pool);
+    std::mt19937 rng(worldSeed ^ 0x6A5Fu);
+    std::shuffle(wardrobes.begin(), wardrobes.end(), rng);
+
+    std::vector<RareFind> finds;
+    for (std::size_t i = 0; i < wanted.size() && i < wardrobes.size(); ++i)
+    {
+        RareFind find = wanted[i];
+        find.tile = wardrobes[i];
+        finds.push_back(find);
+        if (std::string(find.item) == "shotgun")
+        {
+            finds.push_back({wardrobes[i], "shotgun_shells", 4, 0});
+        }
+    }
+    return finds;
 }
 } // namespace storage

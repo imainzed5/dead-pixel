@@ -55,6 +55,7 @@ struct SurvivalWorld
         world.registerComponent<Sleeping>();
         world.registerComponent<Velocity>();
         world.registerComponent<Facing>();
+        world.registerComponent<Combat>();
         world.registerComponent<Stamina>();
         world.registerComponent<Wounds>();
         world.registerComponent<Bleeding>();
@@ -430,11 +431,15 @@ DP_TEST(zombie_attacks_are_survivable_lunges)
     for (int i = 0; i < 600; ++i) // 10 s at 60 Hz
     {
         ai.update(w.world, w.map, w.noise, w.player, 1.0f / 60.0f, 12.0, 1, nullptr);
+        // A grab is met by tearing free at once (the struggle is the
+        // combat system's): what is left are the claws.
+        w.world.getComponent<ZombieAI>(z).holding = false;
         w.world.getComponent<Transform>(z).x = w.world.getComponent<Transform>(w.player).x + 10.0f; // pin in place
         w.world.getComponent<Transform>(z).y = w.world.getComponent<Transform>(w.player).y;
     }
     const float hp = w.world.getComponent<Health>(w.player).current;
-    // A lone zombie hurts but takes well over 10 seconds to kill a standing player.
+    // A lone zombie hurts but takes well over 10 seconds to kill a standing
+    // player who does not let it hold on.
     DP_CHECK(hp < 100.0f);
     DP_CHECK(hp > 55.0f);
     // Not every hit leaves a wound.

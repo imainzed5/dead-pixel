@@ -339,6 +339,24 @@ void Game::breakFurniture(const glm::ivec2& tile)
         }
         if (added < count) dropOnFloor(tile, itemId, count - added);
     };
+    // Someone with nothing to fight with keeps a leg of it as a club, in
+    // place of one plank. (Each piece is broken once, so once per piece.)
+    bool leg = false;
+    if (kind == FurnitureKind::Table && yield.planks > 0 && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        bool armed = false;
+        for (const InventorySlot& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+        {
+            const ItemDef* def = slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+            armed = armed || (def != nullptr && def->category == ItemCategory::Weapon);
+        }
+        if (!armed)
+        {
+            leg = true;
+            --yield.planks;
+            give(mItems.chairLeg, 1);
+        }
+    }
     give(mItems.woodPlanks, yield.planks);
     give(mItems.rags, yield.rags);
     give(mItems.scrapMetal, yield.scrap);
@@ -351,6 +369,7 @@ void Game::breakFurniture(const glm::ivec2& tile)
         got += std::to_string(n) + " " + (n == 1 ? one : many);
     };
     part(yield.planks, "plank", "planks");
+    if (leg) part(1, "leg to swing", "legs");
     part(yield.rags, "rag", "rags");
     part(yield.scrap, "piece of scrap", "pieces of scrap");
     mInteractionMessage = std::string("The ") + pieceName(kind) + " comes apart" + (got.empty() ? "." : ": " + got + ".");
@@ -534,10 +553,7 @@ std::vector<StructureRecord> Game::structureRecords(bool runEnd) const
             rec.targetY = s.target.y;
             if (s.type == StructureType::StorageCrate && world.hasComponent<Inventory>(e))
             {
-                for (const InventorySlot& slot : world.getComponent<Inventory>(e).slots)
-                {
-                    if (slot.itemId >= 0 && slot.count > 0) rec.items.emplace_back(slot.itemId, slot.count);
-                }
+                rec.items = InventorySystem::itemsUnloaded(world.getComponent<Inventory>(e), mItemDatabase);
             }
             records.push_back(rec);
         });

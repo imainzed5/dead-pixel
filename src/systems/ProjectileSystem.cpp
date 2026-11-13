@@ -24,6 +24,10 @@ void ProjectileSystem::update(World& world, const TileMap& tileMap, NoiseModel& 
     world.forEach<Projectile, Transform>(
         [&](Entity projEntity, Projectile& proj, Transform& pt)
         {
+            if (proj.kind != ProjectileKind::Bullet)
+            {
+                return; // thrown things are ThrownSystem's
+            }
             const float dist = proj.speed * dtSeconds;
             pt.x += proj.vx * dist;
             pt.y += proj.vy * dist;

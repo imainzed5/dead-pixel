@@ -10,6 +10,7 @@
 #include "components/Traits.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
+#include "world/CombatRules.h"
 
 void InputSystem::update(World& world, const Input& input, const glm::vec2& mouseWorld, float dtSeconds) const
 {
@@ -76,9 +77,10 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             if (world.hasComponent<Stamina>(entity))
             {
                 const Stamina& stamina = world.getComponent<Stamina>(entity);
-                if (stamina.maximum > 0.0f && stamina.current <= stamina.maximum * 0.2f)
+                // Out of breath: slower, but not so slow you cannot get away.
+                if (combatrules::exhausted(stamina.current, stamina.maximum))
                 {
-                    speedMultiplier *= 0.6f;
+                    speedMultiplier *= combatrules::kExhaustedMoveScale;
                 }
             }
 

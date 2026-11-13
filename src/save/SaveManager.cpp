@@ -1226,7 +1226,9 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["inventory"] = nlohmann::json::array();
     for (const auto& slot : cp.inventory.slots)
     {
-        json["inventory"].push_back({{"id", slot.itemId}, {"count", slot.count}, {"condition", slot.condition}});
+        nlohmann::json slotJson = {{"id", slot.itemId}, {"count", slot.count}, {"condition", slot.condition}};
+        if (slot.loaded > 0) slotJson["loaded"] = slot.loaded;
+        json["inventory"].push_back(slotJson);
     }
     json["activeSlot"] = cp.inventory.activeSlot;
     json["equippedSlot"] = cp.equippedSlot;
@@ -1386,6 +1388,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             cp.inventory.slots[i].itemId = arr[i].value("id", -1);
             cp.inventory.slots[i].count = arr[i].value("count", 0);
             cp.inventory.slots[i].condition = arr[i].value("condition", 1.0f);
+            cp.inventory.slots[i].loaded = std::max(0, arr[i].value("loaded", 0));
         }
     }
     cp.inventory.activeSlot = json.value("activeSlot", 0);
@@ -1663,7 +1666,9 @@ bool SaveManager::saveWorldMemory()
         nlohmann::json items = nlohmann::json::array();
         for (const ContainerItemRecord& item : record.items)
         {
-            items.push_back({{"id", item.itemId}, {"count", item.count}, {"condition", item.condition}});
+            nlohmann::json itemJson = {{"id", item.itemId}, {"count", item.count}, {"condition", item.condition}};
+            if (item.loaded > 0) itemJson["loaded"] = item.loaded;
+            items.push_back(itemJson);
         }
         json["containers"].push_back({{"x", record.tileX}, {"y", record.tileY}, {"run", record.runIndex}, {"items", items}});
     }
@@ -1819,6 +1824,7 @@ bool SaveManager::loadWorldMemory()
                     item.itemId = ij.value("id", -1);
                     item.count = ij.value("count", 0);
                     item.condition = std::clamp(ij.value("condition", 1.0f), 0.0f, 1.0f);
+                    item.loaded = std::max(0, ij.value("loaded", 0));
                     if (item.itemId >= 0 && item.count > 0) record.items.push_back(item);
                 }
             }

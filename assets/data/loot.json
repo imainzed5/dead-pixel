@@ -84,6 +84,12 @@
           "weight": 1,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "frying_pan",
+          "weight": 1,
+          "min": 1,
+          "max": 1
         }
       ]
     },
@@ -164,6 +170,12 @@
           "weight": 1,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "pistol_ammo",
+          "weight": 1,
+          "min": 2,
+          "max": 6
         }
       ]
     },
@@ -195,6 +207,12 @@
         },
         {
           "item": "candle",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "alarm_clock",
           "weight": 1,
           "min": 1,
           "max": 1
@@ -330,6 +348,18 @@
           "weight": 1,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "rock",
+          "weight": 1,
+          "min": 1,
+          "max": 2
+        },
+        {
+          "item": "flare",
+          "weight": 1,
+          "min": 1,
+          "max": 1
         }
       ]
     },
@@ -434,6 +464,12 @@
           "weight": 2,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "flare",
+          "weight": 1,
+          "min": 1,
+          "max": 2
         }
       ]
     }

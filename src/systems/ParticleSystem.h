@@ -38,6 +38,8 @@ public:
     // sprays all round). The drops arc, land and stain the ground.
     void spawnBloodSpray(const glm::vec2& worldPosition, const glm::vec2& direction, int count, float force = 1.0f);
     void spawnDust(const glm::vec2& worldPosition, int count = 3);
+    // A ring of dust thrown out along the ground (a heavy blow, a body hitting the floor).
+    void spawnDustRing(const glm::vec2& worldPosition, float speed, int count = 14);
     void spawnEmbers(const glm::vec2& worldPosition, int count = 4);
     void spawnHeal(const glm::vec2& worldPosition, int count = 6);
     // A leaf let go at `height` above the ground, carried by `drift` (world

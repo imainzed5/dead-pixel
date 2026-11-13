@@ -28,13 +28,7 @@ void Game::beginDeathState(const std::string& cause)
     record.cause = cause;
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
-        for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
-        {
-            if (slot.itemId >= 0 && slot.count > 0)
-            {
-                record.items.emplace_back(slot.itemId, slot.count);
-            }
-        }
+        record.items = InventorySystem::itemsUnloaded(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
     }
     const bool infectedBite = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Wounds>(mPlayerEntity) &&
                               hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity));
@@ -209,14 +203,7 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
 
                 if (mWorld.hasComponent<Inventory>(e))
                 {
-                    const Inventory& trunk = mWorld.getComponent<Inventory>(e);
-                    for (const auto& slot : trunk.slots)
-                    {
-                        if (slot.itemId >= 0 && slot.count > 0)
-                        {
-                            record.items.emplace_back(slot.itemId, slot.count);
-                        }
-                    }
+                    record.items = InventorySystem::itemsUnloaded(mWorld.getComponent<Inventory>(e), mItemDatabase);
                 }
 
                 vehicleRecords.push_back(record);

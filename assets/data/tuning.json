@@ -11,6 +11,5 @@
   "needs.thirst.perSecond": 0.045,
   "needs.sleepDebt.perSecond": 0.058,
   "zombie.attack.damage": 7,
-  "zombie.attack.hitChance": 0.6,
   "loot.stocked.scale": 1
 }
