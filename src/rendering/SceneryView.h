@@ -80,6 +80,12 @@ public:
     // Lamp posts and leafy trees within `radius` world pixels of `centre`.
     void lampsNear(const glm::vec2& centre, float radius, std::vector<glm::vec2>& out) const;
     void canopiesNear(const glm::vec2& centre, float radius, std::vector<SceneryCanopy>& out) const;
+    // A tree stands on this tile (phase 7: trees burn).
+    [[nodiscard]] bool treeAt(const glm::ivec2& tile) const;
+    // The tree on this tile burned: a black trunk from now on.
+    void burnTree(const glm::ivec2& tile);
+    // Every tree tile, for lightning.
+    [[nodiscard]] std::vector<glm::ivec2> treeTiles() const;
 
     // Whether the street lamp standing at `position` still works: 0 dead,
     // 1 burning, 2 failing (it stutters and drops out).
@@ -126,6 +132,7 @@ private:
         glm::vec2 velocity{0.0f};
         bool lamp = false;
         bool autumn = false;
+        bool burnt = false;
     };
     void resolve(const SpriteSheet& sheet);
     [[nodiscard]] static int bucketKey(int tileX, int tileY) { return tileY * 4096 + tileX; }
@@ -137,6 +144,7 @@ private:
     std::unordered_map<int, std::vector<std::uint32_t>> mShrubsByTile;
     std::vector<std::uint32_t> mLamps;
     std::vector<std::uint32_t> mTrees;
+    std::unordered_map<int, std::uint32_t> mTreeByTile; // every standing tree, burnt or not
     float mClock = 0.0f;
     float mGust = 0.0f;
     bool mResolved = false; // the sprite sheet loads after the world

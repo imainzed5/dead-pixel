@@ -71,14 +71,14 @@ glm::vec4 healthColor(float healthRatio)
 }
 
 // Night is bluish, day is warm white.
-glm::vec4 clockColor(double hours)
+glm::vec4 clockColor(double hours, double dusk, double dawn)
 {
     const double h = std::fmod(std::max(0.0, hours), 24.0);
-    if (h >= 21.0 || h < 5.0)
+    if (h >= dusk + 1.0 || h < dawn - 1.0)
     {
         return {0.62f, 0.72f, 0.98f, 1.0f};
     }
-    if (h >= 18.0 || h < 7.0)
+    if (h >= dusk - 2.0 || h < dawn + 1.0)
     {
         return {0.96f, 0.70f, 0.46f, 1.0f};
     }
@@ -114,7 +114,7 @@ std::string weatherText(const HudState& state)
 {
     const int temperature = static_cast<int>(std::lround(state.outdoorTemperature));
     std::string text = state.weather.empty() ? std::string("Clear") : state.weather;
-    text += "  " + std::to_string(temperature) + "C";
+    text += ", " + std::to_string(temperature) + "C";
     return text;
 }
 
@@ -219,6 +219,10 @@ std::string Hud::slotLabel(const HudSlot& slot)
     if (slot.equipped)
     {
         label += " - in hand";
+    }
+    if (slot.worn)
+    {
+        label += " - worn";
     }
     return label;
 }
@@ -330,6 +334,14 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
     else if (in.bodyTemperature > NeedsSystem::kOverheatedAbove)
     {
         add("Overheated", HudSeverity::Serious, "");
+    }
+    if (in.wet)
+    {
+        add("Wet", HudSeverity::Mild, "");
+    }
+    if (in.coughing)
+    {
+        add("Coughing", HudSeverity::Serious, "");
     }
 
     if (in.illness >= kGravelyIllAbove)
@@ -699,9 +711,12 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
     }
 
     // Time, then the day and the weather.
-    put(glm::vec2(layout.rightX, layout.clockY), clockText(state.hours), clockColor(state.hours), kClockScale,
+    put(glm::vec2(layout.rightX, layout.clockY), clockText(state.hours), clockColor(state.hours, state.duskHour, state.dawnHour), kClockScale,
         TextAlign::Right);
-    put(glm::vec2(layout.rightX, layout.dayY), "Day " + std::to_string(state.day) + "  " + weatherText(state),
+    // "Day 17 - Summer - Clear, 29C" (phase 7).
+    put(glm::vec2(layout.rightX, layout.dayY),
+        "Day " + std::to_string(state.day) + (state.season.empty() ? std::string("  ") : " - " + state.season + " - ") +
+            weatherText(state),
         kTextColor, kLabelScale, TextAlign::Right);
     if (!state.districtLine.empty())
     {

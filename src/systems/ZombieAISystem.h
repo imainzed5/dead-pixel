@@ -80,9 +80,13 @@ struct ZombieTick
     bool playerMoving = false;
     bool playerDown = false; // knocked down: anything that reaches them holds on
 
-    // The weather.
-    WeatherCondition weather = WeatherCondition::Clear;
-    float visibility = 1.0f;
+    // The weather, as the rules read it (world/WeatherRules).
+    bool raining = false;        // rain, heavy rain or a storm
+    float hearingScale = 1.0f;   // how far noises carry
+    float visibility = 1.0f;     // the dead's sight
+    float weatherSpeed = 1.0f;   // a blizzard slows them
+    float nightSpeed = 1.0f;     // summer nights quicken them
+    float snowCover = 0.0f;      // snow on the ground outdoors slows them
     glm::vec2 windTo{0.0f};
     float windStrength = 0.0f;
 

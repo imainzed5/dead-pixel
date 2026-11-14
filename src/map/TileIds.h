@@ -53,6 +53,19 @@ inline constexpr int kEdgeVariants = 4;
     return 1 + (kVariants + 2) * kPerRow + edge + (faint ? 4 : 0);
 }
 
+// Winter (phase 7), in the free end of the shadow row: snow lying on open
+// ground (four variants, drawn with alpha by how much has fallen) and a
+// frozen pond.
+inline constexpr int kSnowVariants = 4;
+[[nodiscard]] inline constexpr int snowGid(int variant)
+{
+    return 1 + (kVariants + 2) * kPerRow + 10 + variant;
+}
+[[nodiscard]] inline constexpr int iceGid()
+{
+    return 1 + (kVariants + 2) * kPerRow + 14;
+}
+
 [[nodiscard]] inline constexpr bool isGrass(int gid)
 {
     return gid == kGrass || gid == kGrass2;

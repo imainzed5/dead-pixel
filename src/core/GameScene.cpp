@@ -4,6 +4,12 @@
 
 using namespace gameshared;
 
+namespace
+{
+// Burned grass grows back for the third life after the fire (phase 7).
+constexpr int kGrassRegrowLives = 3;
+} // namespace
+
 void Game::spawnScorchMark(int tileX, int tileY)
 {
     Entity scorch = mWorld.createEntity();
@@ -19,32 +25,6 @@ void Game::spawnScorchMark(int tileX, int tileY)
 
     mWorld.addComponent<Transform>(scorch, t);
     mWorld.addComponent<Sprite>(scorch, s);
-}
-
-void Game::spawnFireTile(const FireTileRecord& record, float spreadPhase)
-{
-    Entity fireEntity = mWorld.createEntity();
-
-    Transform t{};
-    t.x = static_cast<float>(record.tileX * mTileMap.tileWidth());
-    t.y = static_cast<float>(record.tileY * mTileMap.tileHeight());
-
-    Sprite s{};
-    s.textureId = mSpriteSheet.textureId();
-    s.uvRect = mSpriteSheet.uvRect("env_campfire_lit");
-    const float intensity = std::clamp(record.intensity, 0.0f, 2.0f);
-    s.color = glm::vec4(1.0f, 0.45f + intensity * 0.20f, 0.18f, 0.55f + intensity * 0.18f);
-    s.layer = 6;
-
-    Fire fire{};
-    fire.intensity = intensity;
-    fire.lifeRemaining = std::max(2.0f, record.lifeRemaining);
-    fire.spreadTimer = std::fmod(spreadPhase, 1.0f);
-    fire.noiseTimer = 0.0f;
-
-    mWorld.addComponent<Transform>(fireEntity, t);
-    mWorld.addComponent<Sprite>(fireEntity, s);
-    mWorld.addComponent<Fire>(fireEntity, fire);
 }
 
 void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
@@ -68,28 +48,27 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
     // Scars from earlier runs are already on the ground; add this run's.
     for (const auto& [x, y] : cp.burnedTiles)
     {
-        if (!mTileMap.inBounds(x, y) || hasTilePair(mBurnedTiles, x, y))
+        if (!mTileMap.inBounds(x, y) || tileBurned(x, y))
         {
             continue;
         }
-        addUniqueTilePair(mBurnedTiles, x, y);
+        markTileBurned(x, y);
         spawnScorchMark(x, y);
+        mSceneryView.burnTree(glm::ivec2(x, y));
+    }
+    countBuildingFloors();
+    for (int b = 1; b < static_cast<int>(mBuildingGutted.size()); ++b)
+    {
+        if (mStructureView.gutted(b)) mBuildingGutted[static_cast<std::size_t>(b)] = 1;
     }
 
     // Fires burning at the checkpoint replace the ones world memory relit.
-    std::vector<Entity> oldFires;
-    mWorld.forEach<Fire>([&](Entity e, Fire&) { oldFires.push_back(e); });
-    for (Entity e : oldFires)
+    mFireSystem.clear();
+    for (const FireTileRecord& record : cp.fires)
     {
-        mWorld.destroyEntity(e);
-    }
-    for (std::size_t i = 0; i < cp.fires.size(); ++i)
-    {
-        const FireTileRecord& record = cp.fires[i];
-        if (mTileMap.inBounds(record.tileX, record.tileY) && !mTileMap.blocksSight(record.tileX, record.tileY))
-        {
-            spawnFireTile(record, static_cast<float>(i) * 0.37f);
-        }
+        if (!mTileMap.inBounds(record.tileX, record.tileY)) continue;
+        mFireSystem.restore(glm::ivec2(record.tileX, record.tileY), std::min(1.0f, record.lifeRemaining),
+                            std::min(1.0f, record.intensity), record.byPlayer);
     }
 
     // The dead stand where they stood; the ones you put down stay down.
@@ -594,34 +573,55 @@ void Game::setupScene()
     // --- Burned tile marks restored from world memory ---
     {
         mBurnedTiles.clear();
+        mBurnedLookup.clear();
+        // Grass burned three lives ago or more has grown back (phase 7).
+        std::unordered_map<std::int64_t, int> burnedIn;
+        for (const WorldMemoryEventRecord& event : mSaveManager.worldMemoryEvents())
+        {
+            if (event.type != WorldMemoryEventType::BurnedTile) continue;
+            int& run = burnedIn[FireSystem::key(glm::ivec2(event.tileX, event.tileY))];
+            run = std::max(run, event.runIndex);
+        }
+        int regrown = 0;
         for (const auto& [tx, ty] : mSaveManager.burnedTiles())
         {
             if (tx < 0 || tx >= mTileMap.width() || ty < 0 || ty >= mTileMap.height())
             {
                 continue;
             }
+            const auto when = burnedIn.find(FireSystem::key(glm::ivec2(tx, ty)));
+            const int base = ((std::max(1, mTileMap.groundGid(tx, ty)) - 1) % TileGid::kPerRow) + 1;
+            if (TileGid::isGrass(base) && when != burnedIn.end() &&
+                mSaveManager.runNumber() - when->second >= kGrassRegrowLives)
+            {
+                ++regrown;
+                continue;
+            }
 
-            addUniqueTilePair(mBurnedTiles, tx, ty);
+            markTileBurned(tx, ty);
             spawnScorchMark(tx, ty);
         }
+        if (regrown > 0) std::cout << "[Fire] " << regrown << " burned tiles grew back\n";
         mBurnedTilesAtRunStart = mBurnedTiles.size();
+
+        // Houses gutted in earlier lives stay gutted.
+        countBuildingFloors();
+        for (const auto& [gx, gy] : mSaveManager.guttedBuildings())
+        {
+            if (!mTileMap.inBounds(gx, gy)) continue;
+            gutBuilding(mTileMap.getBuildingId(gx, gy), false);
+        }
     }
 
     // --- Active fire tiles restored from world memory ---
     {
+        mFireSystem.clear();
         for (const FireTileRecord& fireRecord : mSaveManager.fireTiles())
         {
-            if (fireRecord.tileX < 0 || fireRecord.tileX >= mTileMap.width() ||
-                fireRecord.tileY < 0 || fireRecord.tileY >= mTileMap.height())
-            {
-                continue;
-            }
-
-            if (mTileMap.blocksSight(fireRecord.tileX, fireRecord.tileY))
-            {
-                continue;
-            }
-            spawnFireTile(fireRecord, static_cast<float>(runRng() % 1000) * 0.001f);
+            if (!mTileMap.inBounds(fireRecord.tileX, fireRecord.tileY)) continue;
+            (void)runRng(); // the draw the old fire entities took, so later spawns stay where they were
+            mFireSystem.restore(glm::ivec2(fireRecord.tileX, fireRecord.tileY), std::min(1.0f, fireRecord.lifeRemaining),
+                                std::min(1.0f, fireRecord.intensity), false);
         }
     }
 

@@ -12,6 +12,8 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
 #include <random>
 #include <string>
 #include <utility>
@@ -75,6 +77,7 @@
 #include "systems/SurvivorAISystem.h"
 #include "systems/SurvivorInteractionSystem.h"
 #include "systems/WeatherSystem.h"
+#include "systems/FireSystem.h"
 #include "systems/Atmosphere.h"
 #include "systems/DistrictInfectionSystem.h"
 #include "systems/ThreatDirectorSystem.h"
@@ -214,9 +217,59 @@ private:
     void updateTitleScreen(float dtSeconds);
     void updatePauseMenu();
     void handleVehicleKey(bool playerAlive);
+    // --- Fire on a grid (phase 7, GameFire.cpp over systems/FireSystem) ---
     void updateFire(float dtSeconds, bool playerAlive, bool drivingVehicle);
-    bool igniteTile(const glm::ivec2& tile);
+    // A molotov coming down on `tile`, thrown from `from`: three tiles
+    // across the throw at heat 0.8. False where nothing could burn.
+    bool igniteTile(const glm::ivec2& tile, const glm::vec2& from);
+    // One tile alight at `heat`; false where nothing burns.
+    bool igniteFire(const glm::ivec2& tile, float heat, bool byPlayer);
+    // The fire grid as checkpoint records (heat, fuel, who lit it).
+    [[nodiscard]] std::vector<FireTileRecord> fireRecords() const;
+    // A new run or the title: no fire, scars, prints or flash carried over.
+    void clearFireAndWeatherMarks();
     bool douseFireAhead();
+    // Fuel of a tile not burning (firerules::fuelOf on what lies there).
+    [[nodiscard]] float tileFuel(int tileX, int tileY);
+    [[nodiscard]] FireSystem::Env fireEnv();
+    [[nodiscard]] bool tileBurned(int tileX, int tileY) const;
+    void markTileBurned(int tileX, int tileY);
+    // A tile that used up its fuel: scorched, its furniture and tree gone.
+    void tileBurnedOut(const glm::ivec2& tile);
+    // Per building: floor tiles, and how many have burned (for gutting).
+    void countBuildingFloors();
+    // A wooden building burned out: open, empty, charred. `fresh`: it
+    // happened now (a message, world memory), not restored at run start.
+    void gutBuilding(int building, bool fresh);
+    [[nodiscard]] bool buildingGutted(int building) const;
+    // A gutted house is never a start home (world memory, read before the
+    // run counts its buildings).
+    [[nodiscard]] bool guttedInMemory(int building) const;
+    void avoidGuttedStart();
+    // Burning tiles inside each building, this tick (smoke).
+    [[nodiscard]] int burningIn(int building) const;
+    // Fire is a wall to the living: survivors stop short of a burning tile
+    // (the dead walk through and burn).
+    void holdSurvivorsFromFire();
+    // Where the fire light goes: one light per 3x3 block, at most 8.
+    [[nodiscard]] std::vector<glm::vec2> fireLights() const;
+
+    // --- Weather and seasons (phase 7, GameWeather.cpp) ---
+    // After the weather moves: lightning, snow, frozen ponds, the season's
+    // card, wet and smoke, footprints.
+    void updateWeather(float dtSeconds);
+    void lightningStrike();
+    void updateFootprints(float dtSeconds);
+    void drawFootprints();
+    // Firewise, holding a Molotov or Matches: what would burn shimmers.
+    void drawFuelShimmer();
+    // Flames on burning tiles, sorted with walls and people.
+    void collectFireSprites();
+    [[nodiscard]] bool pondFrozen() const;
+    // The dead drawn at all (fog hides them beyond 6 tiles).
+    [[nodiscard]] bool deadDrawnAt(const glm::vec2& world) const;
+    // The `weatherinfo` line: noise, sight and body target as the rules read them.
+    [[nodiscard]] std::string weatherInfoLine() const;
 
     // --- Body and mind (phase 5, GameBody.cpp) ---
     // Give the player these traits: health, carry limit and starting skills
@@ -346,7 +399,6 @@ private:
     // The town as the checkpoint left it: doors, scars, fires.
     void restoreTownFromCheckpoint(const RunCheckpoint& cp);
     void spawnScorchMark(int tileX, int tileY);
-    void spawnFireTile(const FireTileRecord& record, float spreadPhase);
     // R at a closed door: nail a board across it (hammer and a plank).
     void boardUpDoor(const glm::ivec2& tile);
     // Every door with boards on it, for saving.
@@ -861,6 +913,27 @@ private:
     // M8 narrow slice state
     Entity mActiveVehicleEntity = kInvalidEntity;
     std::vector<std::pair<int, int>> mBurnedTiles;
+    std::unordered_set<std::int64_t> mBurnedLookup; // the same, by FireSystem::key
+
+    // Fire and weather (phase 7).
+    FireSystem mFireSystem;
+    std::vector<int> mBuildingFloors;        // per building id: floor tiles
+    std::vector<int> mBuildingBurned;        // per building id: floor tiles burned
+    std::vector<int> mBuildingBurning;       // per building id: burning now
+    std::vector<char> mBuildingGutted;       // per building id
+    float mFireNoiseTimer = 0.0f;
+    float mLightningFlash = 0.0f;            // seconds of flash left
+    float mHoursSinceRain = 99.0f;           // wet grass burns poorly
+    float mSmokePuffTimer = 0.0f;
+    struct Footprint
+    {
+        glm::vec2 position{0.0f};
+        float angle = 0.0f;
+        float life = 0.0f;
+        bool snow = false;
+    };
+    std::vector<Footprint> mFootprints;
+    std::unordered_map<Entity, glm::vec2> mLastPrint;
     Doors mDoors;
     std::vector<BarrierBlow> mDoorBlows; // this tick's zombie blows on doors, windows, blocked doorways
 

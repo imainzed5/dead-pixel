@@ -4,6 +4,7 @@
 // in world/FurnitureUse and systems/BuildSystem; this is where they meet
 // the game.
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 
 #include <random>
 
@@ -66,7 +67,6 @@ constexpr float kRepairAmount = 0.4f;
 // A campfire: hours of burning from two planks, noise every few seconds.
 constexpr float kFireHoursPerFeed = 4.0f;
 constexpr float kFireNoiseSeconds = 5.0f;
-constexpr float kFireSpreadPerHour = 0.05f;
 constexpr float kMatchKeepChance = 0.8f;
 constexpr float kCollectorMaxWater = 6.0f;
 constexpr float kCollectorStaleHours = 72.0f; // phase 6: then the water is dirty
@@ -1501,10 +1501,12 @@ void Game::updateBaseActions(float dtSeconds)
 void Game::updateStructures(float dtSeconds)
 {
     const float hours = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
+    // The weather, as the rules read it (phase 7): collectors fill in rain
+    // (half in snow) and freeze below 0 C; rain and snow put fires out.
     const WeatherCondition weather = mWeatherState.condition;
-    const bool raining = weather == WeatherCondition::Rain || weather == WeatherCondition::HeavyRain ||
-                         weather == WeatherCondition::Thunderstorm;
-    const float rainRate = weather == WeatherCondition::Rain ? 1.0f : raining ? 2.0f : 0.0f;
+    const bool raining = weatherrules::precipitation(weather);
+    const float rainRate = weatherrules::collectorsFrozen(mWeatherState.airTemperature) ? 0.0f
+                                                                                      : weatherrules::collectorRate(weather);
     std::vector<Entity> gone;
     std::vector<glm::ivec2> ignite;
     bool solidGone = false;
@@ -1542,7 +1544,7 @@ void Game::updateStructures(float dtSeconds)
                 s.lit = false;
                 if (glm::length(tileCentre(mTileMap, tile) - playerWorldCenter()) < 10.0f * 32.0f)
                 {
-                    mInteractionMessage = "The rain puts the fire out.";
+                    mInteractionMessage = weatherrules::snowy(weather) ? "The snow puts the fire out." : "The rain puts the fire out.";
                     mInteractionMessageTimer = 3.0f;
                 }
                 return;
@@ -1553,27 +1555,28 @@ void Game::updateStructures(float dtSeconds)
                 s.noiseTimer = kFireNoiseSeconds;
                 mNoiseModel.emitNoise(tileCentre(mTileMap, tile), NoiseTier::Medium, 1.0f);
             }
-            // Indoors on wood or carpet, it may catch the floor.
-            if (!outdoors)
+            // It may catch what it stands on (phase 7, on the fire grid): wood
+            // or carpet at any time, grass in a heatwave. Stone, tile,
+            // concrete and bare dirt are safe.
             {
                 const int base = ((std::max(1, mTileMap.groundGid(tile.x, tile.y)) - 1) % TileGid::kPerRow) + 1;
-                const bool flammable = mTileMap.getSurfaceType(tile.x, tile.y) == SurfaceType::Carpet || base == TileGid::kWood;
+                const bool floor = mTileMap.getSurfaceType(tile.x, tile.y) == SurfaceType::Carpet || base == TileGid::kWood;
+                const bool grass = TileGid::isGrass(base) && weatherrules::heatwave(weather);
+                const float perHour = floor ? firerules::kCampfireFloorPerHour : grass ? firerules::kCampfireGrassPerHour : 0.0f;
                 const std::uint32_t seed = mix(static_cast<std::uint32_t>(tile.x * 92821 + tile.y),
                                                static_cast<std::uint32_t>(mGameHours * 600.0) + static_cast<std::uint32_t>(mCurrentDay) * 14400u);
-                if (flammable && roll01(seed) < kFireSpreadPerHour * hours) ignite.push_back(tile);
+                if (perHour > 0.0f && roll01(seed) < perHour * hours) ignite.push_back(tile);
             }
         });
     for (Entity e : gone) mWorld.destroyEntity(e);
     if (solidGone) refreshFurnitureLayer();
     for (const glm::ivec2& tile : ignite)
     {
-        FireTileRecord record;
-        record.tileX = tile.x;
-        record.tileY = tile.y;
-        record.intensity = 1.0f;
-        record.lifeRemaining = 24.0f;
-        spawnFireTile(record, 0.0f);
-        std::cout << "[Base] the campfire caught the floor at " << tile.x << "," << tile.y << "\n";
+        // The one who built the fire answers for what it burns.
+        if (igniteFire(tile, 0.5f, true))
+        {
+            std::cout << "[Base] the campfire caught the ground at " << tile.x << "," << tile.y << "\n";
+        }
     }
 
     // Lit things look lit.
@@ -1657,12 +1660,7 @@ void Game::updateTraps(float dtSeconds)
                                                    static_cast<std::uint32_t>(mGameHours * 60.0));
                     if (flammable && roll01(seed) < kCandleFireChance)
                     {
-                        FireTileRecord record;
-                        record.tileX = trap.tile.x;
-                        record.tileY = trap.tile.y;
-                        record.intensity = 1.0f;
-                        record.lifeRemaining = 24.0f;
-                        spawnFireTile(record, 0.0f);
+                        (void)igniteFire(trap.tile, 0.5f, true);
                     }
                 }
             });

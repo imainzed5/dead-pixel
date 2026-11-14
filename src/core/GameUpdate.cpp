@@ -1,5 +1,6 @@
 // Per-tick simulation: input, systems, combat, sleep, animation and particles.
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 #include "world/CombatRules.h"
 #include "world/WoundRules.h"
 
@@ -199,7 +200,9 @@ void Game::update(float dtSeconds)
     // Inventory food spoilage
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
-        const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
+        // Heat and summer spoil food quicker (phase 7).
+        const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond) *
+                                        weatherrules::spoilScale(mWeatherState.condition, weatherrules::seasonOf(mCurrentDay));
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
         InventorySystem::degradeFood(inv, mItemDatabase, gameHoursThisTick);
         spoilContainers(gameHoursThisTick);
@@ -211,6 +214,7 @@ void Game::update(float dtSeconds)
     // Weather system
     mWeatherSystem.update(mWeatherState, dtSeconds, mGameHours, mCurrentDay);
     updateAtmosphere(dtSeconds);
+    updateWeather(dtSeconds);
 
     // Flashlight toggle (Q). Needs a flashlight in the pack.
     if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
@@ -246,6 +250,7 @@ void Game::update(float dtSeconds)
 
     // Survivor AI system
     mSurvivorAISystem.update(mWorld, mTileMap, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
+    holdSurvivorsFromFire();
 
     // Survivor interaction system tick
     mSurvivorInteractionSystem.update(mWorld, mPlayerEntity, dtSeconds);
@@ -364,14 +369,7 @@ void Game::update(float dtSeconds)
         if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
         {
             const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-            const glm::ivec2 playerTile = worldToTile(mTileMap, glm::vec2(pt.x, pt.y));
-            mWorld.forEach<Fire, Transform>(
-                [&](Entity, Fire&, Transform& ft)
-                {
-                    if (diedInFire) return;
-                    const glm::ivec2 fireTile = worldToTile(mTileMap, glm::vec2(ft.x, ft.y));
-                    diedInFire = (fireTile.x == playerTile.x && fireTile.y == playerTile.y);
-                });
+            diedInFire = mFireSystem.burning(worldToTile(mTileMap, glm::vec2(pt.x + 16.0f, pt.y + 16.0f)));
         }
 
         if (diedInFire)
@@ -907,6 +905,8 @@ void Game::updateSleep(float dtSeconds)
                 const bool sedated = absoluteHour() - needs.lastSedativeHour <= sleeprules::kSedativeWindowHours;
                 sleeping.quality = sleeprules::sleepQuality(sleeping.quality, sedated);
             }
+            // Thunder makes for poor sleep (phase 7).
+            sleeping.quality = std::clamp(sleeping.quality + weatherrules::sleepQualityShift(mWeatherState.condition), 0.1f, 1.0f);
         }
         constexpr float kSleepTimeMultiplier = 8.0f;
         constexpr float kSleepWakeRange = 160.0f;
@@ -1713,6 +1713,12 @@ void Game::updateNoiseModel(float dtSeconds)
     const SurfaceType surface = mTileMap.getSurfaceType(tileX, tileY);
 
     noiseTier = NoiseModel::adjustTier(noiseTier, surfaceNoiseModifier(surface));
+    // Snow muffles footsteps outdoors: one tier quieter (phase 7).
+    if (mTileMap.inBounds(tileX, tileY) && !mTileMap.isIndoors(tileX, tileY) &&
+        (weatherrules::footstepTierShift(mWeatherState.condition) < 0 || mWeatherState.snowCover >= weatherrules::kSnowDeepEnough))
+    {
+        noiseTier = NoiseModel::adjustTier(noiseTier, -1);
+    }
 
     // Clumsy trait: +1 noise tier on footsteps
     if (mWorld.hasComponent<Traits>(mPlayerEntity))

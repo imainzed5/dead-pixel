@@ -38,6 +38,7 @@ add_library(dead_pixel_core STATIC
     src/core/GameMenus.cpp
     src/core/GameVehicles.cpp
     src/core/GameFire.cpp
+    src/core/GameWeather.cpp
     src/core/GameFighting.cpp
     src/core/GameInventory.cpp
     src/core/GameLegacy.cpp
@@ -86,6 +87,7 @@ add_library(dead_pixel_core STATIC
     src/systems/SurvivorAISystem.cpp
     src/systems/SurvivorInteractionSystem.cpp
     src/systems/WeatherSystem.cpp
+    src/systems/FireSystem.cpp
     src/systems/DistrictInfectionSystem.cpp
     src/systems/ThreatDirectorSystem.cpp
     src/world/EntityFactory.cpp
@@ -111,6 +113,7 @@ add_library(dead_pixel_core STATIC
     src/world/Power.cpp
     src/world/Forage.cpp
     src/world/Garden.cpp
+    src/world/WeatherRules.cpp
     src/systems/HallucinationSystem.cpp
     src/items/ItemDatabase.cpp
     src/items/LootTables.cpp
@@ -196,6 +199,8 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_buildings.cpp
         tests/test_power.cpp
         tests/test_forage.cpp
+        tests/test_weather_rules.cpp
+        tests/test_fire.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

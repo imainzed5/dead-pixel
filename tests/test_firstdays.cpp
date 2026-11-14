@@ -48,7 +48,7 @@ DP_TEST(firstdays_each_night_brings_more_callers)
         {
             DP_CHECK(group.count > 0);
             DP_CHECK(group.hoursAfterDusk > previous);
-            DP_CHECK(group.hoursAfterDusk < 24.0 - firstdays::kDuskHour + firstdays::kDawnHour);
+            DP_CHECK(group.hoursAfterDusk < 24.0 - firstdays::duskHour(1) + firstdays::dawnHour(2));
             previous = group.hoursAfterDusk;
             total += group.count;
         }

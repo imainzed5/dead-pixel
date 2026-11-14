@@ -16,11 +16,6 @@ glm::vec2 entityCenter(const Transform& transform)
 {
     return glm::vec2(transform.x + 16.0f, transform.y + 16.0f);
 }
-
-bool raining(WeatherCondition w)
-{
-    return senses::weatherHearingScale(w) < 1.0f;
-}
 } // namespace
 
 void ZombieAISystem::see(const Ctx& c, One& z)
@@ -34,7 +29,7 @@ void ZombieAISystem::see(const Ctx& c, One& z)
     float extra = z.visionMultiplier;
     if (t.blindHearing) extra *= 0.3f;
     if (t.dormantByDay && !c.night) extra *= 0.5f;
-    if (t.rainCalm && raining(t.weather)) extra *= 0.5f;
+    if (t.rainCalm && t.raining) extra *= 0.5f;
     const bool alerted = ai.state == ZombieState::Chase || ai.state == ZombieState::Attack || ai.awareness >= 1.0f;
 
     if (c.playerValid)
@@ -104,11 +99,11 @@ void ZombieAISystem::hear(const Ctx& c, One& z)
         // A horde on the move does not stop for footsteps; nor do the dead
         // calmed by rain (The Unknown).
         if (ai.horde > 0 && static_cast<int>(event.tier) <= static_cast<int>(NoiseTier::Soft)) continue;
-        if (t.rainCalm && raining(t.weather) && static_cast<int>(event.tier) <= static_cast<int>(NoiseTier::Soft)) continue;
+        if (t.rainCalm && t.raining && static_cast<int>(event.tier) <= static_cast<int>(NoiseTier::Soft)) continue;
         const glm::vec2 toListener = z.center - event.worldPosition;
         const float distance = glm::length(toListener);
         // Quick reject before the shells: nothing carries past this.
-        const float maxRadius = static_cast<float>(NoiseModel::tierRadiusTiles(event.tier)) * 1.2f * hearing * c.tileSize;
+        const float maxRadius = static_cast<float>(NoiseModel::tierRadiusTiles(event.tier)) * 1.2f * hearing * t.hearingScale * c.tileSize;
         if (distance > maxRadius) continue;
         if (!listenerKnown)
         {
@@ -117,7 +112,7 @@ void ZombieAISystem::hear(const Ctx& c, One& z)
         }
         const senses::Shell source{event.building, event.sealed};
         const float wind = senses::windScale(event.tier, t.windTo, t.windStrength, toListener);
-        const float radius = senses::heardRadiusTiles(event.tier, source, listener, t.weather, hearing, wind) * c.tileSize;
+        const float radius = senses::heardRadiusTiles(event.tier, source, listener, t.hearingScale, hearing, wind) * c.tileSize;
         if (distance > radius) continue;
         const int tier = static_cast<int>(event.tier);
         if (bestEvent == nullptr || tier > bestTier || (tier == bestTier && distance < bestDistance))

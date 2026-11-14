@@ -45,7 +45,9 @@ struct Marker
 
 // How long a marker in `place` lasts under rain or not, scaled (the Stalker
 // keeps trails three times as long).
-[[nodiscard]] float lifeSeconds(Place place, bool raining, float scale = 1.0f);
+// `dryOutdoorSeconds` is how long one lasts in the open when it is not
+// raining (snow keeps it 30 game minutes, phase 7).
+[[nodiscard]] float lifeSeconds(Place place, bool raining, float scale = 1.0f, float dryOutdoorSeconds = kOutdoorSeconds);
 
 class Trail
 {
@@ -56,7 +58,7 @@ public:
     void walk(const glm::vec2& from, const glm::vec2& to, float strength, Place place, float tileSize);
     void addMarker(const glm::vec2& world, float strength, Place place, bool pool = false);
     // Age every marker and drop the faded ones.
-    void update(float dtSeconds, bool raining, float scale = 1.0f);
+    void update(float dtSeconds, bool raining, float scale = 1.0f, float dryOutdoorSeconds = kOutdoorSeconds);
 
     // How fresh a marker is: its strength, fading to nothing over its life.
     [[nodiscard]] static float freshness(const Marker& m);

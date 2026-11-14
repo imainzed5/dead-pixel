@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "map/TileMap.h"
+#include "world/WeatherRules.h"
 #include "rendering/Camera.h"
 #include "rendering/SpriteBatch.h"
 #include "systems/ParticleSystem.h"
@@ -42,6 +43,8 @@ float Atmosphere::skyDimFor(WeatherCondition condition)
         return 0.10f;
     case WeatherCondition::Rain:
         return 0.16f;
+    case WeatherCondition::Snow:
+        return 0.14f;
     case WeatherCondition::HeavyRain:
     case WeatherCondition::Blizzard:
         return 0.24f;
@@ -49,6 +52,14 @@ float Atmosphere::skyDimFor(WeatherCondition condition)
         return 0.32f;
     }
     return 0.0f;
+}
+
+void Atmosphere::strike()
+{
+    mFlash = 1.0f;
+    mThunder = true;
+    mSecondPulse = 0.16f;
+    mNextStrike = std::max(mNextStrike, 4.0f);
 }
 
 bool Atmosphere::takeThunder()
@@ -67,19 +78,32 @@ void Atmosphere::update(float dtSeconds, const WeatherState& weather, const Came
 
     // Weather comes on and clears over a few seconds rather than at a cut.
     mRain = approach(mRain, weather.rainIntensity, dt * 0.35f);
-    mSkyDim = approach(mSkyDim, skyDimFor(weather.condition), dt * 0.08f);
-    mFog = approach(mFog, weather.condition == WeatherCondition::Fog ? 1.0f : 0.0f, dt * 0.2f);
+    // Snow in place of rain: in snowy weather, or rain at 1 C or less.
+    const bool flakes = weatherrules::snowy(weather.condition) || (weather.rainIntensity > 0.0f && weather.airTemperature <= 1.0f);
+    mSnowing = approach(mSnowing, flakes ? 1.0f : 0.0f, dt * 0.5f);
+    // The sky warns (phase 7): within 90 minutes of rain or snow the cloud
+    // shadows thicken and the wind rises; before a storm the light darkens;
+    // before fog a haze comes in.
+    const bool turning = weather.nextCondition != weather.condition && weather.hoursToChange <= weatherrules::kWarningHours;
+    const bool wetSoon = turning && weatherrules::precipitation(weather.nextCondition);
+    const bool stormSoon = turning && weather.nextCondition == WeatherCondition::Thunderstorm;
+    const bool fogSoon = turning && weather.nextCondition == WeatherCondition::Fog;
+    mSkyDim = approach(mSkyDim, skyDimFor(weather.condition) + (stormSoon ? 0.08f : 0.0f), dt * 0.08f);
+    mFog = approach(mFog, weather.condition == WeatherCondition::Fog ? 1.0f : (fogSoon ? 0.35f : 0.0f), dt * 0.2f);
     const bool broken = weather.condition == WeatherCondition::Clear || weather.condition == WeatherCondition::Cloudy ||
                         weather.condition == WeatherCondition::Heatwave;
-    const float cover = !broken ? 0.0f : (weather.condition == WeatherCondition::Cloudy ? 1.0f : 0.55f);
+    const float cover = !broken ? 0.0f : (weather.condition == WeatherCondition::Cloudy || wetSoon ? 1.0f : 0.55f);
     mCloudCover = approach(mCloudCover, cover, dt * 0.2f);
 
     // Wind: there is always a breath of it, and it comes in gusts.
-    const float base = 0.12f + weather.windStrength * 0.88f;
+    const float base = 0.12f + std::min(1.0f, weather.windStrength + (wetSoon ? 0.3f : 0.0f)) * 0.88f;
     const float swell = 0.5f + 0.5f * std::sin(mClock * 0.37f) * std::sin(mClock * 0.11f + 1.3f);
     mGust = std::clamp(base * (0.55f + 0.45f * swell), 0.0f, 1.0f);
     const float heading = -0.65f + 0.35f * std::sin(mClock * 0.021f);
     mWindDir = glm::vec2(std::cos(heading), std::sin(heading));
+    // The weather's own wind, which carries fire, when it has one (phase 7).
+    const float windLength = std::sqrt(weather.windX * weather.windX + weather.windY * weather.windY);
+    if (windLength > 0.01f) mWindDir = glm::vec2(weather.windX, weather.windY) / windLength;
 
     // Rain: drops live in screen space and wrap.
     const auto wanted = static_cast<std::size_t>(mRain * static_cast<float>(kMaxDrops));
@@ -92,10 +116,13 @@ void Atmosphere::update(float dtSeconds, const WeatherState& weather, const Came
         mDrops.resize(wanted);
     }
     const float slant = 0.10f + mGust * 0.55f;
+    // Flakes fall at a fifth of the speed and drift.
+    const float fall = 1.0f - 0.8f * mSnowing;
     for (Drop& drop : mDrops)
     {
-        drop.position.y += drop.speed * dt;
-        drop.position.x += drop.speed * slant * dt;
+        drop.position.y += drop.speed * fall * dt;
+        drop.position.x += drop.speed * fall * slant * dt +
+                           mSnowing * 0.02f * std::sin(mClock * 1.7f + drop.length) * dt;
         if (drop.position.y > 1.0f)
         {
             drop.position.y -= 1.0f;
@@ -116,7 +143,7 @@ void Atmosphere::update(float dtSeconds, const WeatherState& weather, const Came
         const glm::vec2 world = camera.screenToWorld(glm::vec2(unit(mRng) * viewport.x, unit(mRng) * viewport.y));
         const int tx = static_cast<int>(std::floor(world.x / static_cast<float>(map.tileWidth())));
         const int ty = static_cast<int>(std::floor(world.y / static_cast<float>(map.tileHeight())));
-        if (map.inBounds(tx, ty) && !map.isIndoors(tx, ty) && !map.blocksSight(tx, ty))
+        if (map.inBounds(tx, ty) && !map.isIndoors(tx, ty) && !map.blocksSight(tx, ty) && mSnowing < 0.5f)
         {
             particles.spawnSplash(world);
         }
@@ -211,6 +238,18 @@ void Atmosphere::renderRain(SpriteBatch& batch, const Camera& camera, const glm:
     const float alpha = (sheltered ? 0.30f : 0.62f) * (0.6f + 0.4f * mRain);
     const float slant = 0.10f + mGust * 0.55f;
     const glm::vec4 color(0.84f, 0.90f, 1.0f, alpha);
+    if (mSnowing >= 0.5f)
+    {
+        // Snowflakes: small soft squares.
+        const glm::vec4 flake(0.96f, 0.97f, 1.0f, std::min(0.95f, alpha + 0.25f));
+        for (const Drop& drop : mDrops)
+        {
+            const float size = drop.length > 18.0f ? 3.0f : 2.0f;
+            batch.draw(glm::vec2(std::round(drop.position.x * viewport.x), std::round(drop.position.y * viewport.y)),
+                       glm::vec2(size), whiteUv, flake);
+        }
+        return;
+    }
     for (const Drop& drop : mDrops)
     {
         // A streak is three short pieces stepped sideways: the batch draws

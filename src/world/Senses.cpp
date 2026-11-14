@@ -1,4 +1,5 @@
 #include "world/Senses.h"
+#include "world/WeatherRules.h"
 
 #include <algorithm>
 #include <cmath>
@@ -48,13 +49,7 @@ float stepAwareness(float awareness, bool seen, float distanceTiles, float range
 
 float weatherHearingScale(WeatherCondition condition)
 {
-    switch (condition)
-    {
-    case WeatherCondition::Rain: return 0.7f;
-    case WeatherCondition::HeavyRain: return 0.55f;
-    case WeatherCondition::Thunderstorm: return 0.45f;
-    default: return 1.0f;
-    }
+    return weatherrules::noiseScale(condition);
 }
 
 float windScale(NoiseTier tier, const glm::vec2& windTo, float windStrength, const glm::vec2& sourceToListener)
@@ -82,7 +77,13 @@ NoiseTier tierHeard(NoiseTier emitted, const Shell& source, const Shell& listene
 float heardRadiusTiles(NoiseTier emitted, const Shell& source, const Shell& listener, WeatherCondition weather,
                        float hearing, float windFactor)
 {
+    return heardRadiusTiles(emitted, source, listener, weatherHearingScale(weather), hearing, windFactor);
+}
+
+float heardRadiusTiles(NoiseTier emitted, const Shell& source, const Shell& listener, float weatherScale,
+                       float hearing, float windFactor)
+{
     const NoiseTier tier = tierHeard(emitted, source, listener);
-    return static_cast<float>(NoiseModel::tierRadiusTiles(tier)) * weatherHearingScale(weather) * hearing * windFactor;
+    return static_cast<float>(NoiseModel::tierRadiusTiles(tier)) * weatherScale * hearing * windFactor;
 }
 } // namespace senses

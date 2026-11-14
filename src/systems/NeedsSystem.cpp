@@ -22,6 +22,7 @@
 #include "world/SleepRules.h"
 #include "world/TraitRules.h"
 #include "world/WoundRules.h"
+#include "world/WeatherRules.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
 #include "map/TileMap.h"
@@ -33,14 +34,11 @@ constexpr float kSpriteSize = 32.0f;
 // Effective ambient below which the body starts losing heat, and how hard.
 constexpr float kComfortableAmbient = 15.0f;
 constexpr float kColdSlopePerDegree = 0.15f;
-constexpr float kHotAmbient = 30.0f;
 constexpr float kHotSlopePerDegree = 0.08f;
 
 // Shelter keeps out wind and rain and holds some heat.
 constexpr float kShelterBonus = 10.0f;
 constexpr float kHeatSourceBonus = 18.0f;
-constexpr float kRainChill = 4.0f;
-constexpr float kWindChill = 4.0f;
 
 constexpr float kWalkingHeat = 0.3f;
 constexpr float kRunningHeat = 0.8f;
@@ -54,8 +52,8 @@ constexpr float kGravelyIllAbove = 80.0f;
 constexpr float kGraveIllnessDamage = 0.04f; // ~40 game hours to die of untreated infection
 } // namespace
 
-float NeedsSystem::effectiveAmbient(float outdoorTemperature, bool indoors, float rainIntensity,
-                                    float windStrength, bool nearHeat, float clothingInsulation)
+float NeedsSystem::effectiveAmbient(float outdoorTemperature, bool indoors, float weatherShift, bool nearHeat,
+                                    float clothingInsulation)
 {
     float ambient = outdoorTemperature;
     if (indoors)
@@ -64,14 +62,16 @@ float NeedsSystem::effectiveAmbient(float outdoorTemperature, bool indoors, floa
     }
     else
     {
-        ambient -= std::clamp(rainIntensity, 0.0f, 1.0f) * kRainChill;
-        ambient -= std::clamp(windStrength, 0.0f, 1.0f) * kWindChill;
+        ambient += weatherShift;
     }
     if (nearHeat)
     {
         ambient += kHeatSourceBonus;
     }
-    return ambient + clothingInsulation;
+    // Clothes hold warmth in; they do not make a hot day hotter (a coat in
+    // a heatwave is its own rule).
+    const float clothed = ambient + std::max(0.0f, clothingInsulation);
+    return std::max(ambient, std::min(clothed, kHotAmbient));
 }
 
 float NeedsSystem::targetBodyTemperature(float effectiveAmbientTemperature, float activityHeat)
@@ -169,12 +169,42 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
                 }
             }
 
-            // Outdoorsy: rain chills half as much.
-            const float rain = environment.rainIntensity * (traits != nullptr ? traitrules::rainChillScale(*traits) : 1.0f);
+            // The weather outdoors (phase 7). Outdoorsy: the chill of rain
+            // bites half as much. In a heatwave, shade takes the sun away.
+            const float gameHoursPassed = dtSeconds / 60.0f;
+            bool shaded = false;
+            if (environment.heatwave && !indoors && world.hasComponent<Transform>(entity))
+            {
+                const Transform& transform = world.getComponent<Transform>(entity);
+                const glm::vec2 center(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f);
+                for (const glm::vec2& trunk : environment.shade)
+                {
+                    if (glm::length(trunk - center) < kShadeRadius) shaded = true;
+                }
+            }
+            float shift = needs.raincoat ? environment.weatherShiftRaincoat : environment.weatherShift;
+            if (environment.rainy && shift < 0.0f && traits != nullptr) shift *= traitrules::rainChillScale(*traits);
+            if (shaded) shift = 0.0f;
+            // Wet (phase 7): 20 game minutes in the rain without a raincoat,
+            // then wet for an hour after shelter; a fire dries you quicker.
+            const bool inRain = environment.rainy && !indoors && !needs.raincoat;
+            if (inRain)
+            {
+                needs.wetExposure += dtSeconds;
+                if (needs.wetExposure >= weatherrules::kWetAfterSeconds) needs.wetHours = weatherrules::kWetHours;
+            }
+            else
+            {
+                needs.wetExposure = std::max(0.0f, needs.wetExposure - dtSeconds);
+                const float dry = nearHeat ? weatherrules::kFireDryPerHour : 1.0f;
+                needs.wetHours = std::max(0.0f, needs.wetHours - gameHoursPassed * dry);
+            }
             // A hot meal warms you for a while (phase 6).
             const float hotMeal = needs.hotMealHours > 0.0f ? food::kHotMealWarmth : 0.0f;
-            const float ambient = effectiveAmbient(environment.outdoorTemperature, indoors, rain,
-                                                   environment.windStrength, nearHeat, needs.clothingInsulation + hotMeal);
+            float ambient = effectiveAmbient(environment.outdoorTemperature, indoors, shift, nearHeat,
+                                             needs.clothingInsulation + hotMeal);
+            // A winter coat carried in a heatwave, out in it: +3.
+            if (environment.heatwave && !indoors && needs.winterCoat) ambient += weatherrules::kWinterCoatHeat;
             const float activityHeat = isRunning ? kRunningHeat : (isMoving ? kWalkingHeat : 0.0f);
             float targetTemp = targetBodyTemperature(ambient, activityHeat);
             // Thin-Skinned: cold and heat bite 30 % harder.
@@ -184,19 +214,27 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
             }
             // An infected wound brings a fever.
             if (infected) targetTemp += woundrules::feverDegrees(needs.illness);
-            const float drift = std::clamp(kTemperatureDriftPerSecond * dtSeconds, 0.0f, 1.0f);
+            // Cold comes on faster when wet, and in a blizzard.
+            float driftScale = 1.0f;
+            if (targetTemp < needs.bodyTemperature)
+            {
+                if (needs.wetHours > 0.0f) driftScale *= weatherrules::kWetColdDrift;
+                if (!indoors) driftScale *= environment.coldDrift;
+            }
+            const float drift = std::clamp(kTemperatureDriftPerSecond * driftScale * dtSeconds, 0.0f, 1.0f);
             needs.bodyTemperature += (targetTemp - needs.bodyTemperature) * drift;
 
             const bool overheated = needs.bodyTemperature > kOverheatedAbove;
             if (overheated)
             {
-                thirstDecayMultiplier *= 1.5f;
+                thirstDecayMultiplier *= weatherrules::kOverheatedThirst;
             }
+            // A heatwave by day: thirst x1.6 outdoors.
+            if (!indoors) thirstDecayMultiplier *= environment.thirstOutdoors;
 
             // Illness accelerates all decay
             const float illnessMultiplier = 1.0f + needs.illness * 0.01f;
             // A bad stomach (phase 6): hunger and thirst drain faster.
-            const float gameHoursPassed = dtSeconds / 60.0f;
             if (needs.badStomachHours > 0.0f)
             {
                 hungerDecayMultiplier *= food::kBadStomachDrain;
@@ -321,6 +359,8 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
                 if (needs.illness >= kGravelyIllAbove) damage += kGraveIllnessDamage;
                 if (needs.bodyTemperature < kSevereHypothermiaBelow) damage += kSevereHypothermiaDamage;
                 else if (needs.bodyTemperature < kHypothermicBelow) damage += kHypothermiaDamage;
+                // Heatstroke (phase 7).
+                if (needs.bodyTemperature > weatherrules::kHeatstrokeAbove) damage += weatherrules::kHeatstrokeDamagePerSecond;
                 if (damage > 0.0f)
                 {
                     health.current = std::max(0.0f, health.current - damage * dtSeconds);

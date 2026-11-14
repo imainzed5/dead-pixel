@@ -72,6 +72,7 @@ public:
     [[nodiscard]] const LaunchOptions& options() const { return mOptions; }
 
 private:
+    int fireReach(const Game& game, int side) const;
     struct Command
     {
         int line = 0;
@@ -110,6 +111,7 @@ private:
     int mSimZombies = 0;             // "mark sim": the simulation, for expect sim
     std::uint64_t mSimNoises = 0;
     int mWeatherMark = -1;
+    glm::ivec2 mFireOrigin{0, 0};    // "ignite": where the harness lit a fire (phase 7)
     // "fridge mark": a food's condition in the nearest fridge, and when (phase 6).
     float mFridgeCondition = -1.0f;
     double mFridgeHour = 0.0;

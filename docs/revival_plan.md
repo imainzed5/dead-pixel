@@ -1073,6 +1073,89 @@ cannot be read. "Days survived rises" is met on the mean and the longest
 lives, not on the median. Seed 9's night and boards that come down and
 are not put back are leads for phase 14 (`DECISIONS.md`).
 
+## Overhaul phase 7: weather, seasons and fire (2026-11-14)
+
+One table of consequences (`src/world/WeatherRules`, pure, one function
+per column) that every system asks: the player's view fades on the world
+shader by condition (fog from 5 tiles, a blizzard from 3), the dead see
+and hear less in rain, fog and snow and more in a lightning flash, the
+body is shifted outdoors (rain -4 C, a storm -6, a heatwave +8, a
+blizzard -8 with cold coming twice as fast), fires spread by the weather
+and die in the rain. New conditions: Heatwave, Snow and Blizzard; Wet
+(20 minutes of rain without a Raincoat), Overheated and Coughing. A
+Winter Coat (warmth 11) and a Raincoat; the warmest thing carried is
+marked "worn" in the pack. Footprints in mud and snow from the player,
+survivors and the dead. The sky warns 90 minutes ahead (cloud and wind
+before rain, darker before a storm, haze before fog) and the HUD adds a
+second word ("Clear, clouding").
+
+Seasons: dusk and dawn move with the season (winter 08:00-17:00, summer
+05:00-21:30, blended over three days), and the dead's night, the lamps and
+the night callers follow. Summer spoils food quicker and its dead are
+busier by night; autumn ends the bushes' fruit on day 40, brings
+mushrooms and "Frost on the windows." on day 43; winter snows instead of
+raining, lays snow on the ground over six hours (and a pale wash on the
+roofs), freezes ponds (walkable, slippery, an axe or hammer to reach the
+water) and collectors, stops gardens and slows the dead in snow. The
+season is a word on the clock line and its first day's dawn card names
+it.
+
+Fire is a tile grid (`src/systems/FireSystem`): fuel by what is on a tile
+(grass, floors, furniture, boards, trees, the wooden walls of a house),
+heat that builds, spread every 2 s with the wind, rain that takes heat
+away, damage through the spatial grid with kills credited to whoever lit
+it, light clustered to 8 sources, a Loud fire every 2 s, smoke that fills
+a burning house, and the dead walking into it (one in five keeps walking
+alight for 6 s). A house with 40 % of its floor burned is gutted: charred
+rafters (`roofp_burnt_<mask>`), sooted walls, doors and windows gone, its
+furniture and what it held destroyed; it stays gutted in world memory, is
+never a start home and is darkened on the town map. Burned ground is
+drawn charred, trees burn to black trunks, grass grows back on the third
+life. Firewise takes 40 % less fire damage and sees what would burn when
+holding a Molotov or Matches.
+
+Harness: `weather_rules` (every condition's noise, sight and body
+numbers match the table; fog hides a zombie at 8 tiles and shows one at
+5), `seasons` (snow 0.33, 0.67 and 1.0 after two, four and six hours; the
+pond walkable; the collector empty; 34.3 C, Cold, after two hours of a
+night outdoors with nothing warm; 37.0 C with a Winter Coat by a fire
+indoors), `fire_spread` (a molotov in a heatwave with the wind east: 4
+tiles east, 3 west after five game minutes; out in heavy rain within 40
+game minutes, 7 east and 3 west by then; a house lit inside gutted, and
+still gutted in the next life). 300 of the dead: 1.4 ms a tick on
+average, 3.1 ms worst; with 60 to 66 tiles burning as well: 1.5 ms and
+2.4 ms (phase 4 budget: 4 and 12). All 43 scripts pass (45 runs, each in
+a fresh directory, on the final build), 224 unit tests pass, clean
+rebuild without warnings. The new scripts' screenshots were looked at;
+they led to the burned floor being drawn dark, snow tiles without
+stripes, roofs under snow going grey-white rather than pink, flames off
+the tile grid, and the fog shots taken away from a house's sheltered
+strip.
+
+The bot was not changed (the phase asks nothing of it). `bot_week`, seeds
+1 to 10, default mode, on the final build:
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 3.5 | Overrun, day 4 | 80 | 8 | 6 | 106 | 3 |
+| 2 | 3.6 | Overrun, day 4 | 55 | 6 | 2 | 105 | 0 |
+| 3 | 2.0 | Overrun, day 3 | 50 | 8 | 5 | 49 | 1 |
+| 4 | 1.5 | Beaten by a Brute, day 2 | 41 | 6 | 7 | 12 | 1 |
+| 5 | 2.8 | Overrun, day 4 | 62 | 13 | 4 | 53 | 1 |
+| 6 | 1.9 | Killed, day 3 | 46 | 6 | 3 | 19 | 3 |
+| 7 | 1.3 | Overrun, day 2 | 34 | 15 | 12 | 108 | 3 |
+| 8 | 0.9 | Overrun, day 2 | 29 | 8 | 8 | 19 | 0 |
+| 9 | 0.9 | Overrun, day 2 | 21 | 7 | 7 | 11 | 0 |
+| 10 | 1.1 | Infection, day 2 | 19 | 6 | 3 | 43 | 1 |
+
+Median 1.7 days (phase 6: 1.6), mean 2.0 (phase 6: 1.9); 10 of 10
+clean; 2 died at home on night 1 (seeds 8 and 9; phase 6: 1). No sudden
+drop: containers searched 525 in all (phase 6: 425), boards 13 (16),
+kills 437 (413). Seed 8 fell from 1.6 days to 0.9 (searched 54 to 19,
+kills 42 to 29), and seed 2 put up no boards (phase 6: 1); the weather
+now rolls differently and changes what the dead hear and see, so single
+seeds move. First infection death in these tables (seed 10).
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -1239,3 +1322,9 @@ Candidates for the next stretch, roughly in order. None is started.
   garden beds, backpack, dropping, batteries and the radio; save version
   3 with a migration; bot median 1.6 days, mean 1.9 (phase 5: 1.8, 1.6),
   night 1 at home 1 of 10.
+- 2026-11-14: Overhaul phase 7, weather and fire: one table of weather
+  consequences, distance fog on the world shader, Heatwave, Snow and
+  Blizzard, Wet, Overheated and Coughing, Winter Coat and Raincoat,
+  footprints, seasons with moving daylight, snow and frozen ponds, a fire
+  grid with wind, rain, smoke and gutted houses kept in world memory; bot
+  median 1.7 days, mean 2.0 (phase 6: 1.6, 1.9), night 1 at home 2 of 10.

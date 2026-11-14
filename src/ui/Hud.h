@@ -66,6 +66,9 @@ struct HudConditionInputs
     // "Fever"). When set, it replaces bites / cuts / infected above.
     std::vector<std::string> woundLabels;
     bool rested = false;
+    // Phase 7: soaked through; smoke in the lungs.
+    bool wet = false;
+    bool coughing = false;
 };
 
 struct HudStep
@@ -83,6 +86,7 @@ struct HudSlot
     bool equipped = false; // the weapon in hand
     float wear = -1.0f;    // weapon durability left, 0..1; -1 for other items
     bool dim = false;      // a flashlight or radio with a flat battery
+    bool worn = false;     // the warm thing that counts as worn (phase 7)
 };
 
 struct HudState
@@ -99,8 +103,11 @@ struct HudState
 
     int day = 1;
     double hours = 8.0;
-    std::string weather;           // e.g. "Rain"
+    std::string weather;           // e.g. "Rain", or "Clear, clouding" when it is about to change
     float outdoorTemperature = 18.0f;
+    std::string season;            // phase 7: "Summer"
+    double duskHour = 20.0;        // the clock tints by the season's hours
+    double dawnHour = 6.0;
     std::string characterName;
     std::string districtLine;      // infection of the district you stand in
     bool districtLineDanger = false;

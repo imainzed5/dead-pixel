@@ -1,4 +1,5 @@
 #include "world/Forage.h"
+#include "world/WeatherRules.h"
 
 #include <algorithm>
 
@@ -36,7 +37,10 @@ Result search(Spot spot, const glm::ivec2& tile, int day, Season season, bool ra
     const std::uint32_t base = hash(tileKey(tile), static_cast<std::uint32_t>(day), runSeed);
     if (unit(base) < kNothingChance) return result;
 
-    const bool berrySeason = season != Season::Winter;
+    // Bushes fruit until the autumn's day 40; mushrooms come with rain, and
+    // all through the autumn (phase 7).
+    const bool berrySeason = season != Season::Winter && weatherrules::bushesFruit(day);
+    rainedLately = rainedLately || weatherrules::mushroomsCommon(day);
     Find find = Find::Nothing;
     switch (spot)
     {

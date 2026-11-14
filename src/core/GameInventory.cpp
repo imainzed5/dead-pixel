@@ -227,7 +227,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 mInteractionMessage = "Recipe is still undiscovered.";
                 mInteractionMessageTimer = 2.0f;
             }
-            else if (!craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn()))
+            else if (!craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn(),
+                                        !mFireSystem.burningNear(playerTile(), 3).empty()))
             {
                 mInteractionMessage = recipe.station == CraftStation::Workbench ? "Needs a workbench nearby." : "Needs a fire nearby.";
                 mInteractionMessageTimer = 2.5f;
@@ -299,7 +300,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                     }
                 }
 
-                if (!interrupted && !craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn()))
+                if (!interrupted && !craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn(),
+                                        !mFireSystem.burningNear(playerTile(), 3).empty()))
                 {
                     interrupted = true;
                     interruptReason = "Crafting interrupted: walked away from it.";

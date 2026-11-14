@@ -255,15 +255,20 @@ struct WeatherRecord
     bool saved = false;
     int condition = 0;          // WeatherCondition
     float hoursLeft = 0.0f;     // game hours until the next condition
+    float snowCover = 0.0f;     // phase 7, optional
     std::string rngState;       // the weather generator, as text
 };
 
+// A burning tile of the fire grid (phase 7): `intensity` is its heat 0..1
+// and `lifeRemaining` the fuel it has left 0..1 (older saves held seconds;
+// both are clamped on restore). `byPlayer`: kills it makes are the player's.
 struct FireTileRecord
 {
     int tileX = 0;
     int tileY = 0;
     float intensity = 0.0f;
     float lifeRemaining = 0.0f;
+    bool byPlayer = false;
 };
 
 enum class WorldMemoryEventType
@@ -442,6 +447,9 @@ public:
     [[nodiscard]] const std::vector<std::pair<int,int>>& burnedTiles() const { return mBurnedTiles; }
     // Doors the dead broke down in earlier runs stay broken.
     [[nodiscard]] const std::vector<std::pair<int,int>>& brokenDoors() const { return mBrokenDoors; }
+    // Gutted buildings (phase 7): one floor tile of each.
+    [[nodiscard]] const std::vector<std::pair<int,int>>& guttedBuildings() const { return mGutted; }
+    void addGuttedBuilding(int x, int y);
     // Doors boarded up in earlier runs stay boarded.
     [[nodiscard]] const std::vector<BoardedDoorRecord>& boardedDoors() const { return mBoardedDoors; }
     // Windows broken, boarded or curtained in earlier runs.
@@ -570,6 +578,7 @@ private:
     std::vector<FireTileRecord> mFireTiles;
     std::vector<std::pair<int,int>> mBurnedTiles;
     std::vector<std::pair<int,int>> mBrokenDoors;
+    std::vector<std::pair<int,int>> mGutted;
     std::vector<BoardedDoorRecord> mBoardedDoors;
     std::vector<WindowRecord> mWindows;
     ScavengeMemoryRecord mScavenge;

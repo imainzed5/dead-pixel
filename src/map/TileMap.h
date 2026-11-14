@@ -78,6 +78,10 @@ public:
     [[nodiscard]] bool isIndoorsAtWorld(float worldX, float worldY) const;
 
     void setDoorState(int tileX, int tileY, DoorState state);
+    // Winter (phase 7): ponds freeze and can be walked on.
+    void setWaterFrozen(bool frozen) { mWaterFrozen = frozen; }
+    [[nodiscard]] bool waterFrozen() const { return mWaterFrozen; }
+    [[nodiscard]] bool isWater(int tileX, int tileY) const;
     [[nodiscard]] DoorState doorState(int tileX, int tileY) const;
     [[nodiscard]] bool isClosedDoor(int tileX, int tileY) const { return doorState(tileX, tileY) == DoorState::Closed; }
     // Boards nailed across a closed door (0 = none).
@@ -133,6 +137,7 @@ private:
     TilesetInfo mTileset{};
     std::vector<int> mGroundLayer;
     std::vector<int> mCollisionLayer;
+    bool mWaterFrozen = false;
     std::vector<int> mSurfaceLayer;
     std::vector<int> mDistrictLayer;
     std::vector<int> mBuildingLayer;

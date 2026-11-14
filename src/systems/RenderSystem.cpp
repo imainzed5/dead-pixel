@@ -47,6 +47,11 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
             const float lerpX = transform.prevX + (transform.x - transform.prevX) * alpha;
             const float lerpY = transform.prevY + (transform.y - transform.prevY) * alpha;
 
+            if (extras != nullptr && extras->hideDead && world.hasComponent<ZombieAI>(entity) &&
+                extras->hideDead(glm::vec2(lerpX + kSpriteSize * 0.5f, lerpY + kSpriteSize * 0.5f)))
+            {
+                return;
+            }
             if (filterHidden)
             {
                 const int tileX = static_cast<int>(std::floor((lerpX + kSpriteSize * 0.5f) / kSpriteSize));

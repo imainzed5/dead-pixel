@@ -262,7 +262,10 @@ void Game::onThrowLanded(const ThrowLanding& landing)
     if (t.effect == "fire")
     {
         // igniteTile makes its own (explosive) noise.
-        if (!igniteTile(tile))
+        const glm::vec2 thrownFrom = landing.thrower != kInvalidEntity && mWorld.hasComponent<Transform>(landing.thrower)
+                                         ? playerWorldCenter()
+                                         : landing.position - glm::vec2(1.0f, 0.0f);
+        if (!igniteTile(tile, thrownFrom))
         {
             mNoiseModel.emitNoise(landing.position, NoiseTier::Loud, 0.8f);
         }

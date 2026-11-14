@@ -202,8 +202,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
     mode of the next `newrun`;
   - `tune KEY VALUE` overrides a number from `assets/data/tuning.json` for
     the run;
-  - `weather KIND` holds a condition, `weather roll` lets it roll a new one,
-    `weather mark` remembers the current one.
+  - `weather KIND` holds a condition (clear, cloudy, rain, heavyrain,
+    storm, fog, heatwave, snow, blizzard), `weather roll` lets it roll a new
+    one, `weather mark` remembers the current one.
 - **Containers:** `open` (the nearest in reach), `container` (print what
   the open one holds), `stash ITEM NAME [COUNT]` (from the pack into it).
 - **The bot:** `bot careful|normal|bold [DAYS]` plays the game through the
@@ -257,6 +258,21 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   (the nearest door), `expect garden STAGE|dead|ripe`, `expect fridgerate
   LO HI` (since the mark it spoiled at LO to HI times normal speed), `expect need
   illness|hunger|thirst below|above V`.
+- **Weather and fire (phase 7):** `season spring|summer|autumn|winter`
+  (the fifth day of that season), `wind X Y` (held, blowing toward X, Y in
+  tile axes; `wind 0 0` lets it go), `air C` (the air held at C degrees;
+  `air off`), `ignite DX DY [N]` (that tile alight, or N tiles that will
+  burn round it), `ignite DX DY molotov` (as a molotov thrown from the
+  player), `fires` (tiles burning and burned, and how far east and west of
+  where it was lit), `weatherinfo` (the rules as they read the weather:
+  noise, the dead's sight, view, fog, body shift, fire, air, snow, wind,
+  the player's temperature), `strip` (everything warm out of the pack),
+  `goto pond [on]` (beside the nearest pond, or on it). Checks: `expect
+  weatherinfo NOISE SIGHT BODY`, `expect drawn|undrawn DX DY` (a zombie
+  there drawn or hidden by fog), `expect spread east|west`, `expect fires N`
+  (at most N burning), `expect gutted|notgutted` (the building at the mark
+  or underfoot), `expect walkable|solid` (the mark or the tile underfoot),
+  `expect collector MAX` (water in the nearest rain collector).
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
@@ -335,6 +351,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `power_out` | The power fails at its hour with "The power is out."; street lamps lit, then dark; a fridge halves spoilage, then does not; a floor lamp |
 | `cooking` | A campfire opens the FOOD tab; dirty water boiled, rice and meat cooked; raw meat and dirty water sicken, cooked food does not; feeding the fire |
 | `garden` | A bush searched, then picked over; a bed planted, watered, six days: four Vegetables; the next life finds seedlings; dry three days: dead; a snare set in the wild |
+| `weather_rules` | Each condition outdoors at noon, with its noise, sight and body numbers checked against the table; a Raincoat; in fog a zombie at 8 tiles is not drawn, at 5 it is |
+| `seasons` | Winter: snow building over six game hours, the pond frozen and walkable, a collector that stays empty, Cold within two hours of a night outdoors, and not with a Winter Coat by a fire indoors |
+| `fire_spread` | A molotov on grass in a heatwave, wind east: further east than west in five game minutes, out within forty in heavy rain; a house lit inside is gutted and stays gutted in the next life; 300 of the dead and 60 tiles burning within the tick budget |
 | `bot_week` | The bot plays a week with metrics (what `tools/soak.py` runs) |
 | `bare_world`, `world_tour`, `combat_feel` | The town without the interface, a tour of it, the weight of a blow |
 

@@ -41,6 +41,8 @@ public:
     // A ring of dust thrown out along the ground (a heavy blow, a body hitting the floor).
     void spawnDustRing(const glm::vec2& worldPosition, float speed, int count = 14);
     void spawnEmbers(const glm::vec2& worldPosition, int count = 4);
+    // Smoke from a burning building: grey puffs that rise and spread.
+    void spawnSmoke(const glm::vec2& worldPosition, int count = 1);
     void spawnHeal(const glm::vec2& worldPosition, int count = 6);
     // A leaf let go at `height` above the ground, carried by `drift` (world
     // pixels per second) until it settles.

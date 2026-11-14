@@ -13,14 +13,14 @@ namespace
 constexpr std::size_t kMaxMarkers = 400;
 } // namespace
 
-float lifeSeconds(Place place, bool raining, float scale)
+float lifeSeconds(Place place, bool raining, float scale, float dryOutdoorSeconds)
 {
     switch (place)
     {
     case Place::Water: return 0.0f;
     case Place::Indoor: return kIndoorSeconds * scale;
     case Place::Outdoor:
-    default: return (raining ? kRainSeconds : kOutdoorSeconds) * scale;
+    default: return (raining ? kRainSeconds : dryOutdoorSeconds) * scale;
     }
 }
 
@@ -58,12 +58,12 @@ void Trail::addMarker(const glm::vec2& world, float strength, Place place, bool 
     if (mMarkers.size() > kMaxMarkers) mMarkers.erase(mMarkers.begin());
 }
 
-void Trail::update(float dtSeconds, bool raining, float scale)
+void Trail::update(float dtSeconds, bool raining, float scale, float dryOutdoorSeconds)
 {
     for (Marker& m : mMarkers)
     {
         m.age += dtSeconds;
-        if (!m.pool) m.life = lifeSeconds(m.place, raining, scale);
+        if (!m.pool) m.life = lifeSeconds(m.place, raining, scale, dryOutdoorSeconds);
     }
     std::erase_if(mMarkers, [](const Marker& m) { return m.age >= m.life; });
 }

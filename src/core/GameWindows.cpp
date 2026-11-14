@@ -525,14 +525,8 @@ bool Game::buildingLit(int building) const
             if (mTileMap.getBuildingId(lamp.x, lamp.y) == building) return true;
         }
     }
-    world.forEach<Fire, Transform>(
-        [&](Entity, Fire&, Transform& t)
-        {
-            if (lit) return;
-            const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(t.x + 16.0f, t.y + 16.0f));
-            lit = mTileMap.getBuildingId(tile.x, tile.y) == building;
-        });
-    return lit;
+    // A fire burning in it (phase 7).
+    return burningIn(building) > 0;
 }
 
 void Game::updateWindows(float dtSeconds)

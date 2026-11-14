@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <sstream>
 
@@ -35,6 +36,7 @@
 #include "world/Storage.h"
 #include "world/BuildingKinds.h"
 #include "world/Forage.h"
+#include "world/WeatherRules.h"
 #include "world/Garden.h"
 #include "world/Power.h"
 #include "world/CombatRules.h"
@@ -816,7 +818,7 @@ void DevHarness::execute(Game& game, const Command& command)
         int callers = 0;
         game.mWorld.forEach<ZombieAI>([&](Entity, ZombieAI& ai) { if (ai.nightCaller) ++callers; });
         std::cout << "[harness] tick " << mTick << ": plan day " << game.mCurrentDay << " hour " << game.mGameHours
-                  << " '" << plan.title << "' " << firstdays::clockLine(game.mGameHours)
+                  << " '" << plan.title << "' " << firstdays::clockLine(game.mGameHours, game.mCurrentDay)
                   << " taps=" << (firstdays::tapsRunning(game.mCurrentDay, game.mGameHours) ? "on" : "off")
                   << " callers=" << callers << " home=" << game.mFirstDays.homeBuilding
                   << " atHome=" << (game.playerAtHome() ? 1 : 0) << '\n';
@@ -945,6 +947,47 @@ void DevHarness::execute(Game& game, const Command& command)
             }
             std::cout << "[harness] goto kind: " << buildingkinds::name(want) << " (building " << bestBuilding << "), door "
                       << best.x << "," << best.y << (game.doorLocked(best) ? " locked" : " unlocked") << '\n';
+            execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
+            return;
+        }
+        if (kind == "pond")
+        {
+            // goto pond [on]: the nearest water, the middle of a pond first; stand
+            // on the bank beside it, or on it (frozen in winter; phase 7).
+            const TileMap& map = game.mTileMap;
+            const glm::ivec2 from = game.playerTile();
+            glm::ivec2 best(-1);
+            int bestD = 0;
+            for (int y = 1; y + 1 < map.height(); ++y)
+            {
+                for (int x = 1; x + 1 < map.width(); ++x)
+                {
+                    if (!map.isWater(x, y)) continue;
+                    // Water on more sides first: the middle of a pond.
+                    int wet = 0;
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx) wet += map.isWater(x + dx, y + dy) ? 1 : 0;
+                    const int d = (x - from.x) * (x - from.x) + (y - from.y) * (y - from.y) + (9 - wet) * 100000;
+                    if (best.x < 0 || d < bestD)
+                    {
+                        best = {x, y};
+                        bestD = d;
+                    }
+                }
+            }
+            if (best.x < 0)
+            {
+                fail(command, "the town has no pond");
+                return;
+            }
+            glm::ivec2 tile = best;
+            if (!(a.size() > 2 && lower(a[2]) == "on"))
+            {
+                // Walk south from the pond to the first dry ground.
+                while (map.inBounds(tile.x, tile.y + 1) && map.isWater(tile.x, tile.y)) ++tile.y;
+            }
+            mMark = best;
+            std::cout << "[harness] goto pond: water at " << best.x << "," << best.y << (map.waterFrozen() ? " (frozen)" : "") << '\n';
             execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
             return;
         }
@@ -1658,8 +1701,97 @@ void DevHarness::execute(Game& game, const Command& command)
             else if (kind == "heavyrain") condition = WeatherCondition::HeavyRain;
             else if (kind == "storm") condition = WeatherCondition::Thunderstorm;
             else if (kind == "fog") condition = WeatherCondition::Fog;
+            else if (kind == "heatwave") condition = WeatherCondition::Heatwave;
+            else if (kind == "snow") condition = WeatherCondition::Snow;
+            else if (kind == "blizzard") condition = WeatherCondition::Blizzard;
+            else if (kind != "clear")
+            {
+                fail(command, "unknown weather '" + a[1] + "'");
+                return;
+            }
             game.mWeatherSystem.hold(game.mWeatherState, condition, 100000.0f);
+            // The rules see it this tick (the HUD and weatherinfo too).
+            game.mWeatherSystem.update(game.mWeatherState, 0.0f, game.mGameHours, game.mCurrentDay);
         }
+    }
+    else if (op == "season")
+    {
+        // season NAME: the fifth day of that season (spring, summer, autumn,
+        // winter), the clock where it was (phase 7).
+        if (!need(1)) return;
+        const std::string name = lower(a[1]);
+        Season season = Season::Spring;
+        if (name == "summer") season = Season::Summer;
+        else if (name == "autumn" || name == "fall") season = Season::Autumn;
+        else if (name == "winter") season = Season::Winter;
+        else if (name != "spring")
+        {
+            fail(command, "unknown season '" + a[1] + "'");
+            return;
+        }
+        game.mCurrentDay = weatherrules::firstDayOf(season) + 5;
+        game.mWeatherSystem.update(game.mWeatherState, 0.0f, game.mGameHours, game.mCurrentDay);
+        std::cout << "[harness] tick " << mTick << ": season " << weatherrules::seasonName(season) << ", day "
+                  << game.mCurrentDay << '\n';
+    }
+    else if (op == "wind")
+    {
+        // wind X Y: hold the wind blowing toward (X, Y) in tile axes, its
+        // strength the length (at most 1); wind 0 0 lets it go (phase 7).
+        if (!need(2)) return;
+        game.mWeatherSystem.holdWind(game.mWeatherState, std::stof(a[1]), std::stof(a[2]));
+    }
+    else if (op == "air")
+    {
+        // air C: hold the air at C degrees; air off lets it go (phase 7).
+        if (!need(1)) return;
+        game.mWeatherSystem.holdAir(lower(a[1]) == "off" ? std::numeric_limits<float>::quiet_NaN() : std::stof(a[1]));
+        game.mWeatherSystem.update(game.mWeatherState, 0.0f, game.mGameHours, game.mCurrentDay);
+    }
+    else if (op == "ignite")
+    {
+        // ignite DX DY [N]: set the tile DX, DY from the player alight (and
+        // N tiles round it that will burn); ignite DX DY molotov: as a
+        // molotov thrown from where the player stands. The tile is the
+        // fire's origin for `fires` (phase 7).
+        if (!need(2)) return;
+        const glm::ivec2 tile = game.playerTile() + glm::ivec2(std::stoi(a[1]), std::stoi(a[2]));
+        mFireOrigin = tile;
+        int lit = 0;
+        if (a.size() > 3 && lower(a[3]) == "molotov")
+        {
+            lit = game.igniteTile(tile, game.playerWorldCenter()) ? 1 : 0;
+        }
+        else
+        {
+            const int want = a.size() > 3 ? std::max(1, std::stoi(a[3])) : 1;
+            for (int r = 0; r <= 12 && lit < want; ++r)
+            {
+                for (int dy = -r; dy <= r && lit < want; ++dy)
+                {
+                    for (int dx = -r; dx <= r && lit < want; ++dx)
+                    {
+                        if (std::max(std::abs(dx), std::abs(dy)) != r) continue;
+                        if (game.igniteFire(tile + glm::ivec2(dx, dy), firerules::kMolotovHeat, true)) ++lit;
+                    }
+                }
+            }
+        }
+        if (lit == 0) fail(command, "nothing burns at " + a[1] + "," + a[2]);
+        else std::cout << "[harness] tick " << mTick << ": ignite: " << lit << " lit, " << game.mFireSystem.count() << " burning\n";
+    }
+    else if (op == "fires")
+    {
+        // fires: how many tiles burn, how many have burned, and how far the
+        // fire has gone east and west of where it was lit (phase 7).
+        std::cout << "[harness] tick " << mTick << ": fires: " << game.mFireSystem.count() << " burning, "
+                  << game.mBurnedTiles.size() << " burned, " << fireReach(game, 1) << " tiles east, " << fireReach(game, -1)
+                  << " tiles west\n";
+    }
+    else if (op == "weatherinfo")
+    {
+        // weatherinfo: the rules as they read the weather now (phase 7).
+        std::cout << "[harness] tick " << mTick << ": weatherinfo " << game.weatherInfoLine() << '\n';
     }
     else if (op == "zoom")
     {
@@ -1669,6 +1801,27 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         if (need(1)) mGodMode = lower(a[1]) == "on";
         game.mDevGodMode = mGodMode;
+    }
+    else if (op == "strip")
+    {
+        // strip: everything that keeps the player warm (anything with warmth,
+        // and Rags) taken out of the pack (phase 7: a night without a coat).
+        if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+        {
+            fail(command, "no pack");
+            return;
+        }
+        Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        std::string removed;
+        for (InventorySlot& slot : inv.slots)
+        {
+            if (slot.count <= 0) continue;
+            const ItemDef* item = game.mItemDatabase.find(slot.itemId);
+            if (item == nullptr || (item->warmth <= 0.0f && slot.itemId != game.mItems.rags)) continue;
+            removed += (removed.empty() ? "" : ", ") + item->name;
+            slot = InventorySlot{};
+        }
+        std::cout << "[harness] tick " << mTick << ": strip: " << (removed.empty() ? "nothing" : removed) << '\n';
     }
     else if (op == "give")
     {
@@ -2480,15 +2633,123 @@ void DevHarness::execute(Game& game, const Command& command)
             if (!need(3)) return;
             const glm::ivec2 me = game.playerTile();
             const glm::ivec2 at(me.x + std::stoi(a[2]), me.y + std::stoi(a[3]));
-            bool found = false;
-            game.mWorld.forEach<Fire, Transform>(
-                [&](Entity, Fire&, Transform& ft)
-                {
-                    const glm::ivec2 t = gameshared::worldToTile(game.mTileMap, glm::vec2(ft.x, ft.y));
-                    if (std::abs(t.x - at.x) <= 1 && std::abs(t.y - at.y) <= 1) found = true;
-                });
+            const bool found = !game.mFireSystem.burningNear(at, 1).empty();
             if (!found) fail(command, "no fire at " + a[2] + "," + a[3]);
             else std::cout << "[harness] tick " << mTick << ": burning at " << a[2] << "," << a[3] << '\n';
+            return;
+        }
+        if (want == "fires")
+        {
+            // expect fires N: at most N tiles burning (phase 7).
+            if (!need(2)) return;
+            const int have = static_cast<int>(game.mFireSystem.count());
+            if (have > std::stoi(a[2])) fail(command, std::to_string(have) + " tiles burning");
+            else std::cout << "[harness] tick " << mTick << ": " << have << " tiles burning\n";
+            return;
+        }
+        if (want == "spread")
+        {
+            // expect spread east|west: the fire has gone further that way
+            // from where it was lit than the other (phase 7).
+            if (!need(2)) return;
+            const int east = fireReach(game, 1);
+            const int west = fireReach(game, -1);
+            const bool ok = lower(a[2]) == "east" ? east > west : west > east;
+            if (!ok) fail(command, "east " + std::to_string(east) + ", west " + std::to_string(west));
+            else std::cout << "[harness] tick " << mTick << ": spread east " << east << ", west " << west << '\n';
+            return;
+        }
+        if (want == "gutted" || want == "notgutted")
+        {
+            // expect gutted: the building at the mark (or where the player
+            // stands) burned out (phase 7).
+            const glm::ivec2 at = mMark.x >= 0 ? mMark : game.playerTile();
+            const int building = game.mTileMap.inBounds(at.x, at.y) ? game.mTileMap.getBuildingId(at.x, at.y) : 0;
+            const bool gutted = game.buildingGutted(building);
+            if (gutted != (want == "gutted")) fail(command, "building " + std::to_string(building) + (gutted ? " is" : " is not") + " gutted");
+            else std::cout << "[harness] tick " << mTick << ": building " << building << (gutted ? " gutted" : " standing") << '\n';
+            return;
+        }
+        if (want == "weatherinfo")
+        {
+            // expect weatherinfo NOISE SIGHT BODY: the rules read the weather
+            // as the table says (phase 7).
+            if (!need(4)) return;
+            const WeatherCondition c = game.mWeatherState.condition;
+            bool raincoat = false;
+            if (game.mPlayerEntity != kInvalidEntity && game.mWorld.hasComponent<Needs>(game.mPlayerEntity))
+            {
+                raincoat = game.mWorld.getComponent<Needs>(game.mPlayerEntity).raincoat;
+            }
+            const float noise = weatherrules::noiseScale(c);
+            const float sight = weatherrules::deadSightScale(c, false);
+            const float body = weatherrules::bodyShift(c, raincoat);
+            if (std::abs(noise - std::stof(a[2])) > 0.001f || std::abs(sight - std::stof(a[3])) > 0.001f ||
+                std::abs(body - std::stof(a[4])) > 0.001f)
+            {
+                fail(command, game.weatherInfoLine());
+            }
+            else
+            {
+                std::cout << "[harness] tick " << mTick << ": weatherinfo matches " << a[2] << " " << a[3] << " " << a[4] << '\n';
+            }
+            return;
+        }
+        if (want == "drawn" || want == "undrawn")
+        {
+            // expect drawn DX DY: a zombie within a tile of that spot is drawn
+            // (fog hides the dead beyond 6 tiles; phase 7).
+            if (!need(3)) return;
+            const float tile = static_cast<float>(std::max(1, game.mTileMap.tileWidth()));
+            const glm::vec2 spot = game.playerWorldCenter() + glm::vec2(std::stof(a[2]), std::stof(a[3])) * tile;
+            bool found = false;
+            bool drawn = false;
+            game.mWorld.forEach<ZombieAI, Transform>(
+                [&](Entity, ZombieAI&, Transform& t)
+                {
+                    const glm::vec2 c(t.x + 16.0f, t.y + 16.0f);
+                    if (found || glm::length(c - spot) > tile) return;
+                    found = true;
+                    const glm::ivec2 at = gameshared::worldToTile(game.mTileMap, c);
+                    drawn = game.deadDrawnAt(c) && !game.mStructureView.isHiddenAt(at.x, at.y);
+                });
+            if (!found) fail(command, "no zombie near " + a[2] + "," + a[3]);
+            else if (drawn != (want == "drawn")) fail(command, std::string("the zombie is ") + (drawn ? "drawn" : "not drawn"));
+            else std::cout << "[harness] tick " << mTick << ": zombie at " << a[2] << "," << a[3] << (drawn ? " drawn" : " hidden") << '\n';
+            return;
+        }
+        if (want == "walkable" || want == "solid")
+        {
+            // expect walkable: the mark (or the tile the player stands on) can
+            // be walked on (phase 7: a frozen pond).
+            const glm::ivec2 at = mMark.x >= 0 ? mMark : game.playerTile();
+            const bool solid = game.mTileMap.isSolid(at.x, at.y);
+            if (solid != (want == "solid")) fail(command, std::string("the tile is ") + (solid ? "solid" : "walkable"));
+            else std::cout << "[harness] tick " << mTick << ": tile " << at.x << "," << at.y << (solid ? " solid" : " walkable") << '\n';
+            return;
+        }
+        if (want == "collector")
+        {
+            // expect collector MAX: the nearest rain collector holds at most
+            // MAX water (phase 7: frozen in winter).
+            if (!need(2)) return;
+            const glm::vec2 here = game.playerWorldCenter();
+            float water = -1.0f;
+            float best = 1.0e9f;
+            game.mWorld.forEach<Structure, Transform>(
+                [&](Entity, Structure& s, Transform& t)
+                {
+                    if (s.type != StructureType::RainCollector) return;
+                    const float d = glm::length(glm::vec2(t.x + 16.0f, t.y + 16.0f) - here);
+                    if (d < best)
+                    {
+                        best = d;
+                        water = s.water;
+                    }
+                });
+            if (water < 0.0f) fail(command, "no rain collector");
+            else if (water > std::stof(a[2])) fail(command, "the collector holds " + std::to_string(water));
+            else std::cout << "[harness] tick " << mTick << ": the collector holds " << water << '\n';
             return;
         }
         if (want == "loaded")
@@ -3031,6 +3292,22 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         fail(command, "unknown command '" + op + "'");
     }
+}
+
+int DevHarness::fireReach(const Game& game, int side) const
+{
+    // How far, in tiles, fire (burning or burned) has gone east (+1) or west
+    // (-1) of where the harness lit it, within 3 rows of it.
+    int reach = 0;
+    auto consider = [&](const glm::ivec2& t)
+    {
+        if (std::abs(t.y - mFireOrigin.y) > 3) return;
+        const int d = (t.x - mFireOrigin.x) * side;
+        if (d > reach) reach = d;
+    };
+    for (const FireSystem::Burning& b : game.mFireSystem.all()) consider(b.tile);
+    for (const auto& t : game.mBurnedTiles) consider(glm::ivec2(t.first, t.second));
+    return reach;
 }
 
 bool DevHarness::ensureFramebuffer(int width, int height)

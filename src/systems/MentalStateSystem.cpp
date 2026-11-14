@@ -1,4 +1,5 @@
 #include "systems/MentalStateSystem.h"
+#include "world/WeatherRules.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,7 +38,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
     const Transform& playerTransform = world.getComponent<Transform>(playerEntity);
     const glm::vec2 playerCenter(playerTransform.x + kSpriteSize * 0.5f, playerTransform.y + kSpriteSize * 0.5f);
     const bool indoors = tileMap != nullptr && tileMap->isIndoorsAtWorld(playerCenter.x, playerCenter.y);
-    const bool isDark = (gameHours >= 20.0 || gameHours < 5.0);
+    const bool isDark = weatherrules::isNight(currentDay, gameHours);
     const bool sleeping = world.hasComponent<Sleeping>(playerEntity);
 
     // ------------------------------------------------------------------ Panic

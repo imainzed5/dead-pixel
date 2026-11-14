@@ -80,6 +80,11 @@ StructureSprites StructureSprites::fromSheet(const SpriteSheet& sheet)
         {
             s.roof[i][mask] = sheet.uvRect(std::string("roofp_") + kRoofs[i] + "_" + std::to_string(mask));
         }
+        for (std::size_t mask = 0; mask < 16 && i == 0; ++mask)
+        {
+            const std::string burnt = "roofp_burnt_" + std::to_string(mask);
+            s.roofBurnt[mask] = sheet.find(burnt) != nullptr ? sheet.uvRect(burnt) : s.roof[0][mask];
+        }
         s.boardsLeft[i] = sheet.uvRect("door_boards" + std::to_string(i + 1) + "_l");
         s.boardsRight[i] = sheet.uvRect("door_boards" + std::to_string(i + 1) + "_r");
     }
@@ -377,6 +382,25 @@ const StructureTile& StructureView::tile(int tileX, int tileY) const
     return inBounds(tileX, tileY) ? mTiles[index(tileX, tileY)] : kEmptyTile;
 }
 
+StructureMaterial StructureView::buildingMaterial(int building) const
+{
+    if (building <= 0 || static_cast<std::size_t>(building) >= mBuildingMaterial.size()) return StructureMaterial::Brick;
+    return mBuildingMaterial[static_cast<std::size_t>(building)];
+}
+
+void StructureView::setGutted(int building, bool gutted)
+{
+    if (building <= 0) return;
+    if (static_cast<std::size_t>(building) >= mGutted.size()) mGutted.resize(static_cast<std::size_t>(building) + 1, 0);
+    mGutted[static_cast<std::size_t>(building)] = gutted ? 1 : 0;
+}
+
+bool StructureView::gutted(int building) const
+{
+    return building > 0 && static_cast<std::size_t>(building) < mGutted.size() &&
+           mGutted[static_cast<std::size_t>(building)] != 0;
+}
+
 float StructureView::roofAlpha(int building) const
 {
     if (building <= 0 || static_cast<std::size_t>(building) >= mRoofAlpha.size())
@@ -395,6 +419,11 @@ bool StructureView::isHiddenAt(int tileX, int tileY) const
     }
     // Doorways and walls on the outside edge are seen from the street.
     if (t.kind != StructureKind::None && t.perimeter)
+    {
+        return false;
+    }
+    // Rafters hide nothing.
+    if (gutted(t.building))
     {
         return false;
     }
@@ -521,7 +550,7 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
 
             const float depth = static_cast<float>(x + y) * kTile;
             const float roof = t.building > 0 ? roofAlpha(t.building) : 0.0f;
-            const bool interiorVisible = roof < 0.999f;
+            const bool interiorVisible = roof < 0.999f || gutted(t.building);
             const bool drawStructure = t.kind != StructureKind::None && (t.perimeter || interiorVisible);
             const std::size_t m = mat(t.material);
 
@@ -567,10 +596,12 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
                 const std::size_t finish = outsideFace ? m : StructureSprites::kInterior;
                 const WallPieces& p = sprites.pieces[finish];
                 const auto b = static_cast<std::size_t>(t.building);
-                const glm::vec4 tint = !outsideFace ? kPaper[b % 4]
+                glm::vec4 tint = !outsideFace ? kPaper[b % 4]
                                        : (t.material == StructureMaterial::Plaster && t.building > 0 ? kPaint[(b * 7) % 6]
                                                                                                     : glm::vec4(1.0f));
                 const float height = cut ? lowH : wallH;
+                // A gutted house: walls black with soot.
+                if (gutted(t.building)) tint = tint * glm::vec4(0.34f, 0.30f, 0.28f, 1.0f);
 
                 if (t.kind == StructureKind::Wall)
                 {
@@ -643,9 +674,14 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
                 const float rise = kRoofRise[kind] * zoom;
                 const float base = wallH + static_cast<float>(t.roofLevel) * rise;
                 const bool thin = playerBuilding != t.building && roofHidesPlayer(glm::ivec2(x, y), playerTile);
+                const bool burnt = gutted(t.building);
+                // Snow lies on a roof as a pale wash (colour over 1 brightens;
+                // green and blue more, so a red roof goes grey-white, not pink).
+                const float wash = burnt ? 0.0f : mSnow;
                 out.push_back(StaticSprite{
                     glm::vec2(left, top - base - rise), glm::vec2(tileW, tileH + rise + kRoofFascia * zoom),
-                    sprites.roof[kind][t.roofMask], glm::vec4(1.0f, 1.0f, 1.0f, thin ? roof * kRoofThinAlpha : roof),
+                    burnt ? sprites.roofBurnt[t.roofMask] : sprites.roof[kind][t.roofMask],
+                    glm::vec4(1.0f + wash * 1.0f, 1.0f + wash * 1.9f, 1.0f + wash * 2.3f, thin ? roof * kRoofThinAlpha : roof),
                     depth + kTile * 0.5f + 0.5f});
             }
         }

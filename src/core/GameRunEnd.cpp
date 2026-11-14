@@ -236,17 +236,16 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
 
     {
         std::vector<FireTileRecord> fireRecords;
-        mWorld.forEach<Fire, Transform>(
-            [&](Entity, Fire& fire, Transform& transform)
-            {
-                const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(transform.x, transform.y));
-                FireTileRecord record;
-                record.tileX = tile.x;
-                record.tileY = tile.y;
-                record.intensity = fire.intensity;
-                record.lifeRemaining = fire.lifeRemaining;
-                fireRecords.push_back(record);
-            });
+        for (const FireSystem::Burning& b : mFireSystem.all())
+        {
+            FireTileRecord record;
+            record.tileX = b.tile.x;
+            record.tileY = b.tile.y;
+            record.intensity = b.heat;
+            record.lifeRemaining = b.fuel;
+            record.byPlayer = false; // the next life did not light it
+            fireRecords.push_back(record);
+        }
         mSaveManager.setFireTileRecords(std::move(fireRecords));
     }
 

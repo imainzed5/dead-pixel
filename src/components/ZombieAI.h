@@ -136,6 +136,11 @@ struct ZombieAI
     // Who dealt the most recent damage (player, projectile shooter, fire,
     // survivor, vehicle). Kills are credited from this.
     Entity lastDamagedBy = kInvalidEntity;
+    // Fire (phase 7): the last hurt was from fire; seconds left walking
+    // alight (lighting what it passes); the dice for it are rolled once.
+    bool burnedLast = false;
+    float torchSeconds = 0.0f;
+    bool torchRolled = false;
 
     // Leash: a wandering zombie with leashTiles > 0 drifts back toward
     // leashHome when it strays further than that (the risen dead stay near

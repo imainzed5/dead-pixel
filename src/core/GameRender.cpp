@@ -2,6 +2,7 @@
 #include "core/GameShared.h"
 #include "world/BuildingKinds.h"
 #include "world/CombatRules.h"
+#include "world/WeatherRules.h"
 
 #include <cctype>
 
@@ -41,13 +42,21 @@ void Game::render()
     mStructureView.collect(mCamera, playerTile(), mStructureSprites, mStaticSprites, &mTileMap);
     mFurnitureView.collect(mCamera, mStructureView, playerTile(), mSpriteSheet, mStaticSprites);
     mSceneryView.collect(mCamera, playerTile(), mSpriteSheet, mStaticSprites);
+    collectFireSprites();
     RenderExtras extras;
     extras.statics = &mStaticSprites;
     extras.isHiddenAt = [this](int tileX, int tileY) { return mStructureView.isHiddenAt(tileX, tileY); };
+    // Fog hides the dead beyond 6 tiles (phase 7).
+    if (weatherrules::deadDrawTiles(mWeatherState.condition) > 0.0f)
+    {
+        extras.hideDead = [this](const glm::vec2& world) { return !deadDrawnAt(world); };
+    }
     // Marks on the ground (dried blood) lie under everything that stands.
     const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
     mSceneryView.drawFlat(mSpriteBatch, mCamera, mSpriteSheet);
     drawBloodTrail();
+    drawFootprints();
+    drawFuelShimmer();
     mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv, true);
 
     mRenderSystem.render(mWorld, mSpriteBatch, mCamera, mInterpolationAlpha, &extras);
@@ -58,6 +67,18 @@ void Game::render()
 
     // Particles (rendered in world space, affected by lighting)
     mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv);
+
+    // Smoke filling a burning building you stand in (phase 7).
+    {
+        const glm::ivec2 here = playerTile();
+        const int building = mTileMap.inBounds(here.x, here.y) ? mTileMap.getBuildingId(here.x, here.y) : 0;
+        const int burning = burningIn(building);
+        if (burning > 0)
+        {
+            const float haze = std::min(0.45f, 0.06f * static_cast<float>(burning));
+            mSpriteBatch.draw(glm::vec2(0.0f), viewport, solidWhiteUv, glm::vec4(0.36f, 0.35f, 0.34f, haze));
+        }
+    }
 
     // Fog and rain, in front of the world.
     {
@@ -96,6 +117,7 @@ void Game::render()
     mShader.setFloat("uSaturation", 1.0f);
     mShader.setInt("uLightCount", 0);
     mShader.setInt("uSpotEnabled", 0);
+    mShader.setInt("uFogEnabled", 0);
 
     const auto uiLayer = [&](const auto& drawShapes, const auto& drawText)
     {
@@ -327,6 +349,12 @@ void Game::renderMinimapOverlay()
             a.a + (b.a - a.a) * w);
     };
 
+    // Fog (phase 7): the minimap shows nothing beyond 6 tiles.
+    const float fogTiles = weatherrules::minimapTiles(mWeatherState.condition);
+    const float fogReach = fogTiles * static_cast<float>(tileW);
+    const auto fogged = [&](const glm::vec2& world)
+    { return fogTiles > 0.0f && glm::length(world - playerCenter) > fogReach; };
+
     const int sampleStep = (safeZoom >= 2.2f) ? 1 : (safeZoom >= 1.15f ? 2 : 3);
     for (int py = 0; py < static_cast<int>(mapHeight); py += sampleStep)
     {
@@ -392,6 +420,7 @@ void Game::renderMinimapOverlay()
                     color = blendColor(color, glm::vec4(0.07f, 0.08f, 0.11f, 0.88f), 0.52f);
                 }
             }
+            if (fogged(sampleWorld)) color = glm::vec4(0.42f, 0.44f, 0.46f, 0.80f);
 
             const float drawW = std::min(static_cast<float>(sampleStep) + 0.5f, mapWidth - static_cast<float>(px));
             const float drawH = std::min(static_cast<float>(sampleStep) + 0.5f, mapHeight - static_cast<float>(py));
@@ -426,7 +455,15 @@ void Game::renderMinimapOverlay()
         const glm::vec2 worldCenter(
             (static_cast<float>(tx) + 0.5f) * static_cast<float>(tileW),
             (static_cast<float>(ty) + 0.5f) * static_cast<float>(tileH));
+        if (fogged(worldCenter)) continue;
         drawIsoPoint(worldCenter, glm::vec4(0.38f, 0.22f, 0.16f, 0.72f), 2.0f);
+    }
+    // Smoke over whatever burns (phase 7): seen from anywhere but fog.
+    for (const glm::vec2& smoke : fireLights())
+    {
+        if (fogged(smoke)) continue;
+        drawIsoPoint(smoke, glm::vec4(0.62f, 0.62f, 0.64f, 0.90f), 4.0f);
+        drawIsoPoint(smoke + glm::vec2(-10.0f, -10.0f), glm::vec4(0.95f, 0.50f, 0.20f, 0.95f), 2.0f);
     }
 
     if (mCampaignObjective.active)
@@ -585,6 +622,11 @@ void Game::renderWorldMapOverlay()
             {
                 color = glm::mix(color, glm::vec3(0.10f, 0.07f, 0.06f), 0.75f);
             }
+            // A gutted house (phase 7): black from wall to wall.
+            if (inBuilding && buildingGutted(mTileMap.getBuildingId(tx, ty)))
+            {
+                color = glm::mix(color, glm::vec3(0.06f, 0.05f, 0.05f), 0.8f);
+            }
 
             const glm::vec2 centre = toMap(glm::vec2((static_cast<float>(tx) + 0.5f) * tileW,
                                                      (static_cast<float>(ty) + 0.5f) * tileH));
@@ -736,7 +778,9 @@ void Game::setupLightingUniforms()
     // Ambient: daylight to a dark, cold night. Lights carry the night.
     const ToneTuning tone = toneTuning(saveTonePresetFromIndex(mTitleToneIndex));
     const float night = nightFactor();
-    const float ambientLevel = 1.0f - night * tone.nightDarkness;
+    // Under cloud the night is darker still (phase 7).
+    const float ambientLevel = (1.0f - night * tone.nightDarkness) *
+                               (1.0f - night * (1.0f - weatherrules::nightDarkScale(mWeatherState.condition)));
     const glm::vec3 dayColor(1.0f, 1.0f, 1.0f);
     const glm::vec3 duskColor(1.0f, 0.78f, 0.62f);
     const glm::vec3 nightColor(0.55f, 0.62f, 0.95f);
@@ -759,6 +803,23 @@ void Game::setupLightingUniforms()
     mShader.setFloat("uAmbientLight", weatherLevel);
     mShader.setVec3("uAmbientColor", ambientColor);
     mShader.setFloat("uSaturation", tone.saturation * (1.0f - skyDim * 0.5f));
+
+    // The player's sight (phase 7): a distance fog round the player outdoors,
+    // from where the weather starts to hide things to where nothing is left.
+    {
+        const weatherrules::ViewFade fade = weatherrules::playerViewFade(mWeatherState.condition);
+        const glm::vec2 centre = playerWorldCenter();
+        const bool indoors = mTileMap.isIndoorsAtWorld(centre.x, centre.y);
+        const float groundPx = 1.41421356f * mCamera.zoom() * static_cast<float>(mTileMap.tileWidth());
+        const bool on = fade.endTiles > 0.0f && !indoors && mPlayerEntity != kInvalidEntity;
+        mShader.setInt("uFogEnabled", on ? 1 : 0);
+        mShader.setVec2("uFogCentre", mCamera.worldToScreen(centre));
+        mShader.setFloat("uFogStart", fade.startTiles * groundPx);
+        mShader.setFloat("uFogEnd", std::max(fade.startTiles + 0.5f, fade.endTiles) * groundPx);
+        const glm::vec3 fogDay(0.66f, 0.70f, 0.74f);
+        const glm::vec3 fogNight(0.07f, 0.08f, 0.11f);
+        mShader.setVec3("uFogColor", glm::mix(fogDay, fogNight, night));
+    }
 
     // A world radius in pixels becomes this many screen pixels on the
     // (un-squashed) iso ground at the current zoom.
@@ -819,14 +880,11 @@ void Game::setupLightingUniforms()
             addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
                      glm::vec3(1.0f, 0.74f, 0.42f) * flicker, structure.lantern ? 2.0f : 2.5f);
         });
-    mWorld.forEach<Fire, Transform>(
-        [&](Entity, Fire& fire, Transform& transform)
-        {
-            if (fire.intensity <= 0.05f) return;
-            const float strength = std::clamp(0.55f + fire.intensity * 0.35f, 0.0f, 1.2f) * flicker;
-            addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
-                     glm::vec3(1.0f, 0.55f, 0.22f) * strength, 3.0f + fire.intensity * 1.5f);
-        });
+    // Burning tiles: one light per 3x3 block, at most 8 (phase 7).
+    for (const glm::vec2& at : fireLights())
+    {
+        addLight(at, glm::vec3(1.0f, 0.55f, 0.22f) * 1.1f * flicker, 4.5f);
+    }
 
     // A shot lights up whoever fired it.
     if (mMuzzleFlash > 0.0f)
@@ -1054,6 +1112,7 @@ void Game::renderMap()
     const float scaledTileW = kIsoTileW * zoom;
     const float scaledTileH = kIsoTileH * zoom;
     const float margin = scaledTileW;
+    const float snowCover = std::clamp(mWeatherState.snowCover, 0.0f, 1.0f);
 
     // Render tiles back-to-front by sum of (col + row)
     for (int sum = 0; sum < mapW + mapH - 1; ++sum)
@@ -1109,13 +1168,14 @@ void Game::renderMap()
             }
 
             // Tileset diamonds tile exactly; one extra screen pixel hides
-            // rounding gaps at fractional zoom levels.
+            // rounding gaps at fractional zoom levels. Burned ground is
+            // charred dark (phase 7).
             mSpriteBatch.draw(
                 glm::vec2(std::round(screenCenter.x - scaledTileW * 0.5f),
                           std::round(screenCenter.y - scaledTileH * 0.5f)),
                 glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f),
                 uvRect,
-                glm::vec4(1.0f));
+                tileBurned(col, row) ? glm::vec4(0.46f, 0.41f, 0.38f, 1.0f) : glm::vec4(1.0f));
 
             // Edge overlays: grass creeping over its neighbours, the banks
             // of ponds, and the shadow at the foot of a wall.
@@ -1174,6 +1234,28 @@ void Game::renderMap()
                 {
                     overlay(TileGid::shadowGid(1, true));
                 }
+            }
+
+            // Winter (phase 7): ice on the ponds, snow lying on open ground.
+            const auto overlayTinted = [&](int overlayGid, const glm::vec4& color)
+            {
+                glm::vec4 overlayUv;
+                if (mTileMap.gidToUvRect(overlayGid, overlayUv))
+                {
+                    mSpriteBatch.draw(
+                        glm::vec2(std::round(screenCenter.x - scaledTileW * 0.5f),
+                                  std::round(screenCenter.y - scaledTileH * 0.5f)),
+                        glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f), overlayUv, color);
+                }
+            };
+            if (base == TileGid::kWater && mTileMap.waterFrozen())
+            {
+                overlayTinted(TileGid::iceGid(), glm::vec4(1.0f));
+            }
+            else if (snowCover > 0.01f && !walled && !indoors && base != TileGid::kWater)
+            {
+                const int variant = static_cast<int>((h >> 3) % static_cast<std::uint32_t>(TileGid::kSnowVariants));
+                overlayTinted(TileGid::snowGid(variant), glm::vec4(1.0f, 1.0f, 1.0f, snowCover));
             }
         }
     }

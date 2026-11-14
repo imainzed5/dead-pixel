@@ -1,5 +1,6 @@
 // Game lifecycle: startup, runs, saving, input plumbing and small queries.
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 
 using namespace gameshared;
 
@@ -335,6 +336,7 @@ RunCheckpoint Game::buildRunCheckpoint()
     cp.weather.condition = static_cast<int>(mWeatherState.condition);
     cp.weather.hoursLeft = mWeatherSystem.hoursLeft();
     cp.weather.rngState = mWeatherSystem.rngState();
+    cp.weather.snowCover = mWeatherState.snowCover;
 
     if (mPlayerEntity != kInvalidEntity)
     {
@@ -387,17 +389,7 @@ RunCheckpoint Game::buildRunCheckpoint()
     cp.boardsSaved = true;
     cp.boardedDoors = boardedDoorRecords();
     cp.burnedTiles = mBurnedTiles;
-    mWorld.forEach<Fire, Transform>(
-        [&](Entity, Fire& fire, Transform& transform)
-        {
-            const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(transform.x, transform.y));
-            FireTileRecord record;
-            record.tileX = tile.x;
-            record.tileY = tile.y;
-            record.intensity = fire.intensity;
-            record.lifeRemaining = fire.lifeRemaining;
-            cp.fires.push_back(record);
-        });
+    cp.fires = fireRecords();
     recordTheDead(cp);
     cp.firstDaysSaved = true;
     cp.firstDays = firstDaysRecord();
@@ -592,13 +584,14 @@ void Game::startNewRun()
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
     mActiveVehicleEntity = kInvalidEntity;
-    mBurnedTiles.clear();
+    clearFireAndWeatherMarks();
     mShowWorldMap = false;
     mShowNotebook = false;
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
     nudgeSpawnsOffFurniture();
+    avoidGuttedStart();
 
     // The house an earlier life held: the new character starts there three
     // times in ten, and always when it was the last one's home and they died
@@ -608,7 +601,7 @@ void Game::startNewRun()
         const LastHomeRecord& last = mSaveManager.lastHome();
         std::mt19937 baseRng(mSaveManager.currentRunSeed() ^ 0xBA5Eu);
         const bool chance = std::uniform_real_distribution<float>(0.0f, 1.0f)(baseRng) < 0.3f;
-        if (base.building > 0 && ((last.building == base.building && last.diedAway) || chance))
+        if (base.building > 0 && !guttedInMemory(base.building) && ((last.building == base.building && last.diedAway) || chance))
         {
             const glm::vec2 centre(base.x / static_cast<float>(mTileMap.tileWidth()),
                                    base.y / static_cast<float>(mTileMap.tileHeight()));
@@ -804,6 +797,7 @@ void Game::startNewRun()
         {
             mWeatherSystem.restore(mWeatherState, static_cast<WeatherCondition>(cp.weather.condition),
                                    cp.weather.hoursLeft, cp.weather.rngState);
+            mWeatherState.snowCover = cp.weather.snowCover;
         }
         if (cp.firstDaysSaved)
         {
@@ -820,6 +814,7 @@ void Game::startNewRun()
     }
     placeHomeKit();
     plantScenery(); // again, now that the run's people and things are in place
+    for (const auto& [bx, by] : mBurnedTiles) mSceneryView.burnTree(glm::ivec2(bx, by));
 
     if (!restoredCheckpoint)
     {
@@ -888,7 +883,7 @@ void Game::returnToTitleScreen()
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
     mActiveVehicleEntity = kInvalidEntity;
-    mBurnedTiles.clear();
+    clearFireAndWeatherMarks();
     mShowWorldMap = false;
     mShowNotebook = false;
     mRunStats = RunStats{};
@@ -1095,12 +1090,8 @@ glm::ivec2 Game::playerTile() const
 
 float Game::nightFactor() const
 {
-    // 0 = full day, 1 = full night, with dusk 18-20 and dawn 5-6.
-    const double hour = mGameHours;
-    if (hour >= 6.0 && hour < 18.0) return 0.0f;
-    if (hour >= 18.0 && hour < 20.0) return static_cast<float>((hour - 18.0) / 2.0);
-    if (hour >= 5.0 && hour < 6.0) return 1.0f - static_cast<float>(hour - 5.0);
-    return 1.0f;
+    // 0 = full day, 1 = full night; dusk and dawn move with the seasons.
+    return weatherrules::nightFactor(mCurrentDay, mGameHours);
 }
 
 void Game::refreshTitleCheckpoint()

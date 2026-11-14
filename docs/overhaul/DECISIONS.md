@@ -454,6 +454,93 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   `cooking`'s shots). It is now shortened to the width that is left (the
   panel shows the full text) and sits above the condition labels.
 
+- 2026-11-14, P07: where Snow sits in `WeatherCondition` -> appended after
+  the existing values (with Heatwave and Blizzard), so saved weather
+  records keep their numbers.
+- 2026-11-14, P07: "Body" in the table -> a shift of the ambient
+  temperature, outdoors only (`weatherrules::bodyShift`); indoors the
+  shelter rule stands. The heatwave's +8 counts only out of the shade
+  (indoors, or within reach of a tree canopy).
+- 2026-11-14, P07: the Raincoat -> as the table (rain and heavy rain 0),
+  and a thunderstorm with a Raincoat is -2 C rather than 0: the wind still
+  bites. Snow and the blizzard ignore it. It sits in bedroom loot at weight 1.
+- 2026-11-14, P07: clothing in hot weather -> carried warmth never lifts
+  the ambient above 30 C (where heat starts to tell), so a coat in summer
+  does not cook the player; the heatwave's coat rule (+3 C) is the only
+  extra.
+- 2026-11-14, P07: storm fires -> a thunderstorm puts out fires in the
+  open as heavy rain does (40 game minutes); the table gave only its
+  spread (x0.2).
+- 2026-11-14, P07: wind -> carries a fire's spread from strength 0.25 (the
+  downwind x1.6, upwind x0.6), and adds the two downwind diagonals above
+  0.5, as the phase says. The weather system's wind drifts slowly toward a
+  direction and strength that each condition rolls.
+- 2026-11-14, P07: the HUD's second weather word -> "clearing",
+  "clouding", "rain near", "storm near", "fog near", "snow near",
+  "blizzard near", "warming", from the forecast 90 game minutes ahead.
+- 2026-11-14, P07: Wet and smoke state (`wetHours`, `smokeSeconds`) are not
+  saved: both last an hour at most, and a resume after shelter is dry.
+- 2026-11-14, P07: snow on the ground -> builds to full over 6 game hours
+  of snow (3 in a blizzard), melts over 12 game hours above 2 C, is kept
+  in the weather record (`"snow"`, optional, no version bump). Ponds are
+  frozen for the whole of winter rather than by temperature, so a warm
+  winter afternoon does not drown a player standing on the ice.
+- 2026-11-14, P07: the clear-day view -> 20 tiles; the table's percentages
+  fade the world from that (rain -10 % starts the fog at 9.9 tiles). Fog
+  fades from 5 tiles to 9, the blizzard from 3 to 5.5.
+- 2026-11-14, P07: the dead's night -> follows the season's dusk and dawn
+  (`FirstDays` hours become functions of the day), so a winter night is
+  longer for them too; summer's x1.1 by night is on top.
+- 2026-11-14, P07: thunder and lightning -> every visual flash of
+  `Atmosphere` gives the dead 0.2 s of x1.5 sight; the Explosive thunder
+  near the player and the 5 % tree fire come from a slower simulation
+  timer (a strike every 40 to 120 s in a storm), which also lights the
+  sky, so the dead are not drawn across town by every flicker.
+- 2026-11-14, P07: fuel of a wall -> walls and doorways of Plaster (wooden)
+  buildings are 0.4; brick and metal buildings burn only inside. A put-out
+  tile that had burned a while (0.1 of its fuel) counts as burned and
+  chars a tree on it, as a burned-out one does; the next life finds both.
+- 2026-11-14, P07: "burned grass regrows after 2 lives" -> it is green
+  again on the third life after the fire (the two lives after it find it
+  black).
+- 2026-11-14, P07: the fire grid in checkpoints -> the existing
+  `FireTileRecord` holds a tile's heat (`intensity`) and fuel
+  (`lifeRemaining`), with an optional `byPlayer`. Fires restored from
+  world memory at a new life are not the player's.
+- 2026-11-14, P07: the season's day card -> on a season's first day the
+  dawn card's line names it ("Summer."); on day 43 the line is "Frost on
+  the windows." Both replace the day's usual line, not add one.
+- 2026-11-14, P07: footsteps in snow -> one tier quieter, applied where the
+  player's footstep noise is made (`GameUpdate`), not in `NoiseModel`, as
+  the tier comes from the weather and the ground under the player.
+- 2026-11-14, P07: the smoke column -> particles above a burning building
+  and a grey mark on the minimap (and town map); no tall column sprite.
+- 2026-11-14, P07: "a burning doorway is not walked through by survivors"
+  -> any survivor stops before a burning tile in its way (survivors are
+  P08's; today's are the legacy ones). The dead walk through and burn.
+- 2026-11-14, P07: harness additions -> `season NAME`, `wind X Y`, `air C`
+  (held air temperature; `air off`), `ignite DX DY [N|molotov]`, `fires`,
+  `weatherinfo`, `strip` (warm things out of the pack), `goto pond [on]`,
+  and the checks `expect weatherinfo NOISE SIGHT BODY`, `expect
+  drawn|undrawn DX DY`, `expect spread east|west`, `expect fires N`,
+  `expect gutted|notgutted`, `expect walkable|solid`, `expect collector
+  MAX`. `expect burning` reads the grid. `weatherinfo` also prints the
+  body temperature and clothing.
+- 2026-11-14, P07: the ground round a house (the strip inside its lot) is
+  sheltered, so snow does not lie on it and a night there is not cold.
+  `seasons.txt` tests the cold in open grass (`goto wild`). Changing which
+  tiles are indoors was out of scope.
+- 2026-11-14, P07: snow on roofs -> a pale wash on the roof sprite by
+  accumulation (green and blue lifted more than red, so a red roof goes
+  grey-white, not pink), no snow-capped roof set; the gutted roof is the
+  one new roof set (`roofp_burnt_<mask>`).
+- 2026-11-14, P07: burned ground -> the tile itself is drawn charred dark,
+  as well as the old scorch decal, so a burned floor shows inside a
+  gutted house.
+- 2026-11-14, P07: a frozen pond's prompt -> "R: Break the ice, fill
+  bottles (dirty)"; without an axe or hammer R says "The pond is frozen.
+  An axe or a hammer would break the ice."
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -488,6 +575,11 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   "Later"); the radio's music in shelter (P12) and its campaign broadcast
   (P09); foraging on open Wilderness ground (`forage::Spot::Wild` is in the
   rules, unused).
+
+- 2026-11-14, P07: the weather vane and flooded roads in a storm (the
+  phase's own "Later"); summer's shrinking ponds (optional in the phase);
+  distant thunder before a storm waits for P12's sounds (the darker sky
+  and the cloud and wind warnings are in).
 
 ## Balance: needs a design change
 

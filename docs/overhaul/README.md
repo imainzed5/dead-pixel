@@ -49,7 +49,7 @@ comes before fighting; no engine switch.
 | 4 | `phases/P04_the_dead.md` | Five kinds of dead, senses (sight, sound, blood), hordes, threat modes that really differ | done |
 | 5 | `phases/P05_body_and_mind.md` | Skills, chosen traits, deeper wounds and illness, sleep debt and a mind that shows | done |
 | 6 | `phases/P06_scavenging.md` | Buildings with a purpose, locks and windows, power and water running out, cooking, foraging, growing food | done |
-| 7 | `phases/P07_weather_and_fire.md` | Weather and seasons that change the rules; fire that follows them | not started |
+| 7 | `phases/P07_weather_and_fire.md` | Weather and seasons that change the rules; fire that follows them | done |
 | 8 | `phases/P08_survivors.md` | Other people with needs, homes and tempers: trade, travel together, get robbed | not started |
 | 9 | `phases/P09_the_way_out.md` | The campaign: clues, the gate, a last stand, and getting out | not started |
 | 10 | `phases/P10_legacy.md` | Journals, what a bloodline learns, a town that ages between lives | not started |

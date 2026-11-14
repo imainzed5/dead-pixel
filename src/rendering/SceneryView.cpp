@@ -36,6 +36,7 @@ void SceneryView::build(const std::vector<SceneryPiece>& pieces)
     mShrubsByTile.clear();
     mLamps.clear();
     mTrees.clear();
+    mTreeByTile.clear();
     for (const SceneryPiece& piece : pieces)
     {
         Entry entry;
@@ -57,6 +58,7 @@ void SceneryView::build(const std::vector<SceneryPiece>& pieces)
         if (piece.tall)
         {
             entry.motion = Motion::Tree;
+            mTreeByTile[bucketKey(entry.tile.x, entry.tile.y)] = id;
             entry.autumn = std::strcmp(piece.sprite, "scn_tree_autumn") == 0;
             if (startsWith(piece.sprite, "scn_tree_oak") || entry.autumn)
             {
@@ -268,6 +270,37 @@ void SceneryView::canopiesNear(const glm::vec2& centre, float radius, std::vecto
     }
 }
 
+bool SceneryView::treeAt(const glm::ivec2& tile) const
+{
+    const auto it = mTreeByTile.find(bucketKey(tile.x, tile.y));
+    return it != mTreeByTile.end() && !mStanding[it->second].burnt;
+}
+
+void SceneryView::burnTree(const glm::ivec2& tile)
+{
+    const auto it = mTreeByTile.find(bucketKey(tile.x, tile.y));
+    if (it == mTreeByTile.end()) return;
+    Entry& entry = mStanding[it->second];
+    if (entry.burnt) return;
+    entry.burnt = true;
+    entry.autumn = false;
+    entry.piece.sprite = "scn_tree_dead";
+    std::erase(mTrees, it->second); // no leaves, no shade
+    mResolved = false;
+}
+
+std::vector<glm::ivec2> SceneryView::treeTiles() const
+{
+    std::vector<glm::ivec2> out;
+    for (const auto& [key, id] : mTreeByTile)
+    {
+        if (!mStanding[id].burnt) out.push_back(mStanding[id].tile);
+    }
+    std::sort(out.begin(), out.end(), [](const glm::ivec2& a, const glm::ivec2& b)
+              { return a.y != b.y ? a.y < b.y : a.x < b.x; });
+    return out;
+}
+
 void SceneryView::drawFlat(SpriteBatch& batch, const Camera& camera, const SpriteSheet& sheet)
 {
     resolve(sheet);
@@ -323,7 +356,8 @@ void SceneryView::collect(const Camera& camera, const glm::ivec2& playerTile, co
             continue;
         }
         const float alpha = entry.piece.tall && hidesPlayer(entry.tile, playerTile) ? kFadedAlpha : 1.0f;
-        const glm::vec4 color(1.0f, 1.0f, 1.0f, alpha);
+        // A burnt tree is a black trunk.
+        const glm::vec4 color = entry.burnt ? glm::vec4(0.22f, 0.19f, 0.18f, alpha) : glm::vec4(1.0f, 1.0f, 1.0f, alpha);
         // Depth in entity units: the top-left corner of a 32 px cell centred
         // on the ground point.
         const float depth = entry.piece.position.x + entry.piece.position.y - 32.0f;

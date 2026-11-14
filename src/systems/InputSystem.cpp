@@ -92,7 +92,7 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             const glm::vec2 current(velocity.dx, velocity.dy);
             const glm::vec2 change = wanted - current;
             const float changeLength = glm::length(change);
-            const float step = (glm::dot(wanted, wanted) > 0.0f ? kAcceleration : kDeceleration) * dtSeconds;
+            const float step = (glm::dot(wanted, wanted) > 0.0f ? kAcceleration : kDeceleration) * mModifiers.accelScale * dtSeconds;
             const glm::vec2 next = changeLength <= step ? wanted : current + change / changeLength * step;
             velocity.dx = next.x;
             velocity.dy = next.y;

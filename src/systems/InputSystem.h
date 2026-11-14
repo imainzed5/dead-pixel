@@ -14,6 +14,7 @@ struct MoveModifiers
     float runSpeedScale = 1.0f; // Fitness
     bool canRun = true;         // a broken leg, unsplinted
     bool runAtWalkSpeed = false; // a splinted leg
+    float accelScale = 1.0f;    // ice: speeding up and stopping take twice as long
 };
 
 class InputSystem

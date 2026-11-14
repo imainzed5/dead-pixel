@@ -30,6 +30,14 @@ struct Needs
     // Degrees of ambient warmth added by worn clothing. Recomputed each tick
     // from the inventory, not saved.
     float clothingInsulation = 0.0f;
+    // Phase 7, recomputed each tick from the pack, not saved.
+    bool raincoat = false;
+    bool winterCoat = false;
+    // Phase 7: time out in the rain (real seconds = game minutes), then
+    // game hours of being wet, and smoke breathed. Not saved.
+    float wetExposure = 0.0f;
+    float wetHours = 0.0f;
+    float smokeSeconds = 0.0f;
 
     // Illness (0 = healthy, 100 = severe)
     float illness = 0.0f;

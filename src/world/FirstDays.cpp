@@ -1,4 +1,5 @@
 #include "world/FirstDays.h"
+#include "world/WeatherRules.h"
 #include "core/Tuning.h"
 
 #include <algorithm>
@@ -23,6 +24,16 @@ std::string duration(double hours)
 }
 } // namespace
 
+double duskHour(int day)
+{
+    return weatherrules::duskHour(day);
+}
+
+double dawnHour(int day)
+{
+    return weatherrules::dawnHour(day);
+}
+
 bool tapsRunning(int day, double hours)
 {
     return day < kTapsDieDay || (day == kTapsDieDay && hours < kTapsDieHour);
@@ -35,8 +46,8 @@ bool pressureLow(int day, double hours)
 
 int nightIndex(int day, double hours)
 {
-    if (hours >= kDuskHour) return day;
-    if (hours < kDawnHour) return std::max(0, day - 1);
+    if (hours >= duskHour(day)) return day;
+    if (hours < dawnHour(day)) return std::max(0, day - 1);
     return 0;
 }
 
@@ -125,13 +136,15 @@ Plan planFor(int day, double hours, const Facts& facts)
     return plan;
 }
 
-std::string clockLine(double hours)
+std::string clockLine(double hours, int day)
 {
-    if (hours >= kDawnHour && hours < kDuskHour)
+    const double dusk = duskHour(day);
+    const double dawn = dawnHour(day);
+    if (hours >= dawn && hours < dusk)
     {
-        return "Dark in " + duration(kDuskHour - hours);
+        return "Dark in " + duration(dusk - hours);
     }
-    const double untilDawn = hours >= kDuskHour ? 24.0 - hours + kDawnHour : kDawnHour - hours;
+    const double untilDawn = hours >= dusk ? 24.0 - hours + dawnHour(day + 1) : dawn - hours;
     return "Dawn in " + duration(untilDawn);
 }
 

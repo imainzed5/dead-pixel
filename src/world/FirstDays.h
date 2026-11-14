@@ -12,8 +12,10 @@ namespace firstdays
 // objective takes over.
 constexpr int kPlanDays = 3;
 
-constexpr double kDuskHour = 20.0;
-constexpr double kDawnHour = 6.0;
+// Dusk and dawn move with the seasons (phase 7): Spring 06:00-20:00, the
+// first days' hours. These are weatherrules::duskHour and dawnHour.
+[[nodiscard]] double duskHour(int day);
+[[nodiscard]] double dawnHour(int day);
 
 // The water goes off in the small hours of day 3.
 constexpr int kTapsDieDay = 3;
@@ -84,7 +86,7 @@ struct Plan
 [[nodiscard]] Plan planFor(int day, double hours, const Facts& facts);
 
 // "Dark in 3h 20m" by day, "Dawn in 2h 05m" by night.
-[[nodiscard]] std::string clockLine(double hours);
+[[nodiscard]] std::string clockLine(double hours, int day = 1);
 
 // The card at dawn: a heading and one line for the day ahead.
 struct DayCard

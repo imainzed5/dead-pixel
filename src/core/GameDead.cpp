@@ -4,6 +4,7 @@
 // dead's own thinking in ZombieAISystem (ZombieSenses/Move/Attack.cpp).
 
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 
 #include "systems/InventorySystem.h"
 #include "world/FirstDays.h"
@@ -19,11 +20,6 @@ namespace
 glm::vec2 centreOf(const Transform& t)
 {
     return glm::vec2(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f);
-}
-
-bool isRaining(WeatherCondition c)
-{
-    return c == WeatherCondition::Rain || c == WeatherCondition::HeavyRain || c == WeatherCondition::Thunderstorm;
 }
 
 constexpr float kTwoPi = 6.2831853f;
@@ -650,7 +646,7 @@ void Game::updateHordes(float dtSeconds)
 
     // At the far edge (or by dawn) it breaks up into groups where it is,
     // and that district turns a little.
-    const bool dawn = mGameHours >= firstdays::kDawnHour && mGameHours < 12.0 && mCurrentDay > mHorde.night;
+    const bool dawn = mGameHours >= weatherrules::dawnHour(mCurrentDay) && mGameHours < 12.0 && mCurrentDay > mHorde.night;
     if (alive == 0 || dawn || static_cast<int>(atEnd.size()) * 2 >= alive)
     {
         const glm::vec2 centre = alive > 0 ? sum / static_cast<float>(alive)
@@ -683,7 +679,7 @@ void Game::updateHordes(float dtSeconds)
 
 bool Game::nightNow() const
 {
-    return mGameHours >= firstdays::kDuskHour || mGameHours < firstdays::kDawnHour;
+    return weatherrules::isNight(mCurrentDay, mGameHours);
 }
 
 // --- The Stalker's follower -------------------------------------------------
@@ -755,8 +751,8 @@ void Game::updateFollower()
 
 void Game::updateBloodTrail(float dtSeconds)
 {
-    const bool raining = isRaining(mWeatherState.condition);
-    mBloodTrail.update(dtSeconds, raining, modeRules().trailScale);
+    const bool raining = weatherrules::rainy(mWeatherState.condition);
+    mBloodTrail.update(dtSeconds, raining, modeRules().trailScale, weatherrules::bloodOutdoorSeconds(mWeatherState.condition));
     if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Transform>(mPlayerEntity)) return;
 
     // Bleeding, or an undressed cut or bite: drops as you walk.
@@ -853,7 +849,7 @@ void Game::noticeUnknownRules()
     const auto has = [&](zombiekinds::UnknownRule rule) { return mUnknownRules.first == rule || mUnknownRules.second == rule; };
     const float tile = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     const glm::vec2 player = playerWorldCenter();
-    const bool raining = isRaining(mWeatherState.condition);
+    const bool raining = weatherrules::rainy(mWeatherState.condition);
     const bool night = nightNow();
     int nearCalm = 0;
     int nearHunting = 0;
@@ -984,7 +980,7 @@ void Game::onZombieDeath(Entity zombie)
     // A Bloated one bursts, unless burned or killed from two tiles off.
     if (ai.decomp == DecompStage::Bloated && mPlayerEntity != kInvalidEntity)
     {
-        const bool burned = ai.lastDamagedBy != kInvalidEntity && mWorld.hasComponent<Fire>(ai.lastDamagedBy);
+        const bool burned = ai.burnedLast;
         const float playerTiles = glm::length(playerWorldCenter() - at) / tile;
         mParticleSystem.spawnDustRing(at, 40.0f, 18);
         if (!burned && playerTiles < std::max(kBurstTiles, kCleanKillTiles) && playerTiles < kBurstTiles)
@@ -1091,15 +1087,7 @@ void Game::runZombieAI(float feelDt)
         const int building = mTileMap.inBounds(here.x, here.y) ? mTileMap.getBuildingId(here.x, here.y) : 0;
         // Lit: the flashlight, or beside a fire, or a light in the room.
         tick.playerLit = mFlashlightOn || (building > 0 && buildingLit(building));
-        if (!tick.playerLit)
-        {
-            const glm::vec2 player = playerWorldCenter();
-            mWorld.forEach<Fire, Transform>(
-                [&](Entity, Fire&, Transform& t)
-                {
-                    if (glm::length(centreOf(t) - player) < 3.0f * static_cast<float>(mTileMap.tileWidth())) tick.playerLit = true;
-                });
-        }
+        if (!tick.playerLit) tick.playerLit = !mFireSystem.burningNear(here, 3).empty();
         if (mWorld.hasComponent<Facing>(mPlayerEntity)) tick.playerCrouched = mWorld.getComponent<Facing>(mPlayerEntity).crouching;
         if (mWorld.hasComponent<Velocity>(mPlayerEntity))
         {
@@ -1109,12 +1097,17 @@ void Game::runZombieAI(float feelDt)
     }
     tick.playerDown = playerKnockedDown();
 
-    tick.weather = mWeatherState.condition;
-    tick.visibility = mWeatherState.visibilityMultiplier;
+    // The weather, as the rules read it (phase 7). A lightning flash shows
+    // the dead everything for a moment.
+    const WeatherCondition weather = mWeatherState.condition;
+    tick.raining = weatherrules::rainy(weather);
+    tick.hearingScale = weatherrules::noiseScale(weather);
+    tick.visibility = weatherrules::deadSightScale(weather, mLightningFlash > 0.0f);
+    tick.weatherSpeed = weatherrules::deadMoveScale(weather);
+    tick.nightSpeed = weatherrules::deadNightScale(mWeatherState.season);
+    tick.snowCover = mWeatherState.snowCover;
     // The wind turns slowly over the day; which way it blows is the run's.
-    const float windAngle = static_cast<float>(mSaveManager.currentRunSeed() % 628u) * 0.01f +
-                            0.6f * std::sin(static_cast<float>(mGameHours) * 0.26f + static_cast<float>(mCurrentDay));
-    tick.windTo = glm::vec2(std::cos(windAngle), std::sin(windAngle));
+    tick.windTo = glm::vec2(mWeatherState.windX, mWeatherState.windY);
     tick.windStrength = mWeatherState.windStrength;
 
     tick.speedScale = mode.speed;
@@ -1192,40 +1185,10 @@ void Game::updateDead(float dtSeconds, float feelDt)
     }
 
     // Rain stopping (The Unknown's calm-in-rain rule turns to frenzy).
-    const bool raining = isRaining(mWeatherState.condition);
+    const bool raining = weatherrules::rainy(mWeatherState.condition);
     if (mWasRaining && !raining) mRainStoppedTimer = kRainFrenzySeconds;
     mRainStoppedTimer = std::max(0.0f, mRainStoppedTimer - dtSeconds);
     mWasRaining = raining;
-
-    // Thunder: an explosion's worth of noise somewhere outside near you,
-    // every 40 to 120 s of a storm.
-    if (mWeatherState.condition == WeatherCondition::Thunderstorm && mPlayerEntity != kInvalidEntity)
-    {
-        mThunderTimer -= dtSeconds;
-        if (mThunderTimer <= 0.0f)
-        {
-            std::mt19937 rng(mSaveManager.currentRunSeed() ^ static_cast<std::uint32_t>(mGameHours * 600.0) ^
-                             static_cast<std::uint32_t>(mCurrentDay * 104729));
-            std::uniform_real_distribution<float> unit(0.0f, 1.0f);
-            mThunderTimer = 40.0f + unit(rng) * 80.0f;
-            const glm::vec2 player = playerWorldCenter();
-            for (int attempt = 0; attempt < 30; ++attempt)
-            {
-                const float angle = unit(rng) * kTwoPi;
-                const float distance = unit(rng) * 40.0f * tile;
-                const glm::vec2 at = player + glm::vec2(std::cos(angle), std::sin(angle)) * distance;
-                const glm::ivec2 t = worldToTile(mTileMap, at);
-                if (!mTileMap.inBounds(t.x, t.y) || mTileMap.isSolid(t.x, t.y) || mTileMap.isIndoors(t.x, t.y)) continue;
-                mNoiseModel.emitNoise(at, NoiseTier::Explosive, 1.0f);
-                mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.2f);
-                break;
-            }
-        }
-    }
-    else
-    {
-        mThunderTimer = std::max(mThunderTimer, 40.0f);
-    }
 
     // The Unknown: drawn to light from 20 tiles.
     const zombiekinds::ModeRules& mode = modeRules();

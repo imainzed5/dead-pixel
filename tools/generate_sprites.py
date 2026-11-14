@@ -780,6 +780,7 @@ def generate_atlas():
     add_window_sprites(img, sprites)
     add_base_props(img, sprites)
     add_phase6_sprites(img, sprites)
+    add_phase7_sprites(img, sprites)
 
     return img, sprites
 
@@ -1239,7 +1240,65 @@ def generate_tileset():
                    ((3.0, 112), (7.0, 78), (11.0, 46), (15.0, 22)), SLAB_T)
     overlay_shadow(img, 9 * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, 1,
                    ((2.0, 70), (5.0, 40), (8.0, 18)), SLAB_T)
+    # Columns 10-13: snow lying on the ground, four variants; column 14: ice
+    # on a frozen pond (phase 7; TileGid::snowGid and iceGid).
+    for v in range(4):
+        overlay_snow(img, (10 + v) * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, random.Random(9301 + v))
+    overlay_ice(img, 14 * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, random.Random(9401))
     return img
+
+
+def overlay_snow(img, ox, oy, rng):
+    """Snow over the whole tile: drifts in world space, a few thin spots
+    where the ground shows through. The renderer fades it in by cover."""
+    base = (226, 232, 240)
+    holes = [(rng.uniform(4, 28), rng.uniform(4, 28), rng.uniform(1.5, 3.2)) for _ in range(3)]
+    phase = rng.uniform(0, 2 * math.pi)
+
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        # Soft drifts with a period of one tile, so the tiles meet unseen.
+        drift = (math.sin(2 * math.pi * wx / 32.0 + phase) * math.cos(2 * math.pi * wy / 32.0)) * 4
+        c = shade(base, drift + rng.randint(-2, 2))
+        a = 246
+        for hx, hy, hr in holes:
+            d = math.hypot(wx - hx, wy - hy) / hr
+            if d < 1.0:
+                a = min(a, int(120 + 126 * d))
+                c = shade(c, -14)
+        # Blue in the hollows, bright on the crests.
+        if drift < -3:
+            c = (c[0] - 10, c[1] - 4, c[2])
+        put(img, ox + px, oy + py, c, a)
+
+    for_diamond(px_fn)
+    for _ in range(6):
+        x, y = rand_point(rng, 2)
+        dput(img, ox, oy, x, y, (250, 252, 255), 255)
+
+
+def overlay_ice(img, ox, oy, rng):
+    """A frozen pond: pale blue-grey ice, frosted at the edge of each
+    tile, with white cracks."""
+    base = (176, 198, 212)
+
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        edge = min(wx, wy, 32.0 - wx, 32.0 - wy)
+        c = shade(base, rng.randint(-3, 3) + int(math.sin(wx * 0.3 - wy * 0.5) * 4))
+        if edge < 2.0:
+            c = mix(c, (220, 230, 238), 0.5)
+        put(img, ox + px, oy + py, c, 236)
+
+    for_diamond(px_fn)
+    for _ in range(3):
+        x, y = rand_point(rng, 4)
+        angle = rng.uniform(0, math.pi)
+        for step in range(rng.randint(8, 16)):
+            angle += rng.uniform(-0.5, 0.5)
+            x += math.cos(angle) * 1.2
+            y += math.sin(angle) * 0.6
+            dput(img, ox, oy, x, y, (236, 244, 250), 230)
 
 
 # --- Structures ------------------------------------------------------------
@@ -3835,6 +3894,144 @@ def add_phase6_sprites(img, sprites):
             if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
                 raise SystemExit("phase 6 sprite " + k + " overlaps " + ok)
 
+
+
+# --- Phase 7: weather and fire --------------------------------------------
+P7_Y = 3776   # below the armin rows, which end at 3776
+
+
+def burnt_roof_piece(mask):
+    """A gutted house's roof: the residential piece charred black, holed,
+    with the rafters left standing across the holes."""
+    src = make_roof_piece("residential", mask)
+    out = Image.new("RGBA", src.size, (0, 0, 0, 0))
+    rng = random.Random(7700 + mask)
+    rise = ROOF_RISE["residential"]
+    for py in range(src.height):
+        for px in range(src.width):
+            r, g, b, a = src.getpixel((px, py))
+            if a == 0:
+                continue
+            lum = (r * 3 + g * 5 + b * 2) / 10.0
+            # Charred: dark, a little warm.
+            c = (clamp8(18 + lum * 0.26), clamp8(15 + lum * 0.22), clamp8(14 + lum * 0.2))
+            # Holes burned through, in blotches; the rafters run down the slope
+            # (iso lines) and stay.
+            cell = ((px // 8) * 73856093 ^ ((py + rise) // 4) * 19349663 ^ mask * 83492791) & 0xFFFF
+            rafter = (px + 2 * py) % 12 in (0, 1)
+            hole = cell % 7 in (0, 1) and py < src.height - ROOF_FASCIA - 1
+            if hole and not rafter:
+                continue
+            if rafter and hole:
+                c = (34, 26, 22)
+            elif rng.random() < 0.06:
+                c = (90, 46, 30)        # a glowing ember left in the char
+            out.putpixel((px, py), (c[0], c[1], c[2], a))
+    return out
+
+
+def draw_flame(frame):
+    """A tile's flames, 32x40, four frames that flicker."""
+    img = Image.new("RGBA", (32, 40), (0, 0, 0, 0))
+    rng = random.Random(8100 + frame)
+    tongues = [(8 + rng.uniform(-1, 1), 16 + frame % 2 * 2), (16 + rng.uniform(-1.5, 1.5), 30 - frame), (24 + rng.uniform(-1, 1), 18 + (frame + 1) % 2 * 3)]
+    for cx, height in tongues:
+        sway = math.sin(frame * 1.6 + cx) * 2.0
+        for y in range(int(height)):
+            t = y / height                # 0 at the base, 1 at the tip
+            half = (1.0 - t) ** 0.8 * 5.5
+            x_mid = cx + sway * t
+            for x in range(int(x_mid - half), int(math.ceil(x_mid + half)) + 1):
+                if not 0 <= x < 32:
+                    continue
+                d = abs(x + 0.5 - x_mid) / max(0.5, half)
+                if d > 1.0:
+                    continue
+                core = (1.0 - d) * (1.0 - t)
+                if core > 0.45:
+                    c = (255, 236, 150)
+                elif core > 0.2:
+                    c = (250, 170, 60)
+                else:
+                    c = (210, 80, 30)
+                py = 39 - 4 - y
+                a = 235 if t < 0.85 else 160
+                prev = img.getpixel((x, py))
+                if prev[3] == 0 or core > 0.2:
+                    img.putpixel((x, py), (c[0], c[1], c[2], a))
+    # Embers on the ground.
+    for _ in range(6):
+        x, y = rng.randint(4, 27), rng.randint(34, 38)
+        img.putpixel((x, y), (200, 70, 30, 220))
+    # Sparks above.
+    for _ in range(3):
+        x, y = rng.randint(6, 25), rng.randint(2, 12)
+        img.putpixel((x, y), (255, 200, 90, 200))
+    return img
+
+
+def draw_phase7_icon(name):
+    ic = Icon(name)
+    if name == "item_winter_coat":
+        wool = (120, 70, 56)
+        ic.poly([(10, 6), (22, 6), (28, 13), (27, 29), (5, 29), (4, 13)], wool)
+        ic.poly([(4, 13), (10, 7), (10, 28), (2, 27)], shade(wool, -12))
+        ic.poly([(28, 13), (22, 7), (22, 28), (30, 27)], shade(wool, -12))
+        ic.light(22, -26)
+        ic.rect(10, 4, 22, 8, (214, 206, 190))           # the fleece collar
+        ic.line(16, 8, 16, 28, (70, 40, 32), 1)
+        for y in (12, 17, 22):
+            ic.set(18, y, (200, 180, 120))               # toggles
+            ic.set(19, y, (200, 180, 120))
+        ic.rect(5, 26, 10, 29, (214, 206, 190))           # cuffs
+        ic.rect(22, 26, 27, 29, (214, 206, 190))
+    elif name == "item_raincoat":
+        yellow = (214, 178, 52)
+        ic.poly([(11, 9), (21, 9), (27, 15), (26, 28), (6, 28), (5, 15)], yellow)
+        ic.poly([(5, 15), (11, 10), (11, 27), (3, 26)], shade(yellow, -14))
+        ic.poly([(27, 15), (21, 10), (21, 27), (29, 26)], shade(yellow, -14))
+        ic.ellipse(16, 7, 6, 4.5, shade(yellow, 8))     # the hood
+        ic.ellipse(16, 8, 3.2, 2.4, (70, 60, 40))
+        ic.light(28, -30)
+        ic.line(16, 12, 16, 27, (150, 120, 30), 1)
+        for y in (15, 20, 25):
+            ic.set(17, y, (60, 60, 64))
+    else:
+        ic.rect(9, 9, 23, 23, (150, 150, 150))
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+ITEM_ICONS_P7 = ["item_winter_coat", "item_raincoat"]
+
+
+def add_phase7_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    x = 0
+    row_h = 0
+    for mask in range(16):
+        piece = burnt_roof_piece(mask)
+        img.alpha_composite(piece, (x, P7_Y))
+        sprites["roofp_burnt_%d" % mask] = {"x": x, "y": P7_Y, "w": piece.width, "h": piece.height}
+        x += piece.width
+        row_h = max(row_h, piece.height)
+    for frame in range(4):
+        flame = draw_flame(frame)
+        img.alpha_composite(flame, (x, P7_Y))
+        sprites["fx_flame_%d" % frame] = {"x": x, "y": P7_Y, "w": flame.width, "h": flame.height}
+        x += flame.width
+    for name in ITEM_ICONS_P7:
+        draw_phase7_icon(name).paste(img, x, P7_Y)
+        sprites[name] = {"x": x, "y": P7_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+        x += ITEM_SIZE
+    if x > SHEET_W or P7_Y + max(row_h, 40) > SHEET_H:
+        raise SystemExit("phase 7 block does not fit")
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 7 sprite " + k + " overlaps " + ok)
 
 
 def main():

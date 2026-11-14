@@ -113,6 +113,23 @@ void ParticleSystem::spawnEmbers(const glm::vec2& worldPosition, int count)
     }
 }
 
+void ParticleSystem::spawnSmoke(const glm::vec2& worldPosition, int count)
+{
+    for (int i = 0; i < count; ++i)
+    {
+        ParticleData p;
+        p.position = worldPosition + glm::vec2(randFloat(-10.0f, 10.0f), randFloat(-6.0f, 6.0f));
+        p.velocity = glm::vec2(randFloat(-6.0f, 10.0f), randFloat(-26.0f, -14.0f));
+        const float grey = randFloat(0.28f, 0.42f);
+        p.color = glm::vec4(grey, grey, grey * 1.05f, 0.42f);
+        p.size = randFloat(5.0f, 9.0f);
+        p.lifetime = randFloat(2.6f, 4.0f);
+        p.fadeRate = 0.35f;
+        p.gravity = -4.0f;
+        spawn(p);
+    }
+}
+
 void ParticleSystem::spawnHeal(const glm::vec2& worldPosition, int count)
 {
     for (int i = 0; i < count; ++i)

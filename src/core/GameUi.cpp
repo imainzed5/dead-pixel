@@ -1,5 +1,6 @@
 // HUD snapshot and the menu and overlay panels (inventory, crafting, pause, title...).
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 #include "world/CombatRules.h"
 
 using namespace gameshared;
@@ -54,6 +55,8 @@ void Game::buildHudState()
         conditions.sleepDebt = needs.sleepDebt;
         conditions.fatigue = needs.fatigue;
         conditions.bodyTemperature = needs.bodyTemperature;
+        conditions.wet = needs.wetHours > 0.0f;
+        conditions.coughing = needs.smokeSeconds >= weatherrules::kCoughAfterSeconds;
         conditions.illness = needs.illness;
         // What a coffee hides does not show (phase 5).
         conditions.sleepDebt = sleeprules::shownDebt(needs.sleepDebt, needs.coffeeHours);
@@ -110,8 +113,16 @@ void Game::buildHudState()
     // Clock and weather.
     hud.day = mCurrentDay;
     hud.hours = mGameHours;
-    hud.weather = weatherConditionLabel(mWeatherState.condition);
+    hud.weather = weatherrules::label(mWeatherState.condition);
+    // The weather word gains a second when a change is close (phase 7).
+    if (mWeatherState.nextCondition != mWeatherState.condition && mWeatherState.hoursToChange <= weatherrules::kWarningHours)
+    {
+        hud.weather += std::string(", ") + weatherrules::changeWord(mWeatherState.nextCondition);
+    }
     hud.outdoorTemperature = mWeatherState.temperature;
+    hud.season = weatherrules::seasonName(mWeatherState.season);
+    hud.duskHour = weatherrules::duskHour(mCurrentDay);
+    hud.dawnHour = weatherrules::dawnHour(mCurrentDay);
     hud.characterName = mCurrentCharacterName;
 
     // Objective: the most urgent thing to do next.
@@ -158,7 +169,7 @@ void Game::buildHudState()
         if (!plan.title.empty())
         {
             title = plan.title;
-            detail = firstdays::clockLine(mGameHours);
+            detail = firstdays::clockLine(mGameHours, mCurrentDay);
             color = firstdays::nightIndex(mCurrentDay, mGameHours) > 0 ? glm::vec4(0.70f, 0.66f, 0.95f, 1.0f)
                                                                        : glm::vec4(0.92f, 0.80f, 0.34f, 1.0f);
             for (const firstdays::Step& step : plan.steps)
@@ -217,6 +228,8 @@ void Game::buildHudState()
     if (inventory)
     {
         hud.activeSlot = inventory->activeSlot;
+        const float warmest = InventorySystem::bestWarmth(*inventory, mItemDatabase);
+        bool wornShown = false;
         for (std::size_t i = 0; i < hud.hotbar.size() && i < inventory->slots.size(); ++i)
         {
             const auto& slot = inventory->slots[i];
@@ -241,6 +254,12 @@ void Game::buildHudState()
             }
             // A flashlight or radio whose battery is flat (phase 6).
             out.dim = (slot.itemId == mItems.flashlight || item->hasTag("radio")) && slot.condition <= 0.0f;
+            // The warmest thing carried counts as worn (phase 7): the first of it.
+            if (item->warmth > 0.0f && item->warmth >= warmest && !wornShown)
+            {
+                out.worn = true;
+                wornShown = true;
+            }
         }
     }
 
@@ -308,6 +327,15 @@ void Game::buildHudState()
         const firstdays::DayCard card = firstdays::dayCard(mCurrentDay);
         hud.dayCardTitle = card.title;
         hud.dayCardLine = isHordeNight(mCurrentDay) ? std::string("Something is moving on the far side of town.") : card.line;
+        // A season's first morning names it; the first frost has its own line (phase 7).
+        if (mCurrentDay > 1 && weatherrules::seasonDay(mCurrentDay) == 0)
+        {
+            hud.dayCardLine = std::string(weatherrules::seasonName(weatherrules::seasonOf(mCurrentDay))) + ".";
+        }
+        else if (weatherrules::frostMorning(mCurrentDay) && !isHordeNight(mCurrentDay))
+        {
+            hud.dayCardLine = "Frost on the windows.";
+        }
         const float shown = 6.0f - mFirstDays.cardTimer;
         hud.dayCardAlpha = std::clamp(std::min(shown / 0.8f, mFirstDays.cardTimer / 1.2f), 0.0f, 1.0f);
     }
@@ -1096,7 +1124,8 @@ void Game::renderCraftingOverlay()
     const glm::ivec2 standingOn = playerTile();
     const auto stationOk = [&](const CraftingRecipe& recipe)
     {
-        return craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, standingOn, powerOn());
+        return craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, standingOn, powerOn(),
+                                  !mFireSystem.burningNear(standingOn, 3).empty());
     };
 
     // Backing and header; the world stays in view to the left.

@@ -935,22 +935,6 @@ inline const char* districtTypeLabel(int districtType)
     }
 }
 
-inline const char* weatherConditionLabel(WeatherCondition condition)
-{
-    switch (condition)
-    {
-    case WeatherCondition::Clear: return "Clear";
-    case WeatherCondition::Cloudy: return "Cloudy";
-    case WeatherCondition::Rain: return "Rain";
-    case WeatherCondition::HeavyRain: return "Heavy rain";
-    case WeatherCondition::Thunderstorm: return "Storm";
-    case WeatherCondition::Fog: return "Fog";
-    case WeatherCondition::Blizzard: return "Blizzard";
-    case WeatherCondition::Heatwave: return "Heatwave";
-    }
-    return "Clear";
-}
-
 // What a "Search fridge" prompt searches ("fridge"); "" for other prompts.
 inline std::string searchedThing(const std::string& prompt)
 {
@@ -1074,7 +1058,8 @@ inline std::vector<std::size_t> buildVisibleRecipeList(
 // A recipe's station in reach: a workbench, or a fire, within 3 tiles. A
 // kitchen stove is a fire while the power is on (phase 6).
 inline bool craftStationNearby(CraftStation station, const std::vector<FurniturePiece>& furniturePieces, World& world,
-                               const TileMap& tileMap, const glm::ivec2& playerTile, bool stoveWorks = false)
+                               const TileMap& tileMap, const glm::ivec2& playerTile, bool stoveWorks = false,
+                               bool fireNear = false)
 {
     constexpr float kStationReachTiles = 3.0f;
     switch (station)
@@ -1111,15 +1096,8 @@ inline bool craftStationNearby(CraftStation station, const std::vector<Furniture
                                     (glm::vec2(playerTile) + glm::vec2(0.5f));
                 found = glm::dot(d, d) <= kStationReachTiles * kStationReachTiles;
             });
-        world.forEach<Fire, Transform>(
-            [&](Entity, Fire& fire, Transform& t)
-            {
-                if (found || fire.intensity <= 0.1f) return;
-                const glm::vec2 d = glm::vec2(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f) / tileW -
-                                    (glm::vec2(playerTile) + glm::vec2(0.5f));
-                found = glm::dot(d, d) <= kStationReachTiles * kStationReachTiles;
-            });
-        return found;
+        // A burning tile within reach (phase 7: the fire grid).
+        return found || fireNear;
     }
     }
     return false;

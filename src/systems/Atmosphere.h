@@ -39,6 +39,10 @@ public:
     [[nodiscard]] float flash() const { return mFlash; }
     // True once for each lightning strike.
     [[nodiscard]] bool takeThunder();
+    // A strike the simulation called (phase 7: close thunder, a tree hit).
+    void strike();
+    // 0..1: how much of what falls is snow (slow drifting flakes).
+    [[nodiscard]] float snowing() const { return mSnowing; }
 
     // `daylight` is 1 by day and 0 at night: clouds cast no shadow in the dark.
     void renderCloudShadows(SpriteBatch& batch, const Camera& camera, const glm::vec4& cloudUv, float daylight) const;
@@ -71,6 +75,7 @@ private:
     float mSkyDim = 0.0f;
     float mCloudCover = 0.0f; // how strongly cloud shadows show
     float mFog = 0.0f;
+    float mSnowing = 0.0f;
     float mFlash = 0.0f;
     float mNextStrike = 6.0f;
     float mSecondPulse = -1.0f;

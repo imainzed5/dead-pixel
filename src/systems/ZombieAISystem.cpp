@@ -3,6 +3,7 @@
 // them in order and keeps the shared state (the spatial grid, the flow field
 // toward the player, and the queue of paths).
 #include "systems/ZombieAISystem.h"
+#include "world/WeatherRules.h"
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -86,7 +87,7 @@ void ZombieAISystem::update(World& world, const ZombieTick& tick)
     c.world = &world;
     c.tick = &tick;
     c.tileSize = static_cast<float>(tileMap.tileWidth());
-    c.night = tick.hours >= 20.0 || tick.hours < 5.0;
+    c.night = weatherrules::isNight(tick.day, tick.hours);
     c.playerValid = tick.player != kInvalidEntity && world.hasComponent<Transform>(tick.player) &&
                     world.hasComponent<Health>(tick.player) && world.getComponent<Health>(tick.player).current > 0.0f;
     if (c.playerValid)
@@ -247,7 +248,15 @@ void ZombieAISystem::update(World& world, const ZombieTick& tick)
             // The threat mode, and The Unknown's rules.
             z.speedMultiplier *= tick.speedScale;
             if (tick.dormantByDay && c.night) z.speedMultiplier *= 1.5f;
-            if (tick.rainCalm && senses::weatherHearingScale(tick.weather) < 1.0f) z.speedMultiplier *= 0.7f;
+            if (tick.rainCalm && tick.raining) z.speedMultiplier *= 0.7f;
+            // The weather and the season (phase 7): a blizzard, summer
+            // nights, and snow lying in the open.
+            z.speedMultiplier *= tick.weatherSpeed;
+            if (c.night) z.speedMultiplier *= tick.nightSpeed;
+            if (tick.snowCover >= weatherrules::kSnowDeepEnough && !tileMap.isIndoors(z.tile.x, z.tile.y))
+            {
+                z.speedMultiplier *= weatherrules::kSnowDeadScale;
+            }
             if (tick.frenzyAfterRain) z.speedMultiplier *= 1.5f;
             ai.moveSpeed = ai.baseMoveSpeed;
 

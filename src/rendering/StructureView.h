@@ -113,6 +113,8 @@ struct StructureSprites
     glm::vec4 boardsLowRight{};
     // Roof pieces by material and StructureTile::roofMask.
     std::array<std::array<glm::vec4, 16>, 3> roof{};
+    // Charred rafters over a gutted house (phase 7), by roofMask.
+    std::array<glm::vec4, 16> roofBurnt{};
 
     [[nodiscard]] static StructureSprites fromSheet(const SpriteSheet& sheet);
 };
@@ -189,6 +191,13 @@ public:
     static constexpr float kSignLift = 61.0f;
     [[nodiscard]] float roofAlpha(int building) const;
     [[nodiscard]] int buildingCount() const { return static_cast<int>(mRoofAlpha.size()) - 1; }
+    [[nodiscard]] StructureMaterial buildingMaterial(int building) const;
+    // A gutted house (phase 7): charred rafters for a roof, scorched walls,
+    // and nothing hidden under it. Kept across build().
+    void setGutted(int building, bool gutted);
+    [[nodiscard]] bool gutted(int building) const;
+    // Snow on the roofs, 0..1: a white wash.
+    void setSnow(float cover) { mSnow = cover; }
 
 private:
     [[nodiscard]] bool inBounds(int x, int y) const { return x >= 0 && y >= 0 && x < mWidth && y < mHeight; }
@@ -203,4 +212,6 @@ private:
     std::vector<StructureMaterial> mBuildingMaterial; // per building id, [0] unused
     std::vector<float> mRoofAlpha;                    // per building id, [0] unused
     std::vector<ShopSign> mSigns;
+    std::vector<char> mGutted; // per building id
+    float mSnow = 0.0f;
 };

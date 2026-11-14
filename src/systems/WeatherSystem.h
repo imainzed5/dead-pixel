@@ -3,6 +3,7 @@
 #include "components/Weather.h"
 
 #include <cstdint>
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
@@ -27,7 +28,13 @@ public:
         weather.condition = condition;
         mHoursLeft = gameHours;
         weather.conditionDuration = gameHours;
+        refreshNext(weather);
     }
+    // Hold the wind blowing toward (x, y) in tile axes, its strength the
+    // vector's length (at most 1). A zero vector lets it go (harness `wind`).
+    void holdWind(WeatherState& weather, float x, float y);
+    // Hold the air at this temperature (harness `air`); NaN lets it go.
+    void holdAir(float celsius) { mAirHeld = celsius; }
 
     // The next condition for `season`, and how long it lasts (2-6 game hours).
     static WeatherCondition rollCondition(Season season, std::mt19937& rng);
@@ -47,6 +54,9 @@ public:
     bool restore(WeatherState& weather, WeatherCondition condition, float hoursLeft, const std::string& rngState);
 
 private:
+    // The condition after this one, from a copy of the generator.
+    void refreshNext(WeatherState& weather) const;
+
     // Season base temperatures (Celsius)
     static constexpr float kSpringBaseTemp = 14.0f;
     static constexpr float kSummerBaseTemp = 28.0f;
@@ -56,11 +66,12 @@ private:
     // Day/night temperature swing
     static constexpr float kDayNightSwing = 6.0f;
 
-    // Weather condition effects
-    static constexpr float kRainTempDrop = 3.0f;
-    static constexpr float kFogVisibility = 0.4f;
-    static constexpr float kStormVisibility = 0.6f;
-
     float mHoursLeft = 0.0f; // game hours until the next condition
+    float mWindBase = 0.0f;  // radians, from the run seed
+    bool mWindHeld = false;
+    float mHeldWindX = 1.0f;
+    float mHeldWindY = 0.0f;
+    float mHeldWindStrength = 0.0f;
     std::mt19937 mRng{0x5EA7u};
+    float mAirHeld = std::numeric_limits<float>::quiet_NaN();
 };

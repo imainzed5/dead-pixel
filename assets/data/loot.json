@@ -236,6 +236,18 @@
           "weight": 2,
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "winter_coat",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "raincoat",
+          "weight": 1,
+          "min": 1,
+          "max": 1
         }
       ]
     },

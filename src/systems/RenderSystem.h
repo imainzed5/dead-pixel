@@ -14,6 +14,8 @@ struct RenderExtras
 {
     const std::vector<StaticSprite>* statics = nullptr;
     std::function<bool(int tileX, int tileY)> isHiddenAt;
+    // The dead not drawn at this world point (fog, phase 7).
+    std::function<bool(const glm::vec2& world)> hideDead;
 };
 
 class RenderSystem

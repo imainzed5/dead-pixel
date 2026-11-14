@@ -4,6 +4,7 @@
 // WoundRules, SleepRules and MindRules; the false signs in
 // systems/HallucinationSystem.
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 
 using namespace gameshared;
 
@@ -213,6 +214,13 @@ void Game::prepareBodyModifiers()
     move.runSpeedScale = skillrules::runSpeedScale(skillLevel(Skill::Fitness));
     move.canRun = body.canRun;
     move.runAtWalkSpeed = body.runAtWalkSpeed;
+    // Weather (phase 7): a blizzard slows you outdoors; ice is slippery.
+    {
+        const glm::ivec2 at = playerTile();
+        const bool outdoors = mTileMap.inBounds(at.x, at.y) && !mTileMap.isIndoors(at.x, at.y);
+        move.speedScale *= weatherrules::playerMoveScale(mWeatherState.condition, outdoors);
+        if (mTileMap.waterFrozen() && mTileMap.isWater(at.x, at.y)) move.accelScale = weatherrules::kIceAccelerationScale;
+    }
     mInputSystem.setModifiers(move);
 
     // The arms.
@@ -230,6 +238,13 @@ void Game::prepareBodyModifiers()
     combat.reloadScale = mindrules::heldActionScale(panicBand);
     combat.fumbleChance = mindrules::fumbleChance(panicBand);
     combat.regenScale = sleeprules::staminaRegenScale(sleepBand, rested);
+    // Heat and smoke (phase 7): overheated -30 %, coughing -50 %.
+    if (mWorld.hasComponent<Needs>(mPlayerEntity))
+    {
+        const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+        if (needs.bodyTemperature > weatherrules::kOverheatedAbove) combat.regenScale *= weatherrules::kOverheatedRegenScale;
+        if (needs.smokeSeconds >= weatherrules::kCoughAfterSeconds) combat.regenScale *= weatherrules::kCoughingRegenScale;
+    }
     combat.noTwoHanded = body.noTwoHanded;
     mCombatSystem.setBody(combat);
 
@@ -1208,10 +1223,22 @@ NeedsEnvironment Game::buildNeedsEnvironment()
 {
     NeedsEnvironment environment;
     environment.gameHours = mGameHours;
-    environment.outdoorTemperature = mWeatherState.temperature;
-    environment.rainIntensity = mWeatherState.rainIntensity;
-    environment.windStrength = mWeatherState.windStrength;
+    environment.outdoorTemperature = mWeatherState.airTemperature;
     environment.tileMap = &mTileMap;
+    // The weather, as the rules read it (phase 7).
+    const WeatherCondition weather = mWeatherState.condition;
+    environment.weatherShift = weatherrules::bodyShift(weather, false);
+    environment.weatherShiftRaincoat = weatherrules::bodyShift(weather, true);
+    environment.rainy = weatherrules::rainy(weather);
+    environment.coldDrift = weatherrules::coldDriftScale(weather);
+    environment.thirstOutdoors = weatherrules::thirstScale(weather, true, !nightNow());
+    environment.heatwave = weatherrules::heatwave(weather);
+    if (environment.heatwave && mPlayerEntity != kInvalidEntity)
+    {
+        std::vector<SceneryCanopy> canopies;
+        mSceneryView.canopiesNear(playerWorldCenter(), 64.0f, canopies);
+        for (const SceneryCanopy& canopy : canopies) environment.shade.push_back(canopy.position);
+    }
 
     mWorld.forEach<Structure, Transform>(
         [&](Entity, Structure& structure, Transform& st)
@@ -1219,16 +1246,29 @@ NeedsEnvironment Game::buildNeedsEnvironment()
             if (structure.type != StructureType::Campfire || !structure.lit || structure.hp <= 0.0f) return;
             environment.heatSources.emplace_back(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
         });
-    mWorld.forEach<Fire, Transform>(
-        [&](Entity, Fire& fire, Transform& ft)
+    // Burning tiles near the player warm (and dry) too.
+    if (mPlayerEntity != kInvalidEntity)
+    {
+        for (const FireSystem::Burning& b : mFireSystem.burningNear(playerTile(), 3))
         {
-            if (fire.intensity <= 0.1f) return;
-            environment.heatSources.emplace_back(ft.x + kSpriteSize * 0.5f, ft.y + kSpriteSize * 0.5f);
-        });
+            if (b.heat > 0.1f)
+            {
+                environment.heatSources.emplace_back((static_cast<float>(b.tile.x) + 0.5f) * static_cast<float>(mTileMap.tileWidth()),
+                                                     (static_cast<float>(b.tile.y) + 0.5f) * static_cast<float>(mTileMap.tileHeight()));
+            }
+        }
+    }
 
-    // Clothing: the warmest thing in the pack counts as worn.
+    // Clothing (phase 7): the warmest thing in the pack counts as worn, and
+    // Rags wrapped round it add 2. A raincoat keeps the rain off.
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity) && mWorld.hasComponent<Inventory>(mPlayerEntity))
-        mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation =
-            InventorySystem::bestWarmth(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
+    {
+        const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
+        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+        const float best = InventorySystem::bestWarmth(inv, mItemDatabase);
+        needs.clothingInsulation = weatherrules::clothingInsulation(best, best > 0.0f && InventorySystem::countItem(inv, mItems.rags) > 0);
+        needs.raincoat = InventorySystem::countItem(inv, mItems.raincoat) > 0;
+        needs.winterCoat = InventorySystem::countItem(inv, mItems.winterCoat) > 0;
+    }
     return environment;
 }

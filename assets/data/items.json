@@ -1102,6 +1102,37 @@
       "fits": "stew"
     },
     {
+      "id": 73,
+      "key": "winter_coat",
+      "name": "Winter Coat",
+      "category": "material",
+      "weight": 1.6,
+      "maxStack": 1,
+      "sprite": "item_winter_coat",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0,
+      "tags": [
+        "warm"
+      ],
+      "warmth": 11.0
+    },
+    {
+      "id": 74,
+      "key": "raincoat",
+      "name": "Raincoat",
+      "category": "material",
+      "weight": 0.6,
+      "maxStack": 1,
+      "sprite": "item_raincoat",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0,
+      "tags": [
+        "rain"
+      ]
+    },
+    {
       "id": 77,
       "key": "toolbox",
       "name": "Toolbox",

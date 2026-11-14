@@ -460,6 +460,7 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     mFireTiles.clear();
     mBurnedTiles.clear();
     mBrokenDoors.clear();
+    mGutted.clear();
     mBoardedDoors.clear();
     mWindows.clear();
     mFurnitureMemory = FurnitureMemoryRecord{};
@@ -1440,6 +1441,7 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     {
         json["fires"].push_back(
             {{"tileX", fire.tileX}, {"tileY", fire.tileY}, {"intensity", fire.intensity}, {"lifeRemaining", fire.lifeRemaining}});
+        if (fire.byPlayer) json["fires"].back()["byPlayer"] = true;
     }
     json["zombies"] = nlohmann::json::array();
     for (const ZombieRecord& z : cp.zombies)
@@ -1524,6 +1526,7 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     {
         json["weather"] = {{"condition", cp.weather.condition}, {"hoursLeft", cp.weather.hoursLeft},
                            {"rng", cp.weather.rngState}};
+        if (cp.weather.snowCover > 0.0f) json["weather"]["snow"] = cp.weather.snowCover;
     }
 
     const std::string tempPath = mCheckpointPath + ".tmp";
@@ -1760,6 +1763,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             fire.tileY = fj.value("tileY", 0);
             fire.intensity = std::clamp(fj.value("intensity", 0.0f), 0.0f, 2.0f);
             fire.lifeRemaining = std::max(0.0f, fj.value("lifeRemaining", 0.0f));
+            fire.byPlayer = fj.value("byPlayer", false);
             if (fire.lifeRemaining > 0.0f && fire.intensity > 0.0f)
             {
                 cp.fires.push_back(fire);
@@ -1851,6 +1855,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
         const auto& wj = json["weather"];
         cp.weather.condition = wj.value("condition", 0);
         cp.weather.hoursLeft = wj.value("hoursLeft", 0.0f);
+        cp.weather.snowCover = std::clamp(wj.value("snow", 0.0f), 0.0f, 1.0f);
         cp.weather.rngState = wj.value("rng", std::string{});
         cp.weather.saved = !cp.weather.rngState.empty();
     }
@@ -1950,6 +1955,11 @@ void SaveManager::setBoardedDoors(std::vector<BoardedDoorRecord> boardedDoors)
     }
 }
 
+void SaveManager::addGuttedBuilding(int x, int y)
+{
+    addUniqueTile(mGutted, x, y);
+}
+
 void SaveManager::setBrokenDoors(std::vector<std::pair<int,int>> brokenDoors)
 {
     mBrokenDoors.clear();
@@ -2020,6 +2030,7 @@ bool SaveManager::saveWorldMemory()
     {
         json["fires"].push_back(
             {{"tileX", fire.tileX}, {"tileY", fire.tileY}, {"intensity", fire.intensity}, {"lifeRemaining", fire.lifeRemaining}});
+        if (fire.byPlayer) json["fires"].back()["byPlayer"] = true;
     }
 
     json["burned"] = nlohmann::json::array();
@@ -2032,6 +2043,11 @@ bool SaveManager::saveWorldMemory()
     for (const auto& [x, y] : mBrokenDoors)
     {
         json["brokenDoors"].push_back({{"x", x}, {"y", y}});
+    }
+    if (!mGutted.empty())
+    {
+        json["gutted"] = nlohmann::json::array();
+        for (const auto& [x, y] : mGutted) json["gutted"].push_back({{"x", x}, {"y", y}});
     }
     json["boardedDoors"] = nlohmann::json::array();
     for (const BoardedDoorRecord& door : mBoardedDoors)
@@ -2108,6 +2124,7 @@ bool SaveManager::loadWorldMemory()
     mFireTiles.clear();
     mBurnedTiles.clear();
     mBrokenDoors.clear();
+    mGutted.clear();
     mBoardedDoors.clear();
     mWindows.clear();
     mScavenge = ScavengeMemoryRecord{};
@@ -2224,6 +2241,7 @@ bool SaveManager::loadWorldMemory()
             fire.tileY = fj.value("tileY", 0);
             fire.intensity = std::clamp(fj.value("intensity", 0.0f), 0.0f, 2.0f);
             fire.lifeRemaining = std::max(0.0f, fj.value("lifeRemaining", 0.0f));
+            fire.byPlayer = fj.value("byPlayer", false);
             if (fire.lifeRemaining > 0.0f && fire.intensity > 0.0f)
             {
                 mFireTiles.push_back(fire);
@@ -2247,6 +2265,10 @@ bool SaveManager::loadWorldMemory()
         {
             addUniqueTile(mBrokenDoors, dj.value("x", 0), dj.value("y", 0));
         }
+    }
+    if (json.contains("gutted") && json["gutted"].is_array())
+    {
+        for (const auto& gj : json["gutted"]) addUniqueTile(mGutted, gj.value("x", 0), gj.value("y", 0));
     }
     if (json.contains("boardedDoors") && json["boardedDoors"].is_array())
     {

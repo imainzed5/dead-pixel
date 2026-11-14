@@ -149,30 +149,30 @@ struct SurvivalWorld
 
 DP_TEST(needs_temperature_follows_shelter_fire_and_season)
 {
-    auto target = [](float outdoor, bool indoors, float rain, float wind, bool fire, float clothing)
+    auto target = [](float outdoor, bool indoors, float weatherShift, bool fire, float clothing)
     {
         return NeedsSystem::targetBodyTemperature(
-            NeedsSystem::effectiveAmbient(outdoor, indoors, rain, wind, fire, clothing), 0.0f);
+            NeedsSystem::effectiveAmbient(outdoor, indoors, weatherShift, fire, clothing), 0.0f);
     };
 
     // Spring night outdoors: chilly, not dangerous.
-    const float springNightOut = target(8.0f, false, 0.0f, 0.0f, false, 0.0f);
+    const float springNightOut = target(8.0f, false, 0.0f, false, 0.0f);
     DP_CHECK(springNightOut < NeedsSystem::kChillyBelow);
     DP_CHECK(springNightOut >= NeedsSystem::kColdBelow);
 
-    // Rainy windy autumn night outdoors: cold.
-    DP_CHECK(target(3.0f, false, 1.0f, 0.6f, false, 0.0f) < NeedsSystem::kColdBelow);
+    // A stormy autumn night outdoors (-6 C of weather): cold.
+    DP_CHECK(target(3.0f, false, -6.0f, false, 0.0f) < NeedsSystem::kColdBelow);
 
     // Winter night outdoors: hypothermic. A jacket buys time but is not shelter.
-    DP_CHECK(target(-8.0f, false, 0.0f, 0.0f, false, 0.0f) < NeedsSystem::kHypothermicBelow);
-    const float jacketWinter = target(-8.0f, false, 0.0f, 0.0f, false, 5.0f);
+    DP_CHECK(target(-8.0f, false, 0.0f, false, 0.0f) < NeedsSystem::kHypothermicBelow);
+    const float jacketWinter = target(-8.0f, false, 0.0f, false, 5.0f);
     DP_CHECK(jacketWinter >= NeedsSystem::kHypothermicBelow);
     DP_CHECK(jacketWinter < NeedsSystem::kColdBelow);
 
     // Shelter: a spring night indoors is comfortable; winter indoors needs a fire.
-    DP_CHECK_NEAR(target(8.0f, true, 1.0f, 1.0f, false, 0.0f), 37.0f, 0.001f);
-    DP_CHECK(target(-8.0f, true, 0.0f, 0.0f, false, 0.0f) < NeedsSystem::kChillyBelow);
-    DP_CHECK_NEAR(target(-8.0f, true, 0.0f, 0.0f, true, 0.0f), 37.0f, 0.001f);
+    DP_CHECK_NEAR(target(8.0f, true, -6.0f, false, 0.0f), 37.0f, 0.001f);
+    DP_CHECK(target(-8.0f, true, 0.0f, false, 0.0f) < NeedsSystem::kChillyBelow);
+    DP_CHECK_NEAR(target(-8.0f, true, 0.0f, true, 0.0f), 37.0f, 0.001f);
 }
 
 DP_TEST(needs_body_temperature_drifts_and_shelter_protects)

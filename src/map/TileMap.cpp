@@ -1,4 +1,5 @@
 #include "map/TileMap.h"
+#include "map/TileIds.h"
 
 #include <algorithm>
 #include <array>
@@ -195,7 +196,15 @@ bool TileMap::blocksSight(int tileX, int tileY) const
     }
 
     const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
-    return mCollisionLayer[index] != 0 || (index < mDoorLayer.size() && mDoorLayer[index] == DoorState::Closed);
+    if (mCollisionLayer[index] != 0 && !(mWaterFrozen && isWater(tileX, tileY))) return true;
+    return index < mDoorLayer.size() && mDoorLayer[index] == DoorState::Closed;
+}
+
+bool TileMap::isWater(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY)) return false;
+    const int gid = mGroundLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))];
+    return ((std::max(1, gid) - 1) % TileGid::kPerRow) + 1 == TileGid::kWater;
 }
 
 void TileMap::setFurniture(int tileX, int tileY, bool present)

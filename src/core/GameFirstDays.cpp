@@ -471,8 +471,8 @@ void Game::updateFirstDays(float dtSeconds)
                          0.75f, 1.5f);
         const int callers = std::max(1, static_cast<int>(std::lround(firstdays::nightCallers(night) * scale)));
         const std::vector<firstdays::CallerGroup> schedule = firstdays::callerSchedule(callers);
-        const double sinceDusk = mGameHours >= firstdays::kDuskHour ? mGameHours - firstdays::kDuskHour
-                                                                   : mGameHours + 24.0 - firstdays::kDuskHour;
+        const double dusk = firstdays::duskHour(mGameHours >= 12.0 ? mCurrentDay : mCurrentDay - 1);
+        const double sinceDusk = mGameHours >= dusk ? mGameHours - dusk : mGameHours + 24.0 - dusk;
         while (record.groupsSent < static_cast<int>(schedule.size()) &&
                sinceDusk >= schedule[static_cast<std::size_t>(record.groupsSent)].hoursAfterDusk)
         {

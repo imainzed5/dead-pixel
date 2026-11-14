@@ -4,6 +4,7 @@
 // world/BuildingKinds, world/Forage and world/Garden; this is where they
 // meet the game.
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 
 #include <iostream>
 #include <random>
@@ -126,11 +127,6 @@ void storeBed(Structure& s, const garden::Bed& bed)
     s.sinceWaterHours = bed.sinceWaterHours;
     s.regrowing = bed.regrowing;
     s.dead = bed.dead;
-}
-
-bool isRaining(WeatherCondition c)
-{
-    return c == WeatherCondition::Rain || c == WeatherCondition::HeavyRain || c == WeatherCondition::Thunderstorm;
 }
 } // namespace
 
@@ -720,9 +716,18 @@ bool Game::handleWaterSource(const ProximityPrompt&)
     }
     else
     {
-        mProximityPrompt = mProximityPrompt.empty() ? "Pond   R: Fill bottles (dirty)" : mProximityPrompt + "   R: Fill bottles (dirty)";
+        // Frozen in winter (phase 7): the ice must be broken first.
+        const char* fill = pondFrozen() ? "   R: Break the ice, fill bottles (dirty)" : "   R: Fill bottles (dirty)";
+        mProximityPrompt = mProximityPrompt.empty() ? std::string("Pond") + fill : mProximityPrompt + fill;
     }
     if (!mInput.wasKeyPressed(SDL_SCANCODE_R)) return false;
+    // A frozen pond (phase 7): the ice has to be broken first.
+    if (toilet == nullptr && pondFrozen() && !playerHasItem(mItems.axe) && !playerHasItem(mItems.hammer))
+    {
+        mInteractionMessage = "The pond is frozen. An axe or a hammer would break the ice.";
+        mInteractionMessageTimer = 2.5f;
+        return true;
+    }
     if (used)
     {
         mInteractionMessage = "The cistern is dry.";
@@ -781,6 +786,11 @@ bool Game::eatOrDrink(int slotIndex)
     const float value = perishable ? food::valueScale(slot.condition) : 1.0f;
     needs.hunger = std::min(needs.maxHunger, needs.hunger + item->hungerRestore * value);
     needs.thirst = std::min(needs.maxThirst, needs.thirst + item->thirstRestore * value);
+    // A drink cools you when you are hot (phase 7).
+    if (item->thirstRestore > 0.0f && needs.bodyTemperature > 37.5f)
+    {
+        needs.bodyTemperature = std::max(37.5f, needs.bodyTemperature - weatherrules::kDrinkCooling);
+    }
     const bool drink = item->category == ItemCategory::Drink;
     std::string message = std::string(drink ? "Drank " : "Ate ") + lowerFirst(item->name) + ".";
 
@@ -1211,7 +1221,7 @@ bool Game::handleFieldStructure(const ProximityPrompt& entityPrompt)
 void Game::updateScavenging(float dtSeconds)
 {
     if (mPlayerEntity == kInvalidEntity) return;
-    const bool raining = isRaining(mWeatherState.condition);
+    const bool raining = weatherrules::rainy(mWeatherState.condition);
     if (raining) mLastRainHour = absoluteHour();
     mSeenTimer -= dtSeconds;
     if (mSeenTimer <= 0.0f)
@@ -1251,7 +1261,8 @@ void Game::updateScavenging(float dtSeconds)
             case StructureType::GardenBed:
             {
                 garden::Bed bed = bedOf(s);
-                garden::tick(bed, hours, raining && outdoors, living);
+                // Nothing grows in winter (phase 7).
+                if (weatherrules::gardensGrow(mCurrentDay)) garden::tick(bed, hours, raining && outdoors, living);
                 for (const auto& [z, at] : dead)
                 {
                     if (at != tile) continue;

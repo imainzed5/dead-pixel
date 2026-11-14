@@ -23,6 +23,13 @@ uniform float uSpotCosHalfAngle;
 uniform float uSpotRange;                     // screen pixels, measured on the ground
 uniform vec3 uSpotColor;
 
+// Distance fog round the player (phase 7): weather that shortens the view.
+uniform int uFogEnabled;
+uniform vec2 uFogCentre;                      // screen-space
+uniform float uFogStart;                      // screen pixels, measured on the ground
+uniform float uFogEnd;
+uniform vec3 uFogColor;
+
 out vec4 FragColor;
 
 // Isometric ground is squashed 2:1 on screen; undo that so light pools are
@@ -66,5 +73,10 @@ void main()
     vec3 color = texColor.rgb * lighting;
     float grey = dot(color, vec3(0.299, 0.587, 0.114));
     color = clamp(mix(vec3(grey), color, uSaturation), 0.0, 1.0);
+    if (uFogEnabled != 0)
+    {
+        float dist = length(groundDelta(uFogCentre, vScreenPos));
+        color = mix(color, uFogColor, smoothstep(uFogStart, uFogEnd, dist));
+    }
     FragColor = vec4(color, texColor.a);
 }

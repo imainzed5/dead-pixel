@@ -62,4 +62,7 @@ struct Shell
 // How far (tiles) a noise reaches this listener.
 [[nodiscard]] float heardRadiusTiles(NoiseTier emitted, const Shell& source, const Shell& listener,
                                      WeatherCondition weather, float hearing = 1.0f, float windFactor = 1.0f);
+// The same with the weather's scale already read (weatherrules::noiseScale).
+[[nodiscard]] float heardRadiusTiles(NoiseTier emitted, const Shell& source, const Shell& listener,
+                                     float weatherScale, float hearing = 1.0f, float windFactor = 1.0f);
 } // namespace senses
