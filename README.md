@@ -107,7 +107,7 @@ done, what is next, and known issues.
 | N | Crafting |
 | B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll, garden bed (click one, then click where it goes; right click puts it away) |
 | V / Shift+V | Enter or exit a car / refuel |
-| M / J | Town map / notebook |
+| M / J | Town map / notebook (in the notebook, Left/Right turn to the way-out page and back) |
 | +/- | Minimap zoom |
 | Esc | Pause |
 | F1 / F2 / F3 | Noise debug / controls / district infection debug |

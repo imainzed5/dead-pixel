@@ -207,7 +207,7 @@
       "key": "fuel_can",
       "name": "Fuel Can",
       "category": "material",
-      "weight": 2.0,
+      "weight": 8.0,
       "value": 15.0,
       "maxStack": 3,
       "sprite": "item_fuel",
@@ -1205,6 +1205,32 @@
       "spoilHours": 0.0,
       "tags": [
         "rain"
+      ]
+    },
+    {
+      "id": 75,
+      "key": "gate_key",
+      "name": "Gate Key",
+      "category": "material",
+      "weight": 0.05,
+      "value": 0.0,
+      "maxStack": 1,
+      "sprite": "item_gate_key",
+      "tags": [
+        "campaign"
+      ]
+    },
+    {
+      "id": 76,
+      "key": "gate_fuse",
+      "name": "Gate Fuse",
+      "category": "material",
+      "weight": 0.4,
+      "value": 0.0,
+      "maxStack": 1,
+      "sprite": "item_gate_fuse",
+      "tags": [
+        "campaign"
       ]
     },
     {

@@ -271,17 +271,23 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
         LayoutData layout = mSaveManager.loadWorldLayout();
         if (layout.width > 0 && layout.height > 0)
         {
+            // A save from before phase 9: the gate goes where its objective stood.
+            if (stampGate(layout)) mSaveManager.saveWorldLayout(layout);
             mMapGenerator.loadLayout(layout);
         }
         else
         {
             LayoutData regenerated = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+            stampGate(regenerated);
+            mMapGenerator.loadLayout(regenerated);
             mSaveManager.saveWorldLayout(regenerated);
         }
     }
     else
     {
         LayoutData layout = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+        stampGate(layout);
+        mMapGenerator.loadLayout(layout);
         mSaveManager.saveWorldLayout(layout);
     }
 
@@ -311,7 +317,6 @@ void Game::syncPresentationSettingsFromSave()
     mTitleGameModeIndex = wrapIndex(indexFromSaveGameMode(settings.gameMode), static_cast<int>(kTitleGameModeNames.size()));
     mTitleModeIndex = wrapIndex(indexFromSaveThreatMode(settings.threatMode), static_cast<int>(kTitleModeNames.size()));
     mTitleToneIndex = wrapIndex(indexFromSaveTonePreset(settings.tonePreset), static_cast<int>(kTitleToneNames.size()));
-    mCampaignObjective = settings.campaignObjective;
 }
 
 void Game::syncPresentationSettingsToSave()
@@ -320,7 +325,6 @@ void Game::syncPresentationSettingsToSave()
     settings.gameMode = saveGameModeFromIndex(mTitleGameModeIndex);
     settings.threatMode = saveThreatModeFromIndex(mTitleModeIndex);
     settings.tonePreset = saveTonePresetFromIndex(mTitleToneIndex);
-    settings.campaignObjective = mCampaignObjective;
     mSaveManager.setPresentationSettings(settings);
     mSaveManager.savePresentationSettings();
 }
@@ -331,6 +335,7 @@ RunCheckpoint Game::buildRunCheckpoint()
     // The town's people are kept beside the checkpoint (the survivors file).
     saveSurvivorRecords();
     cp.runSeed = mSaveManager.currentRunSeed();
+    gateCheckpoint(cp); // what this character knows of the way out (phase 9)
     cp.characterName = mCurrentCharacterName;
     cp.currentDay = mCurrentDay;
     cp.gameHours = mGameHours;
@@ -430,95 +435,6 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
     return ok;
 }
 
-void Game::ensureCampaignObjective()
-{
-    if (mTitleGameModeIndex != 0)
-    {
-        mCampaignObjective = CampaignObjectiveState{};
-        syncPresentationSettingsToSave();
-        return;
-    }
-
-    if (mCampaignObjective.active)
-    {
-        return;
-    }
-
-    if (mCampaignObjective.completed)
-    {
-        mCampaignObjective = CampaignObjectiveState{};
-    }
-
-    const LayoutData& layout = mMapGenerator.layoutData();
-    if (layout.width <= 0 || layout.height <= 0 || layout.districts.empty())
-    {
-        return;
-    }
-
-    const int startX = layout.playerStart.x;
-    const int startY = layout.playerStart.y;
-
-    int bestDistrictId = 0;
-    int bestTileX = startX;
-    int bestTileY = startY;
-    float bestDistance2 = -1.0f;
-
-    for (const auto& district : layout.districts)
-    {
-        if (district.id == 0)
-        {
-            continue;
-        }
-
-        const int cx = (district.minX + district.maxX) / 2;
-        const int cy = (district.minY + district.maxY) / 2;
-        const float dx = static_cast<float>(cx - startX);
-        const float dy = static_cast<float>(cy - startY);
-        const float distance2 = dx * dx + dy * dy;
-        if (distance2 > bestDistance2)
-        {
-            bestDistance2 = distance2;
-            bestDistrictId = district.id;
-            bestTileX = cx;
-            bestTileY = cy;
-        }
-    }
-
-    bestTileX = std::clamp(bestTileX, 0, mTileMap.width() - 1);
-    bestTileY = std::clamp(bestTileY, 0, mTileMap.height() - 1);
-    if (mTileMap.isSolid(bestTileX, bestTileY))
-    {
-        bool found = false;
-        for (int radius = 1; radius <= 8 && !found; ++radius)
-        {
-            for (int oy = -radius; oy <= radius && !found; ++oy)
-            {
-                for (int ox = -radius; ox <= radius; ++ox)
-                {
-                    const int nx = std::clamp(bestTileX + ox, 0, mTileMap.width() - 1);
-                    const int ny = std::clamp(bestTileY + oy, 0, mTileMap.height() - 1);
-                    if (!mTileMap.isSolid(nx, ny))
-                    {
-                        bestTileX = nx;
-                        bestTileY = ny;
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    mCampaignObjective.active = true;
-    mCampaignObjective.completed = false;
-    mCampaignObjective.tileX = bestTileX;
-    mCampaignObjective.tileY = bestTileY;
-    mCampaignObjective.districtId = bestDistrictId;
-    mCampaignObjective.infectionDeadlineDay = 60;
-
-    syncPresentationSettingsToSave();
-}
-
 void Game::registerComponents()
 {
     mWorld.registerComponent<Transform>();
@@ -594,6 +510,7 @@ void Game::startNewRun()
     clearFireAndWeatherMarks();
     mShowWorldMap = false;
     mShowNotebook = false;
+    mNotebookPage = 0;
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
@@ -718,8 +635,6 @@ void Game::startNewRun()
         reduceStartingDead();
     }
 
-    ensureCampaignObjective();
-
     const std::uint64_t runLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     if (mLayoutFingerprint != 0 && runLayoutFingerprint != mLayoutFingerprint)
     {
@@ -823,6 +738,11 @@ void Game::startNewRun()
     {
         mSaveManager.deleteCheckpoint();
     }
+    // The way out (phase 9): what this character knew, then the key and the
+    // fuse wherever they lie.
+    if (restoredCheckpoint) restoreGate(cp);
+    ensureGateKey();
+    ensureGateFuse();
     placeHomeKit();
     plantScenery(); // again, now that the run's people and things are in place
     for (const auto& [bx, by] : mBurnedTiles) mSceneryView.burnTree(glm::ivec2(bx, by));

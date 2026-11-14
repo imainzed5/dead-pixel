@@ -31,6 +31,7 @@ constexpr std::array<KindInfo, static_cast<std::size_t>(K::Count)> kKinds = {{
     {"Garage", "garage", BuildingArchetype::Industrial, BuildingSign::Wrench, 0.30f, 0.0f},
     {"Warehouse", "warehouse", BuildingArchetype::Industrial, BuildingSign::Crate, 0.50f, 0.0f},
     {"Workshop", "workshop", BuildingArchetype::Industrial, BuildingSign::None, 0.20f, 0.0f},
+    {"Guard Hut", "guard_hut", BuildingArchetype::Commercial, BuildingSign::None, 0.0f, 0.0f},
 }};
 
 const KindInfo& infoOf(BuildingKind kind)
@@ -75,7 +76,10 @@ bool fromName(const std::string& text, BuildingKind& out)
     for (const char c : text) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     for (std::size_t i = 0; i < kKinds.size(); ++i)
     {
-        if (lower == kKinds[i].key)
+        // The key, or the name ("Guard Hut" as well as "guard_hut").
+        std::string name;
+        for (const char c : std::string(kKinds[i].name)) name += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower == kKinds[i].key || lower == name)
         {
             out = static_cast<BuildingKind>(i);
             return true;

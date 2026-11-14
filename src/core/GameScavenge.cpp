@@ -489,7 +489,9 @@ void Game::beginSearch(Entity container)
         return;
     }
     float seconds = furniture::searchSeconds(piece->kind) * skillrules::searchTimeScale(skillLevel(Skill::Scavenging));
-    const bool armoury = piece->armoury && !hasTile(mSaveManager.scavengeMemory().searched, tile);
+    // The hardware store's stock-room cabinet (phase 9) is locked like the armoury.
+    const bool fuseCabinet = tile == mFuseCabinet;
+    const bool armoury = (piece->armoury || fuseCabinet) && !hasTile(mSaveManager.scavengeMemory().searched, tile);
     if (armoury)
     {
         const bool crowbar = mWorld.hasComponent<Inventory>(mPlayerEntity) &&
@@ -508,7 +510,8 @@ void Game::beginSearch(Entity container)
     mBaseAction.target = container;
     mBaseAction.total = seconds;
     mBaseAction.window = armoury; // forced open: Loud
-    mBaseAction.label = armoury ? "Forcing the locker" : "Searching the " + lowerFirst(containerName(container));
+    mBaseAction.label = armoury ? (fuseCabinet ? "Forcing the cabinet" : "Forcing the locker")
+                                : "Searching the " + lowerFirst(containerName(container));
     mBaseAction.startPos = playerWorldCenter();
     mBaseAction.startHp = mWorld.hasComponent<Health>(mPlayerEntity) ? mWorld.getComponent<Health>(mPlayerEntity).current : 0.0f;
 }
@@ -591,7 +594,7 @@ void Game::finishSearch()
     }
     else if (armoury)
     {
-        mInteractionMessage = "The locker door bends open.";
+        mInteractionMessage = tile == mFuseCabinet ? "The cabinet door bends open." : "The locker door bends open.";
         mInteractionMessageTimer = 2.5f;
     }
     else if (piece != nullptr && piece->kind == FurnitureKind::Fridge)
@@ -909,6 +912,8 @@ bool Game::useBatteryOrRadio(int slotIndex)
     }
     mRadioOn = !mRadioOn;
     mRadioTimer = 0.0f; // the forecast at once
+    mBroadcastTimer = 6.0f; // then the looped voice, once the forecast is said (phase 9)
+    mBroadcastLine = 0;
     mInteractionMessage = mRadioOn ? "The radio hisses, then a voice." : "You switch the radio off.";
     mInteractionMessageTimer = 2.0f;
     std::cout << "[Power] radio " << (mRadioOn ? "on" : "off") << "\n";

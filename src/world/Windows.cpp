@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "map/TileIds.h"
+#include "world/BuildingKinds.h"
 
 namespace
 {
@@ -51,11 +52,16 @@ std::vector<Spot> place(const TileMap& map, const LayoutData& layout)
             if (kind[index(x, y)] != 1) continue;
             const int building = map.getBuildingId(x, y);
             if (building <= 0 || building > buildingCount) continue;
-            if (archetypeForWidth(layout.buildings[static_cast<std::size_t>(building - 1)].w) ==
-                BuildingArchetype::Industrial)
+            const LayoutData::BuildingRect& rect = layout.buildings[static_cast<std::size_t>(building - 1)];
+            if (archetypeForWidth(rect.w) == BuildingArchetype::Industrial)
             {
                 continue; // sheds have no windows
             }
+            // The guard hut by the gate (phase 9) has its two, where the stamp put them.
+            const bool hut = rect.kind == static_cast<int>(BuildingKind::GuardHut);
+            const bool hutWindow = hut && std::find(layout.gate.windows.begin(), layout.gate.windows.end(), glm::ivec2(x, y)) !=
+                                              layout.gate.windows.end();
+            if (hut && !hutWindow) continue;
             const bool alongX = wallLike(x - 1, y) || wallLike(x + 1, y);
             const bool alongY = wallLike(x, y - 1) || wallLike(x, y + 1);
             if (alongX == alongY) continue; // a corner, or a lone post
@@ -77,7 +83,8 @@ std::vector<Spot> place(const TileMap& map, const LayoutData& layout)
                                          : (isDoorway(x, y - 1) || isDoorway(x, y + 1));
             const bool flanked = alongX ? (wallLike(x - 1, y) && wallLike(x + 1, y))
                                         : (wallLike(x, y - 1) && wallLike(x, y + 1));
-            if (!flanked || nearDoor || along % 3 != 1 || (hashTile(x, y) % 4) == 0) continue;
+            if (!flanked || nearDoor) continue;
+            if (!hutWindow && (along % 3 != 1 || (hashTile(x, y) % 4) == 0)) continue;
 
             // The floor on one side and the street on the other.
             const glm::ivec2 a = alongX ? glm::ivec2(x, y - 1) : glm::ivec2(x - 1, y);

@@ -55,6 +55,8 @@ add_library(dead_pixel_core STATIC
     src/core/GameScavenge.cpp
     src/core/GamePower.cpp
     src/core/GameSurvivors.cpp
+    src/core/GameGate.cpp
+    src/core/GameClues.cpp
     src/core/Tuning.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
@@ -115,6 +117,8 @@ add_library(dead_pixel_core STATIC
     src/world/Garden.cpp
     src/world/WeatherRules.cpp
     src/world/SurvivorRules.cpp
+    src/world/Gate.cpp
+    src/world/Clues.cpp
     src/systems/HallucinationSystem.cpp
     src/items/ItemDatabase.cpp
     src/items/LootTables.cpp
@@ -134,6 +138,7 @@ add_library(dead_pixel_core STATIC
     src/audio/AudioManager.cpp
     src/dev/DevHarness.cpp
     src/dev/DevHarnessSurvivors.cpp
+    src/dev/DevHarnessGate.cpp
     src/dev/LaunchOptions.cpp
     src/dev/Autoplayer.cpp
 )
@@ -204,6 +209,8 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_weather_rules.cpp
         tests/test_fire.cpp
         tests/test_survivor_rules.cpp
+        tests/test_gate.cpp
+        tests/test_clues.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

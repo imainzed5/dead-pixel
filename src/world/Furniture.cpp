@@ -70,7 +70,9 @@ enum class Role
     OfficeFront,
     OfficeBack,
     GarageFloor,
-    WarehouseFloor
+    WarehouseFloor,
+    // Phase 9: the guard hut by the service gate.
+    GuardPost
 };
 
 struct Order
@@ -141,6 +143,8 @@ std::vector<Order> recipeFor(Role role)
     case Role::WarehouseFloor:
         return {{K::PalletStack, 2}, {K::PalletStack, 2}, {K::Crates}, {K::Crates}, {K::MetalRack, 2},
                 {K::PalletStack, 1, 0.7f}, {K::Crates, 1, 0.7f}};
+    case Role::GuardPost:
+        return {{K::Desk}, {K::Locker}};
     }
     return {};
 }
@@ -166,6 +170,7 @@ KindRoles rolesFor(BuildingKind kind, BuildingArchetype archetype)
     case BuildingKind::Garage: return {Role::GarageFloor, Role::Backroom};
     case BuildingKind::Warehouse: return {Role::WarehouseFloor, Role::Backroom};
     case BuildingKind::Workshop: return {Role::Workshop, Role::Backroom};
+    case BuildingKind::GuardHut: return {Role::GuardPost, Role::GuardPost};
     case BuildingKind::House:
     case BuildingKind::Count: break;
     }
@@ -376,7 +381,7 @@ private:
             return best;
         };
 
-        if (archetype != BuildingArchetype::Residential)
+        if (archetype != BuildingArchetype::Residential || kind == BuildingKind::GuardHut)
         {
             const KindRoles roles = rolesFor(kind, archetype);
             for (Room& room : rooms) room.role = roles.back;
@@ -655,6 +660,7 @@ std::string lootClass(const FurniturePiece& piece)
     case BuildingKind::Office: return "office";
     case BuildingKind::Garage: return "garage";
     case BuildingKind::Warehouse: return "warehouse";
+    case BuildingKind::GuardHut: return "office";
     case BuildingKind::Workshop:
     case BuildingKind::House:
     case BuildingKind::Count: break;

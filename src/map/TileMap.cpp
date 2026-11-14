@@ -26,6 +26,7 @@ void TileMap::resize(int width, int height, int tileWidth, int tileHeight)
     mBlockedDoorway.assign(size, 0);
     mFurnitureLayer.assign(size, 0);
     mSceneryLayer.assign(size, 0);
+    mBlockedLayer.assign(size, 0);
 }
 
 namespace
@@ -185,7 +186,22 @@ bool TileMap::isSolid(int tileX, int tileY) const
 
     const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
     return blocksSight(tileX, tileY) || (index < mFurnitureLayer.size() && mFurnitureLayer[index] != 0) ||
-           (index < mSceneryLayer.size() && mSceneryLayer[index] != 0);
+           (index < mSceneryLayer.size() && mSceneryLayer[index] != 0) ||
+           (index < mBlockedLayer.size() && mBlockedLayer[index] != 0);
+}
+
+void TileMap::setBlocked(int tileX, int tileY, bool blocked)
+{
+    if (!inBounds(tileX, tileY)) return;
+    mBlockedLayer.resize(static_cast<std::size_t>(mWidth * mHeight), 0);
+    mBlockedLayer[static_cast<std::size_t>(tileIndex(tileX, tileY))] = blocked ? 1 : 0;
+}
+
+bool TileMap::isBlocked(int tileX, int tileY) const
+{
+    if (!inBounds(tileX, tileY)) return false;
+    const auto index = static_cast<std::size_t>(tileIndex(tileX, tileY));
+    return index < mBlockedLayer.size() && mBlockedLayer[index] != 0;
 }
 
 bool TileMap::blocksSight(int tileX, int tileY) const

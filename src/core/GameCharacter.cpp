@@ -20,6 +20,7 @@ const char* bloodlineLine(BloodlineTrait line)
     case BloodlineTrait::Scavenger: return "Scavenger. They always knew where to look.";
     case BloodlineTrait::Firewise: return "Firewise. Fire runs in the family.";
     case BloodlineTrait::Vigilant: return "Vigilant. Light sleepers, all of them.";
+    case BloodlineTrait::Wayfinder: return "Wayfinder. One of theirs got out. They know every street.";
     case BloodlineTrait::None: break;
     }
     return "";

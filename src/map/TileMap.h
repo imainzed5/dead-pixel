@@ -118,6 +118,11 @@ public:
     [[nodiscard]] bool hasScenery(int tileX, int tileY) const;
     void clearScenery();
 
+    // A tile shut by something the game places (phase 9: the closed service
+    // gate, the generator). Blocks movement, not sight.
+    void setBlocked(int tileX, int tileY, bool blocked);
+    [[nodiscard]] bool isBlocked(int tileX, int tileY) const;
+
     [[nodiscard]] int width() const { return mWidth; }
     [[nodiscard]] int height() const { return mHeight; }
     [[nodiscard]] int tileWidth() const { return mTileWidth; }
@@ -149,4 +154,5 @@ private:
     std::vector<std::uint8_t> mBlockedDoorway;
     std::vector<std::uint8_t> mFurnitureLayer;
     std::vector<std::uint8_t> mSceneryLayer;
+    std::vector<std::uint8_t> mBlockedLayer;
 };

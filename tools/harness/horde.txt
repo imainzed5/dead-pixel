@@ -1,6 +1,9 @@
 # A horde (phase 4): on a horde night the crowd crosses the town past the
 # house. Lights out and the house shut, it passes by and none come in. With
 # a candle in an uncurtained window, some turn to it and break in.
+# The town's people are taken away first: since phase 9 (the gate changes
+# the town) the horde set out near a lived-in house, and its evening lamp
+# drew every one of them in before they reached this one.
 # Run in a fresh directory:
 #   dead_pixel_survival.exe --script tools/harness/horde.txt --hidden --world-seed 1234 --shots shots/horde
 
@@ -8,6 +11,7 @@ mode mutating
 newrun
 god on
 waits 1
+survivors gone
 zoom 1.5
 day 7
 hours 20.9

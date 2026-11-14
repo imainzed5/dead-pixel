@@ -809,6 +809,7 @@ def generate_atlas():
     add_base_props(img, sprites)
     add_phase6_sprites(img, sprites)
     add_phase7_sprites(img, sprites)
+    add_phase9_sprites(img, sprites)
     add_survivor_sprites(img, sprites)
 
     return img, sprites
@@ -4061,6 +4062,183 @@ def add_phase7_sprites(img, sprites):
         for ok, ov in before.items():
             if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
                 raise SystemExit("phase 7 sprite " + k + " overlaps " + ok)
+
+
+# --- Phase 9: the way out ------------------------------------------------
+P9_Y = 1880   # the free band above the kind blocks (1872 to 2048)
+
+GATE_STEEL = (112, 120, 128)
+GATE_RAIL = (86, 92, 100)
+
+
+def make_gate_panel(along_x):
+    """One tile of the service gate: a steel gate of bars between two rails,
+    standing where the wall round the town would be."""
+    piece = WallPiece(WALL_H)
+
+    def face(left):
+        def fn(u, z):
+            rail = z < 3 or 25 <= z <= 27 or z >= WALL_H - 3
+            if rail:
+                c = GATE_RAIL
+            elif u % 4 in (0, 1):
+                c = shade(GATE_STEEL, 10 if u % 4 == 0 else -6)
+            else:
+                return None
+            if (z * 7 + u * 3) % 23 == 0:
+                c = (128, 86, 60)                    # rust
+            return c if left else shade(c, -22)
+        return fn
+
+    top = shade(GATE_RAIL, 18)
+    if along_x:
+        piece.box(0, 32, SLAB_LO + 1, SLAB_HI - 1, 0, WALL_H, face(True), face(False), top)
+    else:
+        piece.box(SLAB_LO + 1, SLAB_HI - 1, 0, 32, 0, WALL_H, face(True), face(False), top)
+    outline_opaque(piece.img, FURN_OUTLINE)
+    return piece.img
+
+
+def prop_generator(f):
+    """The guard hut's generator under its lean-to."""
+    post = (96, 74, 52)
+    tin = (126, 130, 132)
+    # The lean-to at the back: two posts and a sloping tin roof.
+    for v in (0.12, 0.88):
+        x, y = f.P(0.1, v, 0)
+        f.draw.line([(x, y), (x, y - 44)], fill=post + (255,), width=2)
+    f.poly([f.P(0.0, 0.0, 46), f.P(0.0, 1.0, 46), f.P(0.42, 1.0, 40), f.P(0.42, 0.0, 40)], tin)
+    for i in range(1, 6):
+        a, b = f.P(0.0, i / 6.0, 46), f.P(0.42, i / 6.0, 40)
+        f.draw.line([a, b], fill=shade(tin, -24) + (255,))
+    # The generator: an olive housing on skids.
+    olive = (92, 104, 70)
+    f.box(0.22, 0.24, 0.82, 0.76, 0, 3, (60, 58, 54))
+    f.box(0.26, 0.28, 0.78, 0.72, 3, 22, olive)
+    f.box(0.36, 0.34, 0.56, 0.52, 22, 25, shade(olive, -20))      # the filler cap
+    gx, gy = f.P(0.78, 0.5, 12)
+    f.draw.rectangle([gx - 5, gy - 4, gx + 1, gy + 1], fill=(40, 40, 42, 255))   # the panel
+    f.ellipse_at(f.P(0.78, 0.36, 15), 1.5, 1.5, (210, 190, 90))
+    ex, ey = f.P(0.3, 0.7, 22)
+    f.draw.line([(ex, ey), (ex, ey - 10)], fill=(60, 60, 62, 255), width=2)      # the exhaust
+
+
+def prop_gate_box(f):
+    """The gate's control box on its post: four lamp sockets (the game lights
+    them) and a key switch."""
+    metal = (126, 138, 128)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.draw.line([(gx, gy), (gx, gy - 28)], fill=(76, 78, 82, 255), width=3)    # the post
+    f.draw.rectangle([gx - 9, gy - 48, gx + 9, gy - 27], fill=metal + (255,))
+    f.draw.rectangle([gx + 5, gy - 48, gx + 9, gy - 27], fill=shade(metal, -30) + (255,))
+    f.draw.rectangle([gx - 9, gy - 48, gx + 9, gy - 47], fill=shade(metal, 24) + (255,))
+    for dx in (-7, -3, 1, 5):
+        f.draw.rectangle([gx + dx - 1, gy - 44, gx + dx + 1, gy - 42], fill=(36, 36, 38, 255))
+    f.ellipse_at((gx - 2, gy - 34), 2.5, 2.5, (60, 60, 64))                    # the key switch
+    f.draw.line([(gx - 3, gy - 34), (gx - 1, gy - 34)], fill=(180, 170, 120, 255))
+
+
+def prop_read_note(f):
+    """A note stuck to the front of a fridge."""
+    gx, gy = f.P(0.5, 0.5, 0)
+    paper = (236, 232, 214)
+    f.poly([(gx - 2, gy - 40), (gx + 6, gy - 44), (gx + 6, gy - 34), (gx - 2, gy - 30)], paper)
+    f.draw.line([(gx, gy - 37), (gx + 4, gy - 39)], fill=(90, 90, 110, 255))
+    f.draw.line([(gx, gy - 34), (gx + 4, gy - 36)], fill=(90, 90, 110, 255))
+    f.ellipse_at((gx + 2, gy - 41), 1.2, 1.2, (190, 50, 44))                  # the magnet
+
+
+def prop_read_board(f):
+    """A board on the wall: a map or a duty sheet pinned up."""
+    gx, gy = f.P(0.5, 0.5, 0)
+    cork = (170, 132, 88)
+    f.poly([(gx - 10, gy - 44), (gx + 8, gy - 53), (gx + 8, gy - 37), (gx - 10, gy - 28)], cork)
+    f.poly([(gx - 7, gy - 43), (gx + 5, gy - 49), (gx + 5, gy - 39), (gx - 7, gy - 33)], (230, 226, 210))
+    f.draw.line([(gx - 5, gy - 39), (gx + 3, gy - 43)], fill=(120, 120, 140, 255))
+    f.ellipse_at((gx + 1, gy - 42), 1.4, 1.4, (200, 40, 36))
+
+
+def prop_read_book(f):
+    """A ledger lying open on a desk or a bench."""
+    gx, gy = f.P(0.5, 0.5, 22)
+    f.poly([(gx - 9, gy - 2), (gx, gy - 6), (gx + 9, gy - 2), (gx, gy + 2)], (60, 70, 110))
+    f.poly([(gx - 8, gy - 3), (gx, gy - 6), (gx, gy + 0), (gx - 8, gy + 0)], (232, 228, 212))
+    f.poly([(gx, gy - 6), (gx + 8, gy - 3), (gx + 8, gy + 0), (gx, gy + 0)], (220, 216, 200))
+    f.draw.line([(gx - 6, gy - 3), (gx - 2, gy - 4)], fill=(110, 110, 130, 255))
+    f.draw.line([(gx + 2, gy - 4), (gx + 6, gy - 3)], fill=(110, 110, 130, 255))
+
+
+PROPS_P9 = [
+    ("prop_generator", prop_generator),
+    ("prop_gate_box", prop_gate_box),
+    ("prop_read_note", prop_read_note),
+    ("prop_read_board", prop_read_board),
+    ("prop_read_book", prop_read_book),
+]
+
+
+def draw_phase9_icon(name):
+    ic = Icon(name)
+    if name == "item_gate_key":
+        brass = (206, 176, 84)
+        ic.ellipse(11, 12, 6, 6, brass)
+        ic.ellipse(11, 12, 2.6, 2.6, (0, 0, 0))
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                if ic.get(x, y) == (0, 0, 0):
+                    ic.set(x, y, None)
+        ic.line(15, 16, 26, 27, brass, 2)
+        ic.line(22, 24, 25, 21, brass, 2)
+        ic.line(19, 21, 21, 19, brass, 1)
+        ic.rect(3, 20, 10, 27, (180, 50, 44))      # the tag
+        ic.line(7, 18, 9, 16, (220, 220, 220), 1)
+        ic.light()
+    elif name == "item_gate_fuse":
+        ceramic = (226, 222, 210)
+        ic.rect(9, 11, 23, 21, ceramic)
+        ic.rect(9, 11, 23, 13, shade(ceramic, 14))
+        ic.rect(5, 10, 9, 22, (190, 160, 80))       # brass caps
+        ic.rect(23, 10, 27, 22, (190, 160, 80))
+        ic.rect(3, 14, 5, 18, (170, 140, 70))
+        ic.rect(27, 14, 29, 18, (170, 140, 70))
+        ic.rect(13, 15, 19, 17, (200, 60, 50))      # the rating band
+        ic.light()
+    else:
+        ic.rect(9, 9, 23, 23, (150, 150, 150))
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+ITEM_ICONS_P9 = ["item_gate_key", "item_gate_fuse"]
+
+
+def add_phase9_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    x = 0
+    for axis, along_x in (("x", True), ("y", False)):
+        panel = make_gate_panel(along_x)
+        img.alpha_composite(panel, (x, P9_Y))
+        sprites["gate_panel_" + axis] = {"x": x, "y": P9_Y, "w": panel.width, "h": panel.height}
+        x += panel.width
+    for i, (name, painter) in enumerate(PROPS_P9):
+        f = Furn(9000 + i)
+        painter(f)
+        piece = f.finish()
+        img.paste(piece, (x + (PROP_CELL - FURN_W) // 2, P9_Y), piece)
+        sprites[name] = {"x": x, "y": P9_Y, "w": PROP_CELL, "h": PROP_CELL}
+        x += PROP_CELL
+    for name in ITEM_ICONS_P9:
+        draw_phase9_icon(name).paste(img, x, P9_Y)
+        sprites[name] = {"x": x, "y": P9_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+        x += ITEM_SIZE
+    if x > SHEET_W or P9_Y + ISO_TILE_H + WALL_H > KIND_BLOCK_Y:
+        raise SystemExit("phase 9 block does not fit")
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 9 sprite " + k + " overlaps " + ok)
 
 
 def main():

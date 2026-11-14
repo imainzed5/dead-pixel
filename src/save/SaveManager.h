@@ -7,6 +7,8 @@
 #include <vector>
 
 #include "map/LayoutData.h"
+#include "world/Clues.h"
+#include "world/Gate.h"
 #include "components/Inventory.h"
 #include "components/Needs.h"
 #include "components/Health.h"
@@ -36,6 +38,12 @@ struct GraveRecord
     // Phase 8: a companion who died at your side ("Travelled with <name>").
     // Not a life of the bloodline: not counted among those who came before.
     std::string travelledWith;
+    // Phase 9: what their notebook held, when they carried one (the way
+    // out's leads and what they had seen of the gate). Taking the notebook
+    // from their pack teaches it.
+    bool notebook = false;
+    int leads = 0;
+    clues::Seen seen;
 };
 
 struct RetirementRecord
@@ -141,6 +149,7 @@ struct ZombieRecord
     int kind = 0;          // ZombieKind
     bool dormant = false;  // a Crawler lying in wait
     bool follower = false; // the Stalker's follower
+    int gateRole = 0;      // phase 9: 1 the Sergeant, 2 one of the dead with him
 };
 
 // A boarded-up door and what is left of its boards.
@@ -309,6 +318,7 @@ struct CharacterHistoryRecord
     std::vector<std::string> negativeTraits;
     std::string bloodlineTrait;
     std::string finalNote;
+    bool escaped = false; // phase 9: got out by the gate
 };
 
 enum class SaveGameMode
@@ -334,22 +344,11 @@ enum class SaveTonePreset
     BrutalArcade
 };
 
-struct CampaignObjectiveState
-{
-    bool active = false;
-    int tileX = 0;
-    int tileY = 0;
-    int districtId = 0;
-    int infectionDeadlineDay = 0;
-    bool completed = false;
-};
-
 struct RunPresentationSettings
 {
     SaveGameMode gameMode = SaveGameMode::Endless;
     SaveThreatMode threatMode = SaveThreatMode::OverwhelmingSwarm;
     SaveTonePreset tonePreset = SaveTonePreset::GrimHuman;
-    CampaignObjectiveState campaignObjective{};
 };
 
 struct SurvivorRecord
@@ -396,6 +395,10 @@ struct SurvivorRecord
     int outDay = -1;
     std::vector<std::string> told; // leads already told
     std::vector<ContainerItemRecord> stock;
+    // Phase 9: a retired character's leads on the way out (they teach them),
+    // and one who went out by the gate with you (gone, not dead).
+    int gateLeads = 0;
+    bool left = false;
 };
 
 struct RunCheckpoint
@@ -453,6 +456,16 @@ struct RunCheckpoint
     std::vector<StructureRecord> structures;
     // Phase 6: power, piles, searched containers, foraging.
     ScavengeRunRecord scavenge;
+    // Phase 9: the way out as this character knows it, and how far the gate
+    // ground open this life (the next life finds it closed).
+    bool gateSaved = false;
+    int leads = 0;
+    clues::Seen seen;
+    bool broadcastHeard = false;
+    bool standStarted = false;
+    float standOpened = 0.0f;
+    float standElapsed = 0.0f;
+    int standWaves = 0;
 };
 
 class SaveManager
@@ -466,7 +479,9 @@ public:
     // are migrated on load and their old files kept as *.v1.backup.
     // 4: survivors with homes, stock and trust (phase 8); version 3
     // survivors are kept and given homes on load.
-    static constexpr int kCurrentSaveVersion = 4;
+    // 5: the way out (phase 9): the gate file, leads in checkpoints and
+    // graves; an old campaign objective becomes the gate's district.
+    static constexpr int kCurrentSaveVersion = 5;
 
     bool loadOrCreateSlot(const std::string& slotName);
     bool resetCurrentSlotWorld(bool keepPresentationSettings = true);
@@ -570,12 +585,24 @@ public:
     void setPresentationSettings(const RunPresentationSettings& settings) { mPresentationSettings = settings; }
     bool savePresentationSettings();
 
+    // The service gate (phase 9): world memory, <slot>_gate.json.
+    [[nodiscard]] const gate::State& gateState() const { return mGate; }
+    void setGateState(gate::State state) { mGate = std::move(state); }
+    bool saveGateState() const;
+    // A save from before phase 9 that had a campaign objective: its district,
+    // where the gate is to stand (0 none). Cleared once the gate is placed.
+    [[nodiscard]] int legacyObjectiveDistrict() const { return mLegacyObjectiveDistrict; }
+    void clearLegacyObjectiveDistrict();
+    // A life that got out by the gate: no grave, no survivor. Advances the run.
+    bool recordEscape();
+
 private:
     bool loadMeta();
     bool loadLegacy();
     bool loadStructures();
     void loadFurnitureMemory();
     void loadDistrictMemory();
+    void loadGateState();
     bool writeMeta() const;
     bool writeLegacy() const;
     bool writeStructures() const;
@@ -598,7 +625,10 @@ private:
     std::string mSurvivorPath;
     std::string mFurniturePath;
     std::string mDistrictPath;
+    std::string mGatePath;
     DistrictMemoryRecord mDistrictMemory;
+    gate::State mGate;
+    int mLegacyObjectiveDistrict = 0;
 
     int mSaveVersion = 0;
     std::uint32_t mWorldSeed = 0;

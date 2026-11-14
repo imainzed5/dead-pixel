@@ -44,7 +44,8 @@ enum class BloodlineTrait
     Hardened,       // slower early depression accumulation (earned by retirement)
     Scavenger,      // starts with slightly better salvage baseline
     Firewise,       // history of fire-related deaths/survival
-    Vigilant        // heightened awareness from repeated close calls
+    Vigilant,       // heightened awareness from repeated close calls
+    Wayfinder       // phase 9: someone of the line got out; every street is known
 };
 
 [[nodiscard]] inline const char* traitName(PositiveTrait trait)
@@ -110,6 +111,7 @@ struct Traits
         case BloodlineTrait::Scavenger: return "Scavenger";
         case BloodlineTrait::Firewise:  return "Firewise";
         case BloodlineTrait::Vigilant:  return "Vigilant";
+        case BloodlineTrait::Wayfinder: return "Wayfinder";
         default:                        return "";
         }
     }

@@ -196,6 +196,8 @@ void Game::updateRadio(float dtSeconds)
         mInteractionMessageTimer = 5.0f;
         std::cout << "[Power] radio: " << line << "\n";
     }
+    // Between forecasts, a looped voice about a gate (phase 9).
+    updateBroadcast(dtSeconds);
     // In shelter, faint music eases the mind (phase 5's depression).
     const glm::ivec2 me = playerTile();
     if (mTileMap.isIndoors(me.x, me.y)) addDepression(-kRadioReliefPerHour * hours);

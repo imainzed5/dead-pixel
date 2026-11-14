@@ -43,6 +43,7 @@ void Game::render()
     mFurnitureView.collect(mCamera, mStructureView, playerTile(), mSpriteSheet, mStaticSprites);
     mSceneryView.collect(mCamera, playerTile(), mSpriteSheet, mStaticSprites);
     collectFireSprites();
+    collectGateSprites(); // the way out (phase 9)
     RenderExtras extras;
     extras.statics = &mStaticSprites;
     extras.isHiddenAt = [this](int tileX, int tileY) { return mStructureView.isHiddenAt(tileX, tileY); };
@@ -468,12 +469,10 @@ void Game::renderMinimapOverlay()
         drawIsoPoint(smoke + glm::vec2(-10.0f, -10.0f), glm::vec4(0.95f, 0.50f, 0.20f, 0.95f), 2.0f);
     }
 
-    if (mCampaignObjective.active)
+    // The way out, once known (phase 9).
+    for (const WayOutMark& mark : wayOutMarks())
     {
-        const glm::vec2 objectiveCenter(
-            (static_cast<float>(mCampaignObjective.tileX) + 0.5f) * static_cast<float>(tileW),
-            (static_cast<float>(mCampaignObjective.tileY) + 0.5f) * static_cast<float>(tileH));
-        drawIsoPoint(objectiveCenter, glm::vec4(0.94f, 0.80f, 0.30f, 0.95f), 4.0f);
+        drawIsoPoint(mark.world, glm::vec4(0.94f, 0.80f, 0.30f, 0.95f), 4.0f);
     }
 
     // A dot that is not there (phase 5): it vanishes again.
@@ -712,12 +711,13 @@ void Game::renderWorldMapOverlay()
     marker(you, youColor, 8.0f);
     label(you + glm::vec2(8.0f, -5.0f), "You", youColor, 1.0f);
 
-    if (mCampaignObjective.active && !mCampaignObjective.completed)
+    // The way out, as far as this character knows it (phase 9).
+    const std::vector<WayOutMark> wayOut = wayOutMarks();
+    for (const WayOutMark& mark : wayOut)
     {
-        const glm::vec2 at = toMap(glm::vec2((static_cast<float>(mCampaignObjective.tileX) + 0.5f) * tileW,
-                                             (static_cast<float>(mCampaignObjective.tileY) + 0.5f) * tileH));
+        const glm::vec2 at = toMap(mark.world);
         marker(at, objectiveColor, 8.0f);
-        label(at + glm::vec2(8.0f, -5.0f), "Objective", objectiveColor, 1.0f);
+        label(at + glm::vec2(8.0f, -5.0f), mark.label, objectiveColor, 1.0f);
     }
 
     // Homes you know of (phase 8): a small house, and who lives there.
@@ -774,7 +774,7 @@ void Game::renderWorldMapOverlay()
     };
     const LegendEntry legend[] = {
         {youColor, "You"},
-        {objectiveColor, "Objective"},
+        {objectiveColor, "The way out"},
         {risenColor, "Risen - put them down"},
         {packColor, "Grave with a pack"},
         {graveColor, "Grave"},
@@ -787,7 +787,7 @@ void Game::renderWorldMapOverlay()
     const float ly = h - footerH + 22.0f;
     for (const LegendEntry& entry : legend)
     {
-        if (entry.text == std::string("Objective") && !mCampaignObjective.active) continue;
+        if (entry.text == std::string("The way out") && wayOut.empty()) continue;
         marker(glm::vec2(lx + 4.0f, ly + 4.0f), entry.color, 7.0f);
         mFont.drawText(mSpriteBatch, glm::vec2(lx + 13.0f, ly), entry.text, glm::vec4(0.80f, 0.80f, 0.74f, 0.95f), 1.0f);
         lx += 13.0f + mFont.measureText(entry.text, 1.0f).x + 22.0f;

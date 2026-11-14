@@ -143,6 +143,7 @@ const char* runStateName(int state)
     case 3: return "dead";
     case 4: return "retired";
     case 5: return "creating";
+    case 6: return "out";
     default: return "unknown";
     }
 }
@@ -357,6 +358,8 @@ void DevHarness::execute(Game& game, const Command& command)
 
     // The other people in town (DevHarnessSurvivors.cpp).
     if (survivorCommand(game, command)) return;
+    // The way out (DevHarnessGate.cpp).
+    if (gateCommand(game, command)) return;
 
     if (op == "wait")
     {
@@ -3517,7 +3520,8 @@ void DevHarness::writeMetricsRow(Game& game)
     }
     mClockAtLastRow = clock;
     mNoiseAtLastRow = noise;
-    const bool ended = game.mRunState == Game::RunState::Dead || game.mRunState == Game::RunState::Retired;
+    const bool ended = game.mRunState == Game::RunState::Dead || game.mRunState == Game::RunState::Retired ||
+                       game.mRunState == Game::RunState::Out;
     mMetrics << (ended ? csvSafe(game.mDeathCause) : std::string{}) << ',' << byCategory[0] << ',' << byCategory[1]
              << ',' << byCategory[2] << ',' << byCategory[3] << ',' << byCategory[4] << ','
              << game.mContainersOpened << ',' << boards << ',' << callers << ',' << noisePerHour << ','

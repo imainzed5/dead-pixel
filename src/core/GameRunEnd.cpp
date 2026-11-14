@@ -29,6 +29,14 @@ void Game::beginDeathState(const std::string& cause)
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         record.items = InventorySystem::itemsUnloaded(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
+        // A notebook in the pack keeps what they knew of the way out (phase 9).
+        if (InventorySystem::countItem(mWorld.getComponent<Inventory>(mPlayerEntity), mItems.notebook) > 0 &&
+            (mLeads != 0 || mGateSeen.valid))
+        {
+            record.notebook = true;
+            record.leads = mLeads;
+            record.seen = mGateSeen;
+        }
     }
     // Who they were, for the journals of phase 10: their traits and their
     // two best skills.
@@ -138,6 +146,7 @@ void Game::beginRetirementState(const std::string& customCause)
     retiree.outfit = static_cast<int>(mSurvivors.size() % 3);
     retiree.trust = survivorrules::kBloodlineTrust;
     retiree.met = true;
+    retiree.gateLeads = mLeads; // what they knew of the way out, to tell (phase 9)
     {
         int home = mFirstDays.homeBuilding;
         if (home <= 0 && mSaveManager.baseRecord().building > 0) home = mSaveManager.baseRecord().building;
@@ -238,6 +247,7 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
     recordBase(mRunState == RunState::Dead);
     saveDistrictMemory(); // infection, this life's kills, the rules learned
     saveScavengeMemory(); // things left lying indoors
+    persistGate();        // where the gate key lies (phase 9)
 
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
 

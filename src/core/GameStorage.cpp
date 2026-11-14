@@ -164,6 +164,7 @@ int Game::containerMove(bool fromPack, int row, bool wholeStack)
     {
         mRunStats.itemsLooted += moved;
         noteTakenFrom(mOpenContainerEntity); // someone's cupboard
+        if (slot.itemId == mItems.notebook) notebookTaken(mOpenContainerEntity); // an earlier life's notes (phase 9)
     }
     noteContainerSearched(mOpenContainerEntity, !fromPack);
     recordContainer(mOpenContainerEntity);

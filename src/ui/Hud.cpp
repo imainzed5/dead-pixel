@@ -4,6 +4,9 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include <glm/common.hpp>
 
@@ -696,8 +699,40 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
     const bool showMessage = !state.message.empty() && state.messageAlpha > 0.01f;
     if (showMessage)
     {
-        put(glm::vec2(layout.centreX, layout.messageY), fitLine(state.message),
-            withAlpha(kTextColor, state.messageAlpha), kLabelScale, TextAlign::Center);
+        // A long message (a note read, phase 9) wraps upward, three lines at most.
+        std::vector<std::string> lines;
+        {
+            std::istringstream words(state.message);
+            std::string word;
+            std::string line;
+            while (words >> word)
+            {
+                const std::string longer = line.empty() ? word : line + " " + word;
+                if (!line.empty() && (longer.size() > 72 || font.measureText(longer, kLabelScale).x > lineRoom))
+                {
+                    lines.push_back(line);
+                    line = word;
+                }
+                else
+                {
+                    line = longer;
+                }
+            }
+            if (!line.empty()) lines.push_back(line);
+        }
+        constexpr std::size_t kMaxMessageLines = 3;
+        if (lines.size() > kMaxMessageLines)
+        {
+            lines.resize(kMaxMessageLines);
+            lines.back() += " ...";
+        }
+        const float lineStep = font.lineHeight(kLabelScale) + 4.0f;
+        for (std::size_t i = 0; i < lines.size(); ++i)
+        {
+            const float y = layout.messageY - static_cast<float>(lines.size() - 1 - i) * lineStep;
+            put(glm::vec2(layout.centreX, y), fitLine(lines[i]), withAlpha(kTextColor, state.messageAlpha), kLabelScale,
+                TextAlign::Center);
+        }
     }
     else if (!state.prompt.empty())
     {

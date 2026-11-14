@@ -129,41 +129,12 @@ void Game::buildHudState()
 
     // Objective: the most urgent thing to do next.
     {
+        // The way out (phase 9): the next step this character knows of.
         const bool campaignMode = (mTitleGameModeIndex == 0);
-        std::string title = campaignMode ? "Reach the objective" : "Survive";
-        std::string detail = campaignMode ? "Objective not yet located" : "Standing still burns food, water and daylight";
+        const std::string wayOut = gateObjective();
+        std::string title = campaignMode ? "The way out" : "Survive";
+        std::string detail = campaignMode ? wayOut : "Standing still burns food, water and daylight";
         glm::vec4 color(0.92f, 0.80f, 0.34f, 1.0f);
-
-        if (campaignMode && mCampaignObjective.completed)
-        {
-            title = "Objective secured";
-            detail = "Extraction route confirmed. Legacy recorded.";
-            color = glm::vec4(0.58f, 0.88f, 0.56f, 1.0f);
-        }
-        else if (campaignMode && mCampaignObjective.active)
-        {
-            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-            const int tx = static_cast<int>(std::floor(pt.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
-            const int ty = static_cast<int>(std::floor(pt.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
-            const int distance = std::abs(mCampaignObjective.tileX - tx) + std::abs(mCampaignObjective.tileY - ty);
-            detail = std::to_string(distance) + " tiles away";
-            if (mCampaignObjective.infectionDeadlineDay > 0)
-            {
-                const int daysRemaining = std::max(0, mCampaignObjective.infectionDeadlineDay - mCurrentDay);
-                detail += ", " + std::to_string(daysRemaining) + " days before the deadline";
-                if (daysRemaining <= 5)
-                {
-                    color = glm::vec4(0.95f, 0.42f, 0.38f, 1.0f);
-                }
-            }
-        }
-        else if (campaignMode && mCampaignObjective.infectionDeadlineDay > 0 &&
-                 mCurrentDay > mCampaignObjective.infectionDeadlineDay)
-        {
-            title = "Objective failed";
-            detail = "The infection deadline has passed.";
-            color = glm::vec4(0.95f, 0.42f, 0.38f, 1.0f);
-        }
 
         // The first days: the plan for this day or night, which urgent needs
         // still override.
@@ -183,6 +154,11 @@ void Game::buildHudState()
         if (hordeDay() && mGameHours >= 12.0)
         {
             hud.objectiveSteps.push_back(HudStep{"Tonight: stay quiet.", false});
+        }
+        // Under the first days' plan, the way out is a line of its own.
+        if (campaignMode && !plan.title.empty() && !wayOut.empty())
+        {
+            hud.objectiveSteps.push_back(HudStep{wayOut, false});
         }
 
         const glm::vec4 medicalColor(0.95f, 0.50f, 0.45f, 1.0f);
@@ -219,6 +195,19 @@ void Game::buildHudState()
         {
             title = "Search nearby buildings";
             detail = "Look for food, water and medicine before dusk";
+        }
+
+        // The last stand comes before everything (phase 9).
+        if (mStand.running || (gatePlaced() && mGate.open && campaignMode))
+        {
+            title = mStand.running ? "Hold the gate" : "The way out";
+            detail = wayOut.empty() ? (mGate.open ? "The gate is open. Walk out." : "") : wayOut;
+            if (mStand.running && mTitleGameModeIndex != 0)
+            {
+                const int left = static_cast<int>(std::ceil(std::max(0.0f, gate::kOpenSeconds - mStand.opened) + mStand.grind));
+                detail = std::to_string(left) + " s.";
+            }
+            color = mStand.running ? glm::vec4(0.95f, 0.42f, 0.38f, 1.0f) : glm::vec4(0.58f, 0.88f, 0.56f, 1.0f);
         }
 
         hud.objectiveTitle = title;
@@ -349,6 +338,12 @@ void Game::renderNotebookOverlay()
     {
         return;
     }
+    // Its second page: the way out (phase 9).
+    if (mNotebookPage == 1 && wayOutPageShown())
+    {
+        renderWayOutPage();
+        return;
+    }
 
     // The notebook is where the legacy reads as a story: what earlier runs
     // left out there (live distance and direction), then who they were.
@@ -461,7 +456,7 @@ void Game::renderNotebookOverlay()
     const int run = mSaveManager.runNumber();
     float y = panelY + 22.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(left, y), "NOTEBOOK", ink, kBody);
-    const std::string closeHint = "J to close";
+    const std::string closeHint = wayOutPageShown() ? "Right: the way out   J to close" : "J to close";
     mFont.drawText(mSpriteBatch, glm::vec2(left + textW - mFont.measureText(closeHint, 1.0f).x, y + 4.0f), closeHint, dimInk, 1.0f);
     y += bodyLine + 2.0f;
     mFont.drawText(mSpriteBatch, glm::vec2(left, y),
@@ -654,7 +649,8 @@ void Game::renderNotebookOverlay()
 void Game::renderRunEndOverlay()
 {
     const bool dead = mRunState == RunState::Dead;
-    if (!dead && mRunState != RunState::Retired)
+    const bool out = mRunState == RunState::Out; // got out by the gate (phase 9)
+    if (!dead && !out && mRunState != RunState::Retired)
     {
         return;
     }
@@ -668,13 +664,17 @@ void Game::renderRunEndOverlay()
     const float fade = std::clamp(t / 0.8f, 0.0f, 1.0f);
     const bool ready = mDeathStateTimer >= kDeathRestartDelaySeconds;
 
-    const glm::vec4 accent = dead ? glm::vec4(0.86f, 0.26f, 0.22f, 1.0f) : legacyLeadColor(legacy::LeadKind::Survivor);
+    const glm::vec4 accent = dead ? glm::vec4(0.86f, 0.26f, 0.22f, 1.0f)
+                           : out  ? kPanelGood
+                                  : legacyLeadColor(legacy::LeadKind::Survivor);
     const glm::vec4 ink = kPanelInk;
     const glm::vec4 dimInk = kPanelDim;
     const glm::vec4 gold = kPanelAmber;
     const auto faded = [&](glm::vec4 c) { c.a *= fade; return c; };
 
-    const glm::vec4 backdrop = dead ? glm::vec4(0.10f, 0.02f, 0.02f, 0.72f) : glm::vec4(0.03f, 0.04f, 0.09f, 0.70f);
+    const glm::vec4 backdrop = dead ? glm::vec4(0.10f, 0.02f, 0.02f, 0.72f)
+                             : out  ? glm::vec4(0.02f, 0.05f, 0.03f, 0.74f)
+                                    : glm::vec4(0.03f, 0.04f, 0.09f, 0.70f);
     mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, faded(backdrop));
 
     // Lines, top to bottom.
@@ -686,9 +686,18 @@ void Game::renderRunEndOverlay()
         float gapAfter;
     };
     std::vector<Line> lines;
-    lines.push_back({dead ? "YOU DIED" : "RETIRED", accent, 3.0f, 10.0f});
-    lines.push_back({mCurrentCharacterName, ink, 2.0f, 6.0f});
+    lines.push_back({dead ? "YOU DIED" : out ? "OUT" : "RETIRED", accent, 3.0f, 10.0f});
+    if (!out) lines.push_back({mCurrentCharacterName, ink, 2.0f, 6.0f});
     lines.push_back({mDeathCause, dead ? glm::vec4(0.92f, 0.62f, 0.56f, 1.0f) : ink, 2.0f, 8.0f});
+    // Out: the whole line's count, then who did what to open it.
+    if (out)
+    {
+        for (std::size_t i = 0; i < mOutLines.size(); ++i)
+        {
+            lines.push_back({mOutLines[i], i == 0 ? ink : dimInk, i == 0 ? 2.0f : 1.0f, i == 0 ? 8.0f : 4.0f});
+        }
+        if (!lines.empty()) lines.back().gapAfter = 8.0f;
+    }
 
     std::string traitLine;
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
@@ -731,7 +740,7 @@ void Game::renderRunEndOverlay()
     float y = panelPos.y + 18.0f;
 
     // What marks them now: a grave or a cairn.
-    glm::vec4 iconUv = mSpriteSheet.uvRect(dead ? "prop_grave" : "prop_cairn");
+    glm::vec4 iconUv = mSpriteSheet.uvRect(dead ? "prop_grave" : out ? "prop_gate_box" : "prop_cairn");
     iconUv.y += iconUv.w * kIconCrop;
     iconUv.w *= 1.0f - kIconCrop;
     mSpriteBatch.draw(glm::vec2(cx - kIcon * 0.5f, y), glm::vec2(kIcon, iconH), iconUv, faded(glm::vec4(1.0f)));
@@ -1776,12 +1785,16 @@ void Game::renderTitleScreen()
             if (risenWalking > 0) lines.emplace_back(plural(risenWalking, "walks again", "walk again"), legacyLeadColor(legacy::LeadKind::Risen));
             if (packsWaiting > 0) lines.emplace_back(plural(packsWaiting, "pack waiting", "packs waiting"), legacyLeadColor(legacy::LeadKind::Pack));
             if (survivors > 0) lines.emplace_back(plural(survivors, "survivor lives on", "survivors live on"), legacyLeadColor(legacy::LeadKind::Survivor));
+            // Phase 9: those who left by the gate.
+            const int gotOut = static_cast<int>(std::count_if(history.begin(), history.end(),
+                                                              [](const CharacterHistoryRecord& r) { return r.escaped; }));
+            if (gotOut > 0) lines.emplace_back("Got out: " + std::to_string(gotOut), kPanelGood);
         }
         std::string lastLine;
         if (!history.empty())
         {
             const CharacterHistoryRecord& last = history.back();
-            lastLine = "Last: " + last.name + (last.retired ? ", retired" : ", " + last.cause);
+            lastLine = "Last: " + last.name + (last.escaped ? ", got out" : last.retired ? ", retired" : ", " + last.cause);
         }
 
         const float cardW = 360.0f;

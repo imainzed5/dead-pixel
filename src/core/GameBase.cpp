@@ -275,7 +275,11 @@ void Game::dropOnFloor(const glm::ivec2& tile, int itemId, int count, float cond
         [&](Entity e, Interactable& inter, Inventory&, Transform& t)
         {
             if (pile != kInvalidEntity || inter.type != InteractableType::Container) return;
-            if (!mWorld.hasComponent<Sprite>(e) || mWorld.hasComponent<Structure>(e) || mWorld.hasComponent<Vehicle>(e)) return;
+            if (!mWorld.hasComponent<Sprite>(e) || mWorld.hasComponent<Structure>(e) || mWorld.hasComponent<Vehicle>(e) ||
+                mWorld.hasComponent<Corpse>(e))
+            {
+                return; // a pile of its own, not a body's pockets
+            }
             if (worldToTile(mTileMap, glm::vec2(t.x + 16.0f, t.y + 16.0f)) == tile) pile = e;
         });
     if (pile == kInvalidEntity)
@@ -1411,7 +1415,7 @@ void Game::updateBaseActions(float dtSeconds)
         {
             tier = NoiseTier::Loud;
         }
-        if (mBaseAction.kind == BaseAction::Kind::Force)
+        if (mBaseAction.kind == BaseAction::Kind::Force || mBaseAction.kind == BaseAction::Kind::FreeGenerator)
         {
             tier = static_cast<int>(mBaseAction.timer) % 2 == 1 ? NoiseTier::Loud : NoiseTier::Soft;
         }
@@ -1421,7 +1425,7 @@ void Game::updateBaseActions(float dtSeconds)
             if (recipe != nullptr && recipe->hammering) tier = NoiseTier::Loud;
         }
         const bool quiet = mBaseAction.kind == BaseAction::Kind::Climb || mBaseAction.kind == BaseAction::Kind::Treat ||
-                           mBaseAction.kind == BaseAction::Kind::Read;
+                           mBaseAction.kind == BaseAction::Kind::Read || mBaseAction.kind == BaseAction::Kind::ReadClue;
         if (!quiet)
         {
             mNoiseModel.emitNoise(here, tier, 1.0f, mPlayerEntity);
@@ -1470,6 +1474,12 @@ void Game::updateBaseActions(float dtSeconds)
     case BaseAction::Kind::StopAlarm:
     case BaseAction::Kind::Forage:
         finishScavengeAction();
+        break;
+    case BaseAction::Kind::ReadClue:
+    case BaseAction::Kind::FitFuse:
+    case BaseAction::Kind::PourFuel:
+    case BaseAction::Kind::FreeGenerator:
+        finishGateAction();
         break;
     case BaseAction::Kind::Repair:
     {

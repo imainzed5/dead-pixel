@@ -547,7 +547,7 @@ void Game::startHorde()
     mWorld.forEach<ZombieAI, Transform>(
         [&](Entity e, ZombieAI& ai, Transform& t)
         {
-            if (ai.horde != 0 || ai.follower || ai.nightCaller || ai.dormant || mWorld.hasComponent<LegacyLink>(e)) return;
+            if (ai.horde != 0 || ai.follower || ai.nightCaller || ai.dormant || ai.gateRole != 0 || mWorld.hasComponent<LegacyLink>(e)) return;
             if (ai.state == ZombieState::Chase || ai.state == ZombieState::Attack) return;
             if (mWorld.hasComponent<Health>(e) && mWorld.getComponent<Health>(e).current <= 0.0f) return;
             const float d = glm::length(centreOf(t) - start) / tile;
@@ -707,7 +707,7 @@ void Game::updateFollower()
         mWorld.forEach<ZombieAI, Transform>(
             [&](Entity e, ZombieAI& ai, Transform& t)
             {
-                if (ai.horde != 0 || ai.dormant || ai.kind != ZombieKind::Shambler || mWorld.hasComponent<LegacyLink>(e)) return;
+                if (ai.horde != 0 || ai.dormant || ai.gateRole != 0 || ai.kind != ZombieKind::Shambler || mWorld.hasComponent<LegacyLink>(e)) return;
                 if (mWorld.hasComponent<Health>(e) && mWorld.getComponent<Health>(e).current <= 0.0f) return;
                 const float d = glm::length(centreOf(t) - player) / tile;
                 if (d < 25.0f) return;
@@ -963,6 +963,8 @@ void Game::onZombieDeath(Entity zombie)
     const glm::vec2 at = centreOf(mWorld.getComponent<Transform>(zombie));
     const float tile = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     const glm::ivec2 t = worldToTile(mTileMap, at);
+    // The Sergeant drops the gate key (phase 9).
+    gateZombieDied(zombie);
 
     // The district it fell in turns back a little.
     const int district = mTileMap.inBounds(t.x, t.y) ? mTileMap.getDistrictId(t.x, t.y) : 0;
@@ -1206,7 +1208,7 @@ void Game::updateDead(float dtSeconds, float feelDt)
         mWorld.forEach<ZombieAI, Transform>(
             [&](Entity, ZombieAI& ai, Transform& t)
             {
-                if (ai.state != ZombieState::Wander || ai.horde != 0 || ai.dormant) return;
+                if (ai.state != ZombieState::Wander || ai.horde != 0 || ai.dormant || ai.gateRole != 0) return;
                 const glm::vec2 c = centreOf(t);
                 if (glm::length(c - player) > kLightDrawTiles * tile) return;
                 ZombieAISystem::sendTo(ai, player, false);
@@ -1268,6 +1270,7 @@ void Game::recordTheDead(RunCheckpoint& cp)
             record.kind = static_cast<int>(ai.kind);
             record.dormant = ai.dormant;
             record.follower = ai.follower;
+            record.gateRole = ai.gateRole;
             cp.zombies.push_back(record);
         });
     mWorld.forEach<Corpse, Transform, Sprite>(

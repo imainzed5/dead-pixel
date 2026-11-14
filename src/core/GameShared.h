@@ -90,13 +90,13 @@ constexpr std::array<const char*, 3> kTitleSaveLabels = {
 };
 
 constexpr std::array<const char*, 2> kTitleGameModeNames = {
-    "CAMPAIGN",
+    "THE WAY OUT",
     "ENDLESS"
 };
 
 constexpr std::array<const char*, 2> kTitleGameModeDescriptions = {
-    "Objective-driven run with an infection deadline",
-    "No win condition; survive and shape world history"
+    "Find out why nobody has left.",
+    "No way out to look for. Survive and shape the town."
 };
 
 constexpr std::array<const char*, 6> kTitleModeNames = {
@@ -507,7 +507,7 @@ constexpr std::array<ControlBinding, 27> kControlBindings = {{
     {"B", "Build wheel"},
     {"V", "Car in-out; Shift: refuel"},
     {"M", "World map"},
-    {"J", "Notebook"},
+    {"J", "Notebook; Left/Right: page"},
     {"+/-", "Minimap zoom"},
     {"Esc", "Pause"},
     {"F2", "Controls"},

@@ -60,9 +60,12 @@ void Game::plantScenery()
             }
         }
     });
+    const LayoutData::GateSite& gateSite = mMapGenerator.layoutData().gate;
     std::erase_if(pieces, [&](const SceneryPiece& piece)
     {
         const glm::ivec2 tile = scenery::tileOf(piece);
+        // Nothing grows in the guard hut's yard (phase 9).
+        if (gateSite.placed && gate::inYard(gateSite, tile)) return true;
         return piece.blocker && taken[static_cast<std::size_t>(tile.y * mTileMap.width() + tile.x)] != 0;
     });
 

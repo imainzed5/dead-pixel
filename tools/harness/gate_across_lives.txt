@@ -1,0 +1,195 @@
+# The way out across lives (phase 9). Life 1 reads the fridge note, sees
+# the gate, fits the fuse and dies with a notebook. Life 2 finds the card
+# line, takes the notebook from the grave's pack (its leads come with it),
+# finds the fuse as life 1 left it, takes the key from the Sergeant, works
+# the generator loose (the know-how set directly), pours four cans (two
+# trips: two cans are as much as a pack holds), starts
+# the motor and dies during the stand with the key in the pack. Life 3
+# finds the fuse fitted, the fuel as the stand left it (a can burned) and
+# the key in life 2's grave; the gate has closed again. It tops the fuel
+# up, holds the gate with a companion beside it and both go out. The title
+# card counts it; life 4 finds the gate open on day 1, the marker names who
+# left, and it walks out.
+# The dead near the generator are put down before each held job (they
+# would break it off), after the Sergeant has been met.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/gate_across_lives.txt --hidden --world-seed 1234 --shots shots/gate_across_lives
+
+# Life 1: the note, the gate, the fuse.
+campaign on
+newrun
+god on
+hours 10
+waits 1
+survivors gone
+goto clue home
+waits 0.3
+tap E
+waits 2.5
+expect lead 1
+goto gate
+waits 1
+expect lead 2
+give Gate Fuse
+goto box
+waits 0.3
+tap E
+waits 10.5
+expect gate fuse
+expect lead 3
+give Notebook
+god off
+kill Starved
+waits 0.5
+
+# Life 2: the grave's notebook, the fuse as left, the key, the generator,
+# the fuel, the start; dead during the stand.
+newrun
+god on
+hours 10
+waits 1.5
+expect card writing things down
+shot 01_card
+survivors gone
+expect gate fuse
+expect gate fuel 0
+goto pack
+waits 0.3
+take Notebook
+expect leads 3
+tap J
+waits 0.3
+tap Right
+waits 0.3
+shot 02_inherited_page
+tap J
+waits 0.2
+expect objective Find out how to free the generator
+goto sergeant
+waits 0.3
+slay 2
+waits 0.5
+expect gate key loose
+take Gate Key
+learn 6
+give Toolbox
+goto generator
+slay 80
+waits 0.3
+tap E
+waits 61
+goto generator
+slay 80
+waits 0.3
+tap E
+waits 61
+goto generator
+slay 80
+waits 0.3
+tap E
+waits 61
+expect gate freed
+give Fuel Can 2
+goto generator
+slay 80
+waits 0.3
+expect prompt Pour fuel
+tap E
+waits 6.5
+tap E
+waits 6.5
+expect gate fuel 2
+give Fuel Can 2
+goto generator
+waits 0.3
+tap E
+waits 6.5
+tap E
+waits 6.5
+expect gate fuel 4
+expect objective Start the gate motor
+goto box
+waits 0.3
+expect prompt E: Start it
+tap E
+waits 0.5
+expect gate running
+waits 70
+expect gate stage 1
+shot 03_holding
+gate
+god off
+kill Bled out
+waits 0.5
+
+# Life 3: the fuse fitted, the fuel as left, the key in life 2's grave,
+# the gate closed again.
+newrun
+god on
+hours 10
+waits 1.5
+survivors gone
+gate
+expect gate fuse
+expect gate freed
+expect gate shut
+expect gate stage 0
+expect gate fuel 3
+expect gate key loose
+goto key
+waits 0.3
+take Gate Key
+learn all
+give Fuel Can
+goto generator
+slay 60
+waits 0.3
+tap E
+waits 6.5
+expect gate fuel 4
+goto box
+waits 0.3
+expect prompt E: Start it
+tap E
+waits 0.5
+expect gate running
+waits 185
+expect gate open
+
+# Someone to go with, brought to the open gate.
+slay 40
+survivor house open trust 45
+goto survivor
+waits 1
+talk
+talk along
+expect survivor companion
+talk leave
+goto box
+waitfor 90 survivor near 4
+shot 04_open
+goto through
+waits 0.5
+expect state out
+waits 2
+shot 05_out_screen
+titlescreen
+waits 0.5
+shot 06_title_got_out
+
+# Life 4: the gate open from day 1, the marker, out.
+newrun
+god on
+hours 10
+waits 1.5
+survivors gone
+expect gate open
+expect lead 2
+goto marker
+waits 0.3
+expect prompt left by this gate
+shot 07_marker
+goto through
+waits 0.5
+expect state out
+quit

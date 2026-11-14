@@ -97,6 +97,12 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
             mWorld.getComponent<Health>(zombie).current = record.health;
             mWorld.getComponent<ZombieAI>(zombie).follower = record.follower;
             if (record.follower) mFollowerChosen = true;
+            // The Sergeant and the dead with him (phase 9).
+            mWorld.getComponent<ZombieAI>(zombie).gateRole = record.gateRole;
+            if (record.gateRole == 1 && mWorld.hasComponent<Sprite>(zombie))
+            {
+                mWorld.getComponent<Sprite>(zombie).color = glm::vec4(0.70f, 0.76f, 0.98f, 1.0f);
+            }
         }
     }
     for (const CorpseRecord& record : cp.corpses)
@@ -921,6 +927,8 @@ void Game::setupScene()
     setupScavenging();
     // The town's people (phase 8), from the survivors file.
     setupSurvivors();
+    // The way out (phase 9): the gate shut or open, the readables.
+    setupGate();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(

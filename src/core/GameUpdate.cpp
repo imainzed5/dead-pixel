@@ -69,6 +69,16 @@ void Game::update(float dtSeconds)
                 closeTalk();
             }
         }
+        // The notebook's pages: Left and Right (the way out, once there is any).
+        if (mShowNotebook && wayOutPageShown())
+        {
+            if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT)) mNotebookPage = 1;
+            if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT)) mNotebookPage = 0;
+        }
+        else if (!wayOutPageShown())
+        {
+            mNotebookPage = 0;
+        }
 
         const bool minimapZoomOut =
             mInput.wasKeyPressed(SDL_SCANCODE_MINUS) ||
@@ -109,7 +119,7 @@ void Game::update(float dtSeconds)
         return;
     }
 
-    if (mRunState == RunState::Dead || mRunState == RunState::Retired)
+    if (mRunState == RunState::Dead || mRunState == RunState::Retired || mRunState == RunState::Out)
     {
         mDeathStateTimer += static_cast<double>(dtSeconds);
         updateAnimations(dtSeconds);
@@ -432,6 +442,7 @@ void Game::update(float dtSeconds)
         // window, then furniture and what was built.
         bool interceptedContainer = mBaseAction.kind != BaseAction::Kind::None && mBaseAction.kind != BaseAction::Kind::Grab;
         if (!interceptedContainer) interceptedContainer = handleAlarmBox(prompt);
+        if (!interceptedContainer) interceptedContainer = handleGateInteraction(prompt);
         if (!interceptedContainer) interceptedContainer = handleDoorInteraction(prompt);
         if (!interceptedContainer && doorInReach(prompt) == nullptr)
         {
@@ -440,6 +451,7 @@ void Game::update(float dtSeconds)
             {
                 // Someone close enough to talk to comes before the furniture.
                 interceptedContainer = talkToSurvivor();
+                if (!interceptedContainer) interceptedContainer = handleReadable(prompt);
                 if (!interceptedContainer) interceptedContainer = handleFieldStructure(prompt);
                 if (!interceptedContainer) interceptedContainer = handleBaseInteraction(prompt);
                 if (!interceptedContainer) interceptedContainer = handleFloorLamp(prompt);
@@ -740,61 +752,8 @@ void Game::update(float dtSeconds)
     updateVehicleAfterPhysics(feelDt);
     drivingVehicle = mActiveVehicleEntity != kInvalidEntity;
 
-    if (mRunState == RunState::Playing &&
-        mTitleGameModeIndex == 0 &&
-        mPlayerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Transform>(mPlayerEntity) &&
-        !mCampaignObjective.completed)
-    {
-        if (mCampaignObjective.active &&
-            mCampaignObjective.infectionDeadlineDay > 0 &&
-            mCurrentDay > mCampaignObjective.infectionDeadlineDay)
-        {
-            // The deadline passing no longer ends the run: it is said once,
-            // and the objective stays where it is.
-            mCampaignObjective.infectionDeadlineDay = 0;
-            syncPresentationSettingsToSave();
-
-            WorldMemoryEventRecord event;
-            event.type = WorldMemoryEventType::Other;
-            event.tileX = mCampaignObjective.tileX;
-            event.tileY = mCampaignObjective.tileY;
-            event.day = mCurrentDay;
-            event.runIndex = mSaveManager.runNumber();
-            event.detail = "campaign deadline passed";
-            mSaveManager.addWorldMemoryEvent(event);
-
-            mInteractionMessage = "The far side of town has gone quiet.";
-            mInteractionMessageTimer = 5.0f;
-        }
-
-        if (mCampaignObjective.active)
-        {
-            const Transform& playerTransform = mWorld.getComponent<Transform>(mPlayerEntity);
-            const int playerTileX = static_cast<int>(std::floor(playerTransform.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
-            const int playerTileY = static_cast<int>(std::floor(playerTransform.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
-            const int manhattan = std::abs(mCampaignObjective.tileX - playerTileX) + std::abs(mCampaignObjective.tileY - playerTileY);
-
-            if (manhattan <= 1)
-            {
-                mCampaignObjective.active = false;
-                mCampaignObjective.completed = true;
-                syncPresentationSettingsToSave();
-
-                WorldMemoryEventRecord event;
-                event.type = WorldMemoryEventType::Other;
-                event.tileX = mCampaignObjective.tileX;
-                event.tileY = mCampaignObjective.tileY;
-                event.day = mCurrentDay;
-                event.runIndex = mSaveManager.runNumber();
-                event.detail = "campaign objective secured";
-                mSaveManager.addWorldMemoryEvent(event);
-
-                beginRetirementState("Secured campaign objective on Day " + std::to_string(mCurrentDay));
-                return;
-            }
-        }
-    }
+    // The way out: the Sergeant, the last stand, walking out (phase 9).
+    if (mRunState == RunState::Playing && updateGate(dtSeconds)) return;
 
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
     {

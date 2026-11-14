@@ -1,0 +1,124 @@
+# The gate and the last stand (phase 9), its earlier stages set directly
+# where they would take long: the fuse fitted at the box (10 s), a session
+# on the generator with a toolbox (60 s, loud), the last session after two
+# set directly, a can poured (6 s) onto three set, the key from the
+# Sergeant, the start; walking off stops it, the restart grinds 30 s; then
+# three minutes held with the dead coming (300 more of them timed), a third
+# at a time; then out through the gate.
+# The dead near the gate are put down before each held job (they would
+# break it off); the Sergeant is met first, before that.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/gate.txt --hidden --world-seed 1234 --shots shots/gate
+
+campaign on
+newrun
+god on
+hours 11
+waits 1
+survivors gone
+learn all
+gate
+
+# The key first: the Sergeant falls and drops it where he fell.
+expect sergeant alive
+goto sergeant
+waits 0.3
+shot 01_the_sergeant
+slay 2
+waits 0.5
+expect sergeant dead
+expect gate key loose
+take Gate Key
+expect objective fuse
+
+# The fuse: carried to the box and fitted.
+give Gate Fuse
+goto box
+slay 80
+waits 0.3
+expect prompt E: Fit the fuse
+tap E
+waits 10.5
+expect gate fuse
+shot 02_fuse_fitted
+
+# The generator: seized; with a toolbox and the know-how, worked loose.
+give Toolbox
+goto generator
+slay 80
+waits 0.3
+expect prompt Work it loose
+tap E
+waits 2
+shot 03_working_it_loose
+waits 59
+expect gate repairs 1
+gate repair 2
+goto generator
+slay 80
+waits 0.3
+tap E
+waits 61
+expect gate freed
+
+# Fuel: three cans already in (set), the fourth poured.
+gate fuel 3
+give Fuel Can
+goto generator
+slay 80
+waits 0.3
+expect prompt Pour fuel
+tap E
+waits 6.5
+expect gate fuel 4
+expect objective Start the gate motor
+
+# Start it, then walk off: the motor stops.
+goto box
+slay 80
+waits 0.3
+expect prompt E: Start it
+tap E
+waits 0.5
+expect gate running
+waits 3
+goto open 16
+waits 0.5
+expect gate stopped
+expect message motor coughs
+
+# Back: the restart grinds 30 s before the gate moves again.
+goto box
+slay 80
+waits 0.3
+tap E
+waits 0.5
+expect gate running
+waits 25
+expect gate stage 0
+
+# Three minutes of it, with the dead coming. 300 more of them timed.
+perf 300
+waits 2
+shot 04_the_stand
+waits 9
+expect perf 4 12
+gate
+waits 55
+expect gate stage 1
+shot 05_a_third
+waits 60
+expect gate stage 2
+shot 06_two_thirds
+waits 60
+expect gate open
+shot 07_open
+gate
+
+# Out.
+goto through
+waits 0.5
+expect state out
+waits 2
+shot 08_out
+quit

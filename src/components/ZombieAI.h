@@ -109,6 +109,9 @@ struct ZombieAI
     int hordeLeg = 0;
     // The Stalker's follower: one per run, it always finds you.
     bool follower = false;
+    // The way out (phase 9): 1 the Sergeant (he has the gate key), 2 the dead
+    // who walk with him. Kept out of hordes and the follower's choice.
+    int gateRole = 0;
     bool pathQueued = false;
 
     // Decomposition / aging

@@ -68,6 +68,14 @@ class Game;
 //   waitfor SECONDS survivor CONDITION | waitfor SECONDS held   hold the script until it holds (FAIL after SECONDS)
 //   survivors gone                nobody living in town this run (the player and the dead alone)
 //   expect talk open|closed|trade, expect card TEXT, expect advance same|loots N
+//   campaign on|off               the way out (on) or endless (off) for the next newrun
+//   gate                          print the gate's state; gate fuse|freed|key|open|reset, gate fuel N, gate repair N
+//   goto gate|box|generator|sergeant|marker|fuse|key | goto clue N|SOURCE|home   beside it; goto through: onto the gate
+//   take ITEM NAME                into the pack from the open container (or the nearest that holds it)
+//   titlescreen                   back to the title screen
+//   learn N|all                   the player knows lead N; clues: print the readables and the leads
+//   expect leads N | expect lead N | expect gate open|shut|fuse|freed|running|stage N|fuel N|key sergeant|loose|turned
+//   expect objective TEXT | expect sergeant alive|dead | expect readables N | expect state out
 //   log TEXT                      print a line
 //   quit                          end the run
 class DevHarness
@@ -108,6 +116,8 @@ private:
     void execute(Game& game, const Command& command);
     // DevHarnessSurvivors.cpp: true when the command was one of the survivors'.
     bool survivorCommand(Game& game, const Command& command);
+    // DevHarnessGate.cpp: true when the command was one of the way out's (phase 9).
+    bool gateCommand(Game& game, const Command& command);
     Entity survivorFocus(Game& game, const std::string& name);
     // A survivor condition (home, flee, stock ITEM N, ...): true when it holds; `what` says what was seen.
     bool survivorCondition(Game& game, const std::vector<std::string>& condition, std::string& what);

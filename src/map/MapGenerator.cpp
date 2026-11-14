@@ -21,6 +21,7 @@ LayoutData MapGenerator::generateLayout(std::uint32_t layoutSeed, int width, int
     mDistrict.assign(total, 0);
     mBuildings.clear();
     mDoorTiles.clear();
+    mLayout.gate = LayoutData::GateSite{};
 
     fillBase();
     borderWalls();
@@ -980,6 +981,13 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
 
     for (int bi = 0; bi < static_cast<int>(mBuildings.size()); ++bi)
     {
+        // The guard hut by the gate (phase 9) holds nothing and no one: it is
+        // left out, so a town's spawns are what they were before it stood.
+        if (static_cast<std::size_t>(bi) < mLayout.buildings.size() &&
+            mLayout.buildings[static_cast<std::size_t>(bi)].kind == static_cast<int>(BuildingKind::GuardHut))
+        {
+            continue;
+        }
         const auto& b = mBuildings[static_cast<std::size_t>(bi)];
         BuildingFloors bf;
         bf.buildingIdx = bi;
@@ -1145,7 +1153,10 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
     {
         for (int x = 2; x < mWidth - 2; x += 3)
         {
-            if (mCollision[index(x, y)] == 0 && buildingIndexAt(x, y) < 0)
+            const LayoutData::GateSite& gate = mLayout.gate;
+            const bool yard = gate.placed && x >= gate.yardMin.x && x <= gate.yardMax.x && y >= gate.yardMin.y &&
+                              y <= gate.yardMax.y;
+            if (mCollision[index(x, y)] == 0 && buildingIndexAt(x, y) < 0 && !yard)
             {
                 outdoorTiles.emplace_back(x, y);
             }

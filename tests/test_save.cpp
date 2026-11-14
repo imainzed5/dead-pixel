@@ -560,7 +560,7 @@ DP_TEST(save_v4_survivors_round_trip)
     SaveManager::setSeedOverride(81u);
     SaveManager save;
     DP_CHECK(save.loadOrCreateSlot("people_slot"));
-    DP_CHECK_EQ(SaveManager::kCurrentSaveVersion, 4);
+    DP_CHECK(SaveManager::kCurrentSaveVersion >= 4);
 
     SurvivorRecord ana;
     ana.id = 0;
@@ -689,10 +689,165 @@ DP_TEST(save_v3_survivors_migrate_to_v4)
         std::ifstream in("save/v3_slot_survivors.json");
         nlohmann::json json;
         in >> json;
-        DP_CHECK_EQ(json.value("saveVersion", 0), 4);
+        DP_CHECK(json.value("saveVersion", 0) >= 4);
         DP_CHECK(json["survivors"][0].contains("trust"));
     }
     SaveManager again;
     DP_CHECK(again.loadOrCreateSlot("v3_slot"));
     DP_CHECK_EQ(again.migratedFromVersion(), 0);
+}
+
+DP_TEST(save_v5_gate_and_notebook_round_trip)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(95u);
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("gate_slot"));
+    DP_CHECK_EQ(SaveManager::kCurrentSaveVersion, 5);
+
+    gate::State g;
+    g.fuseFitted = true;
+    g.fuel = 3;
+    g.repairs = 2;
+    g.freed = false;
+    g.key = gate::KeyPlace::Loose;
+    g.keyTile = glm::ivec2(41, 17);
+    g.noteHome = 9;
+    gate::credit(g, "Ann Hale", "fuse", 1);
+    gate::credit(g, "Ann Hale", "can", 1);
+    gate::credit(g, "Bo Reyes", "sergeant", 2);
+    g.leavers.push_back(gate::Leaver{"Bo Reyes", 12, 2});
+    save.setGateState(g);
+    DP_CHECK(save.saveGateState());
+
+    // A grave with a notebook, a history that got out, a retiree's leads.
+    GraveRecord grave;
+    grave.name = "Ann Hale";
+    grave.day = 4;
+    grave.notebook = true;
+    grave.leads = 0x0B;
+    grave.seen.valid = true;
+    grave.seen.run = 1;
+    grave.seen.day = 4;
+    grave.seen.fuel = 3;
+    grave.seen.fuse = true;
+    DP_CHECK(save.recordDeath(grave));
+    CharacterHistoryRecord history;
+    history.name = "Bo Reyes";
+    history.escaped = true;
+    save.addCharacterHistoryRecord(history);
+    DP_CHECK(save.recordEscape());
+    SurvivorRecord retiree;
+    retiree.name = "Cy";
+    retiree.retired = true;
+    retiree.gateLeads = 0x03;
+    SurvivorRecord leaver;
+    leaver.id = 1;
+    leaver.name = "Dee";
+    leaver.left = true;
+    leaver.alive = false;
+    DP_CHECK(save.saveSurvivors({retiree, leaver}));
+
+    RunCheckpoint cp;
+    cp.valid = true;
+    cp.runSeed = save.currentRunSeed();
+    cp.characterName = "Eve";
+    cp.gateSaved = true;
+    cp.leads = 0x15;
+    cp.seen.valid = true;
+    cp.seen.run = 3;
+    cp.seen.day = 2;
+    cp.seen.repairs = 1;
+    cp.broadcastHeard = true;
+    cp.standStarted = true;
+    cp.standOpened = 75.0f;
+    cp.standElapsed = 90.0f;
+    cp.standWaves = 4;
+    DP_CHECK(save.saveCheckpoint(cp));
+
+    SaveManager back;
+    DP_CHECK(back.loadOrCreateSlot("gate_slot"));
+    const gate::State& r = back.gateState();
+    DP_CHECK(r.fuseFitted && !r.freed && !r.open);
+    DP_CHECK_EQ(r.fuel, 3);
+    DP_CHECK_EQ(r.repairs, 2);
+    DP_CHECK(r.key == gate::KeyPlace::Loose);
+    DP_CHECK(r.keyTile == glm::ivec2(41, 17));
+    DP_CHECK_EQ(r.noteHome, 9);
+    DP_CHECK_EQ(r.contributors.size(), std::size_t{3});
+    DP_CHECK_EQ(r.leavers.size(), std::size_t{1});
+    if (!r.leavers.empty()) DP_CHECK_EQ(r.leavers[0].day, 12);
+    DP_CHECK(!back.graves().empty());
+    if (!back.graves().empty())
+    {
+        const GraveRecord& gr = back.graves().back();
+        DP_CHECK(gr.notebook);
+        DP_CHECK_EQ(gr.leads, 0x0B);
+        DP_CHECK(gr.seen.valid && gr.seen.fuse);
+        DP_CHECK_EQ(gr.seen.fuel, 3);
+    }
+    DP_CHECK(!back.characterHistory().empty() && back.characterHistory().back().escaped);
+    DP_CHECK(back.selectBloodlineForNewRun() == BloodlineTrait::Wayfinder);
+    const std::vector<SurvivorRecord> people = back.loadSurvivors();
+    DP_CHECK_EQ(people.size(), std::size_t{2});
+    if (people.size() == 2)
+    {
+        DP_CHECK_EQ(people[0].gateLeads, 0x03);
+        DP_CHECK(people[1].left);
+    }
+    const RunCheckpoint loaded = back.loadCheckpoint();
+    DP_CHECK(loaded.valid && loaded.gateSaved);
+    DP_CHECK_EQ(loaded.leads, 0x15);
+    DP_CHECK(loaded.seen.valid);
+    DP_CHECK_EQ(loaded.seen.repairs, 1);
+    DP_CHECK(loaded.broadcastHeard && loaded.standStarted);
+    DP_CHECK_NEAR(loaded.standOpened, 75.0f, 0.01);
+    DP_CHECK_EQ(loaded.standWaves, 4);
+}
+
+DP_TEST(save_v4_slot_migrates_to_v5_with_its_objective_district)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(97u);
+    {
+        SaveManager fresh;
+        DP_CHECK(fresh.loadOrCreateSlot("v4_slot"));
+    }
+    // A version 4 slot in the campaign, its objective in district 3.
+    {
+        nlohmann::json meta;
+        {
+            std::ifstream in("save/v4_slot.json");
+            DP_CHECK(in.good());
+            in >> meta;
+        }
+        meta["saveVersion"] = 4;
+        meta["presentation"]["gameMode"] = "campaign";
+        meta["presentation"]["campaignObjective"] = {{"active", true}, {"completed", false}, {"tileX", 30}, {"tileY", 40},
+                                                     {"districtId", 3}, {"infectionDeadlineDay", 60}};
+        meta["presentation"].erase("gateDistrict");
+        std::ofstream out("save/v4_slot.json", std::ios::trunc);
+        out << meta.dump();
+    }
+    SaveManager migrated;
+    DP_CHECK(migrated.loadOrCreateSlot("v4_slot"));
+    DP_CHECK_EQ(migrated.migratedFromVersion(), 4);
+    DP_CHECK(std::filesystem::exists("save/v4_slot.json.v4.backup"));
+    DP_CHECK_EQ(migrated.legacyObjectiveDistrict(), 3);
+    // No gate file yet: a fresh gate.
+    DP_CHECK(!migrated.gateState().fuseFitted && migrated.gateState().key == gate::KeyPlace::Sergeant);
+    {
+        std::ifstream in("save/v4_slot.json");
+        nlohmann::json json;
+        in >> json;
+        DP_CHECK_EQ(json.value("saveVersion", 0), 5);
+        DP_CHECK(!json["presentation"].contains("campaignObjective"));
+        DP_CHECK_EQ(json["presentation"].value("gateDistrict", 0), 3);
+    }
+    // Once the gate is stamped there, the district is let go of.
+    migrated.clearLegacyObjectiveDistrict();
+    SaveManager again;
+    DP_CHECK(again.loadOrCreateSlot("v4_slot"));
+    DP_CHECK_EQ(again.migratedFromVersion(), 0);
+    DP_CHECK_EQ(again.legacyObjectiveDistrict(), 0);
 }

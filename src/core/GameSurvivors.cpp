@@ -910,7 +910,7 @@ void Game::setupSurvivors()
     for (std::size_t i = 0; i < mSurvivors.size(); ++i)
     {
         const SurvivorRecord& r = mSurvivors[i];
-        if (!r.alive && r.buried) continue;
+        if ((!r.alive && r.buried) || r.left) continue; // the buried, and those who went out by the gate
         spawnSurvivor(i);
         (r.alive ? living : bodies) += 1;
     }
@@ -1973,6 +1973,12 @@ void Game::talkChoose(int choice)
                     return;
                 }
             }
+        }
+        // What they know of the way out comes before the gossip (phase 9).
+        if (const std::string gateLine = survivorGateLead(record, ai.trust, record.competence); !gateLine.empty())
+        {
+            mTalk.line = gateLine;
+            return;
         }
         mTalk.line = survivorLead(who);
         return;

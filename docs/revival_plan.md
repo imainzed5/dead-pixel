@@ -1250,6 +1250,98 @@ the start on those seeds: they go out for supplies across the town. Not retuned 
 logged under "Balance" in `DECISIONS.md`. The rest move seed by seed as
 the weather did in phase 7 (seed 7: 1.3 to 0.9, seed 2: 3.6 to 3.9).
 
+## Overhaul phase 9: the way out (2026-11-14)
+
+The old campaign (an objective tile, a deadline, retirement on touching
+it) is gone. Every world now has a service gate stamped into the town wall
+once (`src/world/Gate`, pure and tested): in the old objective's district
+for a v4 save, else the district farthest from the start. A guard hut
+stands inside it with a desk, a locker and a log book, a generator under a
+lean-to and a control box on a post whose four lamps show the state.
+Opening it takes four things, each world memory (save version 5, v4 files
+migrate with a backup): the Gate Fuse from the hardware store's locked
+cabinet (a crowbar), fitted at the box (10 s held); four Fuel Cans
+(8 kg each) poured into the generator (6 s each); the generator freed with
+a toolbox, either with Mechanics 3 or over three loud 60 s sessions by
+anyone; and the Gate Key, carried by Sergeant Kerr (seed 1234), a tinted
+Brute with 260 health and four to six of the dead clumped on him who walks
+a five-point loop in his own district. Kill him and the key falls where he
+fell; die with it and it is in your grave's pack.
+
+With all four and the key in hand, "Start it" begins the last stand: three
+minutes of Explosive noise each second, every one of the dead within 60
+tiles called in, waves from 22 to 30 tiles out every 20 s (3, 4, 5 ... on a
+base crowd from the district's infection, doubled when overwhelmed; at
+most 300), the gate opening a third a minute. Walking more than 12 tiles
+from the box stops the motor; a restart grinds 30 s first. Fuel burns at a
+can a minute. Walking through ends the run with the "Out" screen: the
+name, the lives and days it took, every character's deeds ("killed the
+Sergeant, fitted the fuse, poured 2 cans ..."), a companion within 8 tiles
+going too, and "The road goes on." The gate then stands open for ever: a
+marker names who left and on what day, the gate district holds half as
+many dead again, the bloodline gains Wayfinder (the gate and every
+building on the map from the start), and the title card counts "Got out".
+
+Clues (`src/world/Clues`, words in `assets/data/clues.json`): six leads
+learned from the radio broadcast (three lines over a minute), fridge
+notes (one guaranteed in the first home of a world), the police wall map
+and duty board, the hut's log book, the hardware order book, the garage
+note and manual (100 Mechanics XP), the box itself, seeing the gate, and
+survivors' hellos (a retired character tells what they wrote down). The
+notebook gains a page, "The way out" (J, then Right), with the leads as
+plain sentences and the four needs as far as this character knows them.
+A dead character's notebook goes into their grave's pack; taking it
+teaches everything in it, its state lines reading "as of day N of an
+earlier life". The objective line shows the next known step under the
+first-days plan, "Hold the gate. N s." during the stand. The title's Game
+Mode is "THE WAY OUT" or "ENDLESS" (no objective, the gate still there).
+
+Harness: `clues` (the radio teaches lead 1, the fridge note, the page, a new
+life knows nothing, the grave's notebook teaches it all back), `gate` (the
+key, the fuse, a real generator session, a can poured, start, walk off,
+restart grinds, three thirds, out), `gate_across_lives` (fuse in life 1;
+key, generator, fuel and a death in the stand in life 2; life 3 finds the
+fuse, the fuel as left and the key in life 2's grave, holds the gate with a
+companion and both go out; life 4 walks out on day 1 past the marker).
+Tests: `test_gate` (what is missing, the wave schedule, three minutes on
+four cans, restart and dry, contributors, the gate and the Sergeant's loop
+reachable on seeds 1234, 42 and 777, old objective district), `test_clues`
+(sources, survivors, notebook transfer, the objective, the words, readables
+placed and reachable), and v5 save round trip and v4 migration.
+
+Performance: during the stand in `gate.txt`, with 320 of the dead in
+town (300 placed by `perf`, the waves capped at 300 alive), 1.46 ms a
+tick on average over 600 ticks, 2.5 ms worst (budget 4 and 12). `perf.txt`: 300 of the
+dead 1.63 ms and 5.0 ms; 20 survivors and 100 of the dead 0.83 ms and
+1.6 ms. All 49 scripts pass, each in a fresh directory on the final build
+(`guns`, `horde` and `perf` adjusted for the changed town, see
+`DECISIONS.md`); 277 unit tests pass; clean rebuild without warnings.
+
+`bot_week`, seeds 1 to 10, default mode (Endless, so the bot does not
+work on the gate), on the final build:
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 3.0 | Killed by zombies, day 4 | 26 | 5 | 4 | 48 | 3 |
+| 2 | 2.3 | Bled out, day 3 | 68 | 6 | 1 | 119 | 1 |
+| 3 | 1.2 | Overrun, day 2 | 18 | 6 | 7 | 25 | 2 |
+| 4 | 2.8 | Killed by Abel, day 4 | 43 | 20 | 6 | 94 | 2 |
+| 5 | 1.2 | Overrun, day 2 | 34 | 5 | 4 | 19 | 0 |
+| 6 | 1.2 | Bled out, day 2 | 22 | 5 | 0 | 37 | 3 |
+| 7 | 2.9 | Overrun, day 4 | 40 | 10 | 10 | 123 | 3 |
+| 8 | 0.9 | Overrun, day 2 | 31 | 6 | 9 | 72 | 0 |
+| 9 | 1.8 | Overrun, day 3 | 18 | 8 | 9 | 38 | 0 |
+| 10 | 2.0 | Overrun, day 3 | 51 | 7 | 3 | 55 | 1 |
+
+Median 1.9 days (phase 8: 1.3), mean 1.9 (1.5); 10 of 10 clean; none died
+at home on night 1 (phase 8: 2). Containers searched 630 in all (536),
+boards 15 (14), kills 351 (301). No drop: every column holds or rises.
+The bot plays Endless and never goes near the gate, so the change is
+probably the town itself (the stamped gate moves where the dead stand
+and where survivors go) and seed-by-seed variance, as in phases 7 and 8;
+not looked into further. One life ends to a survivor (seed 4, Abel, on
+day 4; phase 8: two, seeds 8 and 9).
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -1430,3 +1522,11 @@ Candidates for the next stretch, roughly in order. None is started.
   with a migration; bot median 1.3 days, mean 1.5 (phase 7: 1.7, 2.0;
   1.8 and 1.8 with the survivors taken away), two lives ended by the
   garage.
+- 2026-11-14: Overhaul phase 9, the way out: the old campaign replaced by
+  a service gate stamped into the wall, opened with the Sergeant's key, a
+  fuse, four cans and a freed generator, then held for three minutes of
+  the last stand; the "Out" ending with every life's deeds, the open gate
+  and its marker, Wayfinder; six leads from notes, the radio, survivors
+  and the notebook's way-out page, inherited from a grave's pack; title
+  modes "The way out" and "Endless"; save version 5 with a migration; bot
+  median 1.9 days, mean 1.9 (phase 8: 1.3, 1.5).

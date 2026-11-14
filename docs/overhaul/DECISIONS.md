@@ -647,6 +647,67 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   killed the Brute without a scratch (they fight by their numbers, which
   are phase 14's to weigh).
 
+- 2026-11-14, P09: where the gate goes -> stamped once into the town wall
+  when the slot's layout is made or loaded, in the old campaign
+  objective's district if the slot had one, else the district farthest
+  from the start; the old `campaignObjective` is gone. One gate per world,
+  and v4 saves keep the place they were sent to.
+- 2026-11-14, P09: the control box -> a box on a post beside the gate, its
+  four lamps drawn as small tinted quads (dark, amber, lit), not a sprite
+  per state. Reads at the current pixel scale without new art per state.
+- 2026-11-14, P09: the gate tiles -> blocked for walking until it opens,
+  then free; the generator tile stays blocked. The wall has no other gap.
+- 2026-11-14, P09: the key -> its whereabouts are gate state (on the
+  Sergeant, loose, turned in), not a tracked item. On the Sergeant it
+  respawns him each life if he is not walking; loose, it is put back where
+  it was last seen outdoors only when nothing in the town (packs,
+  containers, floors) holds it. The fuse is put back in the hardware
+  cabinet when it is not fitted and nothing holds one.
+- 2026-11-14, P09: the fuse cabinet -> locked like the armoury (X with a
+  crowbar). Falls back to a container in the guard hut when the town has
+  no hardware store.
+- 2026-11-14, P09: a Fuel Can -> 8 kg, so carrying four is a choice.
+- 2026-11-14, P09: fuel to start -> the first start needs all 4 cans; a
+  restart in the same life needs any fuel. A new life finds the gate shut
+  again and needs 4 again (a stand burns about a can a minute, so a death
+  late in it means pouring again).
+- 2026-11-14, P09: pouring before the generator is freed -> allowed. The
+  table lists the needs side by side, and blocking it only adds a trip.
+- 2026-11-14, P09: the stand mid-way -> kept only in the run checkpoint
+  (resume puts it back); between lives it is gone, as the phase says.
+- 2026-11-14, P09: readables -> each can be read once a life (E then does
+  the container's search). Read every time, a note whose leads were known
+  swallowed E and the fridge never opened.
+- 2026-11-14, P09: the radio broadcast -> starts 6 s after the radio goes
+  on, after the forecast line, and teaches lead 1 after three lines.
+- 2026-11-14, P09: the inherited notebook -> found in the grave's pack
+  (`Pack` legacy link); taking it carries the leads and the gate page as
+  "as of day N of an earlier life". A grave only gets one when the dead
+  character carried a notebook and knew something.
+- 2026-11-14, P09: a companion at the gate -> leaves too when within 8
+  tiles as the player walks through; named on the Out screen, not a
+  survivor again.
+- 2026-11-14, P09: HUD messages -> wrap upward, at most three lines of 72
+  characters. The notes are longer than one line and were cut off.
+- 2026-11-14, P09: dropping on the floor -> a pile never merges into a
+  body (`Corpse`). The key fell into the Sergeant's body and read as gone.
+- 2026-11-14, P09: harness scripts with held jobs at the generator ->
+  `slay` the dead near it first (a hit breaks a held job off, god mode or
+  not), after the Sergeant has been met so he is not slain with them.
+  `take ITEM` closes the container it opened.
+- 2026-11-14, P09: older scripts the gate moved -> `guns` expects seven
+  slain near the start, not five (the town changed, so the dead stand
+  elsewhere); `horde` starts with `survivors gone` (its horde set out near
+  a lived-in house and that house's evening lamp drew all of it in);
+  `perf` lets the slain settle half a second before timing (the tick the
+  Sergeant falls in, his key dropped and the gate saved, took 20 to 34 ms).
+- 2026-11-14, P09: `gate_across_lives` -> life 2 pours the four cans in two
+  trips (a pack with the starting kit holds two cans at 8 kg); life 3 tops
+  the fuel up from 3 (the stand burned one) before it can start.
+- 2026-11-14, P09: the title's Game Mode -> "THE WAY OUT" (campaign) and
+  "ENDLESS"; Endless has no way-out objective but the gate is still there
+  and can be opened.
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -692,6 +753,14 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   "Later"); survivors climbing through windows (see above); the town map's
   "blue house by the diner" descriptions (the notebook says the building
   kind, distance and direction).
+
+- 2026-11-14, P09: a second way out (the river) for worlds whose gate
+  district burned, and what is at the end of the road (the phase's own
+  "Later"). The gate's own sounds (the motor, the grinding) wait for P12;
+  for now each second of the stand plays a quiet weapon-hit knock. The
+  run-start card can overlap the end of a long objective step at
+  1280x720 for the seconds it shows ("The gate is open. Walk out." under
+  a two-grave card); left for P13's run flow.
 
 ## Balance: needs a design change
 

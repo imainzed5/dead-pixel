@@ -36,6 +36,8 @@
 #include "world/FirstDays.h"
 #include "world/Furniture.h"
 #include "world/Forage.h"
+#include "world/Clues.h"
+#include "world/Gate.h"
 #include "world/Scenery.h"
 #include "world/BloodTrail.h"
 #include "world/ZombieKinds.h"
@@ -123,7 +125,8 @@ private:
         Paused,
         Dead,
         Retired,
-        CharacterCreation // the character screen, over the dimmed town (phase 5)
+        CharacterCreation, // the character screen, over the dimmed town (phase 5)
+        Out                // got out by the gate (phase 9)
     };
 
     bool initialize();
@@ -392,7 +395,6 @@ private:
     void spoilContainers(float gameHours);
     void syncPresentationSettingsFromSave();
     void syncPresentationSettingsToSave();
-    void ensureCampaignObjective();
     bool saveCurrentRunCheckpoint(const std::string& statusMessage = "Run checkpoint saved.");
     [[nodiscard]] RunCheckpoint buildRunCheckpoint();
     // The town as the checkpoint left it: doors, scars, fires.
@@ -793,7 +795,7 @@ private:
 
     bool mShowWorldMap = false;
     bool mShowNotebook = false;
-    CampaignObjectiveState mCampaignObjective{};
+    int mNotebookPage = 0; // 0 the notebook, 1 the way out (Left/Right)
     float mMinimapZoom = 1.0f;
 
     double mGameHours = 8.0;
@@ -998,7 +1000,12 @@ private:
             Smash,    // a window's glass, from outside
             Tape,     // a window's glass, taped and knocked out quietly
             StopAlarm, // the box by a shop's door
-            Forage    // a bush, a tree base, a tuft of grass
+            Forage,   // a bush, a tree base, a tuft of grass
+            // Phase 9: the way out.
+            ReadClue,      // a note, a board, a book (quiet)
+            FitFuse,       // the gate box
+            PourFuel,      // a can into the generator
+            FreeGenerator  // working the seized generator loose (Loud every 2 s)
         } kind = Kind::None;
         glm::ivec2 tile{0};       // the piece, window or build site
         glm::ivec2 to{0};         // climb: where you come out
@@ -1169,4 +1176,90 @@ private:
     [[nodiscard]] std::vector<int> survivorSpare(Entity survivor) const;
     [[nodiscard]] std::string survivorLead(Entity survivor);
     void updateSurvivorSmoke(float dtSeconds);
+
+    // --- The way out (phase 9, GameGate.cpp and GameClues.cpp) ---
+    // The gate stamped on the layout once: a new world, or an old save at
+    // first load (where its campaign objective stood). True when it changed.
+    bool stampGate(LayoutData& layout);
+    // Each life, after the scene: the gate tiles shut, the Sergeant and the
+    // dead with him, the key and the fuse where they lie, the readables.
+    void setupGate();
+    // After a checkpoint: what this character knew and how far it ground open.
+    void restoreGate(const RunCheckpoint& cp);
+    void gateCheckpoint(RunCheckpoint& cp) const;
+    // Each tick: the Sergeant's walk, the last stand, the gate seen, the
+    // way out walked. True when the run ended (got out).
+    bool updateGate(float dtSeconds);
+    // E at the box, the generator or a leaver's marker.
+    bool handleGateInteraction(const ProximityPrompt& entityPrompt);
+    void finishGateAction();
+    void collectGateSprites();
+    void saveGate();
+    void creditGate(const std::string& deed);
+    // How many of an item there are in every pack, container, pile and
+    // grave in town (the key and the fuse are one of a kind).
+    [[nodiscard]] int itemsInTown(int itemId) const;
+    void ensureGateKey();
+    void ensureGateFuse();
+    void spawnSergeant(const glm::ivec2& tile, const ZombieRecord* record);
+    void updateSergeant(float dtSeconds);
+    void updateStand(float dtSeconds);
+    void stopStand(const std::string& why);
+    void spawnStandDead(int count);
+    // A zombie fell: the Sergeant drops the key.
+    void gateZombieDied(Entity zombie);
+    // Walking through the open gate: the run ends "Out".
+    void beginEscape();
+    // At a run's end: where the key lies, saved.
+    void persistGate();
+    [[nodiscard]] bool gateKeyInHand() const;
+    [[nodiscard]] bool gatePlaced() const;
+    [[nodiscard]] glm::vec2 gateBoxWorld() const;
+    [[nodiscard]] int gateFuelNeeded() const { return mStand.started ? 1 : gate::kFuelNeeded; }
+    // Clues (GameClues.cpp).
+    void loadClueContent(const std::filesystem::path& assetsRoot);
+    void learnLeads(clues::Mask leads, const char* how);
+    void noteGateSeen();
+    // E at a readable: a held, quiet read.
+    bool handleReadable(const ProximityPrompt& entityPrompt);
+    void finishReadClue();
+    // The radio's looped voice (with a battery in it).
+    void updateBroadcast(float dtSeconds);
+    // The objective line's way out step ("" in Endless).
+    [[nodiscard]] std::string gateObjective() const;
+    [[nodiscard]] bool wayOutPageShown() const;
+    void renderWayOutPage();
+    // A survivor's hello: what they know of the way out ("" nothing new).
+    std::string survivorGateLead(SurvivorRecord& record, float trust, float competence);
+    // An earlier character's notebook taken from their pack.
+    void notebookTaken(Entity container);
+    // On the town map: the gate, the hardware store, the Sergeant's streets.
+    struct WayOutMark
+    {
+        glm::vec2 world{0.0f};
+        std::string label;
+    };
+    [[nodiscard]] std::vector<WayOutMark> wayOutMarks() const;
+
+    gate::State mGate;                   // world memory (<slot>_gate.json), mirrored here
+    gate::Stand mStand;                  // this life (checkpoint)
+    clues::Content mClueContent;         // assets/data/clues.json
+    clues::Names mClueNames;             // from the world seed and the gate's side
+    clues::Mask mLeads = 0;              // what this character knows (checkpoint)
+    clues::Seen mGateSeen;               // the gate as this character last knew it (checkpoint)
+    std::vector<clues::Readable> mReadables; // follows from the layout (every life)
+    std::vector<std::size_t> mReadablesRead; // read this life: then the piece is furniture again (not saved)
+    glm::ivec2 mFuseCabinet{-1};         // follows from the layout
+    std::vector<glm::ivec2> mSergeantLoop; // follows from the layout and the world seed
+    int mSergeantBuilding = 0;
+    std::size_t mSergeantLeg = 0;        // not saved
+    float mSergeantTimer = 0.0f;         // not saved
+    float mStandPullTimer = 0.0f;        // not saved
+    int mStandStage = 0;                 // not saved: the third last said
+    float mBroadcastTimer = 1.0f;        // not saved
+    int mBroadcastLine = 0;              // not saved
+    bool mBroadcastHeard = false;        // checkpoint
+    float mGateCheckTimer = 0.0f;        // not saved
+    std::vector<std::string> mOutLines;  // the Out screen (not saved)
+    std::string mOutCompanion;           // who went with them (not saved)
 };

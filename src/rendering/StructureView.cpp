@@ -8,6 +8,7 @@
 #include "map/TileMap.h"
 #include "rendering/Camera.h"
 #include "rendering/SpriteSheet.h"
+#include "world/BuildingKinds.h"
 
 namespace
 {
@@ -104,7 +105,10 @@ void StructureView::build(const TileMap& map, const LayoutData& layout)
     mRoofAlpha.assign(buildingCount + 1, 1.0f);
     for (std::size_t i = 0; i < buildingCount; ++i)
     {
-        mBuildingMaterial[i + 1] = materialFor(archetypeForWidth(layout.buildings[i].w));
+        // The guard hut by the gate (phase 9) is small and brick.
+        mBuildingMaterial[i + 1] = layout.buildings[i].kind == static_cast<int>(BuildingKind::GuardHut)
+                                       ? StructureMaterial::Brick
+                                       : materialFor(archetypeForWidth(layout.buildings[i].w));
     }
 
     // Kinds and building ids.

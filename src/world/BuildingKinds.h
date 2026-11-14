@@ -26,6 +26,7 @@ enum class BuildingKind : std::uint8_t
     Garage = 8,
     Warehouse = 9,
     Workshop = 10,
+    GuardHut = 11, // phase 9: the hut by the service gate (stamped, never assigned)
     Count
 };
 
