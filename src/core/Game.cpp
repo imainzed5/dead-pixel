@@ -336,6 +336,7 @@ RunCheckpoint Game::buildRunCheckpoint()
     saveSurvivorRecords();
     cp.runSeed = mSaveManager.currentRunSeed();
     gateCheckpoint(cp); // what this character knows of the way out (phase 9)
+    journalCheckpoint(cp); // and what they wrote down (phase 10)
     cp.characterName = mCurrentCharacterName;
     cp.currentDay = mCurrentDay;
     cp.gameHours = mGameHours;
@@ -417,6 +418,7 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
 
     syncLegacyToSave();
     saveDistrictMemory();
+    flushGate();
 
     const bool ok = mSaveManager.saveCheckpoint(buildRunCheckpoint());
     if (ok)
@@ -511,6 +513,7 @@ void Game::startNewRun()
     mShowWorldMap = false;
     mShowNotebook = false;
     mNotebookPage = 0;
+    resetJournal();
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
@@ -559,81 +562,8 @@ void Game::startNewRun()
     loadSurvivorRecords();
     avoidSurvivorHomes();
 
-    // Threat-mode spawn pressure tuning.
-    {
-        std::mt19937 runRng(mSaveManager.currentRunSeed() ^ 0xA11CEu);
-        // Trims a random subset, so cuts spread over the town instead of
-        // emptying whichever buildings were listed last.
-        auto reduceTo = [&runRng](std::vector<glm::ivec2>& list, float ratio)
-        {
-            if (list.empty()) return;
-            const std::size_t target = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(static_cast<float>(list.size()) * ratio)));
-            if (target < list.size())
-            {
-                std::shuffle(list.begin(), list.end(), runRng);
-                list.resize(target);
-            }
-        };
-        auto duplicateTo = [](std::vector<glm::ivec2>& list, float ratio)
-        {
-            if (list.empty() || ratio <= 1.0f) return;
-            const std::size_t base = list.size();
-            const std::size_t target = static_cast<std::size_t>(std::round(static_cast<float>(base) * ratio));
-            for (std::size_t i = 0; list.size() < target; ++i)
-            {
-                list.push_back(list[i % base]);
-            }
-        };
-
-        switch (saveThreatModeFromIndex(mTitleModeIndex))
-        {
-        case SaveThreatMode::OverwhelmingSwarm:
-            reduceTo(mSpawnData.foodSpawns, 0.88f);
-            reduceTo(mSpawnData.waterSpawns, 0.90f);
-            break;
-        case SaveThreatMode::Stalker:
-            duplicateTo(mSpawnData.weaponSpawns, 1.10f);
-            break;
-        case SaveThreatMode::MutatingThreat:
-            reduceTo(mSpawnData.bandageSpawns, 0.85f);
-            break;
-        case SaveThreatMode::InfectedSociety:
-            reduceTo(mSpawnData.foodSpawns, 0.92f);
-            break;
-        case SaveThreatMode::Unknown:
-        {
-            std::uniform_real_distribution<float> ratioDist(0.75f, 1.35f);
-            (void)ratioDist(runRng); // was the dead's count; kept so the supplies roll as before
-            const float foodRatio = ratioDist(runRng);
-            const float waterRatio = ratioDist(runRng);
-            if (foodRatio >= 1.0f) duplicateTo(mSpawnData.foodSpawns, foodRatio); else reduceTo(mSpawnData.foodSpawns, foodRatio);
-            if (waterRatio >= 1.0f) duplicateTo(mSpawnData.waterSpawns, waterRatio); else reduceTo(mSpawnData.waterSpawns, waterRatio);
-            break;
-        }
-        case SaveThreatMode::Hybrid:
-            reduceTo(mSpawnData.foodSpawns, 0.82f);
-            reduceTo(mSpawnData.bandageSpawns, 0.82f);
-            break;
-        }
-
-        // Tone preset on top of the threat mode.
-        const ToneTuning tone = toneTuning(saveTonePresetFromIndex(mTitleToneIndex));
-        const auto scaleTo = [&](std::vector<glm::ivec2>& list, float ratio)
-        {
-            if (ratio >= 1.0f) duplicateTo(list, ratio);
-            else reduceTo(list, ratio);
-        };
-        for (std::vector<glm::ivec2>* supplies : {&mSpawnData.foodSpawns, &mSpawnData.waterSpawns, &mSpawnData.bandageSpawns,
-                                                  &mSpawnData.medicalCacheSpawns, &mSpawnData.supplyCacheSpawns})
-        {
-            scaleTo(*supplies, tone.suppliesScale);
-        }
-        scaleTo(mSpawnData.weaponSpawns, tone.weaponScale);
-        // The dead: the mode's population (zombies.json), then the tone's,
-        // then what the last life cleared.
-        scaleTo(mSpawnData.zombieSpawns, modeRules().population * tone.zombieCountScale);
-        reduceStartingDead();
-    }
+    // The mode, the tone, the dead the last life cleared, the town's growth.
+    tuneRunSpawns();
 
     const std::uint64_t runLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     if (mLayoutFingerprint != 0 && runLayoutFingerprint != mLayoutFingerprint)
@@ -741,6 +671,7 @@ void Game::startNewRun()
     // The way out (phase 9): what this character knew, then the key and the
     // fuse wherever they lie.
     if (restoredCheckpoint) restoreGate(cp);
+    restoreJournal(cp, restoredCheckpoint); // and the markers carried (phase 10)
     ensureGateKey();
     ensureGateFuse();
     placeHomeKit();
@@ -775,7 +706,9 @@ void Game::startNewRun()
 
 void Game::returnToTitleScreen()
 {
-    // Navigation only: return to title without writing a new checkpoint/save.
+    // Navigation only: return to title without writing a new checkpoint/save
+    // (a gate change kept back from a busy tick is written now).
+    flushGate();
     mWorld = World{};
     registerComponents();
 
@@ -853,6 +786,7 @@ void Game::returnToTitleScreen()
 
 void Game::shutdown()
 {
+    flushGate();
     mDebugEntities.clear();
     mPlayerEntity = kInvalidEntity;
     mMovementNoiseTier = NoiseTier::None;

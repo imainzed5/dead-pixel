@@ -36,5 +36,6 @@ bool Game::loadContent(const std::filesystem::path& assetsRoot)
     Tuning::load((data / "tuning.json").string());
     loadSurvivorLines(assetsRoot);
     loadClueContent(assetsRoot);
+    loadJournalLines(assetsRoot);
     return true;
 }

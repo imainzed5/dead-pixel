@@ -10,10 +10,8 @@ god on
 waits 1
 hours 22
 slay 200
-# The slain settle before the timing starts: since phase 9 the Sergeant is
-# among them, and the tick he falls in (his key dropped, the gate written
-# to the save) took 20 to 34 ms.
-waits 0.5
+# The Sergeant is among the slain since phase 9. His key no longer writes the
+# gate file in the tick he falls (phase 10), so the timing starts at once.
 perf 300
 waits 2
 shot perf_crowd

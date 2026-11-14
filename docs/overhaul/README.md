@@ -52,7 +52,7 @@ comes before fighting; no engine switch.
 | 7 | `phases/P07_weather_and_fire.md` | Weather and seasons that change the rules; fire that follows them | done |
 | 8 | `phases/P08_survivors.md` | Other people with needs, homes and tempers: trade, travel together, get robbed | done |
 | 9 | `phases/P09_the_way_out.md` | The campaign: clues, the gate, a last stand, and getting out | done |
-| 10 | `phases/P10_legacy.md` | Journals, what a bloodline learns, a town that ages between lives | not started |
+| 10 | `phases/P10_legacy.md` | Journals, what a bloodline learns, a town that ages between lives | done |
 | 11 | `phases/P11_vehicles.md` | Three vehicles with trunks, hot-wiring and wear | not started |
 | 12 | `phases/P12_sound_and_mood.md` | A sound for everything that makes noise, ambience, sparse music, mood on screen | not started |
 | 13 | `phases/P13_run_flow.md` | Life after day 3, settings, key bindings, first-run teaching, demo build | not started |

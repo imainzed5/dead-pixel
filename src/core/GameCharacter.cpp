@@ -21,6 +21,7 @@ const char* bloodlineLine(BloodlineTrait line)
     case BloodlineTrait::Firewise: return "Firewise. Fire runs in the family.";
     case BloodlineTrait::Vigilant: return "Vigilant. Light sleepers, all of them.";
     case BloodlineTrait::Wayfinder: return "Wayfinder. One of theirs got out. They know every street.";
+    case BloodlineTrait::Gravedigger: return "Gravedigger. They put their own to rest.";
     case BloodlineTrait::None: break;
     }
     return "";
@@ -211,13 +212,9 @@ void Game::renderCharacterCreation()
         y += 14.0f;
         text(glm::vec2(nameX, y), fit("Type to replace it", nameW, 1.0f), kPanelDim, 1.0f);
         y += 30.0f;
-        const Traits* own = playerTraits();
-        if (own != nullptr && own->bloodline != BloodlineTrait::None)
+        // Wrapped to the column.
+        const auto wrapped = [&](const std::string& line)
         {
-            text(glm::vec2(nameX, y), "BLOODLINE", kPanelDim, 1.0f);
-            y += 16.0f;
-            // Wrapped to the column.
-            const std::string line = bloodlineLine(own->bloodline);
             const std::size_t perLine = static_cast<std::size_t>(std::max(8.0f, nameW / 6.0f));
             std::size_t start = 0;
             while (start < line.size())
@@ -232,6 +229,32 @@ void Game::renderCharacterCreation()
                 y += 14.0f;
                 start = end + (end < line.size() && line[end] == ' ' ? 1 : 0);
             }
+        };
+        const Traits* own = playerTraits();
+        if (own != nullptr && !own->bloodlines.empty())
+        {
+            text(glm::vec2(nameX, y), "BLOODLINE", kPanelDim, 1.0f);
+            y += 16.0f;
+            for (BloodlineTrait line : own->bloodlines)
+            {
+                wrapped(bloodlineLine(line));
+                y += 4.0f;
+            }
+            y += 10.0f;
+        }
+        // Phase 10: what the dead of the line knew.
+        bool echoes = false;
+        for (std::size_t i = 0; i < kSkillCount; ++i)
+        {
+            if (mSkillEchoes[i] <= 0) continue;
+            if (!echoes)
+            {
+                text(glm::vec2(nameX, y), "IN THE FAMILY", kPanelDim, 1.0f);
+                y += 16.0f;
+            }
+            echoes = true;
+            wrapped(legacy::echoLine(skillrules::name(static_cast<Skill>(i)), mSkillEchoes[i]));
+            y += 4.0f;
         }
     }
 

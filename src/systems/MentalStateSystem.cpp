@@ -185,12 +185,13 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         }
     }
 
-    // Hardened bloodline trait: loneliness bites less while still holding together.
+    // Hardened bloodline trait (phase 10): every gain is 0.7 of itself while
+    // they still hold together (below 60).
     if (world.hasComponent<Traits>(playerEntity) &&
-        world.getComponent<Traits>(playerEntity).bloodline == BloodlineTrait::Hardened &&
-        mental.depression < 60.0f)
+        world.getComponent<Traits>(playerEntity).has(BloodlineTrait::Hardened) &&
+        mental.depression < kHardenedBelow)
     {
-        depressionRelief += isolationGain * (1.0f - kHardenedDepressionFactor);
+        depressionGain *= kHardenedDepressionFactor;
     }
 
     // Company also steadies the nerves.

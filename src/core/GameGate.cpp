@@ -48,18 +48,21 @@ glm::vec2 Game::gateBoxWorld() const
 
 bool Game::stampGate(LayoutData& layout)
 {
-    if (layout.gate.placed) return false;
+    // The cemetery is stamped after the gate, clear of its yard (phase 10);
+    // true when either changed the layout.
+    if (layout.gate.placed) return stampCemetery(layout);
     const int legacy = mSaveManager.legacyObjectiveDistrict();
     std::string why;
     if (!gate::stamp(layout, legacy, &why))
     {
         std::cerr << "[Gate] not placed: " << why << '\n';
-        return false;
+        return stampCemetery(layout);
     }
     std::cout << "[Gate] placed on the " << gate::sideName(layout.gate.side) << " side, district " << layout.gate.district
               << (legacy > 0 ? " (the old objective's)" : "") << ", gate at " << layout.gate.gate[1].x << ","
               << layout.gate.gate[1].y << '\n';
     mSaveManager.clearLegacyObjectiveDistrict();
+    stampCemetery(layout);
     return true;
 }
 
@@ -118,7 +121,7 @@ void Game::setupGate()
     mSergeantLoop = gate::sergeantLoop(layout, mSergeantBuilding);
 
     // Someone of the line got out: the gate, and every building, are on the map.
-    if (const Traits* traits = playerTraits(); traits != nullptr && traits->bloodline == BloodlineTrait::Wayfinder)
+    if (const Traits* traits = playerTraits(); traits != nullptr && traits->has(BloodlineTrait::Wayfinder))
     {
         mLeads = static_cast<clues::Mask>(mLeads | clues::bit(clues::WayOut) | clues::bit(clues::Where));
         ScavengeMemoryRecord memory = mSaveManager.scavengeMemory();
@@ -202,8 +205,14 @@ void Game::gateCheckpoint(RunCheckpoint& cp) const
 
 void Game::saveGate()
 {
+    mGateDirty = false;
     mSaveManager.setGateState(mGate);
     mSaveManager.saveGateState();
+}
+
+void Game::flushGate()
+{
+    if (mGateDirty) saveGate();
 }
 
 void Game::creditGate(const std::string& deed)
@@ -357,7 +366,9 @@ void Game::gateZombieDied(Entity zombie)
     mGate.key = gate::KeyPlace::Loose;
     mGate.keyTile = tile;
     if (ai.lastDamagedBy == mPlayerEntity) creditGate("sergeant");
-    saveGate();
+    // Written with the next checkpoint or at the run's end, not in the tick
+    // he falls (a file written in a fighting tick cost 20 to 40 ms).
+    mGateDirty = true;
     mInteractionMessage = "Something falls from the Sergeant's belt. A key on a red tag.";
     mInteractionMessageTimer = 4.0f;
     std::cout << "[Gate] the Sergeant is down at " << tile.x << "," << tile.y << "; the key lies there\n";
@@ -694,6 +705,7 @@ void Game::beginEscape()
     mDeathStateTimer = 0.0;
     stopPlayerAtRunEnd();
     mBaseAction = BaseAction{};
+    releaseMarkers();
     const int runIndex = mSaveManager.runNumber();
     mDeathCause = mCurrentCharacterName + " got out.";
     mRunEndLegacyLine = "The road goes on.";
@@ -728,6 +740,7 @@ void Game::beginEscape()
     history.escaped = true;
     history.cause = "Got out by the gate";
     history.finalNote = "Got out by the gate on Day " + std::to_string(mCurrentDay) + ".";
+    history.journal = finishJournal(journal::Kind::EndEscaped);
     mSaveManager.recordEscape();
     mSaveManager.addCharacterHistoryRecord(history);
     addRunEndMemoryEvent(WorldMemoryEventType::Other, runIndex);

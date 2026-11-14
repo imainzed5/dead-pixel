@@ -94,4 +94,16 @@ struct LayoutData
         glm::ivec2 yardMax{-1, -1};
     };
     GateSite gate;
+
+    // The cemetery plot (phase 10): a fenced patch of grass near the middle
+    // of town, stamped once like the gate (legacy/Cemetery.h). The fence runs
+    // round fenceMin..fenceMax with one gap.
+    struct CemeterySite
+    {
+        bool placed = false;
+        glm::ivec2 fenceMin{0, 0};
+        glm::ivec2 fenceMax{-1, -1};
+        glm::ivec2 opening{-1, -1}; // the gap in the fence
+    };
+    CemeterySite cemetery;
 };

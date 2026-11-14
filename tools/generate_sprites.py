@@ -811,6 +811,7 @@ def generate_atlas():
     add_phase7_sprites(img, sprites)
     add_phase9_sprites(img, sprites)
     add_survivor_sprites(img, sprites)
+    add_phase10_sprites(img, sprites)
 
     return img, sprites
 
@@ -4239,6 +4240,150 @@ def add_phase9_sprites(img, sprites):
         for ok, ov in before.items():
             if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
                 raise SystemExit("phase 9 sprite " + k + " overlaps " + ok)
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: the cemetery (a low fence, set stones, the town's old stones),
+# bones in the street, and a grave's marker carried in the pack. Beside the
+# legacy props (y=448), from x=288.
+# ---------------------------------------------------------------------------
+
+P10_X = 288
+P10_Y = 448
+
+
+def fence_section(img, rng, along_x):
+    """A low picket run across one tile, along world x (down-right) or y (down-left)."""
+    wood = (118, 92, 64)
+    dark = shade(wood, -34)
+    cx, cy = 32, 54
+    dx, dy = (14, 7) if along_x else (-14, 7)
+    # rails: two lines between the ends, lit on top
+    for t10 in range(0, 29):
+        t = t10 / 28.0
+        x = int(round(cx - dx + 2 * dx * t))
+        y = int(round(cy - dy + 2 * dy * t))
+        for rail in (7, 13):
+            put(img, x, y - rail, shade(wood, 8 + rng.randint(-4, 4)))
+            put(img, x, y - rail + 1, dark)
+    # pickets: short boards with pointed tops
+    for i in range(5):
+        t = i / 4.0
+        x = int(round(cx - dx + 2 * dx * t))
+        y = int(round(cy - dy + 2 * dy * t))
+        h = 17 + rng.randint(-1, 1)
+        for yy in range(y - h, y + 1):
+            put(img, x, yy, shade(wood, 4 + rng.randint(-5, 5)))
+            put(img, x + 1, yy, shade(wood, -16 + rng.randint(-4, 4)))
+        put(img, x, y - h - 1, shade(wood, 12))
+    # a little grass at the feet
+    for _ in range(8):
+        t = rng.random()
+        x = int(round(cx - dx + 2 * dx * t)) + rng.randint(-2, 2)
+        y = int(round(cy - dy + 2 * dy * t)) + rng.randint(0, 2)
+        put(img, x, y, (74, 116, 54))
+
+
+def make_p10_prop(kind, seed):
+    rng = random.Random(10000 + seed)
+    img = Image.new("RGBA", (PROP, PROP), (0, 0, 0, 0))
+    if kind == "fence_x":
+        fence_section(img, rng, True)
+    elif kind == "fence_y":
+        fence_section(img, rng, False)
+    elif kind == "headstone":
+        # a stone set in the cemetery: upright, clean, flowers at its foot
+        soft_shadow(img, 34, 55, 12, 4, 70)
+        headstone(img, rng, 24, 54, 14, 21, stone=(150, 150, 146))
+        for (x, y, c) in ((22, 55, (200, 70, 60)), (23, 54, (220, 190, 70)), (40, 56, (210, 210, 220)),
+                          (41, 55, (200, 70, 60))):
+            put(img, x, y, c)
+            put(img, x, y + 1, (70, 112, 52))
+    elif kind == "stone_old":
+        # the town's own: low, leaning, moss in the letters
+        soft_shadow(img, 33, 55, 12, 4, 60)
+        stone = Image.new("RGBA", (PROP, PROP), (0, 0, 0, 0))
+        headstone(stone, rng, 25, 55, 13, 16, stone=(112, 116, 108))
+        stone = stone.rotate(-8, resample=Image.NEAREST, center=(31, 55))
+        img.alpha_composite(stone)
+        for _ in range(16):
+            x = rng.randint(25, 37)
+            y = rng.randint(41, 54)
+            if img.getpixel((x, y))[3] > 0:
+                put(img, x, y, (84, 112, 62))
+        for _ in range(10):
+            put(img, rng.randint(20, 44), rng.randint(55, 60), (78, 118, 56))
+    return img
+
+
+def make_bones(rng):
+    """Bones lying flat in the street (32x32, a ground decal)."""
+    img = Image.new("RGBA", (ITEM_SIZE, ITEM_SIZE), (0, 0, 0, 0))
+    bone = (214, 206, 186)
+    def stick(x0, y0, x1, y1):
+        steps = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+        for i in range(steps + 1):
+            t = i / float(steps)
+            x = int(round(x0 + (x1 - x0) * t))
+            y = int(round(y0 + (y1 - y0) * t))
+            put(img, x, y, shade(bone, rng.randint(-10, 6)))
+        for (x, y) in ((x0, y0), (x1, y1)):
+            put(img, x - 1, y, shade(bone, -6))
+            put(img, x, y + 1, shade(bone, -14))
+    stick(6, 18, 15, 22)
+    stick(14, 14, 24, 17)
+    stick(10, 23, 19, 25)
+    # the skull, small, half turned
+    for y in range(10, 15):
+        for x in range(20, 26):
+            if (x - 22.8) ** 2 / 9.0 + (y - 12.2) ** 2 / 5.0 <= 1.0:
+                put(img, x, y, shade(bone, 6 - (y - 10) * 3 + rng.randint(-4, 4)))
+    put(img, 21, 12, (60, 54, 48))
+    put(img, 23, 12, (60, 54, 48))
+    return img
+
+
+def draw_marker_icon():
+    ic = Icon("item_marker")
+    wood = (150, 112, 72)
+    ic.rect(14, 5, 18, 29, wood)        # the upright
+    ic.rect(8, 10, 24, 14, wood)        # the arm
+    ic.rect(14, 5, 15, 29, shade(wood, 18))
+    ic.rect(9, 11, 23, 13, (226, 218, 196))  # a strip with the name on it
+    ic.line(10, 12, 21, 12, (70, 60, 52), 1)
+    ic.rect(13, 25, 19, 29, (110, 82, 52))   # earth still on the point
+    ic.light()
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+def add_phase10_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    # the block must be empty sheet
+    for yy in range(P10_Y, P10_Y + PROP):
+        for xx in range(P10_X, P10_X + 4 * PROP + ITEM_SIZE):
+            if img.getpixel((xx, yy))[3] != 0:
+                raise SystemExit("phase 10 block is not empty at %d,%d" % (xx, yy))
+    x = P10_X
+    for seed, kind in enumerate(("fence_x", "fence_y", "headstone", "stone_old")):
+        prop = make_p10_prop(kind, seed)
+        img.alpha_composite(prop, (x, P10_Y))
+        sprites["prop_" + kind] = {"x": x, "y": P10_Y, "w": PROP, "h": PROP}
+        x += PROP
+    bones = make_bones(random.Random(10100))
+    img.alpha_composite(bones, (x, P10_Y))
+    sprites["prop_bones"] = {"x": x, "y": P10_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    draw_marker_icon().paste(img, x, P10_Y + ITEM_SIZE)
+    sprites["item_marker"] = {"x": x, "y": P10_Y + ITEM_SIZE, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    x += ITEM_SIZE
+    if x > SHEET_W:
+        raise SystemExit("phase 10 block does not fit")
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 10 sprite " + k + " overlaps " + ok)
 
 
 def main():

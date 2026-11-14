@@ -212,6 +212,73 @@ private:
     [[nodiscard]] std::vector<legacy::Lead> currentLegacyLeads();
     [[nodiscard]] glm::vec2 playerWorldCenter() const;
     [[nodiscard]] DistrictType districtTypeAt(int tileX, int tileY) const;
+
+    // --- Phase 10: the journal and the notebook (GameJournal.cpp) ---
+    void loadJournalLines(const std::filesystem::path& assetsRoot);
+    // Everything the save holds of the bloodline, for the rules.
+    [[nodiscard]] legacy::LegacyState legacyState() const;
+    // Living World (the default) or Fresh Start (nothing carries over).
+    [[nodiscard]] bool livingWorld() const { return mSaveManager.livingWorld(); }
+    // Writes an entry, if a notebook is carried.
+    void noteJournal(journal::Kind kind, const std::string& a = {}, const std::string& b = {}, int n = 0);
+    // Things noticed as they happen: the first night, the lights, a wound...
+    void updateJournal(float dtSeconds);
+    // A new life's empty journal.
+    void resetJournal();
+    // This life's journal with its last entry, for the history record.
+    [[nodiscard]] std::vector<journal::Entry> finishJournal(journal::Kind end, const std::string& lastLine = {});
+    // The notebook (J): six tabs, docked right; Left and Right turn them.
+    void updateNotebookInput();
+    void renderNotebookTabs(float panelX, float panelW, float y);
+    void renderLeadsPage(float left, float textW, float top, float bottom);
+    void renderPeoplePage(float left, float textW, float top, float bottom);
+    void renderBeforeYouPage(float left, float textW, float top, float bottom);
+    void renderKnowHowPage(float left, float textW, float top, float bottom);
+    void renderJournalPage(float left, float textW, float top, float bottom);
+    void renderReaderPage(float left, float textW, float top, float bottom);
+    // Opens a dead character's journal: at their grave (graveIndex), or from
+    // the notebook's "Before you" page (history index).
+    void openReader(int graveIndex, int historyIndex, bool atGrave);
+    void closeReader();
+    // The first reading of a journal: what it costs and what it teaches.
+    void markJournalRead(int historyIndex, int graveIndex);
+    // An earlier character's notebook: its leads on the way out (once).
+    bool learnFromGraveNotebook(int graveIndex);
+    [[nodiscard]] std::string markerName(const InventorySlot& slot) const;
+
+    // --- Phase 10: the cemetery, markers, burial, the aging town (GameCemetery.cpp) ---
+    bool stampCemetery(LayoutData& layout);
+    void setupCemetery();
+    [[nodiscard]] bool cemeteryPlaced() const;
+    [[nodiscard]] glm::ivec2 graveSlotTile(const GraveRecord& grave) const;
+    [[nodiscard]] bool graveWeathered(const GraveRecord& grave) const;
+    // E at a grave, a stone, or a dead survivor's emptied body.
+    bool handleLegacyInteraction(const ProximityPrompt& entityPrompt);
+    // Whether the grave's marker can be taken now (its pack gone, or laid to rest).
+    [[nodiscard]] bool markerAvailable(int graveIndex) const;
+    bool takeMarker(int graveIndex);
+    // F with a marker in hand: set it in the cemetery as a headstone.
+    bool placeMarker(int slot);
+    void beginTend(int graveIndex);
+    bool beginBurial(Entity body);
+    void finishLegacyAction();
+    // At a resume: a marker the checkpoint does not carry goes back to its grave.
+    void reconcileMarkers();
+    // At a life's end: markers carried go back to their graves.
+    void releaseMarkers();
+    [[nodiscard]] int nextBurialOrder() const;
+    // The town ages between lives (legacy::ageWorld over the save's records).
+    void ageWorldForNextLife(int daysLived, int runIndex);
+    // Stay here for good (the pause menu): why not yet ("" when it is offered).
+    [[nodiscard]] std::string stayForGoodBlocker() const;
+    void stayForGood();
+    [[nodiscard]] std::vector<std::string> pauseOptions() const;
+    void spawnBones();
+    // The checkpoint's part (Game.cpp keeps to one line each).
+    void journalCheckpoint(RunCheckpoint& cp) const;
+    void restoreJournal(const RunCheckpoint& cp, bool restored);
+    // Threat mode, tone, earlier lives' kills, the town's growth (GameDead.cpp).
+    void tuneRunSpawns();
     void processInputEvents();
     void handleEscapeKey();
     void update(float dtSeconds);
@@ -1005,7 +1072,10 @@ private:
             ReadClue,      // a note, a board, a book (quiet)
             FitFuse,       // the gate box
             PourFuel,      // a can into the generator
-            FreeGenerator  // working the seized generator loose (Loud every 2 s)
+            FreeGenerator, // working the seized generator loose (Loud every 2 s)
+            // Phase 10.
+            Tend,          // a weathered grave (quiet)
+            Bury           // a dead survivor, by hand (Soft)
         } kind = Kind::None;
         glm::ivec2 tile{0};       // the piece, window or build site
         glm::ivec2 to{0};         // climb: where you come out
@@ -1062,6 +1132,35 @@ private:
     std::string mLegacyCardTitle;
     std::vector<std::string> mLegacyCardLines;
     std::size_t mBurnedTilesAtRunStart = 0; // tiles before this index burned in earlier runs
+
+    // --- Phase 10 ---
+    journal::Lines mJournalLines;                 // assets/data/journal_lines.json
+    std::vector<journal::Entry> mJournal;         // this life's, kept while a notebook is carried
+    // Once-a-life entries already written (bits of JournalFlag), the last ten
+    // days noted, the season the life is in.
+    int mJournalFlags = 0;
+    int mJournalDays = 0;
+    int mJournalSeason = -1;
+    std::size_t mJournalWounds = 0;               // wounds seen (new ones are written)
+    bool mJournalHorde = false;                   // a horde was on its way
+    bool mJournalCrisis = false;
+    std::array<int, kSkillCount> mSkillEchoes{};  // what runs in the family
+    struct ReaderState
+    {
+        bool open = false;
+        int grave = -1;     // the grave read at (-1: from the notebook)
+        int history = -1;   // the life whose journal it is (-1: none kept)
+        bool atGrave = false;
+        int scroll = 0;
+    } mReader;
+    int mNotebookCursor = 0;                      // the "Before you" row
+    std::vector<int> mGravesFound;                // graves whose finding this life wrote down
+    std::vector<Entity> mCemeteryEntities;        // fence posts and old stones
+    int mStayConfirm = 0;                         // pause menu: presses of "Stay here for good"
+    std::string mStayWhy;                         // pause menu: why staying is not offered yet
+    bool mTitleFreshStart = false;                // title: the next new world is a Fresh Start
+    bool mStayedForGood = false;                  // the run ended by staying
+    int mInfectionCheck = 0;                      // harness: infection above world creation
 
     float mZombieGrowlTimer = 0.0f;
 
@@ -1195,6 +1294,10 @@ private:
     void finishGateAction();
     void collectGateSprites();
     void saveGate();
+    // A change kept back from a busy tick (the Sergeant's key): written at
+    // the next checkpoint, the run's end or the title.
+    void flushGate();
+    bool mGateDirty = false;
     void creditGate(const std::string& deed);
     // How many of an item there are in every pack, container, pile and
     // grave in town (the key and the fuse are one of a kind).
@@ -1228,7 +1331,7 @@ private:
     // The objective line's way out step ("" in Endless).
     [[nodiscard]] std::string gateObjective() const;
     [[nodiscard]] bool wayOutPageShown() const;
-    void renderWayOutPage();
+    void renderWayOutPage(float left, float textW, float top, float bottom);
     // A survivor's hello: what they know of the way out ("" nothing new).
     std::string survivorGateLead(SurvivorRecord& record, float trust, float competence);
     // An earlier character's notebook taken from their pack.

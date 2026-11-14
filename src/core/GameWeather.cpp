@@ -228,7 +228,7 @@ void Game::drawFuelShimmer()
 {
     if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity)) return;
     const Traits* traits = playerTraits();
-    if (traits == nullptr || traits->bloodline != BloodlineTrait::Firewise) return;
+    if (traits == nullptr || !traits->has(BloodlineTrait::Firewise)) return;
     const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
     const int slot = std::clamp(inv.activeSlot, 0, Inventory::kMaxSlots - 1);
     const InventorySlot& held = inv.slots[static_cast<std::size_t>(slot)];

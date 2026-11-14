@@ -57,6 +57,8 @@ add_library(dead_pixel_core STATIC
     src/core/GameSurvivors.cpp
     src/core/GameGate.cpp
     src/core/GameClues.cpp
+    src/core/GameJournal.cpp
+    src/core/GameCemetery.cpp
     src/core/Tuning.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
@@ -132,6 +134,9 @@ add_library(dead_pixel_core STATIC
     src/rendering/FurnitureView.cpp
     src/rendering/SceneryView.cpp
     src/legacy/LegacyRules.cpp
+    src/legacy/Journal.cpp
+    src/legacy/WorldAging.cpp
+    src/legacy/Cemetery.cpp
     src/ui/Hud.cpp
     src/systems/AnimationSystem.cpp
     src/systems/ParticleSystem.cpp
@@ -139,6 +144,7 @@ add_library(dead_pixel_core STATIC
     src/dev/DevHarness.cpp
     src/dev/DevHarnessSurvivors.cpp
     src/dev/DevHarnessGate.cpp
+    src/dev/DevHarnessLegacy.cpp
     src/dev/LaunchOptions.cpp
     src/dev/Autoplayer.cpp
 )
@@ -211,6 +217,9 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_survivor_rules.cpp
         tests/test_gate.cpp
         tests/test_clues.cpp
+        tests/test_journal.cpp
+        tests/test_aging.cpp
+        tests/test_bloodline.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

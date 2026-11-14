@@ -745,12 +745,48 @@ void Game::renderWorldMapOverlay()
         anyHome = true;
     }
 
+    // A Gravedigger knows where the risen are from twenty tiles (phase 10).
+    const Traits* bloodline = playerTraits();
+    const bool digger = bloodline != nullptr && bloodline->has(BloodlineTrait::Gravedigger);
+    const glm::vec2 here = playerWorldCenter();
     for (const legacy::Lead& lead : currentLegacyLeads())
     {
         const glm::vec4 color = legacyLeadColor(lead.kind);
         const glm::vec2 at = toMap(lead.world);
+        if (lead.buried) continue; // drawn with the cemetery
+        if (digger && lead.kind == legacy::LeadKind::Risen &&
+            glm::length(lead.world - here) <= legacy::kGravediggerMarkTiles * static_cast<float>(tileW))
+        {
+            const glm::vec2 c = glm::round(at);
+            for (const glm::vec4& r : {glm::vec4(-8.0f, -8.0f, 16.0f, 1.0f), glm::vec4(-8.0f, 7.0f, 16.0f, 1.0f),
+                                       glm::vec4(-8.0f, -8.0f, 1.0f, 16.0f), glm::vec4(7.0f, -8.0f, 1.0f, 16.0f)})
+            {
+                mSpriteBatch.draw(c + glm::vec2(r.x, r.y), glm::vec2(r.z, r.w), uiUv, color);
+            }
+        }
         marker(at, color, lead.kind == legacy::LeadKind::Grave ? 5.0f : 6.0f);
         label(at + glm::vec2(7.0f, -5.0f), lead.name, color, 1.0f);
+    }
+    // The cemetery, from the first stone set in it (phase 10).
+    {
+        const LayoutData::CemeterySite& yard = mMapGenerator.layoutData().cemetery;
+        const bool any = std::any_of(mLegacyGraves.begin(), mLegacyGraves.end(), [](const GraveRecord& g) { return g.buried; });
+        if (yard.placed && any)
+        {
+            const glm::vec2 a = glm::round(toMap(glm::vec2(static_cast<float>(yard.fenceMin.x) * tileW, static_cast<float>(yard.fenceMin.y) * tileH)));
+            const glm::vec2 b = glm::round(toMap(glm::vec2(static_cast<float>(yard.fenceMax.x + 1) * tileW,
+                                                           static_cast<float>(yard.fenceMax.y + 1) * tileH)));
+            const glm::vec4 stone(0.82f, 0.82f, 0.78f, 1.0f);
+            mSpriteBatch.draw(a, b - a, uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.55f));
+            mSpriteBatch.draw(a, glm::vec2(b.x - a.x, 1.0f), uiUv, stone);
+            mSpriteBatch.draw(glm::vec2(a.x, b.y - 1.0f), glm::vec2(b.x - a.x, 1.0f), uiUv, stone);
+            mSpriteBatch.draw(a, glm::vec2(1.0f, b.y - a.y), uiUv, stone);
+            mSpriteBatch.draw(glm::vec2(b.x - 1.0f, a.y), glm::vec2(1.0f, b.y - a.y), uiUv, stone);
+            const glm::vec2 c = glm::round((a + b) * 0.5f);
+            mSpriteBatch.draw(c + glm::vec2(-1.0f, -4.0f), glm::vec2(2.0f, 8.0f), uiUv, stone);
+            mSpriteBatch.draw(c + glm::vec2(-3.0f, -2.0f), glm::vec2(6.0f, 2.0f), uiUv, stone);
+            label(glm::vec2(b.x + 4.0f, a.y), "Cemetery", stone, 1.0f);
+        }
     }
 
     // Header.
@@ -1073,7 +1109,8 @@ void Game::renderTextOverlays()
     // Pause overlay text
     if (mRunState == RunState::Paused)
     {
-        const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight);
+        const std::vector<std::string> options = pauseOptions();
+        const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight, static_cast<int>(options.size()));
         const float centerX = layout.panelPos.x + layout.panelSize.x * 0.5f;
 
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.titleY), "PAUSED",
@@ -1106,19 +1143,25 @@ void Game::renderTextOverlays()
             };
             for (PositiveTrait trait : traits.positives) append(traitName(trait));
             for (NegativeTrait trait : traits.negatives) append(traitName(trait));
-            if (traits.bloodline != BloodlineTrait::None) append(std::string("Bloodline: ") + traits.bloodlineName());
+            if (!traits.bloodlines.empty()) append(std::string("Bloodline: ") + traits.bloodlineNames());
             mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.traitsLineY), traitLine,
                             kPanelGood, 1.0f, TextAlign::Center);
         }
 
-        static const char* options[] = {"Resume", "Save", "Back to Menu", "Restart", "Quit"};
-        for (int i = 0; i < PauseLayout::kOptionCount; ++i)
+        for (int i = 0; i < static_cast<int>(options.size()); ++i)
         {
             const bool selected = (i == mPauseSelection);
             const glm::vec4 color = selected ? kPanelOnInk : kPanelInk;
             mFont.drawText(mSpriteBatch,
                 glm::vec2(centerX, layout.optionsY + static_cast<float>(i) * PauseLayout::kOptionH + 5.0f),
-                options[i], color, kTextScale, TextAlign::Center);
+                options[static_cast<std::size_t>(i)], color, kTextScale, TextAlign::Center);
+        }
+        // Why staying is not offered yet, under the options.
+        if (options.size() > 5 && !mStayWhy.empty())
+        {
+            mFont.drawText(mSpriteBatch,
+                glm::vec2(centerX, layout.optionsY + static_cast<float>(options.size()) * PauseLayout::kOptionH + 4.0f),
+                mStayWhy, kPanelDim, 1.0f, TextAlign::Center);
         }
     }
 }

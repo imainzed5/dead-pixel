@@ -88,6 +88,38 @@ std::vector<FloorItemRecord> floorItemsOf(const nlohmann::json& j, const char* k
     return out;
 }
 
+// Phase 10: a journal, as [{day, kind, rank, text}].
+nlohmann::json journalJson(const std::vector<journal::Entry>& entries)
+{
+    nlohmann::json out = nlohmann::json::array();
+    for (const journal::Entry& e : entries)
+    {
+        out.push_back({{"day", e.day}, {"kind", journal::key(e.kind)}, {"rank", e.rank}, {"text", e.text}});
+    }
+    return out;
+}
+
+std::vector<journal::Entry> journalOf(const nlohmann::json& owner)
+{
+    std::vector<journal::Entry> out;
+    if (!owner.contains("journal") || !owner["journal"].is_array()) return out;
+    for (const auto& ej : owner["journal"])
+    {
+        if (!ej.is_object()) continue;
+        journal::Entry e;
+        e.day = std::max(1, ej.value("day", 1));
+        const std::string kind = ej.value("kind", std::string{});
+        for (int k = 0; k < journal::kKindCount; ++k)
+        {
+            if (kind == journal::key(static_cast<journal::Kind>(k))) e.kind = static_cast<journal::Kind>(k);
+        }
+        e.rank = ej.value("rank", 0);
+        e.text = ej.value("text", std::string{});
+        if (!e.text.empty()) out.push_back(e);
+    }
+    return out;
+}
+
 // Phase 9: what a character knows of the gate's state.
 nlohmann::json seenJson(const clues::Seen& seen)
 {
@@ -402,6 +434,7 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
     mFurniturePath = mSaveDir + "/" + mSlotName + "_furniture.json";
     mDistrictPath = mSaveDir + "/" + mSlotName + "_districts.json";
     mGatePath = mSaveDir + "/" + mSlotName + "_gate.json";
+    mAgingPath = mSaveDir + "/" + mSlotName + "_aging.json";
 
     std::error_code ec;
     std::filesystem::create_directories(mSaveDir, ec);
@@ -439,6 +472,7 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
     loadFurnitureMemory();
     loadDistrictMemory();
     loadGateState();
+    loadAging();
 
     if (migrating)
     {
@@ -461,7 +495,7 @@ void SaveManager::backupSlotFiles(int version) const
 {
     const std::string suffix = ".v" + std::to_string(version) + ".backup";
     for (const std::string& path : {mMetaPath, mLegacyPath, mStructurePath, mLayoutPath, mCheckpointPath,
-                                    mWorldMemoryPath, mSurvivorPath, mFurniturePath, mDistrictPath, mGatePath})
+                                    mWorldMemoryPath, mSurvivorPath, mFurniturePath, mDistrictPath, mGatePath, mAgingPath})
     {
         std::error_code ec;
         if (std::filesystem::exists(path, ec))
@@ -525,6 +559,10 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     ec.clear();
     mGate = gate::State{};
     mLegacyObjectiveDistrict = 0;
+    std::filesystem::remove(mAgingPath, ec);
+    ec.clear();
+    mAging = AgingRecord{};
+    mScavenge = ScavengeMemoryRecord{};
 
     if (!writeLegacy())
     {
@@ -610,49 +648,7 @@ bool SaveManager::addCharacterHistoryRecord(const CharacterHistoryRecord& record
     return writeLegacy();
 }
 
-BloodlineTrait SaveManager::selectBloodlineForNewRun() const
-{
-    // Phase 9: someone of the line got out by the gate; those after them
-    // know the town's streets.
-    for (const CharacterHistoryRecord& character : mCharacterHistory)
-    {
-        if (character.escaped)
-        {
-            return BloodlineTrait::Wayfinder;
-        }
-    }
 
-    // Preserve existing behavior: any retirement history guarantees Hardened.
-    if (!mRetirements.empty())
-    {
-        return BloodlineTrait::Hardened;
-    }
-
-    if (!mCharacterHistory.empty())
-    {
-        const CharacterHistoryRecord& latest = mCharacterHistory.back();
-        const std::string causeLower = toLowerCopy(latest.cause);
-
-        if (causeLower.find("burn") != std::string::npos ||
-            causeLower.find("fire") != std::string::npos)
-        {
-            return BloodlineTrait::Firewise;
-        }
-
-        if (causeLower.find("starv") != std::string::npos ||
-            causeLower.find("thirst") != std::string::npos)
-        {
-            return BloodlineTrait::Scavenger;
-        }
-    }
-
-    if (mGraves.size() >= 4)
-    {
-        return BloodlineTrait::Vigilant;
-    }
-
-    return BloodlineTrait::None;
-}
 
 bool SaveManager::addWorldMemoryEvent(const WorldMemoryEventRecord& record)
 {
@@ -711,6 +707,7 @@ bool SaveManager::loadMeta()
             mPresentationSettings.gameMode = parseSaveGameMode(presentationJson.value("gameMode", nlohmann::json("endless")));
             mPresentationSettings.threatMode = parseSaveThreatMode(presentationJson.value("threatMode", nlohmann::json("overwhelming_swarm")));
             mPresentationSettings.tonePreset = parseSaveTonePreset(presentationJson.value("tonePreset", nlohmann::json("grim_human")));
+            mPresentationSettings.livingWorld = presentationJson.value("world", std::string("living")) != "fresh";
 
             // Version 4 and older: the campaign's objective district. The
             // gate is stamped there (phase 9), then this is cleared.
@@ -786,6 +783,13 @@ bool SaveManager::loadLegacy()
                 record.risen = graveJson.value("risen", false);
                 record.laidToRest = graveJson.value("laidToRest", false);
                 record.travelledWith = graveJson.value("travelledWith", std::string{});
+                // Phase 10 (optional): the marker and the cemetery.
+                record.markerTaken = graveJson.value("markerTaken", false);
+                record.buried = graveJson.value("buried", false);
+                record.burialOrder = graveJson.value("burialOrder", -1);
+                record.tendedRun = std::max(0, graveJson.value("tendedRun", 0));
+                record.restRun = std::max(0, graveJson.value("restRun", 0));
+                record.survivor = graveJson.value("survivor", false);
                 if (graveJson.contains("notebook") && graveJson["notebook"].is_object())
                 {
                     const auto& nj = graveJson["notebook"];
@@ -860,6 +864,12 @@ bool SaveManager::loadLegacy()
                 record.bloodlineTrait = charJson.value("bloodlineTrait", std::string{});
                 record.finalNote = charJson.value("finalNote", std::string{});
                 record.escaped = charJson.value("escaped", false);
+                // Phase 10 (optional): the journal, and what made the line.
+                record.journal = journalOf(charJson);
+                record.journalRead = charJson.value("journalRead", false);
+                record.chosen = charJson.value("chosen", false);
+                record.depression = charJson.value("depression", 0.0f);
+                record.tilesBurned = std::max(0, charJson.value("tilesBurned", 0));
                 mCharacterHistory.push_back(record);
             }
         }
@@ -907,6 +917,8 @@ bool SaveManager::writeMeta() const
     presentationJson["threatMode"] = saveThreatModeToString(mPresentationSettings.threatMode);
     presentationJson["tonePreset"] = saveTonePresetToString(mPresentationSettings.tonePreset);
     if (mLegacyObjectiveDistrict > 0) presentationJson["gateDistrict"] = mLegacyObjectiveDistrict;
+    // Phase 10: Living World (the default) or Fresh Start.
+    presentationJson["world"] = mPresentationSettings.livingWorld ? "living" : "fresh";
     json["presentation"] = presentationJson;
 
     return writeJsonAtomic(mMetaPath, mMetaBackupPath, json.dump(2));
@@ -937,6 +949,12 @@ bool SaveManager::writeLegacy() const
             graveJson["laidToRest"] = true;
         }
         if (!grave.travelledWith.empty()) graveJson["travelledWith"] = grave.travelledWith;
+        if (grave.markerTaken) graveJson["markerTaken"] = true;
+        if (grave.buried) graveJson["buried"] = true;
+        if (grave.burialOrder >= 0) graveJson["burialOrder"] = grave.burialOrder;
+        if (grave.tendedRun > 0) graveJson["tendedRun"] = grave.tendedRun;
+        if (grave.restRun > 0) graveJson["restRun"] = grave.restRun;
+        if (grave.survivor) graveJson["survivor"] = true;
         if (grave.notebook)
         {
             nlohmann::json nj = seenJson(grave.seen);
@@ -990,6 +1008,11 @@ bool SaveManager::writeLegacy() const
         characterJson["bloodlineTrait"] = character.bloodlineTrait;
         characterJson["finalNote"] = character.finalNote;
         if (character.escaped) characterJson["escaped"] = true;
+        if (!character.journal.empty()) characterJson["journal"] = journalJson(character.journal);
+        if (character.journalRead) characterJson["journalRead"] = true;
+        if (character.chosen) characterJson["chosen"] = true;
+        if (character.depression > 0.0f) characterJson["depression"] = character.depression;
+        if (character.tilesBurned > 0) characterJson["tilesBurned"] = character.tilesBurned;
         json["characters"].push_back(characterJson);
     }
 
@@ -1176,6 +1199,22 @@ LayoutData SaveManager::loadWorldLayout() const
             out.gate.yardMax = tile("yardMax", glm::ivec2(-1));
         }
 
+        // Phase 10: the cemetery (older layouts get it at load).
+        out.cemetery = LayoutData::CemeterySite{};
+        if (json.contains("cemetery") && json["cemetery"].is_object())
+        {
+            const nlohmann::json& c = json["cemetery"];
+            const auto tile = [&](const char* key, glm::ivec2 fallback)
+            {
+                if (!c.contains(key) || !c[key].is_array() || c[key].size() < 2) return fallback;
+                return glm::ivec2(c[key][0].get<int>(), c[key][1].get<int>());
+            };
+            out.cemetery.placed = c.value("placed", false);
+            out.cemetery.fenceMin = tile("min", glm::ivec2(0));
+            out.cemetery.fenceMax = tile("max", glm::ivec2(-1));
+            out.cemetery.opening = tile("opening", glm::ivec2(-1));
+        }
+
         return true;
     };
 
@@ -1258,6 +1297,12 @@ bool SaveManager::saveWorldLayout(const LayoutData& layout)
                         {"district", g.district},
                         {"yardMin", tile(g.yardMin)},
                         {"yardMax", tile(g.yardMax)}};
+    }
+    if (layout.cemetery.placed)
+    {
+        const auto tile = [](const glm::ivec2& t) { return nlohmann::json::array({t.x, t.y}); };
+        const LayoutData::CemeterySite& c = layout.cemetery;
+        json["cemetery"] = {{"placed", true}, {"min", tile(c.fenceMin)}, {"max", tile(c.fenceMax)}, {"opening", tile(c.opening)}};
     }
 
     return writeJsonAtomic(mLayoutPath, mLayoutBackupPath, json.dump());
@@ -1645,6 +1690,11 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         sj["radio"] = sc.radioOn;
         json["scavenge"] = sj;
     }
+    if (cp.journalSaved)
+    {
+        json["journal"] = {{"entries", journalJson(cp.journal)}, {"flags", cp.journalFlags},
+                           {"days", cp.journalDays}, {"season", cp.journalSeason}};
+    }
     if (cp.gateSaved)
     {
         nlohmann::json gj = seenJson(cp.seen);
@@ -1854,6 +1904,16 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             for (const auto& b : sj["alarmsSpent"]) sc.alarmsSpent.push_back(b.get<int>());
         }
         sc.radioOn = sj.value("radio", false);
+    }
+    if (json.contains("journal") && json["journal"].is_object())
+    {
+        const auto& jj = json["journal"];
+        cp.journalSaved = true;
+        nlohmann::json owner = {{"journal", jj.value("entries", nlohmann::json::array())}};
+        cp.journal = journalOf(owner);
+        cp.journalFlags = jj.value("flags", 0);
+        cp.journalDays = jj.value("days", 0);
+        cp.journalSeason = jj.value("season", -1);
     }
     if (json.contains("gate") && json["gate"].is_object())
     {
@@ -2651,6 +2711,17 @@ void SaveManager::loadDistrictMemory()
         }
     }
     mDistrictMemory.appliedRunSeed = json.value("appliedRun", 0u);
+    // Phase 10 (optional): the infection a life began with, and the world's first.
+    const auto pairs = [&](const char* key, std::vector<std::pair<int, float>>& out)
+    {
+        if (!json.contains(key) || !json[key].is_array()) return;
+        for (const auto& pj : json[key])
+        {
+            if (pj.is_array() && pj.size() >= 2) out.emplace_back(pj[0].get<int>(), std::clamp(pj[1].get<float>(), 0.0f, 100.0f));
+        }
+    };
+    pairs("lifeStart", mDistrictMemory.lifeStart);
+    pairs("created", mDistrictMemory.created);
     if (json.contains("learned") && json["learned"].is_array())
     {
         for (const auto& rj : json["learned"])
@@ -2677,6 +2748,14 @@ bool SaveManager::saveDistrictMemory() const
     }
     json["appliedRun"] = mDistrictMemory.appliedRunSeed;
     json["learned"] = mDistrictMemory.learnedRules;
+    const auto pairs = [](const std::vector<std::pair<int, float>>& list)
+    {
+        nlohmann::json out = nlohmann::json::array();
+        for (const auto& [id, value] : list) out.push_back(nlohmann::json::array({id, value}));
+        return out;
+    };
+    if (!mDistrictMemory.lifeStart.empty()) json["lifeStart"] = pairs(mDistrictMemory.lifeStart);
+    if (!mDistrictMemory.created.empty()) json["created"] = pairs(mDistrictMemory.created);
     const std::string tempPath = mDistrictPath + ".tmp";
     {
         std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
@@ -2785,6 +2864,89 @@ bool SaveManager::recordEscape()
     ++mRunNumber;
     if (!writeLegacy()) return false;
     return writeMeta();
+}
+
+void SaveManager::loadAging()
+{
+    mAging = AgingRecord{};
+    const std::string contents = readFileToString(mAgingPath);
+    if (contents.empty()) return;
+    const nlohmann::json json = nlohmann::json::parse(contents, nullptr, false);
+    if (json.is_discarded()) return;
+    if (json.contains("bones") && json["bones"].is_array())
+    {
+        for (const auto& bj : json["bones"])
+        {
+            if (bj.is_array() && bj.size() >= 2) mAging.bones.emplace_back(bj[0].get<int>(), bj[1].get<int>());
+        }
+    }
+}
+
+bool SaveManager::saveAging() const
+{
+    if (mAgingPath.empty()) return false;
+    nlohmann::json json;
+    json["version"] = kCurrentSaveVersion;
+    json["bones"] = nlohmann::json::array();
+    for (const auto& [x, y] : mAging.bones) json["bones"].push_back(nlohmann::json::array({x, y}));
+    const std::string tempPath = mAgingPath + ".tmp";
+    {
+        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+        if (!output) return false;
+        output << json.dump();
+        output.flush();
+        if (!output.good()) return false;
+    }
+    std::error_code ec;
+    if (std::filesystem::exists(mAgingPath, ec))
+    {
+        std::filesystem::remove(mAgingPath, ec);
+        ec.clear();
+    }
+    std::filesystem::rename(tempPath, mAgingPath, ec);
+    return !ec;
+}
+
+bool SaveManager::forgetWorld()
+{
+    if (mSlotName.empty()) return false;
+    mGraves.clear();
+    mRetirements.clear();
+    mStructures.clear();
+    mContainers.clear();
+    mDiscoveredRecipes.clear();
+    mVehicles.clear();
+    mFireTiles.clear();
+    mBurnedTiles.clear();
+    mBrokenDoors.clear();
+    mGutted.clear();
+    mBoardedDoors.clear();
+    mWindows.clear();
+    mScavenge = ScavengeMemoryRecord{};
+    mFurnitureMemory = FurnitureMemoryRecord{};
+    mBase = BaseRecord{};
+    mLastHome = LastHomeRecord{};
+    mWorldEvents.clear();
+    mDistrictMemory = DistrictMemoryRecord{};
+    mAging = AgingRecord{};
+    // The gate stays where it stands, shut, with nothing done to it.
+    mGate = gate::State{};
+    std::error_code ec;
+    for (const std::string* path : {&mCheckpointPath, &mSurvivorPath, &mFurniturePath, &mDistrictPath, &mGatePath, &mAgingPath})
+    {
+        std::filesystem::remove(*path, ec);
+        ec.clear();
+    }
+    return writeLegacy() && writeStructures() && saveWorldMemory();
+}
+
+CharacterHistoryRecord* SaveManager::lifeRecord(int runIndex, const std::string& name)
+{
+    for (CharacterHistoryRecord& life : mCharacterHistory)
+    {
+        if (life.runIndex == runIndex && (name.empty() || life.name == name)) return &life;
+    }
+    return nullptr;
 }
 
 void SaveManager::loadFurnitureMemory()

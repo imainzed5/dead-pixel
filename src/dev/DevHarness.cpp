@@ -360,6 +360,8 @@ void DevHarness::execute(Game& game, const Command& command)
     if (survivorCommand(game, command)) return;
     // The way out (DevHarnessGate.cpp).
     if (gateCommand(game, command)) return;
+    // Legacy and the aging town (DevHarnessLegacy.cpp).
+    if (legacyCommand(game, command)) return;
 
     if (op == "wait")
     {

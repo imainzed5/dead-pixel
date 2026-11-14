@@ -59,6 +59,7 @@ void Game::learnLeads(clues::Mask leads, const char* how)
     const auto fresh = static_cast<clues::Mask>(leads & static_cast<clues::Mask>(~mLeads));
     if (fresh == 0) return;
     mLeads = static_cast<clues::Mask>(mLeads | fresh);
+    noteJournal(journal::Kind::ClueLearned);
     for (int lead = 1; lead <= clues::kLeadCount; ++lead)
     {
         if ((fresh & clues::bit(lead)) != 0) std::cout << "[Clues] lead " << lead << " learned (" << how << ")\n";
@@ -168,50 +169,33 @@ bool Game::wayOutPageShown() const
     return gatePlaced() && (mLeads != 0 || mGateSeen.valid);
 }
 
-void Game::renderWayOutPage()
+void Game::renderWayOutPage(float left, float textW, float top, float bottom)
 {
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    const float w = static_cast<float>(mWindowWidth);
-    const float h = static_cast<float>(mWindowHeight);
+    // A tab of the notebook (phase 10): what is known of the gate.
     constexpr float kBody = 2.0f;
     const float bodyLine = mFont.lineHeight(kBody) + 5.0f;
-    const float panelW = std::min(900.0f, w - 40.0f);
-    const float textW = panelW - 56.0f;
     const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, textW / (6.0f * kBody)));
-
+    float y = top;
+    if (!wayOutPageShown())
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(left, y), "Nothing yet. People talk of a way out of town.", kPanelDim, kBody);
+        return;
+    }
     const std::vector<std::string> page = clues::pageLines(mLeads, mGateSeen, mClueContent, mClueNames,
                                                            mSaveManager.runNumber(), mCurrentDay);
-    std::vector<std::string> lines;
-    for (const std::string& entry : page)
-    {
-        for (const std::string& line : wrapWords(entry, maxChars)) lines.push_back(line);
-    }
-    const float contentH = 22.0f + bodyLine + 2.0f + 30.0f + static_cast<float>(lines.size()) * bodyLine + 40.0f;
-    const float panelH = std::min(contentH, h - 40.0f);
-    const float panelX = std::floor((w - panelW) * 0.5f);
-    const float panelY = std::floor((h - panelH) * 0.5f);
-    const float left = panelX + 28.0f;
-
-    mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.96f));
-
-    float y = panelY + 22.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "THE WAY OUT", kPanelInk, kBody);
-    const std::string hint = "Left: notebook   J to close";
-    mFont.drawText(mSpriteBatch, glm::vec2(left + textW - mFont.measureText(hint, 1.0f).x, y + 4.0f), hint, kPanelDim, 1.0f);
-    y += bodyLine + 2.0f;
     const int known = clues::count(mLeads);
     mFont.drawText(mSpriteBatch, glm::vec2(left, y),
-                   truncateHudText(std::to_string(known) + (known == 1 ? " thing" : " things") + " known of " +
-                                       std::to_string(clues::kLeadCount) + ".",
-                                   maxChars * 2),
+                   std::to_string(known) + (known == 1 ? " thing" : " things") + " known of " + std::to_string(clues::kLeadCount) + ".",
                    kPanelDim, 1.0f);
-    y += 30.0f;
-    for (const std::string& text : lines)
+    y += 26.0f;
+    for (const std::string& entry : page)
     {
-        if (y > panelY + panelH - bodyLine) break;
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), text, kPanelInk, kBody);
-        y += bodyLine;
+        for (const std::string& text : wrapWords(entry, maxChars))
+        {
+            if (y + bodyLine > bottom) return;
+            mFont.drawText(mSpriteBatch, glm::vec2(left, y), text, kPanelInk, kBody);
+            y += bodyLine;
+        }
     }
 }
 
@@ -250,21 +234,12 @@ void Game::notebookTaken(Entity container)
     if (container == kInvalidEntity || !mWorld.hasComponent<LegacyLink>(container)) return;
     const LegacyLink& link = mWorld.getComponent<LegacyLink>(container);
     if (link.kind != LegacyLinkKind::Pack || link.graveIndex < 0 || link.graveIndex >= static_cast<int>(mLegacyGraves.size())) return;
-    GraveRecord& grave = mLegacyGraves[static_cast<std::size_t>(link.graveIndex)];
+    const GraveRecord& grave = mLegacyGraves[static_cast<std::size_t>(link.graveIndex)];
     if (!grave.notebook) return;
-    const clues::Mask before = mLeads;
-    clues::transfer(mLeads, mGateSeen, static_cast<clues::Mask>(grave.leads), grave.seen);
-    for (int lead = 1; lead <= clues::kLeadCount; ++lead)
-    {
-        if ((mLeads & clues::bit(lead)) != 0 && (before & clues::bit(lead)) == 0)
-        {
-            std::cout << "[Clues] lead " << lead << " learned (" << grave.name << "'s notebook)\n";
-        }
-    }
-    grave.notebook = false; // read: it is this character's now
-    mInteractionMessage = clues::count(mLeads) > clues::count(before)
-                              ? grave.name + "'s notebook. Pages about a gate. J to read."
-                              : grave.name + "'s notebook. Nothing in it you did not know.";
+    const std::string name = grave.name;
+    mInteractionMessage = learnFromGraveNotebook(link.graveIndex)
+                              ? name + "'s notebook. Pages about a gate. J to read."
+                              : name + "'s notebook. Nothing in it you did not know.";
     mInteractionMessageTimer = 4.0f;
 }
 

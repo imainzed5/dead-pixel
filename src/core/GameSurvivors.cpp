@@ -1335,7 +1335,11 @@ void Game::updateSurvivors(float dtSeconds)
             // Seen: the notebook's list, and where they live.
             if (playerAlive && d < 10.0f)
             {
-                if (!record.met || record.metRun != mSaveManager.runNumber()) std::cout << "[Survivors] met " << ai.name << "\n";
+                if (!record.met || record.metRun != mSaveManager.runNumber())
+                {
+                    std::cout << "[Survivors] met " << ai.name << "\n";
+                    noteJournal(journal::Kind::SurvivorMet, ai.name);
+                }
                 record.met = true;
                 record.metRun = mSaveManager.runNumber();
                 record.lastSeenDay = mCurrentDay;
@@ -1540,6 +1544,7 @@ void Game::onSurvivorDeath(Entity survivor)
         record->deathDay = mCurrentDay;
     }
     std::cout << "[Survivors] " << ai.name << " died on Day " << mCurrentDay << (ai.companion ? " (your companion)" : "") << "\n";
+    if (record != nullptr && record->met && record->metRun == mSaveManager.runNumber()) noteJournal(journal::Kind::SurvivorLost, ai.name);
 
     // Killed by you: it weighs, and those who knew them hear of it.
     if (ai.sincePlayerHit < 3.0f && !ai.companion)
@@ -1876,9 +1881,19 @@ bool Game::talkToSurvivor()
     {
         // A body comes after anything else within reach.
         if (!mProximityPrompt.empty()) return false;
-        mProximityPrompt = "E: Search " + ai.name + "'s body";
+        // Emptied, they can be buried where they lie (phase 10).
+        bool empty = true;
+        if (mWorld.hasComponent<Inventory>(best))
+        {
+            for (const InventorySlot& slot : mWorld.getComponent<Inventory>(best).slots)
+            {
+                if (slot.itemId >= 0 && slot.count > 0) empty = false;
+            }
+        }
+        mProximityPrompt = empty ? "E: Bury " + ai.name + " (30 s)" : "E: Search " + ai.name + "'s body";
         if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return false;
-        openContainer(best);
+        if (empty) beginBurial(best);
+        else openContainer(best);
         return true;
     }
     const bool hostile = !ai.companion && (ai.attitude == Attitude::Hostile || ai.angryDay == mCurrentDay);
@@ -2259,6 +2274,7 @@ void Game::tradeAgree()
     mTalk.packCursor = 0;
     mTalk.theirCursor = 0;
     mTalk.line = survivorLine("thank", ai.name, 17u);
+    noteJournal(journal::Kind::SurvivorTraded, ai.name);
     if (overflow > 0)
     {
         mInteractionMessage = "No room in your pack for all of it.";

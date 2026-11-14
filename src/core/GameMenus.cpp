@@ -66,6 +66,14 @@ void Game::updateTitleScreen(float dtSeconds)
 
     auto adjustMenuValue = [&](int delta)
     {
+        if (mTitleMenuSelection == 2) // the new world's kind (phase 10)
+        {
+            mTitleFreshStart = !mTitleFreshStart;
+            mTitleConfirmNewWorld = false;
+            mTitleStatusMessage = mTitleFreshStart ? "New world: Fresh Start" : "New world: Living World";
+            mTitleStatusTimer = 2.0f;
+            return;
+        }
         if (mTitleMenuSelection == 3) // Save Slot
         {
             const int oldIndex = mTitleSaveSlotIndex;
@@ -183,6 +191,12 @@ void Game::updateTitleScreen(float dtSeconds)
                 }
 
                 mIgnoreCheckpointRestoreOnce = true;
+                {
+                    // Set once, at the world's making (phase 10).
+                    RunPresentationSettings settings = mSaveManager.presentationSettings();
+                    settings.livingWorld = !mTitleFreshStart;
+                    mSaveManager.setPresentationSettings(settings);
+                }
                 syncPresentationSettingsToSave();
                 mCreateCharacterOnStart = true;
                 startNewRun();
@@ -232,32 +246,67 @@ void Game::updateTitleScreen(float dtSeconds)
     }
 }
 
+std::vector<std::string> Game::pauseOptions() const
+{
+    std::vector<std::string> options = {"Resume", "Save"};
+    // From day ten (phase 10): retiring by choice, confirmed twice.
+    if (mCurrentDay >= legacy::kStayFromDay && mRunState == RunState::Paused)
+    {
+        options.emplace_back(mStayConfirm == 1   ? "Stay for good? Enter again"
+                             : mStayConfirm == 2 ? "It ends this life. Enter once more"
+                                                 : "Stay here for good");
+    }
+    for (const char* o : {"Back to Menu", "Restart", "Quit"}) options.emplace_back(o);
+    return options;
+}
+
 // Pause menu navigation and actions.
 void Game::updatePauseMenu()
 {
+    const int count = static_cast<int>(pauseOptions().size());
+    constexpr int kStayRow = 2;
+    const bool stayOffered = count > 5;
     if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
     {
-        mPauseSelection = (mPauseSelection + 4) % 5;
+        mPauseSelection = (mPauseSelection + count - 1) % count;
+        mStayConfirm = 0;
+        mStayWhy.clear();
     }
     if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
     {
-        mPauseSelection = (mPauseSelection + 1) % 5;
+        mPauseSelection = (mPauseSelection + 1) % count;
+        mStayConfirm = 0;
+        mStayWhy.clear();
     }
+    mPauseSelection = std::clamp(mPauseSelection, 0, count - 1);
     if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) || mInput.wasKeyPressed(SDL_SCANCODE_SPACE))
     {
-        if (mPauseSelection == 0) // Resume
+        int choice = mPauseSelection;
+        if (stayOffered && choice == kStayRow)
+        {
+            mStayWhy = stayForGoodBlocker();
+            if (!mStayWhy.empty())
+            {
+                mStayConfirm = 0;
+                return;
+            }
+            if (++mStayConfirm >= 3) stayForGood();
+            return;
+        }
+        if (stayOffered && choice > kStayRow) --choice;
+        if (choice == 0) // Resume
         {
             mRunState = RunState::Playing;
         }
-        else if (mPauseSelection == 1) // Save
+        else if (choice == 1) // Save
         {
             saveCurrentRunCheckpoint("Run checkpoint saved.");
         }
-        else if (mPauseSelection == 2) // Back to Menu
+        else if (choice == 2) // Back to Menu
         {
             returnToTitleScreen();
         }
-        else if (mPauseSelection == 3) // Restart
+        else if (choice == 3) // Restart
         {
             mCreateCharacterOnStart = true; // only shown when no checkpoint resumes
             startNewRun();

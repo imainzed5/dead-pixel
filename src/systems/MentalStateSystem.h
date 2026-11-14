@@ -73,6 +73,7 @@ public:
 
     // M5: Hardened trait: early depression builds slower
     static constexpr float kHardenedDepressionFactor = 0.7f;
+    static constexpr float kHardenedBelow = 60.0f;
 
 private:
     bool mForceRetire = false;

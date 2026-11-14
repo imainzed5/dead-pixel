@@ -5,6 +5,10 @@
 
 #include "core/Game.h"
 
+#include "legacy/Cemetery.h"
+#include "legacy/Journal.h"
+#include "legacy/LegacyRules.h"
+#include "legacy/WorldAging.h"
 #include "map/TileIds.h"
 #include "systems/ToneTuning.h"
 
@@ -493,10 +497,10 @@ constexpr std::array<ControlBinding, 27> kControlBindings = {{
     {"RClick", "Take down (from behind)"},
     {"Space", "Shove / struggle"},
     {"G", "Throw (hold, aim)"},
-    {"E", "Interact, talk; hold: push"},
+    {"E", "Interact, read; hold: push"},
     {"R", "Board, tap, fill / reload"},
     {"X", "Pry, break up, force"},
-    {"F", "Use, set down, snare, radio"},
+    {"F", "Use, set down, marker"},
     {"Q", "Flashlight"},
     {"1-8", "Hotbar slot"},
     {"Tab", "Pack / Body / Make"},
@@ -507,7 +511,7 @@ constexpr std::array<ControlBinding, 27> kControlBindings = {{
     {"B", "Build wheel"},
     {"V", "Car in-out; Shift: refuel"},
     {"M", "World map"},
-    {"J", "Notebook; Left/Right: page"},
+    {"J", "Notebook; Left/Right: tab"},
     {"+/-", "Minimap zoom"},
     {"Esc", "Pause"},
     {"F2", "Controls"},
@@ -551,13 +555,13 @@ struct PauseLayout
     float traitsLineY = 0.0f;
     float optionsY = 0.0f;
     static constexpr float kOptionH = 30.0f;
-    static constexpr int kOptionCount = 5;
 };
 
-inline PauseLayout computePauseLayout(int windowWidth, int windowHeight)
+// Five options, or six with "Stay here for good" (phase 10).
+inline PauseLayout computePauseLayout(int windowWidth, int windowHeight, int options = 5)
 {
     PauseLayout layout;
-    layout.panelSize = glm::vec2(440.0f, 312.0f);
+    layout.panelSize = glm::vec2(440.0f, 162.0f + static_cast<float>(options) * PauseLayout::kOptionH + (options > 5 ? 20.0f : 0.0f));
     layout.panelPos = glm::vec2(
         std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
         std::round((static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f));

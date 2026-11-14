@@ -6,8 +6,8 @@ using namespace gameshared;
 
 namespace
 {
-// Burned grass grows back for the third life after the fire (phase 7).
-constexpr int kGrassRegrowLives = 3;
+// Burned grass grows back two lives after the fire (phase 10; was three).
+constexpr int kGrassRegrowLives = aging::kGrassRegrowLives;
 } // namespace
 
 void Game::spawnScorchMark(int tileX, int tileY)
@@ -210,6 +210,14 @@ void Game::setupScene()
     // checkpoint) says otherwise. Health, carry limit and skills follow.
     mWorld.addComponent<Traits>(mPlayerEntity, Traits{});
     mWorld.addComponent<Skills>(mPlayerEntity, Skills{});
+    // Phase 10: what the line has earned, and what runs in the family. A
+    // Fresh Start world has no line.
+    {
+        const legacy::LegacyState state = legacyState();
+        mSkillEchoes = livingWorld() ? legacy::skillEchoes(state) : std::array<int, kSkillCount>{};
+        mWorld.getComponent<Traits>(mPlayerEntity).bloodlines =
+            livingWorld() ? legacy::bloodlineFor(state) : std::vector<BloodlineTrait>{};
+    }
     applyCharacter(traitrules::quickStart(mSaveManager.currentRunSeed()), true);
 
     // The districts as the world remembers them (phase 4), before the
@@ -231,23 +239,20 @@ void Game::setupScene()
         placeDormantCrawlers(kindRng);
     }
 
-    // Apply bloodline trait selected from persistent legacy history.
+    // The bloodline's gifts (the traits were earned above, before the skills).
     if (mWorld.hasComponent<Traits>(mPlayerEntity))
     {
-        Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        traits.bloodline = mSaveManager.selectBloodlineForNewRun();
-
-        if (traits.bloodline == BloodlineTrait::Scavenger && mWorld.hasComponent<Inventory>(mPlayerEntity))
+        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        if (traits.has(BloodlineTrait::Scavenger) && mWorld.hasComponent<Inventory>(mPlayerEntity))
         {
             Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
             InventorySystem::addItem(inv, mItemDatabase, mItems.cannedFood, 1);
             InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, 1);
         }
-
-        if (traits.bloodline == BloodlineTrait::Vigilant && mWorld.hasComponent<MentalState>(mPlayerEntity))
+        if (traits.has(BloodlineTrait::Vigilant) && mWorld.hasComponent<MentalState>(mPlayerEntity))
         {
             MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-            mental.panicDecayPerSecond += 0.5f;
+            mental.panicDecayPerSecond *= legacy::kVigilantPanicDecay;
         }
     }
 
@@ -929,6 +934,9 @@ void Game::setupScene()
     setupSurvivors();
     // The way out (phase 9): the gate shut or open, the readables.
     setupGate();
+    // The cemetery's fence and old stones; the bones of earlier lives' dead (phase 10).
+    setupCemetery();
+    if (livingWorld()) spawnBones();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(

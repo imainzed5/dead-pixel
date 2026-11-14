@@ -560,16 +560,9 @@ std::vector<StructureRecord> Game::structureRecords(bool runEnd) const
             rec.x = t.x;
             rec.y = t.y;
             rec.hpRatio = s.maxHp > 0.0f ? s.hp / s.maxHp : 0.0f;
-            if (runEnd)
-            {
-                if (!BuildSystem::carriesOver(s.type, false)) return;
-                // One stage worse between lives.
-                if (BuildSystem::wearsBetweenLives(s.type))
-                {
-                    rec.hpRatio -= 1.0f / 3.0f;
-                    if (rec.hpRatio <= 0.02f) return;
-                }
-            }
+            // Between lives: what carries over, as it was left (the town ages
+            // it after: legacy::ageWorld, phase 10).
+            if (runEnd && !BuildSystem::carriesOver(s.type, false)) return;
             rec.condition = rec.hpRatio > 0.66f ? 0 : rec.hpRatio > 0.33f ? 1 : 2;
             rec.water = s.water;
             rec.burnHours = s.burnHours;
@@ -585,14 +578,6 @@ std::vector<StructureRecord> Game::structureRecords(bool runEnd) const
             rec.dead = s.dead;
             rec.snareState = s.snareState;
             rec.lastDawn = s.lastDawn;
-            // A garden bed comes back as seedlings; a dead one not at all.
-            if (runEnd && s.type == StructureType::GardenBed)
-            {
-                if (s.dead) return;
-                rec.growHours = 0.0f;
-                rec.sinceWaterHours = 0.0f;
-                rec.regrowing = false;
-            }
             if (runEnd && s.type == StructureType::Snare) rec.snareState = 0;
             if (s.type == StructureType::StorageCrate && world.hasComponent<Inventory>(e))
             {
@@ -689,6 +674,11 @@ void Game::finishBuild()
     mAudioManager.playSound(SoundId::WeaponHit, 0.5f);
     noteAccomplishment();
     std::cout << "[Base] built " << structureInfo(type).name << " at " << tile.x << "," << tile.y << "\n";
+    {
+        std::string name = structureInfo(type).name;
+        for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        noteJournal(journal::Kind::BaseBuilt, name);
+    }
 }
 
 void Game::cancelBuild(const char* why)
@@ -1425,7 +1415,8 @@ void Game::updateBaseActions(float dtSeconds)
             if (recipe != nullptr && recipe->hammering) tier = NoiseTier::Loud;
         }
         const bool quiet = mBaseAction.kind == BaseAction::Kind::Climb || mBaseAction.kind == BaseAction::Kind::Treat ||
-                           mBaseAction.kind == BaseAction::Kind::Read || mBaseAction.kind == BaseAction::Kind::ReadClue;
+                           mBaseAction.kind == BaseAction::Kind::Read || mBaseAction.kind == BaseAction::Kind::ReadClue ||
+                           mBaseAction.kind == BaseAction::Kind::Tend;
         if (!quiet)
         {
             mNoiseModel.emitNoise(here, tier, 1.0f, mPlayerEntity);
@@ -1480,6 +1471,10 @@ void Game::updateBaseActions(float dtSeconds)
     case BaseAction::Kind::PourFuel:
     case BaseAction::Kind::FreeGenerator:
         finishGateAction();
+        break;
+    case BaseAction::Kind::Tend:
+    case BaseAction::Kind::Bury:
+        finishLegacyAction();
         break;
     case BaseAction::Kind::Repair:
     {

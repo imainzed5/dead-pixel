@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "legacy/LegacyRules.h"
 #include "map/MapGenerator.h"
 #include "save/SaveManager.h"
 
@@ -787,7 +788,11 @@ DP_TEST(save_v5_gate_and_notebook_round_trip)
         DP_CHECK_EQ(gr.seen.fuel, 3);
     }
     DP_CHECK(!back.characterHistory().empty() && back.characterHistory().back().escaped);
-    DP_CHECK(back.selectBloodlineForNewRun() == BloodlineTrait::Wayfinder);
+    {
+        const legacy::LegacyState state{back.graves(), back.retirements(), back.characterHistory()};
+        const std::vector<BloodlineTrait> line = legacy::bloodlineFor(state);
+        DP_CHECK(!line.empty() && line.front() == BloodlineTrait::Wayfinder);
+    }
     const std::vector<SurvivorRecord> people = back.loadSurvivors();
     DP_CHECK_EQ(people.size(), std::size_t{2});
     if (people.size() == 2)
@@ -803,6 +808,164 @@ DP_TEST(save_v5_gate_and_notebook_round_trip)
     DP_CHECK(loaded.broadcastHeard && loaded.standStarted);
     DP_CHECK_NEAR(loaded.standOpened, 75.0f, 0.01);
     DP_CHECK_EQ(loaded.standWaves, 4);
+}
+
+// Phase 10: journals, markers and the cemetery, the world option, the aging
+// file and the checkpoint's journal, all optional fields at version 5.
+DP_TEST(save_phase10_journal_cemetery_and_world_option_round_trip)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(110u);
+    {
+        SaveManager save;
+        DP_CHECK(save.loadOrCreateSlot("legacy_slot"));
+        DP_CHECK(save.livingWorld()); // the default
+
+        GraveRecord grave;
+        grave.name = "Ann Hale";
+        grave.day = 3;
+        grave.runIndex = 1;
+        grave.skills = {{0, 3}, {1, 1}};
+        grave.markerTaken = true;
+        grave.buried = true;
+        grave.burialOrder = 4;
+        grave.tendedRun = 6;
+        grave.restRun = 2;
+        DP_CHECK(save.recordDeath(grave));
+        GraveRecord buried;
+        buried.name = "Mo";
+        buried.survivor = true;
+        DP_CHECK(save.addGrave(buried));
+
+        CharacterHistoryRecord life;
+        life.name = "Ann Hale";
+        life.runIndex = 1;
+        life.journal = {journal::Entry{1, journal::Kind::Start, 2, "Started this today."},
+                        journal::Entry{3, journal::Kind::EndSudden, 9, "The writing stops here."}};
+        life.journalRead = true;
+        life.chosen = true;
+        life.depression = 42.5f;
+        life.tilesBurned = 31;
+        DP_CHECK(save.addCharacterHistoryRecord(life));
+
+        RunPresentationSettings settings = save.presentationSettings();
+        settings.livingWorld = false;
+        save.setPresentationSettings(settings);
+        DP_CHECK(save.savePresentationSettings());
+
+        AgingRecord aging;
+        aging.bones = {{10, 12}, {11, 12}};
+        save.setAging(aging);
+        DP_CHECK(save.saveAging());
+
+        LayoutData layout;
+        layout.width = 2;
+        layout.height = 2;
+        layout.ground.assign(4, 0);
+        layout.collision.assign(4, 0);
+        layout.surface.assign(4, 0);
+        layout.cemetery.placed = true;
+        layout.cemetery.fenceMin = glm::ivec2(20, 30);
+        layout.cemetery.fenceMax = glm::ivec2(28, 37);
+        layout.cemetery.opening = glm::ivec2(24, 37);
+        DP_CHECK(save.saveWorldLayout(layout));
+
+        RunCheckpoint cp;
+        cp.valid = true;
+        cp.runSeed = save.currentRunSeed();
+        cp.characterName = "Bo";
+        cp.journalSaved = true;
+        cp.journal = {journal::Entry{2, journal::Kind::FirstKill, 6, "I killed one today."}};
+        cp.journalFlags = 5;
+        cp.journalDays = 10;
+        cp.journalSeason = 1;
+        DP_CHECK(save.saveCheckpoint(cp));
+    }
+
+    SaveManager back;
+    DP_CHECK(back.loadOrCreateSlot("legacy_slot"));
+    DP_CHECK(!back.livingWorld());
+    DP_CHECK_EQ(back.graves().size(), std::size_t{2});
+    if (back.graves().size() == 2)
+    {
+        const GraveRecord& g = back.graves()[0];
+        DP_CHECK(g.markerTaken && g.buried);
+        DP_CHECK_EQ(g.burialOrder, 4);
+        DP_CHECK_EQ(g.tendedRun, 6);
+        DP_CHECK_EQ(g.restRun, 2);
+        DP_CHECK(g.ofBloodline());
+        DP_CHECK(back.graves()[1].survivor && !back.graves()[1].ofBloodline());
+    }
+    DP_CHECK_EQ(back.characterHistory().size(), std::size_t{1});
+    if (!back.characterHistory().empty())
+    {
+        const CharacterHistoryRecord& h = back.characterHistory().front();
+        DP_CHECK_EQ(h.journal.size(), std::size_t{2});
+        if (h.journal.size() == 2)
+        {
+            DP_CHECK(h.journal[1].kind == journal::Kind::EndSudden);
+            DP_CHECK_EQ(h.journal[1].text, std::string("The writing stops here."));
+            DP_CHECK_EQ(h.journal[0].day, 1);
+        }
+        DP_CHECK(h.journalRead && h.chosen);
+        DP_CHECK_NEAR(h.depression, 42.5f, 0.01f);
+        DP_CHECK_EQ(h.tilesBurned, 31);
+    }
+    DP_CHECK_EQ(back.aging().bones.size(), std::size_t{2});
+    const LayoutData layout = back.loadWorldLayout();
+    DP_CHECK(layout.cemetery.placed);
+    DP_CHECK(layout.cemetery.fenceMax == glm::ivec2(28, 37));
+    DP_CHECK(layout.cemetery.opening == glm::ivec2(24, 37));
+    const RunCheckpoint cp = back.loadCheckpoint();
+    DP_CHECK(cp.journalSaved);
+    DP_CHECK_EQ(cp.journal.size(), std::size_t{1});
+    DP_CHECK_EQ(cp.journalFlags, 5);
+    DP_CHECK_EQ(cp.journalDays, 10);
+    DP_CHECK_EQ(cp.journalSeason, 1);
+
+    // A Fresh Start forgets the town but keeps the run count and the history.
+    const int run = back.runNumber();
+    DP_CHECK(back.forgetWorld());
+    SaveManager forgot;
+    DP_CHECK(forgot.loadOrCreateSlot("legacy_slot"));
+    DP_CHECK(forgot.graves().empty());
+    DP_CHECK(forgot.aging().bones.empty());
+    DP_CHECK_EQ(forgot.runNumber(), run);
+    DP_CHECK_EQ(forgot.characterHistory().size(), std::size_t{1});
+    DP_CHECK(!forgot.loadCheckpoint().valid);
+}
+
+// An old grave and history (no phase 10 fields) read with the defaults.
+DP_TEST(save_phase10_old_records_read_with_defaults)
+{
+    ScopedTempCwd cwd;
+    std::filesystem::create_directories("save");
+    {
+        std::ofstream out("save/old_slot_legacy.json");
+        out << R"({"graves":[{"name":"Old","x":1,"y":2,"day":4,"runIndex":1,"cause":"Starved"}],)"
+            << R"("retirements":[],"characters":[{"name":"Old","runIndex":1,"dayEnded":4,"cause":"Starved"}]})";
+    }
+    {
+        std::ofstream out("save/old_slot.json");
+        out << R"({"saveVersion":5,"worldSeed":7,"runNumber":2,"presentation":{"gameMode":"endless"}})";
+    }
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("old_slot"));
+    DP_CHECK(save.livingWorld());
+    DP_CHECK_EQ(save.graves().size(), std::size_t{1});
+    if (!save.graves().empty())
+    {
+        const GraveRecord& g = save.graves()[0];
+        DP_CHECK(!g.markerTaken && !g.buried && !g.survivor);
+        DP_CHECK_EQ(g.burialOrder, -1);
+        DP_CHECK_EQ(g.tendedRun, 0);
+    }
+    DP_CHECK_EQ(save.characterHistory().size(), std::size_t{1});
+    if (!save.characterHistory().empty())
+    {
+        DP_CHECK(save.characterHistory()[0].journal.empty());
+        DP_CHECK(!save.characterHistory()[0].journalRead);
+    }
 }
 
 DP_TEST(save_v4_slot_migrates_to_v5_with_its_objective_district)

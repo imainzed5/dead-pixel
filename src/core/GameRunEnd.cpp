@@ -15,6 +15,7 @@ void Game::beginDeathState(const std::string& cause)
     mDeathCause = cause;
     mAudioManager.playSound(SoundId::Death, 0.8f);
     stopPlayerAtRunEnd();
+    releaseMarkers(); // a marker carried goes back to its grave (phase 10)
     // Recording the grave or retirement advances the save's run number, so
     // everything about this run uses the index it had while it was played.
     const int runIndex = mSaveManager.runNumber();
@@ -75,6 +76,13 @@ void Game::beginDeathState(const std::string& cause)
     CharacterHistoryRecord history = runEndHistory(false, runIndex);
     history.cause = cause;
     history.finalNote = "Died on Day " + std::to_string(mCurrentDay) + ": " + cause;
+    // The last entry: hunger, thirst and a fever end slowly; the rest stop the writing.
+    {
+        std::string lower = cause;
+        for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const bool slow = legacy::hungerDeath(lower) || lower.find("infection") != std::string::npos || lower.find("turned") != std::string::npos;
+        history.journal = finishJournal(slow ? journal::Kind::EndSlow : journal::Kind::EndSudden);
+    }
     mSaveManager.addCharacterHistoryRecord(history);
     addRunEndMemoryEvent(WorldMemoryEventType::GravePlaced, runIndex);
 
@@ -101,7 +109,9 @@ void Game::beginRetirementState(const std::string& customCause)
 
     mRunState = RunState::Retired;
     mDeathStateTimer = 0.0;
-    mRunEndLegacyLine = "They will live on in town, keeping to themselves.";
+    mRunEndLegacyLine = mStayedForGood ? "They will keep the house. Whoever comes next can knock."
+                                       : "They will live on in town, keeping to themselves.";
+    releaseMarkers();
     mDeathCause = customCause.empty()
         ? ("Gave up on Day " + std::to_string(mCurrentDay))
         : customCause;
@@ -123,7 +133,18 @@ void Game::beginRetirementState(const std::string& customCause)
     history.cause = customCause.empty() ? "Psychological retirement" : customCause;
     history.finalNote = customCause.empty()
         ? ("They stopped on Day " + std::to_string(mCurrentDay) + ".")
-        : (customCause + ".");
+        : (customCause.back() == '.' ? customCause : customCause + ".");
+    history.chosen = mStayedForGood;
+    // A retirement always leaves its last words: the life in one sentence.
+    {
+        journal::LifeStats stats;
+        stats.day = mCurrentDay;
+        stats.built = mRunStats.structuresBuilt;
+        stats.kills = mRunStats.kills;
+        stats.met = static_cast<int>(std::count_if(mSurvivors.begin(), mSurvivors.end(), [&](const SurvivorRecord& r)
+                                                   { return r.met && !r.retired && r.metRun == runIndex; }));
+        history.journal = finishJournal(mStayedForGood ? journal::Kind::EndStayed : journal::Kind::EndRetired, journal::lifeSummary(stats));
+    }
     mSaveManager.addCharacterHistoryRecord(history);
     addRunEndMemoryEvent(WorldMemoryEventType::RetirementPlaced, runIndex);
 
@@ -178,7 +199,7 @@ void Game::beginRetirementState(const std::string& customCause)
               << " | Distance: " << static_cast<int>(mRunStats.distanceWalked) << "px"
               << '\n';
 
-    mInteractionMessage = "They couldn't go on.";
+    mInteractionMessage = mStayedForGood ? mCurrentCharacterName + " stayed." : "They couldn't go on.";
     mInteractionMessageTimer = 5.0f;
 }
 
@@ -213,8 +234,14 @@ CharacterHistoryRecord Game::runEndHistory(bool retired, int runIndex) const
         const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
         for (PositiveTrait trait : traits.positives) history.positiveTraits.emplace_back(traitName(trait));
         for (NegativeTrait trait : traits.negatives) history.negativeTraits.emplace_back(traitName(trait));
-        history.bloodlineTrait = traits.bloodlineName();
+        history.bloodlineTrait = traits.bloodlineNames();
     }
+    // What makes the bloodline's traits (phase 10).
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<MentalState>(mPlayerEntity))
+    {
+        history.depression = mWorld.getComponent<MentalState>(mPlayerEntity).depression;
+    }
+    history.tilesBurned = static_cast<int>(mBurnedTiles.size() - std::min(mBurnedTilesAtRunStart, mBurnedTiles.size()));
     return history;
 }
 
@@ -239,6 +266,13 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
     // The days this character lived pass for everyone else (phase 8): their
     // stock falls, they empty cupboards near home, some of them die.
     survivorsBetweenLives(std::max(1, mCurrentDay), retiree != nullptr);
+    // The one who retired is among them now (a kept house: phase 10's aging).
+    if (retiree != nullptr)
+    {
+        SurvivorRecord record = *retiree;
+        record.id = static_cast<int>(mSurvivors.size());
+        mSurvivors.push_back(record);
+    }
 
     // What was built and set down lasts, a stage worse; windows stay as they
     // were left; and the house this life held is remembered.
@@ -316,17 +350,22 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
         mSaveManager.addWorldMemoryEvent(event);
     }
 
+    // The town ages: built things, boards, crates, gardens, the dead in the
+    // street, the districts (phase 10).
+    if (livingWorld()) ageWorldForNextLife(std::max(1, mCurrentDay), runIndex);
+
     mSaveManager.deleteCheckpoint();
     refreshContainerRecords();
     mSaveManager.saveWorldMemory();
 
-    // The town's people as they are now (already advanced), and the one who
-    // retired among them.
-    if (retiree != nullptr)
-    {
-        SurvivorRecord record = *retiree;
-        record.id = static_cast<int>(mSurvivors.size());
-        mSurvivors.push_back(record);
-    }
+    // The town's people as they are now (already advanced, the one who
+    // retired among them).
     mSaveManager.saveSurvivors(mSurvivors);
+
+    // Fresh Start: the next life finds the town as it was made (phase 10).
+    if (!livingWorld())
+    {
+        mSaveManager.forgetWorld();
+        std::cout << "[World] fresh start: nothing carried over\n";
+    }
 }

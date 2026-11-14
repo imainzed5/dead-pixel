@@ -432,7 +432,7 @@ void Game::updateFire(float dtSeconds, bool playerAlive, bool)
         if (const FireSystem::Tile* here = mFireSystem.at(worldToTile(mTileMap, playerWorldCenter())))
         {
             const Traits* traits = playerTraits();
-            const float scale = traits != nullptr && traits->bloodline == BloodlineTrait::Firewise ? firerules::kFirewiseScale : 1.0f;
+            const float scale = traits != nullptr && traits->has(BloodlineTrait::Firewise) ? firerules::kFirewiseScale : 1.0f;
             Health& health = mWorld.getComponent<Health>(mPlayerEntity);
             if (!mDevGodMode)
             {

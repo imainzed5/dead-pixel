@@ -1,0 +1,93 @@
+# Aging (phase 10): a crate and boards at home, then three lives end. The
+# crate goes Intact, Damaged, Breaking, gone; the boards lose a quarter of a
+# board each life; lives of forty days leave the districts worse than when
+# the world was made. Run it twice: the [Aging] lines are the same.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/aging.txt --hidden --world-seed 1234 --shots shots/aging
+
+survivors gone
+newrun
+god on
+waits 1
+give Saw
+give Hammer
+give Wood Planks 10
+give Nails 16
+goto home
+waits 0.3
+build crate
+waits 13
+open
+waits 0.3
+give Canned Food 2
+give Water Bottle 2
+give Rice 1
+stash Canned Food 2
+stash Water Bottle 2
+stash Rice 1
+tap Escape
+goto door
+waits 0.3
+tap R
+waits 4.5
+tap R
+waits 4.5
+tap R
+waits 4.5
+aging
+goto home
+expect crate intact
+goto door
+expect boardhp 1349 1351
+shot 01_built
+kill aging one
+waits 6
+
+# Life 2: a stage worse, a quarter of each board gone.
+newrun
+god on
+slay 40
+waits 1
+goto home
+waits 0.3
+aging
+expect crate damaged
+goto door
+expect boardhp 1012 1013
+shot 02_one_life_on
+kill aging two
+waits 6
+
+# Life 3.
+newrun
+god on
+slay 40
+waits 1
+goto home
+waits 0.3
+aging
+expect crate breaking
+goto door
+expect boardhp 674 676
+kill aging three
+waits 6
+
+# Life 4: the crate is gone.
+newrun
+god on
+slay 40
+waits 1
+goto home
+waits 0.3
+aging
+expect crate gone
+goto door
+expect boardhp 449 451
+shot 03_three_lives_on
+# Long lives: the districts creep up.
+age 3 40
+newrun
+waits 1
+aging
+expect infection above
+quit

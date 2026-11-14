@@ -68,8 +68,15 @@ done, what is next, and known issues.
 - **The legacy layer:**
   - graves of past characters, and the risen;
   - packs left behind, and retired survivors;
-  - a notebook, a town map, and world memory that carries from one life to
-    the next.
+  - a notebook with tabs, a town map, and world memory that carries from
+    one life to the next;
+  - journals (carry a notebook and a life writes itself down), read at the
+    grave; skills and six traits that run in the family;
+  - a town that ages between lives (crates and boards wear, the districts
+    turn, bones where people fell), a cemetery to set the dead in, and
+    "Stay here for good" from day 10;
+  - Fresh Start (the town forgets) or Living World, chosen when a world
+    is made.
 - **Other people:** a dozen survivors with homes, stores, needs and tempers
   of their own; they scavenge, board up, run from the dead, trade, come
   along, rob you, and go on living between your lives.
@@ -98,7 +105,8 @@ done, what is next, and known issues.
 | R at a pond or a toilet, or at a garden bed | Fill empty bottles with Dirty Water (a toilet once per world) / water the bed |
 | R at a worn station | Repair it with one of what it is made of |
 | R with a gun in hand (nothing else in reach) | Reload from the pack, or clear a jam |
-| F | Use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead; set a snare (on grass, 15 tiles from any building); turn the radio on or off; with a Battery selected, put it in the flashlight |
+| E at a grave or stone | Read: the journal reader opens (Up/Down to read on, Backspace back); E again takes a grave's marker when it has no pack, or tends a weathered stone (5 seconds); at an emptied survivor's body, bury them (30 seconds) |
+| F | Inside the cemetery with a marker selected: set it, and the grave moves there. Otherwise: use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead; set a snare (on grass, 15 tiles from any building); turn the radio on or off; with a Battery selected, put it in the flashlight |
 | Q | Flashlight |
 | 1-8 | Hotbar slot |
 | Tab | Cycles the side panel: Pack, Body, Make, closed (Esc closes it) |
@@ -107,7 +115,7 @@ done, what is next, and known issues.
 | N | Crafting |
 | B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll, garden bed (click one, then click where it goes; right click puts it away) |
 | V / Shift+V | Enter or exit a car / refuel |
-| M / J | Town map / notebook (in the notebook, Left/Right turn to the way-out page and back) |
+| M / J | Town map / notebook with tabs (Left/Right): Leads, The way out, People, Before you (Up/Down, Enter: read a journal), Know-how, Journal (this life's, written only while you carry a Notebook) |
 | +/- | Minimap zoom |
 | Esc | Pause |
 | F1 / F2 / F3 | Noise debug / controls / district infection debug |
@@ -294,6 +302,22 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   NAME COUNT|trust above|below N|near N|farther N|kills N`, `expect talk
   open|closed|trade`, `expect card TEXT` (`$survivor` is the focus's name),
   `expect advance same|loots N`.
+- **Legacy (phase 10):** `journal` / `journal last` (this life's journal or
+  the last life's, as kept), `age LIVES [DAYS]` (the town ages in the save as
+  if LIVES lives of DAYS days ended now; `newrun` to see it), `aging` (the
+  crates' stages, the boards, district infection against creation, bones),
+  `goto cemetery` (just inside its gap), `goto stone [NAME]` (in front of a
+  stone of the line), `bury [kill] [now]` (empty the nearest dead
+  survivor and bury them, 30 s; `kill`: the nearest living one dies first;
+  `now`: at once), `world fresh|living` (the save's kind), `lineage SKILL
+  LEVEL COUNT [read]` (COUNT earlier lives who died with SKILL at LEVEL,
+  their journals read or not), `bloodline` (traits earned and skill
+  echoes), `pack empty`. Checks: `expect journal [last] MIN [MAX]`,
+  `expect crate intact|damaged|breaking|gone` (the nearest), `expect boardhp
+  LO HI` (the nearest boarded door's record), `expect infection above`,
+  `expect echo SKILL N`, `expect bloodline NAME|none`, `expect stone
+  NAME|any`, `expect graves N`, `expect remembered nothing|something`,
+  `expect reader open|closed`, `expect marker N`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
@@ -362,6 +386,10 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `corpses` | Melee kills count and leave a body |
 | `facing` | Characters face the four screen diagonals |
 | `legacy` | Graves, the risen, packs, laying the dead to rest |
+| `journal` | A life with a notebook (a kill, boards, a bite, the first night, the taps) writes six to nine entries; the next life reads them at the grave and again from "Before you" |
+| `aging` | A crate and three boards at home: the crate goes Intact, Damaged, Breaking, gone over three lives, the boards lose a quarter each; long lives leave the districts worse than when the world was made. Run it twice: the same |
+| `cemetery` | A life ends on day 11 ("Eleven days since anyone lived here."); a marker taken from a grave with no pack and set in the cemetery: the lead moves, depression falls once, the stone reads the name after a reload; a survivor buried by hand; the map's cemetery |
+| `bloodline` | Four lives with Carpentry 3 and journals read: the fifth starts at Carpentry 2 and Vigilant; a Fresh Start remembers nothing |
 | `character` | The character screen with nothing chosen, overspent (Begin refused) and balanced; the character starts with the health, carry limit and skill it promised; Space quick-starts |
 | `body` | A broken leg slows a 5 s walk 45 %, a splint brings it to 20 %; a deep arm cut opens again on swings until stitched; a dressing left 12 hours goes dirty; the BODY tab |
 | `mind` | At sleep debt 90 a false figure within two minutes, with the dead and the noise untouched; panic 60 makes boarding 30 % longer, Carpentry 3 quicker; a book lowers depression by 10, once |

@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "legacy/Journal.h"
 #include "map/LayoutData.h"
 #include "world/Clues.h"
 #include "world/Gate.h"
@@ -44,6 +45,15 @@ struct GraveRecord
     bool notebook = false;
     int leads = 0;
     clues::Seen seen;
+    // Phase 10 (optional in the file): the marker and the cemetery. A grave
+    // whose marker was set in the cemetery stands there (x, y move with it).
+    bool markerTaken = false; // carried by the living, not yet set
+    bool buried = false;      // a stone in the cemetery
+    int burialOrder = -1;     // its place in the rows
+    int tendedRun = 0;        // the life that last tended it (weathering)
+    int restRun = 0;          // the life that laid the risen to rest
+    bool survivor = false;    // a survivor the player buried by hand
+    [[nodiscard]] bool ofBloodline() const { return travelledWith.empty() && !survivor; }
 };
 
 struct RetirementRecord
@@ -194,6 +204,17 @@ struct DistrictMemoryRecord
     std::vector<std::pair<int, int>> kills;       // district id, the last life's kills there
     std::uint32_t appliedRunSeed = 0;             // the life the "-10 a life" was taken for
     std::vector<std::string> learnedRules;        // The Unknown's rules written in the notebook
+    // Phase 10 (optional): infection when this life began (the floor the town
+    // ages from) and when the world's first life began.
+    std::vector<std::pair<int, float>> lifeStart;
+    std::vector<std::pair<int, float>> created;
+};
+
+// Phase 10: what the aging town keeps (<slot>_aging.json): bones in the
+// street where the dead of earlier lives lay.
+struct AgingRecord
+{
+    std::vector<std::pair<int, int>> bones; // tiles
 };
 
 // Where a run stands in its first three days (see world/FirstDays.h).
@@ -319,6 +340,13 @@ struct CharacterHistoryRecord
     std::string bloodlineTrait;
     std::string finalNote;
     bool escaped = false; // phase 9: got out by the gate
+    // Phase 10 (optional in the file): the journal they kept, whether a later
+    // life read it, and what made the bloodline's traits.
+    std::vector<journal::Entry> journal;
+    bool journalRead = false;
+    bool chosen = false;      // stayed for good (a retirement chosen, not a crisis)
+    float depression = 0.0f;  // at the end
+    int tilesBurned = 0;      // in that life
 };
 
 enum class SaveGameMode
@@ -349,6 +377,9 @@ struct RunPresentationSettings
     SaveGameMode gameMode = SaveGameMode::Endless;
     SaveThreatMode threatMode = SaveThreatMode::OverwhelmingSwarm;
     SaveTonePreset tonePreset = SaveTonePreset::GrimHuman;
+    // Phase 10, set when a world is made: everything carries over (Living
+    // World), or nothing does (Fresh Start).
+    bool livingWorld = true;
 };
 
 struct SurvivorRecord
@@ -458,6 +489,13 @@ struct RunCheckpoint
     ScavengeRunRecord scavenge;
     // Phase 9: the way out as this character knows it, and how far the gate
     // ground open this life (the next life finds it closed).
+    // Phase 10: this life's journal so far, and which of its once-a-life
+    // entries are written (journal flags, the last ten days noted, the season).
+    bool journalSaved = false;
+    std::vector<journal::Entry> journal;
+    int journalFlags = 0;
+    int journalDays = 0;
+    int journalSeason = -1;
     bool gateSaved = false;
     int leads = 0;
     clues::Seen seen;
@@ -577,9 +615,8 @@ public:
     bool saveSurvivors(const std::vector<SurvivorRecord>& survivors);
     [[nodiscard]] std::vector<SurvivorRecord> loadSurvivors() const;
 
-    // Bloodline query
+    // Bloodline query (the traits themselves: legacy::bloodlineFor, phase 10)
     [[nodiscard]] bool hasRetirementHistory() const { return !mRetirements.empty(); }
-    [[nodiscard]] BloodlineTrait selectBloodlineForNewRun() const;
 
     // Mode and campaign state
     void setPresentationSettings(const RunPresentationSettings& settings) { mPresentationSettings = settings; }
@@ -596,6 +633,19 @@ public:
     // A life that got out by the gate: no grave, no survivor. Advances the run.
     bool recordEscape();
 
+    // Phase 10: the aging town (bones) and a Fresh Start's forgetting.
+    [[nodiscard]] const AgingRecord& aging() const { return mAging; }
+    void setAging(AgingRecord aging) { mAging = std::move(aging); }
+    bool saveAging() const;
+    // A Fresh Start world at a life's end: everything the town remembered goes
+    // (graves, built things, containers, survivors, the districts, the gate's
+    // work, bones). The town, its seed, the run count and the history stay.
+    bool forgetWorld();
+    [[nodiscard]] bool livingWorld() const { return mPresentationSettings.livingWorld; }
+    // The history record of a life (nullptr: none). Non-const: reading a
+    // journal marks it read; call flushLegacy() after.
+    CharacterHistoryRecord* lifeRecord(int runIndex, const std::string& name);
+
 private:
     bool loadMeta();
     bool loadLegacy();
@@ -603,6 +653,7 @@ private:
     void loadFurnitureMemory();
     void loadDistrictMemory();
     void loadGateState();
+    void loadAging();
     bool writeMeta() const;
     bool writeLegacy() const;
     bool writeStructures() const;
@@ -626,6 +677,8 @@ private:
     std::string mFurniturePath;
     std::string mDistrictPath;
     std::string mGatePath;
+    std::string mAgingPath;
+    AgingRecord mAging;
     DistrictMemoryRecord mDistrictMemory;
     gate::State mGate;
     int mLegacyObjectiveDistrict = 0;

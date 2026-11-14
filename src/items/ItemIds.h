@@ -88,7 +88,8 @@ struct ItemIds
     X(winterCoat, "winter_coat")            \
     X(raincoat, "raincoat")                 \
     X(gateKey, "gate_key")                  \
-    X(gateFuse, "gate_fuse")
+    X(gateFuse, "gate_fuse")                \
+    X(marker, "marker")
 
 #define DEAD_PIXEL_ITEM_FIELD(field, key) int field = -1;
     DEAD_PIXEL_ITEM_IDS(DEAD_PIXEL_ITEM_FIELD)

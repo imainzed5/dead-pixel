@@ -72,7 +72,9 @@ container
 tap Escape
 waits 0.3
 plan
-# The next life: the wardrobe is still at the door, the crate still holds the beans.
+# The next life: the wardrobe is still at the door and the crate still
+# stands, a stage worse (phase 10). Nobody lived here between lives, and on
+# this seed Viktor found the crate and took the beans (one time in ten).
 kill base test
 waits 6
 newrun
@@ -82,10 +84,8 @@ goto base
 waits 0.5
 expect blocked
 shot base_next_life
-open
-waits 0.3
-expect container Canned Food 2
-container
-tap Escape
+expect crate damaged
+goto survivor Viktor
+expect survivor stock Canned Food 2
 expect alive
 quit

@@ -584,7 +584,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
             // Alarms, spike boards and lights are set down, not used up.
-            if (placeSnare(useSlot) || placeItem(useSlot) || useFightingItem(useSlot) || useBatteryOrRadio(useSlot))
+            if (placeMarker(useSlot) || placeSnare(useSlot) || placeItem(useSlot) || useFightingItem(useSlot) || useBatteryOrRadio(useSlot))
             {
                 // Set down, wound, or poured on a fire.
             }

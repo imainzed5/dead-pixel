@@ -1342,6 +1342,113 @@ and where survivors go) and seed-by-seed variance, as in phases 7 and 8;
 not looked into further. One life ends to a survivor (seed 4, Abel, on
 day 4; phase 8: two, seeds 8 and 9).
 
+## Overhaul phase 10: legacy (2026-11-14)
+
+**Journals.** A life writes itself down while it carries a Notebook (one is
+put in a drawer of the first home each life). Entries come from events:
+the first night, the power and the taps failing, the first kill, a bite or
+a wound, boards on the first door or window, something built, a survivor
+met, traded with or lost, a horde gone by, a low point, a clue, every tenth
+day, a season, a grave of the line found, one laid to rest, a stone set.
+Three or four ways to say each are in `assets/data/journal_lines.json`
+(`src/legacy/Journal`, pure and tested); at most three a day, the least
+important dropping; the last entry is how the life ended ("The last line
+is not finished.", a slow end, a retirement's summary, "I stayed."). The
+journal is kept on the life's history record. At a grave or stone of the
+line, E opens the reader in the notebook's place; the first reading of a
+journal is +3 depression (-10 for one who got out). Old saves read
+"Nothing was written down."
+
+**What runs in the family.** Skill echoes: for each skill, the levels
+earlier lives died with, a read journal counting whole and an unread one
+half, divided by three, at most 2 ("Carpentry runs in the family (2)." on
+the character screen). Six bloodline traits, at most two, most recent
+first (`legacy::bloodlineFor`): Hardened (a retirement, a chosen one only
+when at peace), Scavenger (three lives ended by hunger or thirst: a can and
+a bottle more, searching 10 % quicker), Firewise (a death by fire or 30
+tiles burned: fire hurts 40 % less), Vigilant (four graves: panic falls
+15 % faster, woken a walker's second sooner), Gravedigger (three of the
+risen laid to rest: double the relief, the risen ringed on the map within
+20 tiles), Wayfinder (P09).
+
+**The town ages.** `legacy::ageWorld` (`src/legacy/WorldAging`) runs at
+each life's end in a Living World: built things a stage worse (storage
+crates now too: Intact, Damaged, Breaking, gone), boards a quarter of a
+board each, a crate nobody lives with loses a fifth of its food stacks and
+one time in ten is found and emptied by a survivor (their stock gains it),
+gardens to seed or dead, the life's bodies to bones (40 kept), each district
++0.5 infection a day lived and -10 a life, floored at where the life began,
+graves weathered after five lives unless tended (E, 5 s), burned grass back
+after two lives, and four more of the dead a life in a hundred (at most
+60). The same seed ages the same way. This fixed a P04 slip: district
+memory's applied seed was set to the new life's, so a new life could skip
+its first look; aging writes the ended life's seed. The card says
+"Eleven days since anyone lived here." after a long life.
+
+**The cemetery.** A fenced 9 by 8 plot near the middle of town, stamped
+once like the gate, with three old stones. E at a grave with no pack takes
+its marker; F inside the fence sets it: the grave moves to the next stone,
+its lead reads "X's stone, in the cemetery", -12 depression once. A dead
+survivor, emptied, can be buried by hand (E, 30 s). The town map outlines
+the cemetery once anything lies in it.
+
+**Choosing the end.** From day 10, at a base with three boarded ways in
+and a bed, fed, watered, well and not infected, the pause menu offers "Stay
+here for good" (three presses); the run end reads "X stayed." **Fresh
+Start or Living World** is chosen on the title's "Start New World" row:
+a Fresh Start forgets the town between lives (no graves, aging, card,
+echoes or traits). The title's town card counts "Days lived in this town:
+N" and the stones in the cemetery. **The notebook** has six tabs (J,
+Left/Right): Leads, The way out, People, Before you (every earlier life,
+newest first, Enter reads one; totals at the foot), Know-how, Journal.
+
+The P09 Sergeant spike is gone: his key no longer writes the gate file in
+the tick he falls, so `perf.txt` times from the moment of the slaying.
+
+Harness: `journal`, `aging` (run twice, the same), `cemetery`, `bloodline`.
+Tests: `test_journal`, `test_aging`, `test_bloodline`, and a save round trip
+with every phase 10 field and an old file read with the defaults (save
+version stays 5).
+
+Performance: `perf.txt` with the Sergeant among the 300 slain and no
+settle wait: 1.64 ms a tick on average, 3.9 ms worst (phase 9 measured
+20 to 34 ms for his tick alone and waited it out); 20 survivors and 100 of
+the dead 0.91 ms and 1.9 ms. The stand in `gate.txt`: 1.62 ms and 3.0 ms.
+`fire_spread`: 1.72 ms and 7.0 ms. Budget 4 and 12. All 53 scripts pass,
+each in a fresh directory (the timed ones run alone; four at once they
+miss the worst-tick budget on a busy machine); `base` changed: on seed 1234
+Viktor finds the dead player's crate between lives and takes the beans.
+302 unit tests pass; clean rebuild without warnings.
+
+`bot_week`, seeds 1 to 10, default mode, on the final build:
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 2.7 | Overrun, day 4 | 39 | 14 | 10 | 80 | 3 |
+| 2 | 1.9 | Overrun, day 3 | 75 | 5 | 1 | 47 | 1 |
+| 3 | 2.5 | Overrun, day 3 | 30 | 12 | 7 | 48 | 2 |
+| 4 | 0.5 | Overrun, day 1 | 11 | 7 | 4 | 15 | 0 |
+| 5 | 2.2 | Overrun, day 3 | 37 | 7 | 4 | 20 | 0 |
+| 6 | 0.6 | Beaten down by a big zombie, day 1 | 26 | 9 | 2 | 53 | 3 |
+| 7 | 2.0 | Overrun, day 3 | 25 | 9 | 10 | 72 | 3 |
+| 8 | 1.2 | Overrun, day 2 | 29 | 7 | 9 | 105 | 0 |
+| 9 | 4.1 | Run down by a zombie, day 5 | 40 | 8 | 7 | 49 | 0 |
+| 10 | 2.3 | Killed by zombies, day 3 | 39 | 10 | 3 | 45 | 2 |
+
+Median 2.1 days (phase 9: 1.9), mean 2.0 (1.9); 10 of 10 clean; one died
+at home on night 1 (phase 9: none). Kills 351 (351), boards 14 (15).
+Containers searched 534 (630): the one column that fell. Most of it is
+seed 4 (94 searched over 2.8 days in phase 9, 15 now: overrun at home on
+night 1); per day lived the bot searched 27 against 33. Seed 4 is
+deterministic and was run again with its directory kept: its town now has
+the cemetery stamped in (a fenced plot, no scenery inside), which moves
+everything placed after it, as the gate did in phase 9. A first life has
+no aging, no echoes and no added dead, so the phase's rules do not reach
+the bot; the notebook in the home kit is the one new thing it carries.
+Not looked into further; worth watching in phase 14's balance pass.
+
+## Next: the content overhaul (planned 2026-11-13)
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -1530,3 +1637,11 @@ Candidates for the next stretch, roughly in order. None is started.
   and the notebook's way-out page, inherited from a grave's pack; title
   modes "The way out" and "Endless"; save version 5 with a migration; bot
   median 1.9 days, mean 1.9 (phase 8: 1.3, 1.5).
+- 2026-11-14: Overhaul phase 10, legacy: journals written while a notebook
+  is carried and read at the grave; skill echoes and six bloodline traits;
+  the town ages between lives (crates, boards, gardens, bones, infection,
+  more of the dead, weathered graves); a cemetery where markers are set
+  and survivors buried; "Stay here for good" from day 10; Fresh Start or
+  Living World; a notebook of six tabs; the Sergeant's tick spike gone;
+  bot median 2.1 days, mean 2.0 (phase 9: 1.9, 1.9), containers searched
+  534 (630).

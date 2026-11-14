@@ -76,6 +76,19 @@ class Game;
 //   learn N|all                   the player knows lead N; clues: print the readables and the leads
 //   expect leads N | expect lead N | expect gate open|shut|fuse|freed|running|stage N|fuel N|key sergeant|loose|turned
 //   expect objective TEXT | expect sergeant alive|dead | expect readables N | expect state out
+//   journal | journal last        print this life's journal / the last life's, as kept (phase 10)
+//   age LIVES [DAYS]              the town ages as if LIVES lives of DAYS days ended now (the save; newrun to see it)
+//   aging                         print the crates' stages, the boards, district infection against creation, bones
+//   goto cemetery | goto stone [NAME]   inside the cemetery's gap / in front of a stone of the line
+//   bury [kill] [now]             empty the nearest dead survivor and bury them (30 s; kill: the nearest
+//                                 living one dies first; now: at once)
+//   world fresh|living            this save's kind: a Fresh Start forgets the town between lives
+//   lineage SKILL LEVEL COUNT [read]   COUNT earlier lives who died with SKILL at LEVEL (journals read or not)
+//   bloodline                     print the traits earned and the skill echoes
+//   pack empty                    nothing in the player's pack
+//   expect journal [last] MIN [MAX] | expect crate intact|damaged|breaking|gone | expect boardhp LO HI
+//   expect infection above | expect echo SKILL N | expect bloodline NAME|none | expect stone NAME
+//   expect graves N | expect remembered nothing|something | expect reader open|closed | expect marker N
 //   log TEXT                      print a line
 //   quit                          end the run
 class DevHarness
@@ -118,6 +131,8 @@ private:
     bool survivorCommand(Game& game, const Command& command);
     // DevHarnessGate.cpp: true when the command was one of the way out's (phase 9).
     bool gateCommand(Game& game, const Command& command);
+    // DevHarnessLegacy.cpp: true when the command was one of legacy's (phase 10).
+    bool legacyCommand(Game& game, const Command& command);
     Entity survivorFocus(Game& game, const std::string& name);
     // A survivor condition (home, flee, stock ITEM N, ...): true when it holds; `what` says what was seen.
     bool survivorCondition(Game& game, const std::vector<std::string>& condition, std::string& what);

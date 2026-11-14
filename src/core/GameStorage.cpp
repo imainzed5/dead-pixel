@@ -142,6 +142,12 @@ int Game::containerMove(bool fromPack, int row, bool wholeStack)
         return 0;
     }
     const InventorySlot slot = from.slots[static_cast<std::size_t>(slotIndex)];
+    if (fromPack && slot.itemId == mItems.marker)
+    {
+        mInteractionMessage = "The marker stays with you until it is set.";
+        mInteractionMessageTimer = 2.0f;
+        return 0;
+    }
     const ItemDef* item = mItemDatabase.find(slot.itemId);
     const std::string name = item != nullptr ? item->name : "item";
     const int moved = storage::moveItem(from, slotIndex, to, mItemDatabase, wholeStack ? slot.count : 1);
@@ -311,7 +317,7 @@ void Game::renderContainerOverlay()
             if (slot.itemId < 0 || slot.count <= 0) continue;
             if (y + ContainerLayout::kRowH > layout.panelH - 40.0f) break;
             const ItemDef* item = mItemDatabase.find(slot.itemId);
-            std::string label = item != nullptr ? item->name : "Item #" + std::to_string(slot.itemId);
+            std::string label = item != nullptr ? packItemName(slot) : "Item #" + std::to_string(slot.itemId);
             const bool selected = active && row == cursor;
             if (selected)
             {

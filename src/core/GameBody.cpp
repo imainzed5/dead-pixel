@@ -63,9 +63,9 @@ void Game::applyCharacter(const Traits& traits, bool fresh)
 
     // The bloodline is the family's, not a choice.
     Traits& own = mWorld.getComponent<Traits>(mPlayerEntity);
-    const BloodlineTrait bloodline = own.bloodline;
+    const std::vector<BloodlineTrait> bloodlines = own.bloodlines;
     own = traits;
-    own.bloodline = bloodline;
+    own.bloodlines = bloodlines;
 
     if (fresh)
     {
@@ -76,7 +76,9 @@ void Game::applyCharacter(const Traits& traits, bool fresh)
         const auto levels = traitrules::startingLevels(own);
         for (std::size_t i = 0; i < kSkillCount; ++i)
         {
-            if (levels[i] > 0) skillrules::setLevel(skills, static_cast<Skill>(i), levels[i], now);
+            // What runs in the family (phase 10), where it is more.
+            const int level = std::max(levels[i], mSkillEchoes[i]);
+            if (level > 0) skillrules::setLevel(skills, static_cast<Skill>(i), level, now);
         }
         if (mWorld.hasComponent<Health>(mPlayerEntity))
         {
@@ -154,6 +156,14 @@ void Game::addDepression(float amount)
 {
     if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<MentalState>(mPlayerEntity)) return;
     MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
+    // Hardened (phase 10): every gain is 0.7 of itself below 60.
+    if (amount > 0.0f && mental.depression < MentalStateSystem::kHardenedBelow)
+    {
+        if (const Traits* traits = playerTraits(); traits != nullptr && traits->has(BloodlineTrait::Hardened))
+        {
+            amount *= MentalStateSystem::kHardenedDepressionFactor;
+        }
+    }
     mental.depression = std::clamp(mental.depression + amount, 0.0f, 100.0f);
 }
 
@@ -879,6 +889,7 @@ void Game::finishBoarding()
     else boardUpDoor(tile);
     const int after = window ? mWindows.boards(tile) : mDoors.boards(tile);
     if (after > before) awardXp(Skill::Carpentry, skillrules::kXpBoard);
+    if (after > before && before == 0) noteJournal(journal::Kind::Boarded, window ? "window" : "door");
 }
 
 // ---------------------------------------------------------------------------
@@ -1155,9 +1166,9 @@ void Game::renderBodyTab()
             text(glm::vec2(skillX, sy), fit(traitName(trait), skillW, 1.0f), kPanelBad, 1.0f);
             sy += 16.0f;
         }
-        if (traits->bloodline != BloodlineTrait::None)
+        if (!traits->bloodlines.empty())
         {
-            text(glm::vec2(skillX, sy), fit(std::string("Line: ") + traits->bloodlineName(), skillW, 1.0f), kPanelDim, 1.0f);
+            text(glm::vec2(skillX, sy), fit(std::string("Line: ") + traits->bloodlineNames(), skillW, 1.0f), kPanelDim, 1.0f);
             sy += 16.0f;
         }
     }

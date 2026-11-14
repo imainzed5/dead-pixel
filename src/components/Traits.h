@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <string>
 #include <vector>
 
 // Chosen on the character screen (phase 5): up to three of each, paid for
@@ -38,15 +39,33 @@ enum class NegativeTrait
     WeakStomach   // spoiled or raw food makes twice the illness
 };
 
+// Earned by what happened to the line (phase 10, legacy::bloodlineFor): at
+// most two at once, the most recently earned first.
 enum class BloodlineTrait
 {
     None,
-    Hardened,       // slower early depression accumulation (earned by retirement)
-    Scavenger,      // starts with slightly better salvage baseline
-    Firewise,       // history of fire-related deaths/survival
-    Vigilant,       // heightened awareness from repeated close calls
-    Wayfinder       // phase 9: someone of the line got out; every street is known
+    Hardened,       // a retirement: depression gain x0.7 below 60
+    Scavenger,      // three lives ended by hunger or thirst: a can and a bottle more, searching 10 % quicker
+    Firewise,       // a death by fire, or 30 tiles burned in a life: fire hurts 40 % less, fuel is seen
+    Vigilant,       // four graves: panic falls 15 % faster, wakes a second sooner
+    Wayfinder,      // phase 9: someone of the line got out; every street is known
+    Gravedigger     // three risen laid to rest: laying to rest eases twice as much; the risen are marked
 };
+
+[[nodiscard]] inline const char* bloodlineName(BloodlineTrait trait)
+{
+    switch (trait)
+    {
+    case BloodlineTrait::Hardened:    return "Hardened";
+    case BloodlineTrait::Scavenger:   return "Scavenger";
+    case BloodlineTrait::Firewise:    return "Firewise";
+    case BloodlineTrait::Vigilant:    return "Vigilant";
+    case BloodlineTrait::Wayfinder:   return "Wayfinder";
+    case BloodlineTrait::Gravedigger: return "Gravedigger";
+    case BloodlineTrait::None:        break;
+    }
+    return "";
+}
 
 [[nodiscard]] inline const char* traitName(PositiveTrait trait)
 {
@@ -92,7 +111,7 @@ struct Traits
 
     std::vector<PositiveTrait> positives;
     std::vector<NegativeTrait> negatives;
-    BloodlineTrait bloodline = BloodlineTrait::None;
+    std::vector<BloodlineTrait> bloodlines; // at most two, most recent first
 
     [[nodiscard]] bool has(PositiveTrait trait) const
     {
@@ -102,17 +121,20 @@ struct Traits
     {
         return std::find(negatives.begin(), negatives.end(), trait) != negatives.end();
     }
-
-    [[nodiscard]] const char* bloodlineName() const
+    [[nodiscard]] bool has(BloodlineTrait trait) const
     {
-        switch (bloodline)
+        return std::find(bloodlines.begin(), bloodlines.end(), trait) != bloodlines.end();
+    }
+
+    // "Hardened, Vigilant" (empty: none).
+    [[nodiscard]] std::string bloodlineNames() const
+    {
+        std::string out;
+        for (BloodlineTrait trait : bloodlines)
         {
-        case BloodlineTrait::Hardened:  return "Hardened";
-        case BloodlineTrait::Scavenger: return "Scavenger";
-        case BloodlineTrait::Firewise:  return "Firewise";
-        case BloodlineTrait::Vigilant:  return "Vigilant";
-        case BloodlineTrait::Wayfinder: return "Wayfinder";
-        default:                        return "";
+            if (!out.empty()) out += ", ";
+            out += bloodlineName(trait);
         }
+        return out;
     }
 };

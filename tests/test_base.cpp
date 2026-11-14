@@ -241,7 +241,7 @@ DP_TEST(base_what_lasts_into_the_next_life)
     DP_CHECK(!BuildSystem::carriesOver(StructureType::CanAlarm, true));
     DP_CHECK(BuildSystem::wearsBetweenLives(StructureType::Workbench));
     DP_CHECK(BuildSystem::wearsBetweenLives(StructureType::RainCollector));
-    DP_CHECK(!BuildSystem::wearsBetweenLives(StructureType::StorageCrate));
+    DP_CHECK(BuildSystem::wearsBetweenLives(StructureType::StorageCrate)); // phase 10
     // Rain wears wooden things outdoors twice as fast.
     DP_CHECK(BuildSystem::decayPerHour(StructureType::StorageCrate, true, true) >
              BuildSystem::decayPerHour(StructureType::StorageCrate, true, false));

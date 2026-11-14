@@ -69,16 +69,8 @@ void Game::update(float dtSeconds)
                 closeTalk();
             }
         }
-        // The notebook's pages: Left and Right (the way out, once there is any).
-        if (mShowNotebook && wayOutPageShown())
-        {
-            if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT)) mNotebookPage = 1;
-            if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT)) mNotebookPage = 0;
-        }
-        else if (!wayOutPageShown())
-        {
-            mNotebookPage = 0;
-        }
+        // The notebook's tabs (Left and Right), a journal being read (phase 10).
+        updateNotebookInput();
 
         const bool minimapZoomOut =
             mInput.wasKeyPressed(SDL_SCANCODE_MINUS) ||
@@ -451,6 +443,7 @@ void Game::update(float dtSeconds)
             {
                 // Someone close enough to talk to comes before the furniture.
                 interceptedContainer = talkToSurvivor();
+                if (!interceptedContainer) interceptedContainer = handleLegacyInteraction(prompt);
                 if (!interceptedContainer) interceptedContainer = handleReadable(prompt);
                 if (!interceptedContainer) interceptedContainer = handleFieldStructure(prompt);
                 if (!interceptedContainer) interceptedContainer = handleBaseInteraction(prompt);
@@ -785,6 +778,7 @@ void Game::update(float dtSeconds)
     }
 
     updateLegacy(dtSeconds);
+    updateJournal(dtSeconds);
     updateAnimations(feelDt);
 
     updateParticles(feelDt, prevPlayerHp);
@@ -886,6 +880,11 @@ void Game::updateSleep(float dtSeconds)
         }
         // A companion on watch wakes you while they are still further off.
         if (companionNear(6.0f)) wakeRange += 3.0f * static_cast<float>(mTileMap.tileWidth());
+        // Light sleepers: woken a second sooner (phase 10).
+        if (const Traits* traits = playerTraits(); traits != nullptr && traits->has(BloodlineTrait::Vigilant))
+        {
+            wakeRange += legacy::kVigilantWakeSeconds * legacy::kVigilantWalkerTiles * static_cast<float>(mTileMap.tileWidth());
+        }
         if (mWorld.hasComponent<Transform>(mPlayerEntity))
         {
             const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
@@ -936,6 +935,7 @@ void Game::updateSleep(float dtSeconds)
                 // Checkpoint after a full sleep cycle
                 if (mPlayerEntity != kInvalidEntity)
                 {
+                    flushGate();
                     mSaveManager.saveCheckpoint(buildRunCheckpoint());
                     refreshContainerRecords();
                     mSaveManager.saveWorldMemory();

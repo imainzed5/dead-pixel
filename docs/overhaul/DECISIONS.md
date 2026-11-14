@@ -707,6 +707,90 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
 - 2026-11-14, P09: the title's Game Mode -> "THE WAY OUT" (campaign) and
   "ENDLESS"; Endless has no way-out objective but the gate is still there
   and can be opened.
+- 2026-11-14, P10: where a journal lives -> on the character's history
+  record (and the run checkpoint while the life goes on), not on the
+  grave. Why: retired and escaped lives have no grave, and "Before you"
+  lists every life.
+- 2026-11-14, P10: having a notebook -> one is put in the home kit (a
+  drawer of the first home) every life; the Start entry says "Found this
+  notebook in a drawer". Why: the spec writes only while a Notebook is
+  carried, and the item was otherwise rare; picking it up is still the
+  player's choice.
+- 2026-11-14, P10: at most three entries a day (the least important of
+  the day goes, ties the newer); the last entry always stays. Why: a
+  busy first day otherwise crowds out the rest of the life.
+- 2026-11-14, P10: the reader -> drawn in the notebook's place (docked
+  right, the same panel), opened by E at a grave or stone of the line, or
+  Enter on "Before you"; it closes on J, Backspace or walking 2.5 tiles
+  from the grave. A journal still with its grave, never read, says "X's
+  journal lies with them. Find the grave." on "Before you". Why: reading
+  at the grave is the moment the spec asks for; after that it is the
+  player's to read again.
+- 2026-11-14, P10: reading a journal the first time -> +3 depression, or
+  -10 for one who got out. Read is a flag on the record, so echoes count
+  it for every later life.
+- 2026-11-14, P10: the marker -> an item (`Marker`, weightless, one to a slot) whose "loaded"
+  field is the grave's index + 1; taken with E from a grave with no pack
+  (emptied or gone) that is not risen. F inside the fence sets it: the
+  grave moves to the next stone slot (three old stones take the first
+  three), its lead reads "X's stone, in the cemetery", -12 depression
+  once. Dying with a marker puts it back on its grave. Why: an item is
+  carried, dropped and saved with no new machinery.
+- 2026-11-14, P10: the cemetery -> a 9 x 8 fenced plot stamped once like
+  the gate (save layout `cemetery`), on open ground near the town middle,
+  with one gap; three old stones of the town stand in it. Scenery is not
+  placed inside.
+- 2026-11-14, P10: survivors buried by hand -> E on an emptied survivor's
+  body, 30 s; the grave is a survivor's ("Buried by NAME"), where the
+  body lay. Why:
+  carrying a body is a system of its own; noted in "Later".
+- 2026-11-14, P10: Gravedigger's "marks" -> the town map rings the risen
+  within 20 tiles of the player.
+- 2026-11-14, P10: the world kind -> chosen on the title's "Start New
+  World" row (Left/Right: Fresh Start / Living World), stored on the
+  save; old saves are Living World. Fresh Start forgets the town at each
+  life's end (the same `forgetWorld` as before) and skips aging, graves
+  the card, echoes and bloodline traits; the list of lives is still kept
+  for the title's count.
+- 2026-11-14, P10: district infection between lives -> the town ages it at
+  the life's end (+0.5 a day lived, -10 a life, and the P07 burn), floored
+  at the next life's start, and the world's first look records the
+  infection "at creation". The old P04 code took the -10 at load and set
+  `appliedRunSeed` to the new seed, so a life's first look could be
+  skipped; aging now writes the ended life's seed, and the next life
+  thins its districts as P04 meant.
+- 2026-11-14, P10: storage crates and spike boards now wear between lives
+  (the BuildSystem flag), with the crate's stages Intact, Damaged,
+  Breaking, gone; a crate in a building nobody living keeps loses a fifth
+  of its food stacks and, one time in ten, is found and emptied by the
+  nearest living survivor (they get the things). Boards lose a quarter of
+  a board's health per board each life.
+- 2026-11-14, P10: burned grass regrows after 2 lives (was 3), as the
+  spec's table says.
+- 2026-11-14, P10: population -> each earlier life adds 4 % to the town's
+  dead (at most 60 %), Living World only. Why: the spec's "the town fills
+  in"; capped so a long bloodline is not swamped.
+- 2026-11-14, P10: bones -> a pile where each body of the dead lay when a
+  life ended (the last 40 kept, Living World), in the save's aging record.
+- 2026-11-14, P10: Vigilant's "woken a second sooner" -> the night caller
+  wakes the player when 1.5 tiles farther off (a walker's second); panic
+  falls 15 % faster as before.
+- 2026-11-14, P10: Scavenger -> searching takes 10 % less (not the
+  armoury); Firewise and Gravedigger as in the spec's table.
+- 2026-11-14, P10: setting a stone -> its own journal kind (`stone_set`,
+  rank 6), so a life that set one says so.
+- 2026-11-14, P10: "Stay here for good" -> on the pause menu from day 10,
+  three presses (the label changes to confirm); refused with the reason
+  under the menu unless the building has three boarded ways in and a bed,
+  and needs, health and infection are fine. It ends the life as a chosen
+  retirement ("X stayed.").
+- 2026-11-14, P10: the harness's `age LIVES DAYS` ages the save as that
+  many lives ending now (the next `newrun` sees it); `aging.txt` uses three
+  40-day lives because one-day lives clean more than they add.
+- 2026-11-14, P10: `boards.txt` passes but never boards its door: boarding
+  needs two nails a board (P02) and the script gives none. Left as it is
+  (it checks what it prints, not the boards); `journal.txt` and
+  `aging.txt` give nails.
 
 ## Moved to "Later"
 
@@ -761,6 +845,11 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   run-start card can overlap the end of a long objective step at
   1280x720 for the seconds it shows ("The gate is open. Walk out." under
   a two-grave card); left for P13's run flow.
+
+- 2026-11-14, P10: notes left on purpose for the next life, and a family
+  tree view (the phase's own "Later"); carrying a survivor's body to the
+  cemetery (they are buried where they lie); a journal entry for weather
+  that turned a life (the season line covers part of it).
 
 ## Balance: needs a design change
 

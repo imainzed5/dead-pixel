@@ -1,0 +1,83 @@
+# Cemetery (phase 10): the next life takes a marker from a grave with no
+# pack, carries it to the cemetery and sets it (F). The lead moves to the
+# cemetery, depression falls once, and the stone reads the name after a
+# reload. A dead survivor is buried by hand.
+# The life before ends on day 11: the next one's card says how long.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/cemetery.txt --hidden --world-seed 1234 --shots shots/cemetery
+
+survivors gone
+newrun
+waits 1
+pack empty
+day 11
+waits 0.3
+kill Overrun on the stairs
+waits 6
+
+newrun
+god on
+slay 40
+waits 1
+expect card Eleven days since anyone lived here
+shot 00_card
+goto grave
+waits 0.3
+tap E
+waits 0.3
+expect reader open
+shot 01_reader_marker
+tap E
+waits 0.2
+expect marker 1
+tap J
+waits 0.2
+goto cemetery
+waits 0.3
+shot 02_cemetery
+set depression 50
+select Marker
+tap F
+waits 0.3
+expect marker 0
+expect stone any
+expect mind depression below 39
+expect mind depression above 37
+# Once: F again does nothing more.
+tap F
+waits 0.2
+expect mind depression above 37
+tap J
+waits 0.3
+shot 03_leads_moved
+tap J
+goto stone
+waits 0.3
+expect prompt 's stone
+shot 04_stone
+save
+waits 0.5
+resume
+waits 1
+god on
+expect stone any
+goto stone
+waits 0.3
+expect prompt 's stone
+tap E
+waits 0.3
+expect reader open
+tap J
+# A survivor dies near you; you bury them by hand.
+survivor 2 0 open
+waits 0.5
+bury kill
+waits 31
+expect survivor buried
+expect graves 2
+shot 05_buried_by_hand
+tap M
+waits 0.4
+shot 06_map_cemetery
+tap M
+quit

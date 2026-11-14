@@ -66,6 +66,8 @@ void Game::plantScenery()
         const glm::ivec2 tile = scenery::tileOf(piece);
         // Nothing grows in the guard hut's yard (phase 9).
         if (gateSite.placed && gate::inYard(gateSite, tile)) return true;
+        // Nor in the cemetery (phase 10).
+        if (cemetery::inside(mMapGenerator.layoutData().cemetery, tile)) return true;
         return piece.blocker && taken[static_cast<std::size_t>(tile.y * mTileMap.width() + tile.x)] != 0;
     });
 

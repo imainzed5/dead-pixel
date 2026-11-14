@@ -19,58 +19,6 @@ constexpr float kRisenLeashTiles = 6.0f;
 constexpr float kLabelRangeTiles = 7.0f;
 const glm::vec4 kRisenTint(0.80f, 0.86f, 1.0f, 1.0f);
 
-const char* districtFlavor(DistrictType type, std::uint32_t hash)
-{
-    static constexpr std::array<const char*, 5> kResidential = {
-        "The house alarms died, but the footsteps didn't.",
-        "I barricaded the kitchen and still heard them upstairs.",
-        "Family photos stayed on the wall longer than we did.",
-        "Backyards connect faster than streets after dark.",
-        "Every porch light looked like a signal.",
-    };
-    static constexpr std::array<const char*, 5> kCommercial = {
-        "I slept in the stockroom between shipping pallets.",
-        "The register drawers were empty before the shelves were.",
-        "Reflections in storefront glass nearly got me killed.",
-        "Loading docks are exits if you keep them clear.",
-        "The mall speakers played static all night.",
-    };
-    static constexpr std::array<const char*, 5> kIndustrial = {
-        "The plant gates held until someone cut power.",
-        "Tools mattered more than ammo by day three.",
-        "Conveyors jammed with things that used to be people.",
-        "The siren tower became a beacon for the dead.",
-        "I trusted steel walls and forgot about roof access.",
-    };
-    static constexpr std::array<const char*, 4> kWilderness = {
-        "Open ground helps until exhaustion makes you loud.",
-        "We kept moving camp but not fast enough.",
-        "The quiet lots are where hope goes to thin out.",
-        "Smoke carries farther than footsteps.",
-    };
-    switch (type)
-    {
-    case DistrictType::Residential: return kResidential[hash % kResidential.size()];
-    case DistrictType::Commercial: return kCommercial[hash % kCommercial.size()];
-    case DistrictType::Industrial: return kIndustrial[hash % kIndustrial.size()];
-    default: return kWilderness[hash % kWilderness.size()];
-    }
-}
-
-const char* causeHint(const std::string& cause)
-{
-    std::string text = cause;
-    std::transform(text.begin(), text.end(), text.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (text.find("infect") != std::string::npos || text.find("bite") != std::string::npos) return "The fever came back worse each night.";
-    if (text.find("bleed") != std::string::npos || text.find("bled") != std::string::npos) return "I ran out of clean wraps.";
-    if (text.find("starv") != std::string::npos) return "I traded too much food for one more day.";
-    if (text.find("dehydrat") != std::string::npos || text.find("thirst") != std::string::npos) return "Dry taps ended us faster than the dead.";
-    if (text.find("burn") != std::string::npos) return "The smoke was supposed to keep them back.";
-    if (text.find("zombie") != std::string::npos || text.find("overrun") != std::string::npos) return "There were always more behind the first one.";
-    return nullptr;
-}
-
 } // namespace
 
 DistrictType Game::districtTypeAt(int tileX, int tileY) const
@@ -92,6 +40,16 @@ DistrictType Game::districtTypeAt(int tileX, int tileY) const
 
 void Game::spawnLegacy()
 {
+    mLegacyCardLines.clear();
+    mLegacyCardTimer = 0.0f;
+    // Fresh Start: nothing of earlier lives (phase 10).
+    if (!livingWorld())
+    {
+        mLegacyGraves.clear();
+        mLegacyPackSpawned.clear();
+        mRisenTracks.clear();
+        return;
+    }
     mLegacyGraves = mSaveManager.graves();
     mLegacyPackSpawned.assign(mLegacyGraves.size(), false);
     mRisenTracks.clear();
@@ -133,11 +91,16 @@ void Game::spawnLegacy()
         mWorld.addComponent<Interactable>(cairn, inter);
     }
 
-    // Run-start card: who came before and the most pressing traces.
-    mLegacyCardLines.clear();
-    mLegacyCardTimer = 0.0f;
+    // Run-start card: who came before and the most pressing traces, and how
+    // long the town stood empty after a long life (phase 10).
     const auto leads = currentLegacyLeads();
-    if (!leads.empty())
+    std::string empty;
+    if (!mSaveManager.characterHistory().empty())
+    {
+        const CharacterHistoryRecord& last = mSaveManager.characterHistory().back();
+        empty = journal::timePassingLine(std::max(1, last.dayEnded - last.dayStarted + 1));
+    }
+    if (!leads.empty() || !empty.empty())
     {
         // A companion's grave is not a life of the bloodline.
         const auto companionGraves = static_cast<std::size_t>(std::count_if(
@@ -155,6 +118,7 @@ void Game::spawnLegacy()
             }
             mLegacyCardLines.push_back(legacy::describeLead(lead, player, tileSize));
         }
+        if (!empty.empty()) mLegacyCardLines.push_back(empty);
         mLegacyCardTimer = kLegacyCardSeconds;
     }
 }
@@ -163,8 +127,6 @@ void Game::spawnGrave(int graveIndex)
 {
     const GraveRecord& grave = mLegacyGraves[static_cast<std::size_t>(graveIndex)];
     const GLuint sheetTex = mSpriteSheet.textureId();
-    const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(grave.x, grave.y));
-    const DistrictType district = districtTypeAt(tile.x, tile.y);
 
     Entity graveEntity = mWorld.createEntity();
     Transform t{};
@@ -172,7 +134,8 @@ void Game::spawnGrave(int graveIndex)
     t.y = grave.y;
     Sprite s{};
     s.textureId = sheetTex;
-    s.uvRect = mSpriteSheet.uvRect(grave.laidToRest ? "prop_grave_cross" : "prop_grave");
+    // A stone in the cemetery, or a mound where they fell.
+    s.uvRect = mSpriteSheet.uvRect(grave.buried ? "prop_headstone" : grave.laidToRest ? "prop_grave_cross" : "prop_grave");
     s.layer = 5;
     s.drawSize = SpriteSizes::kHumanoid;
     Interactable inter{};
@@ -190,32 +153,7 @@ void Game::spawnGrave(int graveIndex)
     mWorld.addComponent<Sprite>(graveEntity, s);
     mWorld.addComponent<Interactable>(graveEntity, inter);
     mWorld.addComponent<LegacyLink>(graveEntity, LegacyLink{LegacyLinkKind::Grave, graveIndex});
-    if (!grave.travelledWith.empty()) return; // they kept no journal for you
-
-    // A page from their journal, by the grave.
-    const std::uint32_t hash = static_cast<std::uint32_t>(grave.day) * 2654435761u ^
-                               static_cast<std::uint32_t>(grave.x + grave.y * 137.0f);
-    std::string note = grave.name + ", Day " + std::to_string(grave.day) + ": " + districtFlavor(district, hash);
-    if (const char* hint = causeHint(grave.cause))
-    {
-        note += std::string(" ") + hint;
-    }
-    Entity noteEntity = mWorld.createEntity();
-    Transform nt{};
-    nt.x = grave.x - 18.0f;
-    nt.y = grave.y + 14.0f;
-    Sprite ns{};
-    ns.textureId = sheetTex;
-    ns.uvRect = mSpriteSheet.uvRect("prop_note");
-    ns.layer = 3;
-    ns.drawSize = SpriteSizes::kPickup;
-    Interactable ni{};
-    ni.type = InteractableType::JournalNote;
-    ni.prompt = "Read note";
-    ni.message = note;
-    mWorld.addComponent<Transform>(noteEntity, nt);
-    mWorld.addComponent<Sprite>(noteEntity, ns);
-    mWorld.addComponent<Interactable>(noteEntity, ni);
+    // Their journal is read at the grave (E, phase 10: handleLegacyInteraction).
 }
 
 void Game::spawnLegacyPack(int graveIndex, const glm::vec2& topLeftWorld)
@@ -316,6 +254,14 @@ void Game::updateLegacy(float dtSeconds)
         GraveRecord& grave = mLegacyGraves[static_cast<std::size_t>(track.graveIndex)];
         grave.risen = false;
         grave.laidToRest = true;
+        grave.restRun = mSaveManager.runNumber();
+        // One of the line at rest: it lifts, twice as much for a Gravedigger (phase 10).
+        {
+            const Traits* traits = playerTraits();
+            const bool digger = traits != nullptr && traits->has(BloodlineTrait::Gravedigger);
+            addDepression(-legacy::kLaidToRestRelief * (digger ? legacy::kGravediggerRestScale : 1.0f));
+            noteJournal(journal::Kind::LaidToRest, grave.name);
+        }
         grave.x = track.lastTopLeft.x;
         grave.y = track.lastTopLeft.y;
         spawnGrave(track.graveIndex);

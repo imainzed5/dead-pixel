@@ -178,6 +178,8 @@ void Game::placeHomeKit()
     place({L::Fridge, L::Kitchen}, {{mItems.cannedFood, cans}, {mItems.bread, 1}});
     place({L::Kitchen, L::Fridge}, {{mItems.waterBottle, water}, {mItems.emptyBottle, empties}});
     place({L::Bathroom, L::Bedroom}, {{mItems.bandage, 1}, {mItems.painkillers, 1}});
+    // Something to write in (phase 10: the journal is kept while it is carried).
+    place({L::Bedroom, L::Living, L::Storage}, {{mItems.notebook, 1}});
 
     int used = 0;
     for (const Spot& spot : spots) used += spot.used > 0 ? 1 : 0;

@@ -79,5 +79,8 @@ bool BuildSystem::carriesOver(StructureType type, bool sprung)
 
 bool BuildSystem::wearsBetweenLives(StructureType type)
 {
-    return type == StructureType::Workbench || type == StructureType::RainCollector;
+    // Phase 10: crates and spike boards too (crates go Intact, Damaged,
+    // Breaking, gone over three lives).
+    return type == StructureType::Workbench || type == StructureType::RainCollector ||
+           type == StructureType::StorageCrate || type == StructureType::SpikeBoard;
 }

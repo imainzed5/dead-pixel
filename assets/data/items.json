@@ -1331,6 +1331,19 @@
         "windup": 0.12,
         "recovery": 0.2
       }
+    },
+    {
+      "id": 85,
+      "key": "marker",
+      "name": "Marker",
+      "category": "material",
+      "weight": 0.0,
+      "value": 0.0,
+      "maxStack": 1,
+      "sprite": "item_marker",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
     }
   ]
 }

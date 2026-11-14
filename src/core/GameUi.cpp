@@ -332,319 +332,7 @@ void Game::buildHudState()
     }
 }
 
-void Game::renderNotebookOverlay()
-{
-    if (mRunState != RunState::Playing || !mShowNotebook)
-    {
-        return;
-    }
-    // Its second page: the way out (phase 9).
-    if (mNotebookPage == 1 && wayOutPageShown())
-    {
-        renderWayOutPage();
-        return;
-    }
-
-    // The notebook is where the legacy reads as a story: what earlier runs
-    // left out there (live distance and direction), then who they were.
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    const float w = static_cast<float>(mWindowWidth);
-    const float h = static_cast<float>(mWindowHeight);
-
-    const auto& history = mSaveManager.characterHistory();
-    const auto leads = currentLegacyLeads();
-    constexpr std::size_t kMaxLeads = 6;
-    constexpr std::size_t kMaxHistory = 10;
-    constexpr float kBody = 2.0f;
-    const float bodyLine = mFont.lineHeight(kBody) + 5.0f;
-
-    // Sized to what it holds: header, two sections, totals.
-    const std::size_t leadRows = std::max<std::size_t>(1, std::min(leads.size(), kMaxLeads));
-    const std::size_t historyRows = std::max<std::size_t>(1, std::min(history.size(), kMaxHistory));
-    // Recipes written down, as wrapped lines of names.
-    std::vector<std::string> knownLines;
-    {
-        std::string names;
-        for (const auto& [a, b] : mSaveManager.discoveredRecipes())
-        {
-            const CraftingRecipe* recipe = mCraftingSystem.findRecipe(a, b);
-            if (recipe == nullptr) continue;
-            names += (names.empty() ? "" : ", ") + recipe->label;
-        }
-        if (names.empty())
-        {
-            names = "Nothing written down. Carry a notebook item when you work out a recipe.";
-        }
-        const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, (std::min(900.0f, w - 40.0f) - 56.0f) / (6.0f * kBody)));
-        std::istringstream words(names);
-        std::string word;
-        std::string line;
-        while (words >> word)
-        {
-            if (!line.empty() && line.size() + 1 + word.size() > maxChars)
-            {
-                knownLines.push_back(line);
-                line.clear();
-            }
-            line += (line.empty() ? "" : " ") + word;
-        }
-        if (!line.empty()) knownLines.push_back(line);
-        if (knownLines.size() > 3) knownLines.resize(3);
-    }
-    // The Unknown's rules, once seen often enough to write down (phase 4).
-    std::vector<std::string> ruleLines;
-    for (const std::string& key : mLearnedRules)
-    {
-        for (int r = 0; r < zombiekinds::kUnknownRuleCount; ++r)
-        {
-            const auto rule = static_cast<zombiekinds::UnknownRule>(r);
-            if (key == zombiekinds::unknownRuleKey(rule)) ruleLines.push_back(zombiekinds::unknownRuleLine(rule));
-        }
-    }
-    // The people met, this life or written down by an earlier one (phase 8):
-    // the living first, the last seen first.
-    constexpr std::size_t kMaxPeople = 5;
-    std::vector<const SurvivorRecord*> people;
-    for (const SurvivorRecord& r : mSurvivors)
-    {
-        if (r.met && !r.retired) people.push_back(&r);
-    }
-    std::stable_sort(people.begin(), people.end(), [&](const SurvivorRecord* a, const SurvivorRecord* b)
-    {
-        if (a->alive != b->alive) return a->alive;
-        if (a->metRun != b->metRun) return a->metRun > b->metRun;
-        return a->lastSeenDay > b->lastSeenDay;
-    });
-    const std::size_t peopleRows = people.empty() ? 0 : std::min(people.size(), kMaxPeople);
-    const float contentH = 22.0f + bodyLine + 2.0f + 30.0f +
-                           18.0f + static_cast<float>(leadRows) * bodyLine + (leads.size() > kMaxLeads ? 16.0f : 0.0f) + 14.0f +
-                           (peopleRows > 0 ? 18.0f + static_cast<float>(peopleRows) * bodyLine +
-                                                 (people.size() > kMaxPeople ? 16.0f : 0.0f) + 14.0f
-                                           : 0.0f) +
-                           18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) + 14.0f +
-                           18.0f + static_cast<float>(knownLines.size() + ruleLines.size()) * bodyLine +
-                           60.0f;
-    const float panelW = std::min(900.0f, w - 40.0f);
-    const float panelH = std::min(contentH, h - 40.0f);
-    const float panelX = std::floor((w - panelW) * 0.5f);
-    const float panelY = std::floor((h - panelH) * 0.5f);
-
-    const glm::vec4 ink = kPanelInk;
-    const glm::vec4 dimInk = kPanelDim;
-    const glm::vec4 risenColor = legacyLeadColor(legacy::LeadKind::Risen);
-    const glm::vec4 survivorColor = legacyLeadColor(legacy::LeadKind::Survivor);
-
-    mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.96f));
-
-    const float left = panelX + 28.0f;
-    const float textW = panelW - 56.0f;
-    const auto fit = [&](const std::string& text, float scale)
-    {
-        const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, textW / (6.0f * scale)));
-        return truncateHudText(text, maxChars);
-    };
-    const auto heading = [&](float y, const std::string& text)
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), text, dimInk, 1.0f);
-        const float textEnd = left + mFont.measureText(text, 1.0f).x + 10.0f;
-        mSpriteBatch.draw(glm::vec2(textEnd, y + 4.0f), glm::vec2(left + textW - textEnd, 1.0f), uiUv,
-                          kPanelRule);
-    };
-
-    // Title and who you are now.
-    const int run = mSaveManager.runNumber();
-    float y = panelY + 22.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "NOTEBOOK", ink, kBody);
-    const std::string closeHint = wayOutPageShown() ? "Right: the way out   J to close" : "J to close";
-    mFont.drawText(mSpriteBatch, glm::vec2(left + textW - mFont.measureText(closeHint, 1.0f).x, y + 4.0f), closeHint, dimInk, 1.0f);
-    y += bodyLine + 2.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y),
-                   fit(mCurrentCharacterName + ", day " + std::to_string(mCurrentDay) + ". " +
-                           legacy::runHeadline(run, static_cast<int>(history.size())) + ".", 1.0f),
-                   dimInk, 1.0f);
-    y += 30.0f;
-
-    // What is out there.
-    heading(y, "WHAT IS OUT THERE");
-    y += 18.0f;
-    const glm::vec2 here = playerWorldCenter();
-    const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
-    if (leads.empty())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit("Nothing yet. No one came this way before you.", kBody), dimInk, kBody);
-        y += bodyLine;
-    }
-    for (std::size_t i = 0; i < leads.size() && i < kMaxLeads; ++i)
-    {
-        const legacy::Lead& lead = leads[i];
-        mSpriteBatch.draw(glm::vec2(left, y + 5.0f), glm::vec2(8.0f, 8.0f), uiUv, legacyLeadColor(lead.kind));
-        mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y), fit(legacy::describeLead(lead, here, tileSize), kBody), ink, kBody);
-        y += bodyLine;
-    }
-    if (leads.size() > kMaxLeads)
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y),
-                       "and " + std::to_string(leads.size() - kMaxLeads) + " more on the map (M)", dimInk, 1.0f);
-        y += 16.0f;
-    }
-    y += 14.0f;
-
-    // Who is out there: the living you have met, and how things stand.
-    if (peopleRows > 0)
-    {
-        heading(y, "WHO IS OUT THERE");
-        y += 18.0f;
-        const LayoutData& layout = mMapGenerator.layoutData();
-        for (std::size_t i = 0; i < peopleRows; ++i)
-        {
-            const SurvivorRecord& r = *people[i];
-            std::string where = "home not known";
-            if (r.homeKnown && r.homeX >= 0)
-            {
-                const glm::vec2 home((static_cast<float>(r.homeX) + 0.5f) * tileSize, (static_cast<float>(r.homeY) + 0.5f) * tileSize);
-                std::string kind = "a house";
-                if (r.homeBuilding > 0 && r.homeBuilding <= static_cast<int>(layout.buildings.size()))
-                {
-                    std::string name = buildingkinds::name(buildingkinds::kindOf(layout.buildings[static_cast<std::size_t>(r.homeBuilding - 1)]));
-                    for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                    kind = "the " + name;
-                }
-                const int metres = legacy::metresBetween(here, home, tileSize);
-                where = metres < 3 ? kind + ", right here"
-                                   : kind + ", " + std::to_string(metres) + " m " + legacy::screenDirection(here, home);
-            }
-            const survivorrules::Personality p{r.aggression, r.cooperation, r.competence};
-            const char* standing = survivorrules::standingWord(r.trust, survivorrules::attitude(p, 0.0f, r.trust, r.angryDay == mCurrentDay));
-            std::string line;
-            glm::vec4 color = ink;
-            if (!r.alive)
-            {
-                line = r.name + " - dead.";
-                color = dimInk;
-            }
-            else if (r.metRun != run)
-            {
-                line = "Someone wrote: " + r.name + ", " + where + ". " + standing;
-                color = dimInk;
-            }
-            else
-            {
-                line = r.name + " - " + where + ". " + standing + " Seen day " + std::to_string(r.lastSeenDay) + ".";
-            }
-            mSpriteBatch.draw(glm::vec2(left, y + 5.0f), glm::vec2(8.0f, 8.0f), uiUv,
-                              r.alive ? glm::vec4(0.62f, 0.86f, 0.64f, 1.0f) : glm::vec4(0.40f, 0.40f, 0.38f, 1.0f));
-            mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y), fit(line, kBody), color, kBody);
-            y += bodyLine;
-        }
-        if (people.size() > kMaxPeople)
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y),
-                           "and " + std::to_string(people.size() - kMaxPeople) + " more", dimInk, 1.0f);
-            y += 16.0f;
-        }
-        y += 14.0f;
-    }
-
-    // Who came before, newest first.
-    heading(y, "WHO CAME BEFORE");
-    y += 18.0f;
-    const auto& graves = mLegacyGraves.empty() ? mSaveManager.graves() : mLegacyGraves;
-    const float statsY = panelY + panelH - 46.0f;
-    if (history.empty())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), "No one. You are the first.", dimInk, kBody);
-    }
-    std::size_t shown = 0;
-    for (auto it = history.rbegin(); it != history.rend() && shown < kMaxHistory && y + bodyLine < statsY - 6.0f; ++it, ++shown)
-    {
-        const CharacterHistoryRecord& rec = *it;
-        std::string line = "Run " + std::to_string(rec.runIndex) + "  " + rec.name + " - ";
-        glm::vec4 color = ink;
-        if (rec.retired)
-        {
-            line += "retired on day " + std::to_string(rec.dayEnded);
-            color = survivorColor;
-        }
-        else
-        {
-            line += "day " + std::to_string(rec.dayEnded) + ", " + rec.cause;
-            for (const GraveRecord& grave : graves)
-            {
-                if (grave.runIndex == rec.runIndex && grave.name == rec.name)
-                {
-                    if (grave.risen) { line += " (walks again)"; color = risenColor; }
-                    else if (grave.laidToRest) { line += " (at rest)"; }
-                    break;
-                }
-            }
-        }
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit(line, kBody), color, kBody);
-        y += bodyLine;
-    }
-    if (shown < history.size())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), "and " + std::to_string(history.size() - shown) + " before them", dimInk, 1.0f);
-        y += 16.0f;
-    }
-    else if (history.empty())
-    {
-        y += bodyLine;
-    }
-    y += 14.0f;
-
-    // What earlier lives worked out and wrote down.
-    if (y + 18.0f + bodyLine < statsY - 6.0f)
-    {
-        heading(y, "WHAT WE KNOW");
-        y += 18.0f;
-        const bool none = mSaveManager.discoveredRecipes().empty();
-        for (const std::string& line : ruleLines)
-        {
-            if (y + bodyLine >= statsY - 6.0f) break;
-            mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit(line, kBody), ink, kBody);
-            y += bodyLine;
-        }
-        for (const std::string& line : knownLines)
-        {
-            if (y + bodyLine >= statsY - 6.0f) break;
-            mFont.drawText(mSpriteBatch, glm::vec2(left, y), line, none ? dimInk : ink, kBody);
-            y += bodyLine;
-        }
-    }
-
-    // Totals across every run in this town.
-    int daysTotal = 0;
-    int longest = 0;
-    std::string longestName;
-    for (const CharacterHistoryRecord& rec : history)
-    {
-        const int days = std::max(1, rec.dayEnded - rec.dayStarted + 1);
-        daysTotal += days;
-        if (days > longest)
-        {
-            longest = days;
-            longestName = rec.name;
-        }
-    }
-    int laidToRest = 0;
-    for (const GraveRecord& grave : graves)
-    {
-        laidToRest += grave.laidToRest ? 1 : 0;
-    }
-    std::string stats = "Lives " + std::to_string(history.size()) + "   Days survived " + std::to_string(daysTotal);
-    if (longest > 0) stats += "   Longest " + std::to_string(longest) + (longest == 1 ? " day (" : " days (") + longestName + ")";
-    if (laidToRest > 0) stats += "   Laid to rest " + std::to_string(laidToRest);
-    mSpriteBatch.draw(glm::vec2(left, statsY - 8.0f), glm::vec2(textW, 1.0f), uiUv, kPanelRule);
-    mFont.drawText(mSpriteBatch, glm::vec2(left, statsY), fit(stats, 1.0f), dimInk, 1.0f);
-    // What the town has left (phase 6).
-    if (mTownContainers > 0)
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, statsY + 16.0f),
-                       "Cupboards still unopened: " + std::to_string(mTownUnopened) + " of " + std::to_string(mTownContainers) + ".",
-                       dimInk, 1.0f);
-    }
-}
+// The notebook (J) is drawn in GameJournal.cpp (phase 10).
 
 void Game::renderRunEndOverlay()
 {
@@ -686,7 +374,7 @@ void Game::renderRunEndOverlay()
         float gapAfter;
     };
     std::vector<Line> lines;
-    lines.push_back({dead ? "YOU DIED" : out ? "OUT" : "RETIRED", accent, 3.0f, 10.0f});
+    lines.push_back({dead ? "YOU DIED" : out ? "OUT" : mStayedForGood ? "STAYED" : "RETIRED", accent, 3.0f, 10.0f});
     if (!out) lines.push_back({mCurrentCharacterName, ink, 2.0f, 6.0f});
     lines.push_back({mDeathCause, dead ? glm::vec4(0.92f, 0.62f, 0.56f, 1.0f) : ink, 2.0f, 8.0f});
     // Out: the whole line's count, then who did what to open it.
@@ -705,7 +393,7 @@ void Game::renderRunEndOverlay()
         const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
         for (PositiveTrait trait : traits.positives) traitLine += (traitLine.empty() ? "" : ", ") + std::string(traitName(trait));
         for (NegativeTrait trait : traits.negatives) traitLine += (traitLine.empty() ? "" : ", ") + std::string(traitName(trait));
-        if (traits.bloodline != BloodlineTrait::None) traitLine += (traitLine.empty() ? "Bloodline: " : "   Bloodline: ") + std::string(traits.bloodlineName());
+        if (!traits.bloodlines.empty()) traitLine += (traitLine.empty() ? "Bloodline: " : "   Bloodline: ") + traits.bloodlineNames();
     }
     if (!traitLine.empty()) lines.push_back({traitLine, dimInk, 1.0f, 4.0f});
 
@@ -1601,7 +1289,7 @@ void Game::renderPauseOverlay()
         uiUv,
         glm::vec4(0.0f, 0.0f, 0.0f, 0.65f));
 
-    const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight);
+    const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight, static_cast<int>(pauseOptions().size()));
     mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, kPanelBack);
     mSpriteBatch.draw(
         glm::vec2(layout.panelPos.x + 20.0f, layout.optionsY - 10.0f),
@@ -1688,6 +1376,7 @@ void Game::renderTitleScreen()
     {
         switch (item)
         {
+        case 2: return mTitleFreshStart ? "Fresh Start" : "Living World"; // phase 10
         case 3: return kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)];
         case 4: return kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)];
         case 5: return kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
@@ -1736,6 +1425,8 @@ void Game::renderTitleScreen()
     case 2:
         about = mTitleConfirmNewWorld ? "Press Enter again. This town and everything it remembers will be gone."
                                       : "A different town. This one, and everything it remembers, is erased.";
+        about += mTitleFreshStart ? " Fresh Start: nothing carries over from one life to the next."
+                                  : " Living World: graves, bases and an older town carry over.";
         if (mTitleConfirmNewWorld) aboutColor = red;
         break;
     case 3: about = "Each slot is its own town with its own history."; break;
@@ -1779,9 +1470,14 @@ void Game::renderTitleScreen()
         }
         else
         {
-            lines.emplace_back(plural(static_cast<int>(history.size()), "life", "lives") + ", " +
-                                   plural(mSaveManager.totalDaysSurvived(), "day", "days"), ink);
+            lines.emplace_back(plural(static_cast<int>(history.size()), "life", "lives"), ink);
+            lines.emplace_back("Days lived in this town: " + std::to_string(mSaveManager.totalDaysSurvived()), ink);
             if (graves > 0) lines.emplace_back(plural(graves, "grave", "graves"), legacyLeadColor(legacy::LeadKind::Grave));
+            // Phase 10: the cemetery, and a world that forgets.
+            const int stones = static_cast<int>(std::count_if(mSaveManager.graves().begin(), mSaveManager.graves().end(),
+                                                              [](const GraveRecord& g) { return g.buried; }));
+            if (stones > 0) lines.emplace_back(std::to_string(stones) + " in the cemetery", dimInk);
+            if (!mSaveManager.livingWorld()) lines.emplace_back("Fresh Start", dimInk);
             if (risenWalking > 0) lines.emplace_back(plural(risenWalking, "walks again", "walk again"), legacyLeadColor(legacy::LeadKind::Risen));
             if (packsWaiting > 0) lines.emplace_back(plural(packsWaiting, "pack waiting", "packs waiting"), legacyLeadColor(legacy::LeadKind::Pack));
             if (survivors > 0) lines.emplace_back(plural(survivors, "survivor lives on", "survivors live on"), legacyLeadColor(legacy::LeadKind::Survivor));
@@ -1809,7 +1505,7 @@ void Game::renderTitleScreen()
             float ly = cardY + 34.0f;
             for (const auto& [text, color] : lines)
             {
-                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly), truncateHudText(text, 27), color, 2.0f);
+                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly), truncateHudText(text, 28), color, 2.0f);
                 ly += lineH;
             }
             if (!lastLine.empty())

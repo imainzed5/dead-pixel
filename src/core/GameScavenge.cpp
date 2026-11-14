@@ -504,6 +504,11 @@ void Game::beginSearch(Entity container)
         }
         seconds = furniture::kArmouryForceSeconds;
     }
+    // Their people always knew where to look (phase 10).
+    if (const Traits* traits = playerTraits(); !armoury && traits != nullptr && traits->has(BloodlineTrait::Scavenger))
+    {
+        seconds *= legacy::kScavengerSearch;
+    }
     mBaseAction = BaseAction{};
     mBaseAction.kind = BaseAction::Kind::Search;
     mBaseAction.tile = tile;
@@ -864,6 +869,8 @@ std::string Game::packItemName(const InventorySlot& slot) const
     {
         return item->name + " (" + food::stateName(food::stateOf(slot.condition)) + ")";
     }
+    // A grave's marker names whose it is (phase 10).
+    if (slot.itemId == mItems.marker) return markerName(slot);
     return item->name;
 }
 
@@ -928,6 +935,12 @@ void Game::dropFromPack(int slotIndex, bool wholeStack)
     if (inv.slots[static_cast<std::size_t>(slotIndex)].itemId < 0 || inv.slots[static_cast<std::size_t>(slotIndex)].count <= 0) return;
     if (slotIndex == mEquippedWeaponSlot) syncEquippedWeapon(); // its wear goes with it
     InventorySlot& slot = inv.slots[static_cast<std::size_t>(slotIndex)];
+    if (slot.itemId == mItems.marker)
+    {
+        mInteractionMessage = "The marker stays with you until it is set.";
+        mInteractionMessageTimer = 2.0f;
+        return;
+    }
     const ItemDef* item = mItemDatabase.find(slot.itemId);
     const int count = wholeStack ? slot.count : 1;
     dropOnFloor(playerTile(), slot.itemId, count, slot.condition, slot.loaded);
