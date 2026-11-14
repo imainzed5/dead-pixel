@@ -1584,6 +1584,121 @@ into:
 Not retuned; phase 14's balance pass should read more than ten seeds, or
 the bot's spread will hide whatever it is tuning.
 
+## Overhaul phase 12: sound and mood (2026-11-15)
+
+**The engine.** `AudioManager` opens 24 channels at 22 kHz and plays from
+the table in `assets/data/sounds.json` (key, files, range in tiles by
+noise tier, priority, volume, category, loop). `playAt(SoundId, world,
+volume)` falls off linearly from full at 2 tiles to silence at the
+sound's range and pans by screen x; a sound from another building, or
+across a sealed shell, plays at x0.45 and as its `_muffled` twin where it
+has one; past 15 tiles a gun plays its far tail. When the channels are
+full the quietest lowest-priority voice goes; no more than 3 of one
+sound at once. Layers (ambience, music, body) crossfade over 1.5 s. With
+no device (the harness, `--mute`, a machine without audio) the mixer
+still decides everything and logs it; nothing is heard.
+
+**A sound for every noise.** `Game::makeNoise(pos, tier, seconds,
+SoundId)` emits the noise and carries its sound; every old `emitNoise`
+became one with the same tier and seconds. `tools/generate_sounds.py`
+synthesizes 589 WAVs, 3 to 5 variants each, from fixed seeds: feet on ten
+grounds (walk, run, crouch), body (breath loop, heartbeat, eating,
+drinking, cough, the calming breath out, grunts by damage), hands (doors,
+cupboards, fridge, drawer, locker, rummage, hammer, pry, splitting,
+drags, breaking, glass, curtain, can alarm, spike board, match, fire,
+water, taps, bottle, pack, pickups and drops by weight, craft, bandage,
+splint, stitches, reload, dry click, jam), weapons (swings and hits by
+class, wall, stick, shove, stomp, breaking, pistol and shotgun with far
+tails, casing, throws), the dead by kind (Shambler idle, alerted,
+chasing; Runner shriek and breath; Brute growl and step; Crawler scrape
+and drag; the Screamer; lunge, grab, bite, fall, door, board and window
+bangs; a crowd loop), people (a cough, a voiced "hey", a slammed door),
+the world (rain light, heavy and on the roof, thunder, wind, gusts,
+trees, snow, blizzard, fog drip, birds, crows, insects, a far dog, the
+hum, engines, cranks, alarms, the bicycle, the generator and the gate)
+and the interface (dry wooden clicks, the day card's struck note, a
+softer death sting). The 11 old placeholders are gone. 31 MB in all.
+
+**Ambience that tells the truth.** `ambience::mix` sets the layers every
+half second from the world: wind (x0.4 indoors), rain on the roof
+indoors, birds by day only when no dead are within 12 tiles (the tell),
+insects at night by the same rule, crows in ruin, the hum near lamps and
+fridges while the power lasts, room tone, the crowd by the number within
+30 tiles from its centre, fire, and the ringing after your own shot or a
+near Screamer (everything else ducks 60 % for 3 s). Crouched and still by
+a closed door for a second, "Listening.": the walls stop muffling and the
+edges dim.
+
+**Music, almost none.** Three generated pads and three stings. Hopeless:
+none at all. Grim Human: a pad for one loop after 3 calm game hours (no
+dead within 20 tiles), indoors or at dawn or dusk, at most once in 6.
+Brutal Arcade: the pad more often and a low pulse under fights of four or
+more. Stings at dusk, the first caller's first bang each night, dawn
+survived; never in Hopeless.
+
+**Mood on the screen.** A framebuffer pass (`PostFx`, shaders in
+`assets/shaders/`) draws the world into a texture and back through one
+quad; the HUD is drawn after it and stays sharp. It closes a vignette with
+panic (and shakes at 75+), blurs the edges and blinks with sleep debt,
+drains colour with depression (0.8, 0.6, 0.45), tints the edges blue in
+the cold and warm with heat (with a shimmer), doubles the edges in fever,
+greys with smoke, zooms 6 % when held, pulses the red edge on the
+heartbeat under 20 % health and dims the edges while listening. The body
+carries it too: three new idles in the rig (shoulders down, a shiver, a
+hand on the knee), breath puffs outdoors under 5 C. Small things: long
+shadows that swing with the sun, drops on a wet character, flies over a
+day-old body (and their buzz), motes in the flashlight and lamp light, a
+curtain moving at a broken window in wind, and a clock on the town's
+central building that stops when the power fails. All of it follows the
+screen-effects setting (read from `save/settings.json`; the screen for it
+is P13's) and is off under the harness unless a script says `fx on`, so
+no older screenshot changed.
+
+Harness: `soundscape` (the birds' tell, footsteps, rain on the roof, the
+muffled and the plain bang, the shot's ringing and duck, the far tail,
+the music by tone) and `mood` (each state against the neutral shot).
+Commands: `sounds`, `sound mark|KEY [DX DY]|KEY building N`, `fx`,
+`tone`, `music reset`, `expect sound|nosound|layer|music|duck|listening|
+fx|idle` (see the README). Launch option `--mute`. Tests: `test_sounds`,
+`test_ambience`, `test_mood` (28 new; 349 in all).
+
+Performance (`perf.txt`, run alone, with the mixer working out every
+sound and layer): 300 of the dead 2.04 ms a tick on average and 4.4 ms
+worst (phase 11: 1.72 and 3.6; the first full run read 2.15 and 8.6);
+20 survivors and 100 of the dead 1.15 and 2.6; the sedan through 300 of
+the dead 1.69 and 3.2. `gate` 1.99 and 4.3, `fire_spread` 1.96 and 7.5.
+Budget 4 and 12. The extra third of a millisecond is the soundscape's
+pass over the dead for the crowd, the birds' tell and the voices.
+
+All 56 older scripts and the two new ones pass, each in a fresh directory
+(`perf`, `fire_spread` and `gate` alone). Clean rebuild without warnings.
+
+`bot_week`, seeds 1 to 10, default mode, on the final build:
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 1.8 | Overrun, day 3 | 30 | 9 | 8 | 50 | 3 |
+| 2 | 2.7 | Overrun, day 4 | 71 | 6 | 1 | 104 | 1 |
+| 3 | 2.4 | Overrun, day 3 | 21 | 21 | 10 | 90 | 0 |
+| 4 | 0.6 | Killed by zombies, day 1 | 9 | 7 | 4 | 15 | 0 |
+| 5 | 0.9 | Overrun, day 2 | 12 | 6 | 6 | 12 | 1 |
+| 6 | 0.9 | Overrun, day 2 | 25 | 7 | 1 | 55 | 3 |
+| 7 | 3.2 | Overrun, day 4 | 51 | 5 | 6 | 53 | 3 |
+| 8 | 2.8 | Overrun, day 4 | 22 | 2 | 3 | 71 | 0 |
+| 9 | 1.7 | Overrun, day 3 | 33 | 6 | 7 | 53 | 0 |
+| 10 | 0.5 | Killed by zombies, day 1 | 4 | 6 | 4 | 19 | 0 |
+
+Identical to phase 11 on every seed and every column: median 1.7, mean
+1.8, kills 278, searched 522, boards 11, three dead at home on night 1.
+That is what the phase meant: sound and mood make no entities, no extra
+noise events and no draws from the run's random streams, so the
+simulation is the same tick for tick.
+
+Nobody has listened yet. The harness is silent by design, so every check
+here is of what the mixer decided (which file, how loud, muffled or not,
+which layers), never of how it sounds; levels and the synthesis want a
+person with speakers.
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 ## Next: the content overhaul (planned 2026-11-13)
@@ -1793,3 +1908,12 @@ Candidates for the next stretch, roughly in order. None is started.
   harness `vehicles`, `bicycle`, `pickup_haul`; bot median 1.7 days, mean
   1.8 (phase 10: 2.1, 2.0), the swing traced to the dead's entity-keyed
   wander, not to the vehicles.
+- 2026-11-15: Overhaul phase 12, sound and mood: a mixer with distance,
+  pan, a muffled cut through walls, far tails, voices by priority and
+  layers; 589 generated sounds from one `makeNoise` call per noise;
+  ambience that tells the truth (birds stop when the dead are near, rain
+  on the roof, the crowd, the ringing); listening at a door; music almost
+  never, by tone; a framebuffer mood pass, three mood idles and the small
+  things (shadows, flies, motes, curtains, the town clock), off under the
+  harness unless `fx on`; harness `soundscape`, `mood`, `--mute`; the bot
+  table identical to phase 11 on every seed.

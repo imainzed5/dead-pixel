@@ -201,6 +201,12 @@ bool Game::initialize()
         shutdown();
         return false;
     }
+    // The mood pass (phase 12). Without it the game runs, only plainer.
+    if (!mPostFx.initialize((assetsRoot / "shaders" / "postfx.vert").string(),
+                            (assetsRoot / "shaders" / "postfx.frag").string()))
+    {
+        std::cerr << "Mood pass unavailable; screen effects off.\n";
+    }
 
     const std::filesystem::path fontPng = assetsRoot / "fonts" / "pixel_font.png";
     const std::filesystem::path fontJson = assetsRoot / "fonts" / "pixel_font.json";
@@ -221,11 +227,7 @@ bool Game::initialize()
     }
     mStructureSprites = StructureSprites::fromSheet(mSpriteSheet);
 
-    if (!mLaunchOptions.harnessEnabled() && !mAudioManager.initialize(assetsRoot.string())) // harness runs are silent
-    {
-        std::cerr << "Warning: Audio init failed, continuing without sound.\n";
-    }
-    mAudioManager.playAmbient(AmbientId::Wind, 0.15f);
+    setupSound(assetsRoot); // harness runs are silent (GameSound.cpp)
 
     if (!loadContent(assetsRoot))
     {
@@ -486,6 +488,14 @@ void Game::startNewRun()
     mRobbedAsleep = false;
     mSurvivorSmokeTimer = 0.0f;
     mLitHomes.clear();
+    // Sound and mood (phase 12): a new town, a new clock; the dead as last heard.
+    mHeardDead.clear();
+    mMusic.reset();
+    mTinnitusLeft = 0.0f;
+    mListening = false;
+    mListenStill = 0.0f;
+    mClockBuilding = -2;
+    mClockShows = -1.0;
     mActiveVehicleEntity = kInvalidEntity;
     clearFireAndWeatherMarks();
     mShowWorldMap = false;
@@ -729,6 +739,14 @@ void Game::returnToTitleScreen()
     mRobbedAsleep = false;
     mSurvivorSmokeTimer = 0.0f;
     mLitHomes.clear();
+    // Sound and mood (phase 12): a new town, a new clock; the dead as last heard.
+    mHeardDead.clear();
+    mMusic.reset();
+    mTinnitusLeft = 0.0f;
+    mListening = false;
+    mListenStill = 0.0f;
+    mClockBuilding = -2;
+    mClockShows = -1.0;
     mActiveVehicleEntity = kInvalidEntity;
     clearFireAndWeatherMarks();
     mShowWorldMap = false;
@@ -770,6 +788,7 @@ void Game::shutdown()
     mMovementNoiseTier = NoiseTier::None;
 
     mSpriteBatch.shutdown();
+    mPostFx.shutdown();
     mTexture.unload();
     mAudioManager.shutdown();
 

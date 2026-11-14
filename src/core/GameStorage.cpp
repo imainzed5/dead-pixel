@@ -173,7 +173,7 @@ int Game::containerMove(bool fromPack, int row, bool wholeStack)
     const std::string countText = moved > 1 ? " x" + std::to_string(moved) : "";
     mInteractionMessage = (fromPack ? "Put away " : "Took ") + name + countText + ".";
     mInteractionMessageTimer = 2.0f;
-    mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
+    mAudioManager.play(fromPack ? SoundId::DropLight : SoundId::PickupLight, 0.8f);
     if (!fromPack)
     {
         mRunStats.itemsLooted += moved;

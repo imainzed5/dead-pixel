@@ -75,7 +75,7 @@ void ProjectileSystem::update(World& world, const TileMap& tileMap, NoiseModel& 
                 zh.current = std::max(0.0f, zh.current - proj.damage);
                 zai.lastDamagedBy = proj.source;
                 ZombieBlow::land(zai, glm::vec2(proj.vx, proj.vy), 10.0f);
-                noiseModel.emitNoise(zc, NoiseTier::Medium, 0.5f, proj.source);
+                noiseModel.emitNoise(zc, NoiseTier::Medium, 0.5f, proj.source, NoiseSource::World, 1.0f, SoundId::HitBlunt);
                 toDestroy.push_back(projEntity);
             }
         });

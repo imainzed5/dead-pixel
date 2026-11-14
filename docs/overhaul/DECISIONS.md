@@ -877,6 +877,79 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   so the script sets it back (`set condition`) before the run-downs and
   again before the save, so the next life's -15 shows.
 
+- 2026-11-15, P12: one call does both. `Game::makeNoise(pos, tier, seconds,
+  SoundId, ...)` emits the noise event with its sound attached; the mixer
+  takes the heard sounds from `NoiseModel` at the top of the next tick
+  (`updateSoundscape`) and plays each at its source. Every older
+  `emitNoise` became a `makeNoise` with the same tier, seconds and source,
+  so the dead hear exactly what they heard before. Sounds that are not
+  noises to the dead (a car door, a curtain, a casing, a pack closing, the
+  interface) are `playAt` or `play` only and add nothing to the simulation:
+  no entities, no noise events, and no draws from the run's random
+  streams (the mixer has its own, `mSoundRng`, and the mood its own
+  xorshift).
+- 2026-11-15, P12: occlusion is one cut. A sound from another building, or
+  across the shell while it is sealed (`buildingSealedNow`: phase 4's rule,
+  worked out for the ear, uncached, never in the simulation's path), plays
+  at x0.45 and as its `_muffled` twin when it has one (13 sounds: the
+  groans, growl and shriek, the Screamer, door, window and board bangs, the
+  hammer, the called "hey", both guns; rain has its roof layer instead).
+  Beyond 15 tiles a sound with a far tail
+  plays the tail. Listening at a door lifts the whole cut while you stay
+  (crouched within a tile of a closed door, still 1 s), and the edges dim
+  10 %; it shows as "Listening." in front of the prompt line.
+- 2026-11-15, P12: the heartbeat is timed one-shots, not a loop: a beat at
+  60 to 140 a minute by panic (100 at least under 20 % health), so the
+  rate is exact and the red edge can pulse on the beat
+  (`mHeartbeatSeen`). The breath under 30 % stamina is a loop that rises.
+- 2026-11-15, P12: stings are silent in Hopeless (no music at all, as the
+  design says, and a sting is music); Grim Human and Brutal Arcade get the
+  dusk note, the first night caller's first bang each night, and dawn
+  survived. Death plays the remade, softer sting in every tone.
+- 2026-11-15, P12: the device opens at 22 kHz stereo (every file is 22 kHz
+  mono, so nothing is resampled); 24 channels, 3 identical at once, the
+  quietest lowest-priority voice dropped. The 11 old placeholder WAVs are
+  gone, replaced by 589 generated files and `assets/data/sounds.json`.
+- 2026-11-15, P12: the volumes (master, effects, ambience, music) and the
+  screen-effects level are read from `save/settings.json` if it exists and
+  never written: the screen for them, and writing the file, are P13's.
+  Harness runs set screen effects to off whatever the file says.
+- 2026-11-15, P12: the existing body effects (the red edge under 40 %
+  health, the panic bands, the held shake from P03, the dusk and night
+  tints) stay as they were, outside the screen-effects setting; the new
+  pass adds on top of them (so panic shows the old bands and the new
+  vignette). The new pass, the mood idles, the breath puffs and the small
+  things (long shadows, drops, flies, motes, curtains, the town clock) all
+  follow the setting, so every older script's shots are unchanged; the
+  pass is skipped entirely when its parameters are neutral.
+- 2026-11-15, P12: others' footsteps play at 0.6 of the player's; a
+  survivor's feet are the asphalt walk or run whatever the ground (the
+  dead's steps go by their kind: the Brute's heavy step, the Crawler's
+  drag). The radio's tune is a layer, 0.7 indoors and 0.45 outdoors (it is
+  in your pack, so it is never far).
+- 2026-11-15, P12: the tinnitus tone comes in within a tenth of a second
+  (the other layers crossfade over 1.5 s) and follows its target down over
+  the 3 s; it is not ducked itself.
+- 2026-11-15, P12: door noise tiers are unchanged: a door opened while
+  crouched plays the slow creak but stays the tier it was (the phase asks
+  for the sound, not a quieter door).
+- 2026-11-15, P12: chimney smoke from occupied homes already existed (P08,
+  `updateSurvivorSmoke`), and fire smoke (P07); neither is duplicated.
+  Breath puffs outdoors under 5 C use the same smoke particles.
+- 2026-11-15, P12: the town clock is on the wall of the non-house building
+  nearest the map's centre (the town has no town hall); it shows the game
+  time with the power on and stops at the power's failure hour after.
+- 2026-11-15, P12: the mood idles (shoulders down, a shiver, a hand on the
+  knee) are three new rows in the rig, drawn at the same pixel scale in
+  the five facings; the sheet grows from 5632 to 5696 px tall and every
+  older sprite keeps its place and pixels.
+- 2026-11-15, P12: the F2 panel gets a second C row ("Still by a door:
+  listen"); it has room for 28.
+- 2026-11-15, P12: `soundscape.txt` keeps the dead off for its six calm
+  hours with a `slay 200` every half hour: the town's wanderers otherwise
+  reach the house and the calm (no dead within 20 tiles for 3 game hours)
+  never holds, which is the rule working, not what the script tests.
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -950,6 +1023,23 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
     knock, until P12 gives each its own sound;
   - the companion's seat carries no one else (a wounded survivor is the
     "Later" above), and survivors never take a vehicle themselves.
+
+- 2026-11-15, P12: OpenAL for true occlusion and a generated title tune
+  (the phase's own "Later"; the title stays wind only). Also moved:
+  - doors still cut between closed and open: two swing frames need a door
+    sprite per facing and per state, and the door's own animation timing
+    in the collision rules, more than this phase's small things should
+    carry;
+  - wet shows as drops on the character, not as darker clothes (the rig
+    has no clothes tint to darken without a second set of sprites);
+  - survivors' feet are a generic asphalt step: their positions are not
+    looked up against the ground the way the player's are;
+  - the settings screen for the four volumes and screen effects (P13 reads
+    and writes the settings file; this phase only reads it);
+  - nobody has listened to the generated sounds on speakers yet: the
+    harness is silent by design, so levels, the mix and the variants are
+    checked by numbers only (ranges, volumes, layer levels) and want a
+    listening pass by a person.
 
 ## Balance: needs a design change
 
@@ -1025,3 +1115,11 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   or a doorway as a barricade the dead batter instead of the boards.
 - 2026-11-15, P11: a parked car's trunk as a cache the town's survivors
   can find between lives, like the player's crates (P10).
+- 2026-11-15, P12: a "listen" readout for the deaf-of-ear: while listening
+  at a door, a faint direction mark at the screen's edge for each sound
+  heard through it (an accessibility setting for P13).
+- 2026-11-15, P12: a survivor's radio heard through their walls at night,
+  a way to find an occupied house by ear.
+- 2026-11-15, P12: the dead's groans shift with the weather (hoarser in
+  the cold, fewer in heavy rain), so the street's sound says the season
+  too.

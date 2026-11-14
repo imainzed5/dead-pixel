@@ -399,7 +399,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                                     mInteractionMessage += " Carry a notebook to preserve discoveries.";
                                 }
                                 mInteractionMessageTimer = 1.8f;
-                                mAudioManager.playSound(SoundId::WeaponHit, 0.35f);
+                                mAudioManager.play(SoundId::CraftDone);
                                 // Cooking at a fire: Living off the land.
                                 if (recipe.station == CraftStation::Fire) awardXp(Skill::LivingOffTheLand, skillrules::kXpCook);
 

@@ -118,7 +118,8 @@ bool Game::igniteTile(const glm::ivec2& targetTile, const glm::vec2& from)
     {
         any = igniteFire(tile, firerules::kMolotovHeat, true) || any;
     }
-    mNoiseModel.emitNoise(landing, NoiseTier::Explosive, 0.8f, mPlayerEntity);
+    makeNoise(landing, NoiseTier::Explosive, 0.8f, SoundId::BottleSmash, mPlayerEntity);
+    if (any) playAt(SoundId::FireIgnite, landing);
     return any;
 }
 

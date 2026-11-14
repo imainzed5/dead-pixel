@@ -59,6 +59,8 @@ add_library(dead_pixel_core STATIC
     src/core/GameClues.cpp
     src/core/GameJournal.cpp
     src/core/GameCemetery.cpp
+    src/core/GameSound.cpp
+    src/core/GameMood.cpp
     src/core/Tuning.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
@@ -122,6 +124,7 @@ add_library(dead_pixel_core STATIC
     src/world/Gate.cpp
     src/world/Clues.cpp
     src/world/VehicleRules.cpp
+    src/world/MoodRules.cpp
     src/systems/VehicleSystem.cpp
     src/systems/HallucinationSystem.cpp
     src/items/ItemDatabase.cpp
@@ -135,6 +138,7 @@ add_library(dead_pixel_core STATIC
     src/rendering/StructureView.cpp
     src/rendering/FurnitureView.cpp
     src/rendering/SceneryView.cpp
+    src/rendering/PostFx.cpp
     src/legacy/LegacyRules.cpp
     src/legacy/Journal.cpp
     src/legacy/WorldAging.cpp
@@ -143,7 +147,11 @@ add_library(dead_pixel_core STATIC
     src/systems/AnimationSystem.cpp
     src/systems/ParticleSystem.cpp
     src/audio/AudioManager.cpp
+    src/audio/AudioRules.cpp
+    src/audio/SoundTable.cpp
+    src/audio/Ambience.cpp
     src/dev/DevHarness.cpp
+    src/dev/DevHarnessSound.cpp
     src/dev/DevHarnessSurvivors.cpp
     src/dev/DevHarnessGate.cpp
     src/dev/DevHarnessLegacy.cpp
@@ -224,6 +232,9 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_aging.cpp
         tests/test_bloodline.cpp
         tests/test_vehicles.cpp
+        tests/test_sounds.cpp
+        tests/test_ambience.cpp
+        tests/test_mood.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

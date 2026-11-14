@@ -8,6 +8,10 @@ using namespace gameshared;
 
 void Game::update(float dtSeconds)
 {
+    // What is heard and seen of the world as it stood after the last tick
+    // (phase 12). Reads the world, changes nothing in it.
+    updateSoundscape(dtSeconds);
+    updateMood(dtSeconds);
     handleEscapeKey();
 
     // Combat weight runs on real time: the shake dies away, and a landed
@@ -492,22 +496,22 @@ void Game::update(float dtSeconds)
                 if (interactionMessage.find("Ate") != std::string::npos ||
                     interactionMessage.find("Drank") != std::string::npos)
                 {
-                    mAudioManager.playSound(SoundId::FoodEat, 0.5f);
+                    mAudioManager.play(interactionMessage.find("Drank") != std::string::npos ? SoundId::BodyDrink : SoundId::BodyEat);
                     ++mRunStats.itemsLooted;
                 }
                 else if (interactionMessage.find("Picked up") != std::string::npos)
                 {
-                    mAudioManager.playSound(SoundId::WeaponHit, 0.4f);
+                    mAudioManager.play(SoundId::PickupLight);
                     ++mRunStats.itemsLooted;
                 }
                 else if (interactionMessage.find("bandage") != std::string::npos)
                 {
-                    mAudioManager.playSound(SoundId::FoodEat, 0.4f);
+                    mAudioManager.play(SoundId::Bandage);
                     ++mRunStats.itemsLooted;
                 }
                 else if (interactionMessage.find("Looted") != std::string::npos)
                 {
-                    mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
+                    mAudioManager.play(SoundId::PickupHeavy);
                     auto pos = interactionMessage.find("Looted ");
                     if (pos != std::string::npos)
                     {
@@ -689,21 +693,15 @@ void Game::update(float dtSeconds)
         }
     }
 
-    // Combat audio
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Combat>(mPlayerEntity))
-    {
-        const Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
-        if (combat.phase == AttackPhase::Windup && prevPhase == AttackPhase::Idle)
-        {
-            mAudioManager.playSound(SoundId::WeaponSwing, 0.5f);
-        }
-    }
+    // Combat audio: the swing's whoosh comes with its noise (CombatSystem);
+    // a blow taken draws a grunt by how hard it was.
+    (void)prevPhase;
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
     {
         const float curHp = mWorld.getComponent<Health>(mPlayerEntity).current;
-        if (curHp < prevPlayerHp && curHp > 0.0f)
+        if (curHp < prevPlayerHp - 0.5f && curHp > 0.0f)
         {
-            mAudioManager.playSound(SoundId::PlayerHurt, 0.6f);
+            mAudioManager.play(prevPlayerHp - curHp >= 10.0f ? SoundId::BodyGruntBig : SoundId::BodyGruntSmall);
         }
     }
 
@@ -732,30 +730,8 @@ void Game::update(float dtSeconds)
     updateTraps(dtSeconds);
 
 
-    // Zombie audio: growls from chasing zombies, attack sounds
-    mZombieGrowlTimer = std::max(0.0f, mZombieGrowlTimer - dtSeconds);
-    if (mZombieGrowlTimer <= 0.0f && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Transform>(mPlayerEntity))
-    {
-        const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-        const glm::vec2 pc(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
-
-        mWorld.forEach<ZombieAI, Transform, Health>(
-            [&](Entity, ZombieAI& zai, Transform& zt, Health& zh)
-            {
-                if (mZombieGrowlTimer > 0.0f) return;
-                if (zh.current <= 0.0f) return;
-                if (zai.state != ZombieState::Chase && zai.state != ZombieState::Attack) return;
-
-                const glm::vec2 zc(zt.x + kSpriteSize * 0.5f, zt.y + kSpriteSize * 0.5f);
-                const float dist = glm::distance(pc, zc);
-                if (dist < 256.0f)
-                {
-                    const SoundId sound = (zai.state == ZombieState::Attack) ? SoundId::ZombieAttack : SoundId::ZombieGrowl;
-                    mAudioManager.playSoundAtWorld(sound, zc.x, pc.x, static_cast<float>(mWindowWidth), 0.5f);
-                    mZombieGrowlTimer = 3.0f;
-                }
-            });
-    }
+    // The dead's own sounds are heard in GameSound.cpp (updateDeadSounds, and
+    // the groans their noises carry).
     if (mShowCrafting && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Velocity>(mPlayerEntity))
     {
         Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
@@ -1191,8 +1167,9 @@ void Game::updateBlowFeedback(float dtSeconds)
                 if (heavy) trauma *= 2.0f;
                 if (shove) trauma = 0.15f;
                 mShakeTrauma = std::min(1.0f, mShakeTrauma + trauma);
-                mAudioManager.playSound(SoundId::WeaponHit, shove ? 0.35f : killed ? 0.75f : 0.55f);
             }
+            // The contact, by the kind of blow (a shove's sound is its own).
+            if (!shove) soundOfHit(zombie.lastBlow, heavy, killed, centre);
         });
 }
 
@@ -1288,7 +1265,18 @@ void Game::updateAnimations(float dtSeconds)
         }
         else
         {
-            playAnimation(anim, set + (fac.crouching ? std::string("_crouch") : std::string("_idle") + armIn) + view, 0.55f);
+            // The body's state shows in how it stands (phase 12, with screen
+            // effects on): shoulders down, a shiver, a hand on the knee; slower.
+            const std::string mood = moodIdle();
+            if (!fac.crouching && !body.armHeldIn && !mood.empty() &&
+                mSpriteSheet.frameCount(set + "_idle" + mood + view) > 0)
+            {
+                playAnimation(anim, set + "_idle" + mood + view, mood == "cold" ? 0.12f : 0.95f);
+            }
+            else
+            {
+                playAnimation(anim, set + (fac.crouching ? std::string("_crouch") : std::string("_idle") + armIn) + view, 0.55f);
+            }
         }
     }
 
@@ -1710,6 +1698,14 @@ void Game::updateNoiseModel(float dtSeconds)
     if (noiseTier == NoiseTier::None)
     {
         mNoiseEmitTimer = 0.0f;
+        // Too quiet for the dead, not for you: the step is still heard (its
+        // own timer, so the noise's rhythm stays as it was).
+        mQuietStepTimer += dtSeconds;
+        if (mQuietStepTimer >= 0.3f)
+        {
+            mQuietStepTimer = 0.0f;
+            playAt(footstepSound(glm::ivec2(tileX, tileY), 0), feetPosition, 0.7f);
+        }
         return;
     }
 
@@ -1723,17 +1719,8 @@ void Game::updateNoiseModel(float dtSeconds)
 
     mNoiseEmitTimer = 0.0f;
     ++mStepIndex;
-    mNoiseModel.emitNoise(feetPosition, noiseTier, tierDurationSeconds(noiseTier), mPlayerEntity);
-
-    // Footstep audio
-    SoundId footstep = SoundId::FootstepNormal;
-    if (noiseTier == NoiseTier::Soft || facing.crouching)
-    {
-        footstep = SoundId::FootstepSoft;
-    }
-    else if (noiseTier == NoiseTier::Loud || noiseTier == NoiseTier::Explosive || facing.running)
-    {
-        footstep = SoundId::FootstepLoud;
-    }
-    mAudioManager.playSound(footstep, 0.12f);
+    // The step, on what it lands on (phase 12).
+    const int stance = facing.crouching ? 0 : (facing.running ? 2 : 1);
+    makeNoise(feetPosition, noiseTier, tierDurationSeconds(noiseTier), footstepSound(glm::ivec2(tileX, tileY), stance),
+              mPlayerEntity);
 }

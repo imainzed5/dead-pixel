@@ -132,7 +132,7 @@ void Game::updateFighting(float dtSeconds, bool playerAlive, bool drivingVehicle
             if (lure.noiseTimer <= 0.0f)
             {
                 lure.noiseTimer = combatrules::kFlareNoiseEverySeconds;
-                mNoiseModel.emitNoise(lure.position, NoiseTier::Medium, 1.0f);
+                makeNoise(lure.position, NoiseTier::Medium, 1.0f, SoundId::FlareHiss);
                 mParticleSystem.spawnEmbers(lure.position + glm::vec2(0.0f, -4.0f), 2);
             }
             // The light draws the eye: the dead that can see it come.
@@ -147,7 +147,7 @@ void Game::updateFighting(float dtSeconds, bool playerAlive, bool drivingVehicle
             if (lure.noiseTimer <= 0.0f)
             {
                 lure.noiseTimer = kClockNoiseEverySeconds;
-                mNoiseModel.emitNoise(lure.position, NoiseTier::Loud, kClockNoiseEverySeconds);
+                makeNoise(lure.position, NoiseTier::Loud, kClockNoiseEverySeconds, SoundId::ClockRing);
             }
             if (lure.pullTimer <= 0.0f)
             {
@@ -214,7 +214,7 @@ bool Game::throwSelected(const glm::vec2& targetWorld)
         Stamina& st = mWorld.getComponent<Stamina>(mPlayerEntity);
         st.current = std::max(0.0f, st.current - kThrowStamina);
     }
-    mAudioManager.playSound(SoundId::WeaponSwing, 0.4f);
+    mAudioManager.play(SoundId::ThrowWhoosh);
     return true;
 }
 
@@ -268,7 +268,7 @@ void Game::onThrowLanded(const ThrowLanding& landing)
                                          : landing.position - glm::vec2(1.0f, 0.0f);
         if (!igniteTile(tile, thrownFrom))
         {
-            mNoiseModel.emitNoise(landing.position, NoiseTier::Loud, 0.8f);
+            makeNoise(landing.position, NoiseTier::Loud, 0.8f, SoundId::BottleSmash);
         }
         return;
     }
@@ -296,14 +296,15 @@ void Game::onThrowLanded(const ThrowLanding& landing)
         lure.clockSurvives = combatrules::alarmSurvives(std::uniform_real_distribution<float>(0.0f, 1.0f)(rng));
         lure.marker = makeMarker(def->sprite.c_str());
         mLures.push_back(lure);
-        mNoiseModel.emitNoise(landing.position, NoiseTier::Soft, 0.4f);
+        makeNoise(landing.position, NoiseTier::Soft, 0.4f, SoundId::RockLand);
         return;
     }
 
     // Everything else lands with a noise that draws the dead to it.
     if (tier != NoiseTier::None)
     {
-        mNoiseModel.emitNoise(landing.position, tier, std::max(0.4f, t.noiseSeconds));
+        makeNoise(landing.position, tier, std::max(0.4f, t.noiseSeconds),
+                  t.effect == "shatter" ? SoundId::BottleSmash : SoundId::RockLand);
         lureTo(landing.position, static_cast<float>(NoiseModel::tierRadiusTiles(tier)), combatrules::kLureSeconds, false);
     }
     if (t.effect == "shatter")
@@ -396,6 +397,7 @@ void Game::handleReloadKey()
     {
         if (CombatSystem::startReload(combat, inv))
         {
+            mAudioManager.play(combat.jammed ? SoundId::Jam : SoundId::Reload);
             mInteractionMessage = combat.jammed ? "Clearing it." : "Reloading.";
         }
         else
@@ -428,26 +430,33 @@ void Game::afterCombat()
         mShotLines = mCombatSystem.shotLines();
         mShotLineTimer = kShotLineSeconds;
         mShakeTrauma = std::min(1.0f, mShakeTrauma + (combat.shotEvent > 1 ? 0.45f : 0.28f));
-        mAudioManager.playSound(SoundId::WeaponHit, 0.9f);
+        // The shot itself comes with its noise (CombatSystem); here the
+        // case on the ground, and the ringing it leaves.
+        playAt(SoundId::Casing, centre + glm::vec2(-aim.y, aim.x) * 20.0f, 0.7f);
+        startTinnitus();
     }
     else if (combat.weapon.category == WeaponCategory::Ranged && combat.weapon.ammo <= 0 && !combat.jammed &&
              combat.reloadTimer <= 0.0f && mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT) && !playerHeld())
     {
+        mAudioManager.play(SoundId::DryClick);
         mInteractionMessage = "Empty. R to reload.";
         mInteractionMessageTimer = 1.6f;
     }
     if (combat.jamEvent)
     {
+        mAudioManager.play(SoundId::Jam);
         mInteractionMessage = "It jams.";
         mInteractionMessageTimer = 1.8f;
     }
     if (combat.stuckEvent)
     {
+        playAt(SoundId::StickPull, centre + aim * 20.0f);
         mInteractionMessage = "It sticks.";
         mInteractionMessageTimer = 1.4f;
     }
     if (combat.wallEvent)
     {
+        playAt(SoundId::HitWall, centre + aim * 22.0f);
         mParticleSystem.spawnDust(centre + aim * 22.0f, 4);
         mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.15f);
     }
@@ -459,6 +468,7 @@ void Game::afterCombat()
     }
     if (combat.brokeFree)
     {
+        mAudioManager.play(SoundId::BodyGruntBig);
         mInteractionMessage = "You tear free.";
         mInteractionMessageTimer = 1.8f;
         mParticleSystem.spawnDustRing(centre + glm::vec2(0.0f, 8.0f), 60.0f, 12);

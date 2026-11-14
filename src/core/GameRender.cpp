@@ -27,6 +27,9 @@ void Game::render()
     setupLightingUniforms();
     buildHudState();
     const glm::vec2 viewport(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
+    // The mood pass (phase 12): the world goes to a texture first when the
+    // character's state shows on screen; the HUD is drawn after, crisp.
+    const bool moodPass = beginPostFx();
 
     // Pass 1: Map tiles (tileset texture)
     mSpriteBatch.begin();
@@ -88,6 +91,9 @@ void Game::render()
         mAtmosphere.renderRain(mSpriteBatch, mCamera, solidWhiteUv, mTileMap.isIndoorsAtWorld(centre.x, centre.y));
     }
 
+    // Long shadows, wet drops, flies, motes, curtains, the town clock (phase 12).
+    renderMoodWorld();
+
     // The station chosen on the build wheel, where it would stand.
     if (mBuildChoice >= 0 && !mBuildWheelOpen && mBaseAction.kind == BaseAction::Kind::None)
     {
@@ -108,6 +114,7 @@ void Game::render()
 
     mSpriteSheet.bindTexture(GL_TEXTURE0);
     mSpriteBatch.flush();
+    if (moodPass) endPostFx();
 
     // UI: unlit and zoom-independent, drawn in two layers (HUD, then panels
     // and menus). Each layer draws its shapes with the sprite sheet, then its

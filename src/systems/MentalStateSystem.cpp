@@ -132,7 +132,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
     mental.screamCooldown = std::max(0.0f, mental.screamCooldown - dtSeconds);
     if (hunterInSight && mental.panic >= kPanicScreamThreshold && mental.screamCooldown <= 0.0f)
     {
-        noiseModel.emitNoise(playerCenter, NoiseTier::Loud, 0.7f, playerEntity);
+        noiseModel.emitNoise(playerCenter, NoiseTier::Loud, 0.7f, playerEntity, NoiseSource::World, 1.0f, SoundId::BodyScream);
         mental.screamCooldown = kScreamCooldownSeconds;
     }
 

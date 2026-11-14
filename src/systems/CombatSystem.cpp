@@ -578,7 +578,8 @@ void CombatSystem::updateTakeDown(World& world, const Input& input, NoiseModel& 
         }
         // With a blade it is done quietly.
         const bool blade = combat.weapon.itemId >= 0 && combat.weapon.category == WeaponCategory::Bladed;
-        noiseModel.emitNoise(centre, blade ? NoiseTier::Soft : NoiseTier::Loud, blade ? 0.35f : 0.8f, player);
+        noiseModel.emitNoise(centre, blade ? NoiseTier::Soft : NoiseTier::Loud, blade ? 0.35f : 0.8f, player, NoiseSource::World,
+                             1.0f, blade ? SoundId::HitBlade : SoundId::Stomp);
         combat.grabState = GrabState::None;
         combat.grabTarget = kInvalidEntity;
     }
@@ -669,7 +670,7 @@ bool CombatSystem::wallBetween(const TileMap& tileMap, const glm::vec2& from, co
 void CombatSystem::resolveShove(World& world, const TileMap& tileMap, NoiseModel& noiseModel, Entity playerEntity,
                                 const glm::vec2& playerCenter, float facingRadians, Combat& combat, bool exhausted)
 {
-    noiseModel.emitNoise(playerCenter, NoiseTier::Soft, 0.35f, playerEntity);
+    noiseModel.emitNoise(playerCenter, NoiseTier::Soft, 0.35f, playerEntity, NoiseSource::World, 1.0f, SoundId::Shove);
     combat.shoveEvent = true;
     combat.lastHitCount = 0;
     const float tile = static_cast<float>(std::max(1, tileMap.tileWidth()));
@@ -757,7 +758,9 @@ void CombatSystem::resolveShove(World& world, const TileMap& tileMap, NoiseModel
 void CombatSystem::resolveSwing(World& world, const TileMap& tileMap, NoiseModel& noiseModel, Entity playerEntity,
                                 const glm::vec2& playerCenter, float facingRadians, Combat& combat, float& stamina)
 {
-    noiseModel.emitNoise(playerCenter, NoiseTier::Medium, 0.45f, playerEntity);
+    const bool heavySwing = combat.weapon.knocksDown || combat.weapon.windupSeconds >= 0.3f;
+    noiseModel.emitNoise(playerCenter, NoiseTier::Medium, 0.45f, playerEntity, NoiseSource::World, 1.0f,
+                         heavySwing ? SoundId::SwingHeavy : SoundId::SwingLight);
 
     combat.lastHitCount = 0;
     const float rangePixels = effectiveRangePixels(combat);
@@ -908,7 +911,8 @@ void CombatSystem::resolveSwing(World& world, const TileMap& tileMap, NoiseModel
     // A loud weapon (the frying pan) rings out when it lands.
     if (combat.lastHitCount > 0 && combat.weapon.noiseTier >= static_cast<int>(NoiseTier::Loud))
     {
-        noiseModel.emitNoise(playerCenter, static_cast<NoiseTier>(combat.weapon.noiseTier), 0.6f, playerEntity);
+        noiseModel.emitNoise(playerCenter, static_cast<NoiseTier>(combat.weapon.noiseTier), 0.6f, playerEntity,
+                             NoiseSource::World, 1.0f, SoundId::HitPan);
     }
 
     if (stuck)
@@ -1062,5 +1066,6 @@ void CombatSystem::resolveShot(World& world, const TileMap& tileMap, NoiseModel&
     }
 
     const NoiseTier tier = static_cast<NoiseTier>(std::clamp(combat.weapon.noiseTier, 1, 5));
-    noiseModel.emitNoise(playerCenter, tier, tier == NoiseTier::Explosive ? 0.9f : 0.8f, playerEntity);
+    noiseModel.emitNoise(playerCenter, tier, tier == NoiseTier::Explosive ? 0.9f : 0.8f, playerEntity, NoiseSource::World,
+                         1.0f, pellets > 1 ? SoundId::Shotgun : SoundId::Pistol);
 }

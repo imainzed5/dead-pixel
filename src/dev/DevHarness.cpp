@@ -367,6 +367,8 @@ void DevHarness::execute(Game& game, const Command& command)
     if (legacyCommand(game, command)) return;
     // Vehicles (DevHarnessVehicles.cpp).
     if (vehicleCommand(game, command)) return;
+    // Sound and mood (DevHarnessSound.cpp).
+    if (soundCommand(game, command)) return;
 
     if (op == "wait")
     {

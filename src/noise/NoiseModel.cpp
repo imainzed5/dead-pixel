@@ -30,6 +30,7 @@ void NoiseModel::clear()
 {
     mActiveEvents.clear();
     mAttractors.clear();
+    mHeard.clear();
 }
 
 const NoiseAttractor* NoiseModel::attractorNear(const glm::vec2& at, float radius) const
@@ -54,7 +55,8 @@ void NoiseModel::emitNoise(
     float durationSeconds,
     Entity sourceEntity,
     NoiseSource source,
-    float reach)
+    float reach,
+    SoundId sound)
 {
     if (tier == NoiseTier::None)
     {
@@ -79,6 +81,8 @@ void NoiseModel::emitNoise(
     }
 
     mActiveEvents.push_back(event);
+    // Its sound, for the mixer to place (it never feeds back into hearing).
+    if (sound != SoundId::None && mHeard.size() < kHeardLimit) mHeard.push_back(HeardSound{event, sound});
 
     // A gunshot, a crash, an alarm: the dead that come stay a while.
     if (tier == NoiseTier::Loud || tier == NoiseTier::Explosive)

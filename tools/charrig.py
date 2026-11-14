@@ -553,6 +553,56 @@ def pose_run_armin(f, n, weapon=None):
     return _arm_in(pose_run(f, n, weapon))
 
 
+# Phase 12: idles that carry the body's state. Two frames each; the game
+# plays them slower than the plain idle.
+def pose_idle_low(f, n, weapon=None):
+    """Shoulders down, head hung: low spirits."""
+    breathe = 0.5 * (1.0 - math.cos(2.0 * math.pi * f / n))
+    p = base_pose()
+    p["chest"] = (0.0, 1.4, 23.8 - 0.4 * breathe)
+    p["head"] = (0.0, 2.4, 30.4 - 0.5 * breathe)
+    p["nod"] = 0.32
+    p["hand_l"] = (-4.8, 1.4, 12.6 - 0.3 * breathe)
+    p["hand_r"] = (4.8, 1.4, 12.6 - 0.3 * breathe)
+    return _carry(p, weapon) if weapon else p
+
+
+def pose_idle_cold(f, n, weapon=None):
+    """Arms wrapped round the chest, a shiver from side to side."""
+    shake = 0.45 if f % 2 == 0 else -0.45
+    p = base_pose()
+    p["chest"] = (shake * 0.6, 0.8, 24.6)
+    p["head"] = (shake * 0.8, 1.2, 31.4)
+    p["nod"] = 0.12
+    p["hand_l"] = (2.4 + shake * 0.4, 3.4, 21.0)
+    p["hand_r"] = (-2.4 + shake * 0.4, 3.0, 20.0)
+    p["foot_l"] = (-2.0, 0.0, 0.0)
+    p["foot_r"] = (2.0, 0.0, 0.0)
+    if weapon:
+        # The weapon hangs from the right hand, held in close.
+        p["weapon"] = weapon
+        p["weapon_dir"] = (0.2, 0.2, -1.0)
+    return p
+
+
+def pose_idle_knee(f, n, weapon=None):
+    """Bent over, a hand on the knee: spent."""
+    breathe = 0.5 * (1.0 - math.cos(2.0 * math.pi * f / n))
+    p = base_pose()
+    p["hip"] = (0.0, -0.8, 12.8)
+    p["chest"] = (0.0, 4.2, 21.4 - 0.8 * breathe)
+    p["head"] = (0.0, 6.6, 27.0 - 1.0 * breathe)
+    p["nod"] = 0.25
+    p["foot_l"] = (-3.0, 2.2, 0.0)
+    p["foot_r"] = (2.8, -1.2, 0.0)
+    p["hand_l"] = (-3.0, 4.0, 8.4)           # on the knee
+    p["hand_r"] = (5.0, 4.4, 10.6 - 0.5 * breathe)
+    if weapon:
+        p["weapon"] = weapon
+        p["weapon_dir"] = (0.1, 0.4, -1.0)
+    return p
+
+
 def _keys(f, frames):
     """Pick the keyframe dict for frame f and lay it over the base pose."""
     p = base_pose()
@@ -1131,6 +1181,12 @@ PLAYER_ARMIN_MOVES = {
     "walkarmin": (pose_walk_armin, 8),
     "runarmin": (pose_run_armin, 6),
 }
+# Phase 12: idles by the body's state ("idle<mood>").
+PLAYER_MOOD_MOVES = {
+    "idlelow": (pose_idle_low, 2),
+    "idlecold": (pose_idle_cold, 2),
+    "idleknee": (pose_idle_knee, 2),
+}
 ZOMBIE_MOVES = {
     "idle": (zpose_idle, 2),
     "walk": (zpose_walk, 8),
@@ -1260,6 +1316,15 @@ def armin_frames():
     for view in VIEW_ORDER:
         for load, weapon in PLAYER_LOADOUTS:
             for move, (fn, count) in PLAYER_ARMIN_MOVES.items():
+                yield (f"player_{load}_{move}_{view}",
+                       [draw(PLAYER_LOOK, fn(f, count, weapon), view) for f in range(count)])
+
+
+def mood_frames():
+    """Yield (sprite name, [frames]) for the player's idles by mood (phase 12)."""
+    for view in VIEW_ORDER:
+        for load, weapon in PLAYER_LOADOUTS:
+            for move, (fn, count) in PLAYER_MOOD_MOVES.items():
                 yield (f"player_{load}_{move}_{view}",
                        [draw(PLAYER_LOOK, fn(f, count, weapon), view) for f in range(count)])
 

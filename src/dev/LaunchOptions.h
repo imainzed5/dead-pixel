@@ -13,6 +13,7 @@
 //   --hidden             keep the window hidden (screenshots still work)
 //   --watch              render every tick to the window (watch the script run)
 //   --max-ticks N        hard stop after N simulation ticks
+//   --mute               open no audio device (the mixer still decides what would play)
 struct LaunchOptions
 {
     std::string scriptPath;
@@ -21,6 +22,7 @@ struct LaunchOptions
     std::optional<std::uint32_t> worldSeed;
     bool hidden = false;
     bool watch = false;
+    bool mute = false;
     int maxTicks = 0;
 
     [[nodiscard]] bool harnessEnabled() const { return !scriptPath.empty(); }

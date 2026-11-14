@@ -261,6 +261,8 @@ void Game::buildHudState()
         hud.messageAlpha = std::min(1.0f, mInteractionMessageTimer / 0.5f);
     }
     hud.prompt = mProximityPrompt;
+    // An ear to a closed door (phase 12): the verb teaches itself.
+    if (mListening) hud.prompt = hud.prompt.empty() ? std::string("Listening.") : "Listening.   " + hud.prompt;
 
     // Inside a vehicle (phase 11): its fuel, condition and a word for the speed.
     if (mActiveVehicleEntity != kInvalidEntity && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity))

@@ -276,6 +276,7 @@ bool Game::handleTapInteraction(const ProximityPrompt& entityPrompt)
     if (!running)
     {
         mFirstDays.tapsDryNoted = true;
+        playAt(SoundId::TapDry, playerWorldCenter());
         mInteractionMessage = "The tap coughs and gives nothing. The water's off.";
         mInteractionMessageTimer = 3.5f;
         return true;
@@ -303,8 +304,12 @@ bool Game::handleTapInteraction(const ProximityPrompt& entityPrompt)
         needs.thirst = needs.maxThirst;
     }
     mFirstDays.record.usedTap = true;
-    mNoiseModel.emitNoise(playerWorldCenter(), NoiseTier::Soft, 1.0f, mPlayerEntity);
-    mAudioManager.playSound(SoundId::FoodEat, 0.45f);
+    // The last day the water runs, it sputters (phase 12).
+    const bool sputtering = mCurrentDay >= firstdays::kTapsDieDay - 1;
+    makeNoise(playerWorldCenter(), NoiseTier::Soft, 1.0f, sputtering ? SoundId::TapSputter : SoundId::TapRun,
+              mPlayerEntity);
+    mAudioManager.play(SoundId::BodyDrink, 0.8f);
+    if (filled > 0) mAudioManager.play(SoundId::BottleFill, 0.8f);
 
     if (filled > 0)
     {
@@ -518,6 +523,7 @@ void Game::updateFirstDays(float dtSeconds)
     {
         record.cardDay = mCurrentDay;
         mFirstDays.cardTimer = kDayCardSeconds;
+        playUi(SoundId::DayCard);
     }
     mFirstDays.cardTimer = std::max(0.0f, mFirstDays.cardTimer - dtSeconds);
 }

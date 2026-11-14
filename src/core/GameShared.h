@@ -471,10 +471,11 @@ struct ControlBinding
     const char* action;
 };
 
-constexpr std::array<ControlBinding, 27> kControlBindings = {{
+constexpr std::array<ControlBinding, 28> kControlBindings = {{
     {"WASD", "Move; steer a vehicle"},
     {"Shift", "Run"},
     {"C", "Crouch; still 3 s: breathe"},
+    {"C", "Still by a door: listen"},
     {"Mouse", "Aim"},
     {"LClick", "Attack / fire"},
     {"RClick", "Take down (from behind)"},

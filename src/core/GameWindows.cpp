@@ -15,7 +15,6 @@ glm::vec2 tileCentre(const TileMap& map, const glm::ivec2& tile)
                      (static_cast<float>(tile.y) + 0.5f) * static_cast<float>(map.tileHeight()));
 }
 
-constexpr float kBangHearingTiles = 18.0f;
 constexpr float kMessageTiles = 14.0f;
 constexpr float kWakeTiles = 12.0f;
 // The dead within this of a lit window, outside, come to it.
@@ -179,8 +178,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
                     InventorySystem::addItem(inv, mItemDatabase, mItems.nails, 2);
                 }
             }
-            mNoiseModel.emitNoise(centre, NoiseTier::Medium, 0.8f, mPlayerEntity);
-            mAudioManager.playSound(SoundId::WeaponHit, 0.45f);
+            makeNoise(centre, NoiseTier::Medium, 0.8f, SoundId::BoardPry, mPlayerEntity);
             const int left = mWindows.boards(tile);
             mInteractionMessage = left > 0 ? "You pry a board off. " + std::to_string(left) + " left."
                                            : "You pry the last board off.";
@@ -263,7 +261,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
                         woundrules::make(WoundType::Fracture, woundrules::legPart(bodyRoll())));
                     message = "You fall badly. Something in your leg snaps.";
                 }
-                mNoiseModel.emitNoise(centre, NoiseTier::Medium, 0.8f, mPlayerEntity);
+                makeNoise(centre, NoiseTier::Medium, 0.8f, SoundId::BodyGruntBig, mPlayerEntity);
                 mInteractionMessage = message;
                 mInteractionMessageTimer = 3.0f;
                 return true;
@@ -276,7 +274,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
         mBaseAction.total = Windows::kPlayerClimbSeconds;
         mBaseAction.label = "Climbing through";
         mBaseAction.startHp = mWorld.hasComponent<Health>(mPlayerEntity) ? mWorld.getComponent<Health>(mPlayerEntity).current : 0.0f;
-        mNoiseModel.emitNoise(centre, NoiseTier::Soft, 0.6f, mPlayerEntity);
+        makeNoise(centre, NoiseTier::Soft, 0.6f, SoundId::BodyClimb, mPlayerEntity);
 
         // Something laid over the broken glass, or a chance of a cut.
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
@@ -316,6 +314,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
     if (inside)
     {
         mTileMap.setWindowCovered(tile.x, tile.y, !covered);
+        playAt(SoundId::Curtain, tileCentre(mTileMap, tile), 0.8f);
         mSaveManager.setWindows(windowRecords());
         mInteractionMessage = covered ? "You open the curtain." : "You draw the curtain.";
         mInteractionMessageTimer = 1.5f;
@@ -367,8 +366,7 @@ void Game::boardUpWindow(const glm::ivec2& tile)
         }
         InventorySystem::removeItem(inventory, mItems.woodPlanks, reinforced ? 2 : 1);
         InventorySystem::removeItem(inventory, mItems.nails, 2);
-        mNoiseModel.emitNoise(tileCentre(mTileMap, tile), NoiseTier::Loud, 1.0f, mPlayerEntity);
-        mAudioManager.playSound(SoundId::WeaponHit, 0.7f);
+        makeNoise(tileCentre(mTileMap, tile), NoiseTier::Loud, 1.0f, SoundId::Hammer, mPlayerEntity);
         const int boards = mWindows.boards(tile);
         message = "You nail a board across the window (" + std::to_string(boards) + "/" +
                   std::to_string(Windows::kMaxBoards) + ").";
@@ -389,11 +387,10 @@ void Game::breakWindow(const glm::ivec2& tile, bool loud)
     const glm::vec2 centre = tileCentre(mTileMap, tile);
     // The glass falls outside.
     dropOnFloor(window->spot.outside, mItems.glassShards, 1);
-    mNoiseModel.emitNoise(centre, loud ? NoiseTier::Loud : NoiseTier::Soft, loud ? 1.5f : 0.6f);
+    // Taped and knocked out, it only cracks and drops.
+    makeNoise(centre, loud ? NoiseTier::Loud : NoiseTier::Soft, loud ? 1.5f : 0.6f,
+              loud ? SoundId::WindowBreak : SoundId::GlassStep);
     mParticleSystem.spawnDust(centre, loud ? 10 : 4);
-    const float tiles = glm::length(centre - playerWorldCenter()) / static_cast<float>(std::max(1, mTileMap.tileWidth()));
-    const float volume = std::clamp(1.0f - tiles / kBangHearingTiles, 0.0f, 1.0f);
-    if (loud && volume > 0.0f) mAudioManager.playSound(SoundId::WeaponHit, 0.4f + 0.5f * volume);
     rattleAlarm(tile);
     mSaveManager.setWindows(windowRecords());
 }
@@ -409,7 +406,6 @@ void Game::windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds, fl
     const glm::vec2 centre = tileCentre(mTileMap, tile);
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     const float tiles = glm::length(centre - playerWorldCenter()) / tileSize;
-    const float volume = std::clamp(1.0f - tiles / kBangHearingTiles, 0.0f, 1.0f);
 
     // An empty frame: one at a time, they climb through.
     if (mTileMap.windowOpen(tile.x, tile.y))
@@ -444,7 +440,7 @@ void Game::windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds, fl
             mWorld.getComponent<ZombieAI>(zombie).path.clear();
         }
         mWindowClimbs.erase(climb);
-        mNoiseModel.emitNoise(centre, NoiseTier::Soft, 0.8f);
+        makeNoise(centre, NoiseTier::Soft, 0.8f, SoundId::DeadFall);
         if (tiles <= kMessageTiles)
         {
             mInteractionMessage = "Something climbs in through a window.";
@@ -461,16 +457,14 @@ void Game::windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds, fl
     rattleAlarm(tile);
     if (blow == Windows::Blow::Bang)
     {
-        mNoiseModel.emitNoise(centre, NoiseTier::Medium, 1.0f);
-        if (volume > 0.0f) mAudioManager.playSound(SoundId::WeaponHit, 0.2f + 0.45f * volume);
+        makeNoise(centre, NoiseTier::Medium, 1.0f, SoundId::DeadWindowBang);
         wakeSleeper(centre, kWakeTiles, 2, "Something at the window woke you!");
         return;
     }
     if (blow == Windows::Blow::Splinters)
     {
-        mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.0f);
+        makeNoise(centre, NoiseTier::Loud, 1.0f, SoundId::DeadBoardCrack);
         mParticleSystem.spawnDust(centre, 6);
-        if (volume > 0.0f) mAudioManager.playSound(SoundId::WeaponHit, 0.35f + 0.6f * volume);
         wakeSleeper(centre, kWakeTiles, 3, "A board splinters at the window!");
         if (tiles <= kMessageTiles)
         {
@@ -484,9 +478,8 @@ void Game::windowBlow(const glm::ivec2& tile, Entity zombie, float dtSeconds, fl
     }
     // Shatters: the glass is already broken by batter; drop it and make it heard.
     dropOnFloor(spot.outside, mItems.glassShards, 1);
-    mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.5f);
+    makeNoise(centre, NoiseTier::Loud, 1.5f, SoundId::WindowBreak);
     mParticleSystem.spawnDust(centre, 10);
-    if (volume > 0.0f) mAudioManager.playSound(SoundId::ZombieAttack, 0.3f + 0.6f * volume);
     wakeSleeper(centre, kWakeTiles, 3, "Glass breaks somewhere close!");
     if (tiles <= kMessageTiles)
     {

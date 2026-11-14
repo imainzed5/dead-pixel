@@ -14,8 +14,7 @@ glm::vec2 doorCentre(const TileMap& map, const glm::ivec2& tile)
                      (static_cast<float>(tile.y) + 0.5f) * static_cast<float>(map.tileHeight()));
 }
 
-// Bangs are heard across the street, louder the closer you are.
-constexpr float kBangHearingTiles = 18.0f;
+// (How far bangs carry is the sound table's: assets/data/sounds.json.)
 constexpr float kBreakMessageTiles = 14.0f;
 // Asleep within this, the banging wakes you.
 constexpr float kWakeTiles = 12.0f;
@@ -82,14 +81,22 @@ void Game::updateDoors(float dtSeconds)
 
         const glm::vec2 centre = doorCentre(mTileMap, tile);
         const float tiles = glm::length(centre - player) / tileSize;
-        const float volume = std::clamp(1.0f - tiles / kBangHearingTiles, 0.0f, 1.0f);
+        (void)tiles;
+        // The first of the night's callers at your door: a sting (phase 12,
+        // not in Hopeless).
+        if (mCallerStingNight != mCurrentDay && music::stingsAllowed(musicTone()) &&
+            mWorld.hasComponent<ZombieAI>(barrier.zombie) &&
+            mWorld.getComponent<ZombieAI>(barrier.zombie).nightCaller)
+        {
+            mCallerStingNight = mCurrentDay;
+            mAudioManager.play(SoundId::StingCaller);
+        }
         // Sleeping behind boards, only a board giving way wakes you.
         wakeSleeper(centre, kWakeTiles, blow == Doors::Blow::Bang ? 2 : 3, "Banging at the door woke you!");
         mParticleSystem.spawnDust(centre, blow == Doors::Blow::Bang ? 3 : (blow == Doors::Blow::Splinters ? 6 : 10));
         if (blow == Doors::Blow::Splinters)
         {
-            mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.0f);
-            if (volume > 0.0f) mAudioManager.playSound(SoundId::WeaponHit, 0.35f + 0.6f * volume);
+            makeNoise(centre, NoiseTier::Loud, 1.0f, SoundId::DeadBoardCrack);
             if (tiles <= kBreakMessageTiles)
             {
                 const int left = mDoors.boards(tile);
@@ -102,13 +109,11 @@ void Game::updateDoors(float dtSeconds)
         else if (blow == Doors::Blow::Bang)
         {
             // Every bang draws more of them.
-            mNoiseModel.emitNoise(centre, NoiseTier::Medium, 1.0f);
-            if (volume > 0.0f) mAudioManager.playSound(SoundId::WeaponHit, 0.25f + 0.5f * volume);
+            makeNoise(centre, NoiseTier::Medium, 1.0f, SoundId::DeadDoorBang);
         }
         else
         {
-            mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.5f);
-            if (volume > 0.0f) mAudioManager.playSound(SoundId::ZombieAttack, 0.3f + 0.6f * volume);
+            makeNoise(centre, NoiseTier::Loud, 1.5f, SoundId::FurnitureBreak);
             if (tiles <= kBreakMessageTiles)
             {
                 mInteractionMessage = "A door gives way.";
@@ -218,8 +223,7 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
                     InventorySystem::addItem(inv, mItemDatabase, mItems.nails, 2);
                 }
             }
-            mNoiseModel.emitNoise(centre, NoiseTier::Medium, 0.8f, mPlayerEntity);
-            mAudioManager.playSound(SoundId::WeaponHit, 0.45f);
+            makeNoise(centre, NoiseTier::Medium, 0.8f, SoundId::BoardPry, mPlayerEntity);
             const int left = mDoors.boards(door->tile);
             mInteractionMessage = left > 0 ? "You pry a board off. " + std::to_string(left) + " left."
                                            : "You pry the last board off.";
@@ -268,8 +272,12 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
     }
 
     mDoors.toggle(mTileMap, door->tile);
-    mNoiseModel.emitNoise(centre, NoiseTier::Soft, 0.5f, mPlayerEntity);
-    mAudioManager.playSound(SoundId::FootstepLoud, 0.35f);
+    // Crouched, you ease it: a creak, not a knock of the frame.
+    const bool gently = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Facing>(mPlayerEntity) &&
+                        mWorld.getComponent<Facing>(mPlayerEntity).crouching;
+    const bool opened = state != DoorState::Open; // it was shut: now it is open
+    makeNoise(centre, NoiseTier::Soft, 0.5f,
+              gently ? SoundId::DoorCreak : (opened ? SoundId::DoorOpen : SoundId::DoorClose), mPlayerEntity);
     return true;
 }
 
@@ -316,8 +324,7 @@ void Game::boardUpDoor(const glm::ivec2& tile)
         InventorySystem::removeItem(inventory, mItems.woodPlanks, reinforced ? 2 : 1);
         InventorySystem::removeItem(inventory, mItems.nails, 2);
         // Hammering carries: the dead will hear it.
-        mNoiseModel.emitNoise(doorCentre(mTileMap, tile), NoiseTier::Loud, 1.0f, mPlayerEntity);
-        mAudioManager.playSound(SoundId::WeaponHit, 0.7f);
+        makeNoise(doorCentre(mTileMap, tile), NoiseTier::Loud, 1.0f, SoundId::Hammer, mPlayerEntity);
         const int boards = mDoors.boards(tile);
         message = "You nail a board across the door (" + std::to_string(boards) + "/" +
                   std::to_string(Doors::kMaxBoards) + ").";

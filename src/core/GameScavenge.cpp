@@ -319,7 +319,7 @@ bool Game::handleLockedDoor(const glm::ivec2& tile)
         if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return false;
         unlockDoor(tile, "from inside");
         mDoors.open(mTileMap, tile);
-        mNoiseModel.emitNoise(centre, NoiseTier::Soft, 0.5f, mPlayerEntity);
+        makeNoise(centre, NoiseTier::Soft, 0.5f, SoundId::DoorOpen, mPlayerEntity);
         mInteractionMessage = "You turn the lock and open it.";
         mInteractionMessageTimer = 2.0f;
         return true;
@@ -369,8 +369,7 @@ bool Game::handleLockedDoor(const glm::ivec2& tile)
         stamina.current -= kShoulderStamina;
     }
     lock->damage += damage;
-    mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.0f, mPlayerEntity);
-    mAudioManager.playSound(SoundId::WeaponHit, 0.7f);
+    makeNoise(centre, NoiseTier::Loud, 1.0f, SoundId::DeadDoorBang, mPlayerEntity);
     mParticleSystem.spawnDust(centre, 4);
     mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.15f);
     if (lock->damage >= kBreakDoorDamage)
@@ -421,7 +420,6 @@ void Game::updateAlarms(float dtSeconds)
 {
     if (mAlarms.empty()) return;
     const bool on = powerOn();
-    const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     for (AlarmRinging& alarm : mAlarms)
     {
         if (!on)
@@ -436,10 +434,7 @@ void Game::updateAlarms(float dtSeconds)
         {
             alarm.noiseTimer += kAlarmNoiseSeconds;
             const glm::vec2 centre = tileCentre(mTileMap, alarm.door);
-            mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.0f);
-            const float tiles = glm::length(centre - playerWorldCenter()) / tileSize;
-            const float volume = std::clamp(1.0f - tiles / kAlarmWakeTiles, 0.0f, 1.0f);
-            if (volume > 0.0f) mAudioManager.playSound(SoundId::WeaponHit, 0.2f + 0.4f * volume);
+            makeNoise(centre, NoiseTier::Loud, 1.0f, SoundId::ShopAlarm);
             wakeSleeper(centre, kAlarmWakeTiles, 3, "An alarm is ringing!");
         }
         if (alarm.left <= 0.0f) std::cout << "[Scavenge] alarm at building " << alarm.building << " ran down\n";
@@ -515,6 +510,23 @@ void Game::beginSearch(Entity container)
     mBaseAction.target = container;
     mBaseAction.total = seconds;
     mBaseAction.window = armoury; // forced open: Loud
+    if (!armoury)
+    {
+        SoundId opening = SoundId::OpenCupboard;
+        switch (piece->kind)
+        {
+        case FurnitureKind::Fridge: opening = SoundId::OpenFridge; break;
+        case FurnitureKind::Locker:
+        case FurnitureKind::MetalRack:
+        case FurnitureKind::ToolRack: opening = SoundId::OpenLocker; break;
+        case FurnitureKind::Dresser:
+        case FurnitureKind::Desk:
+        case FurnitureKind::FilingCabinet:
+        case FurnitureKind::Checkout: opening = SoundId::OpenDrawer; break;
+        default: break;
+        }
+        playAt(opening, tileCentre(mTileMap, tile), 0.85f);
+    }
     mBaseAction.label = armoury ? (fuseCabinet ? "Forcing the cabinet" : "Forcing the locker")
                                 : "Searching the " + lowerFirst(containerName(container));
     mBaseAction.startPos = playerWorldCenter();
@@ -637,8 +649,7 @@ void Game::finishScavengeAction()
         const int building = lock != mLocks.end() ? lock->building : mTileMap.getBuildingId(action.tile.x, action.tile.y);
         unlockDoor(action.tile, "forced");
         mDoors.open(mTileMap, action.tile);
-        mNoiseModel.emitNoise(tileCentre(mTileMap, action.tile), NoiseTier::Loud, 1.0f, mPlayerEntity);
-        mAudioManager.playSound(SoundId::WeaponHit, 0.6f);
+        makeNoise(tileCentre(mTileMap, action.tile), NoiseTier::Loud, 1.0f, SoundId::DoorOpen, mPlayerEntity);
         mInteractionMessage = "The lock gives. The door swings in.";
         mInteractionMessageTimer = 2.5f;
         tripAlarm(building, action.tile);
@@ -760,7 +771,7 @@ bool Game::handleWaterSource(const ProximityPrompt&)
         mSaveManager.setScavengeMemory(std::move(memory));
         mSaveManager.saveWorldMemory();
     }
-    mNoiseModel.emitNoise(here, NoiseTier::Soft, 0.5f, mPlayerEntity);
+    makeNoise(here, NoiseTier::Soft, 0.5f, SoundId::BottleFill, mPlayerEntity);
     mInteractionMessage = toilet != nullptr ? "One bottle from the cistern. It is not clean."
                                             : "You fill " + std::to_string(added) + (added == 1 ? " bottle" : " bottles") + ". The water is not clean.";
     mInteractionMessageTimer = 2.5f;
@@ -857,7 +868,7 @@ bool Game::eatOrDrink(int slotIndex)
     InventorySystem::consumeOne(inv, mItemDatabase, slotIndex);
     mInteractionMessage = message;
     mInteractionMessageTimer = 3.0f;
-    mAudioManager.playSound(SoundId::FoodEat, drink ? 0.4f : 0.5f);
+    mAudioManager.play(drink ? SoundId::BodyDrink : SoundId::BodyEat);
     return true;
 }
 

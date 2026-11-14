@@ -208,8 +208,8 @@ std::string Game::pushFurniture(const glm::ivec2& tile, const glm::ivec2& dir, b
         Stamina& stamina = mWorld.getComponent<Stamina>(mPlayerEntity);
         stamina.current = std::max(0.0f, stamina.current - cost);
     }
-    mNoiseModel.emitNoise(tileCentre(mTileMap, target), heavy ? NoiseTier::Medium : NoiseTier::Soft, 0.8f, mPlayerEntity);
-    mAudioManager.playSound(SoundId::FootstepLoud, heavy ? 0.45f : 0.3f);
+    makeNoise(tileCentre(mTileMap, target), heavy ? NoiseTier::Medium : NoiseTier::Soft, 0.8f,
+              heavy ? SoundId::DragHeavy : SoundId::DragLight, mPlayerEntity);
     noteDoorwayBlocked(target);
     return {};
 }
@@ -412,7 +412,7 @@ void Game::breakFurniture(const glm::ivec2& tile)
     part(yield.scrap, "piece of scrap", "pieces of scrap");
     mInteractionMessage = std::string("The ") + pieceName(kind) + " comes apart" + (got.empty() ? "." : ": " + got + ".");
     mInteractionMessageTimer = 3.0f;
-    mAudioManager.playSound(SoundId::WeaponHit, 0.6f);
+    playAt(SoundId::FurnitureBreak, tileCentre(mTileMap, tile), 0.8f);
 }
 
 void Game::furnitureBlow(const glm::ivec2& tile, float damage)
@@ -427,8 +427,8 @@ void Game::furnitureBlow(const glm::ivec2& tile, float damage)
     // A thump about once a second.
     if (std::floor(before / Doors::kZombieDamagePerSecond) != std::floor(piece->damage / Doors::kZombieDamagePerSecond))
     {
-        mNoiseModel.emitNoise(centre, NoiseTier::Medium, 1.0f);
-        if (tiles < 18.0f) mAudioManager.playSound(SoundId::WeaponHit, 0.2f + 0.3f * (1.0f - tiles / 18.0f));
+        makeNoise(centre, NoiseTier::Medium, 1.0f, SoundId::DeadDoorBang);
+        (void)tiles;
         wakeSleeper(centre, 12.0f, 2, "Something is shoving at the doorway!");
     }
     if (piece->damage < hp) return;
@@ -465,7 +465,7 @@ void Game::furnitureBlow(const glm::ivec2& tile, float damage)
     for (const auto& [itemId, count] : spilled) dropOnFloor(tile, itemId, count);
     dropOnFloor(tile, mItems.woodPlanks, 1);
 
-    mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.5f);
+    makeNoise(centre, NoiseTier::Loud, 1.5f, SoundId::FurnitureBreak);
     mParticleSystem.spawnDust(centre, 12);
     wakeSleeper(centre, 12.0f, 3, "Something crashes through the doorway!");
     if (tiles <= 14.0f)
@@ -689,7 +689,7 @@ void Game::finishBuild()
     ++mRunStats.structuresBuilt;
     mInteractionMessage = std::string(structureInfo(type).name) + " built.";
     mInteractionMessageTimer = 3.0f;
-    mAudioManager.playSound(SoundId::WeaponHit, 0.5f);
+    playAt(SoundId::CraftDone, tileCentre(mTileMap, tile));
     noteAccomplishment();
     std::cout << "[Base] built " << structureInfo(type).name << " at " << tile.x << "," << tile.y << "\n";
     {
@@ -742,8 +742,7 @@ void Game::rattleAlarm(const glm::ivec2& tile)
     if (hung == kInvalidEntity) return;
     mWorld.destroyEntity(hung);
     const glm::vec2 centre = tileCentre(mTileMap, tile);
-    mNoiseModel.emitNoise(centre, NoiseTier::Loud, kAlarmNoiseSeconds);
-    mAudioManager.playSound(SoundId::WeaponHit, 0.8f);
+    makeNoise(centre, NoiseTier::Loud, kAlarmNoiseSeconds, SoundId::CanAlarm);
     // The cans fall inside.
     glm::ivec2 floor = tile;
     for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
@@ -955,7 +954,8 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
                     InventorySystem::removeItem(*inv, def->id, 1);
                     s.hp = s.maxHp;
                     s.condition = StructureCondition::Intact;
-                    mNoiseModel.emitNoise(here, recipe->hammering ? NoiseTier::Loud : NoiseTier::Soft, 0.8f, mPlayerEntity);
+                    makeNoise(here, recipe->hammering ? NoiseTier::Loud : NoiseTier::Soft, 0.8f,
+                              recipe->hammering ? SoundId::Hammer : SoundId::CraftDone, mPlayerEntity);
                     mInteractionMessage = std::string("You patch up the ") + structureInfo(s.type).name + ".";
                 }
                 mInteractionMessageTimer = 2.5f;
@@ -1012,6 +1012,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
             {
                 InventorySystem::removeItem(*inv, mItems.matches, 1);
             }
+            mAudioManager.play(SoundId::Match);
             return true;
         };
         switch (s.type)
@@ -1165,7 +1166,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
         mBaseAction.to = across;
         mBaseAction.total = furnitureuse::kClimbOverSeconds;
         mBaseAction.label = "Climbing over";
-        mNoiseModel.emitNoise(here, NoiseTier::Soft, 0.6f, mPlayerEntity);
+        makeNoise(here, NoiseTier::Soft, 0.6f, SoundId::BodyClimb, mPlayerEntity);
         return true;
     }
     if (!mInput.wasKeyPressed(SDL_SCANCODE_X))
@@ -1437,8 +1438,31 @@ void Game::updateBaseActions(float dtSeconds)
                            mBaseAction.kind == BaseAction::Kind::Tend;
         if (!quiet)
         {
-            mNoiseModel.emitNoise(here, tier, 1.0f, mPlayerEntity);
-            if (tier == NoiseTier::Loud) mAudioManager.playSound(SoundId::WeaponHit, 0.35f);
+            // What the work sounds like, each second (phase 12).
+            SoundId sound = SoundId::None;
+            switch (mBaseAction.kind)
+            {
+            case BaseAction::Kind::Break: sound = SoundId::PlankSplit; break;
+            case BaseAction::Kind::Board: sound = SoundId::Hammer; break;
+            case BaseAction::Kind::Smash: sound = SoundId::HitWall; break;
+            case BaseAction::Kind::Force: sound = tier == NoiseTier::Loud ? SoundId::BoardPry : SoundId::None; break;
+            case BaseAction::Kind::FreeGenerator: sound = tier == NoiseTier::Loud ? SoundId::GateGrind : SoundId::None; break;
+            case BaseAction::Kind::Build: sound = tier == NoiseTier::Loud ? SoundId::Hammer : SoundId::PickupLight; break;
+            case BaseAction::Kind::Repair:
+            case BaseAction::Kind::FitFuse:
+            case BaseAction::Kind::Forage: sound = SoundId::PickupLight; break;
+            case BaseAction::Kind::MendVehicle: sound = SoundId::PickupHeavy; break;
+            case BaseAction::Kind::PourFuel:
+            case BaseAction::Kind::Refuel: sound = SoundId::WaterPour; break;
+            case BaseAction::Kind::Bury:
+            case BaseAction::Kind::LoadCargo:
+            case BaseAction::Kind::UnloadCargo: sound = SoundId::DragHeavy; break;
+            case BaseAction::Kind::Search:
+                sound = mBaseAction.window ? SoundId::GlassStep : SoundId::None; // the rummage loop covers it
+                break;
+            default: break;
+            }
+            makeNoise(here, tier, 1.0f, sound, mPlayerEntity);
         }
     }
     if (mBaseAction.timer < mBaseAction.total) return;
@@ -1582,6 +1606,7 @@ void Game::updateStructures(float dtSeconds)
             if (s.noiseTimer <= 0.0f)
             {
                 s.noiseTimer = kFireNoiseSeconds;
+                // The crackle is the fire layer's; this is the noise the dead hear.
                 mNoiseModel.emitNoise(tileCentre(mTileMap, tile), NoiseTier::Medium, 1.0f);
             }
             // It may catch what it stands on (phase 7, on the fire grid): wood
@@ -1672,7 +1697,7 @@ void Game::updateTraps(float dtSeconds)
                     ai.slowTimer = kSpikeSlowSeconds;
                     ai.lastDamagedBy = mPlayerEntity;
                     --s.uses;
-                    mNoiseModel.emitNoise(tileCentre(mTileMap, trap.tile), NoiseTier::Soft, 0.8f);
+                    makeNoise(tileCentre(mTileMap, trap.tile), NoiseTier::Soft, 0.8f, SoundId::SpikeBoard);
                     mParticleSystem.spawnBloodSpray(tileCentre(mTileMap, trap.tile), glm::vec2(0.0f, -1.0f), 6);
                     if (s.uses <= 0) gone.push_back(trap.entity);
                     std::cout << "[Base] a spike board caught one (" << s.uses << " left)\n";

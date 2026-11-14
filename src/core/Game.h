@@ -22,6 +22,8 @@
 #include "core/Input.h"
 #include "dev/LaunchOptions.h"
 #include "audio/AudioManager.h"
+#include "audio/Ambience.h"
+#include "audio/AudioRules.h"
 #include "ecs/Types.h"
 #include "ecs/World.h"
 #include "items/ItemDatabase.h"
@@ -48,6 +50,7 @@
 #include "map/TiledLoader.h"
 #include "noise/NoiseModel.h"
 #include "rendering/Camera.h"
+#include "rendering/PostFx.h"
 #include "rendering/Shader.h"
 #include "rendering/SpriteBatch.h"
 #include "rendering/BitmapFont.h"
@@ -708,6 +711,9 @@ private:
     void onZombieDeath(Entity zombie);
     [[nodiscard]] senses::Shell shellAt(const glm::ivec2& tile);
     [[nodiscard]] bool buildingSealed(int building);
+    // The same worked out afresh, without the tick's cache (the mixer asks
+    // this, so that listening never changes what the simulation sees).
+    [[nodiscard]] bool buildingSealedNow(int building) const;
     [[nodiscard]] int ruinLevel(int districtId) const;
     void refreshRuinLevels();
     void noticeUnknownRules();
@@ -1221,8 +1227,6 @@ private:
     bool mStayedForGood = false;                  // the run ended by staying
     int mInfectionCheck = 0;                      // harness: infection above world creation
 
-    float mZombieGrowlTimer = 0.0f;
-
     // Flashlight (Q): a beam at night that zombies can see from afar.
     bool mFlashlightOn = false;
     static constexpr float kFlashlightRangeTiles = 9.0f;
@@ -1426,4 +1430,77 @@ private:
     float mGateCheckTimer = 0.0f;        // not saved
     std::vector<std::string> mOutLines;  // the Out screen (not saved)
     std::string mOutCompanion;           // who went with them (not saved)
+
+    // --- Sound and mood (phase 12, GameSound.cpp and GameMood.cpp) ---
+    // Nothing here is saved, makes an entity, or draws on the simulation's
+    // random numbers: what is heard and seen of the mood only reads the world.
+    // The table, the device (not under the harness or --mute), the settings.
+    void setupSound(const std::filesystem::path& assetsRoot);
+    // At the top of every tick: the listener, the sounds the noises made,
+    // ambience, music, the body and the dead heard about you.
+    void updateSoundscape(float dtSeconds);
+    // One call for a noise the dead hear and the sound the player hears.
+    void makeNoise(const glm::vec2& at, NoiseTier tier, float seconds, SoundId sound, Entity source = kInvalidEntity,
+                   NoiseSource kind = NoiseSource::World, float reach = 1.0f);
+    // A sound with no noise behind it (too quiet for the dead, or the body).
+    void playAt(SoundId sound, const glm::vec2& at, float volume = 1.0f);
+    void playUi(SoundId sound);
+    // The step a foot makes on this tile: 0 crouched, 1 walking, 2 running.
+    [[nodiscard]] SoundId footstepSound(const glm::ivec2& tile, int stance) const;
+    // A loop heard from a place: volume by distance, side by screen.
+    void placeLayer(LayerId layer, const glm::vec2& at, float rangeTiles, float volume);
+    void updateAmbience();
+    void updateDeadSounds();
+    void updateBodySounds(float dtSeconds);
+    void updateListening(float dtSeconds);
+    void updateStings();
+    void startTinnitus();
+    [[nodiscard]] audiorules::Shell soundShellAt(const glm::vec2& world) const;
+    [[nodiscard]] music::Tone musicTone() const;
+    // Called where things happen.
+    void soundOfDoor(const glm::ivec2& tile, bool opening, bool gently);
+    void soundOfHit(int weaponCategory, bool heavy, bool killed, const glm::vec2& at);
+
+    music::Director mMusic;
+    float mAmbienceTimer = 0.0f;
+    float mDeadSoundTimer = 0.0f;
+    float mHeartbeatTimer = 0.0f;
+    float mTinnitusLeft = 0.0f;
+    float mListenStill = 0.0f;
+    bool mListening = false;            // ear to a door (crouched, still, a door at hand)
+    int mNightKnown = -1;               // -1 not yet; else 1 night, 0 day (stings)
+    int mCallerStingNight = -1;         // the day of the night whose caller sting played
+    float mThunderFarTimer = 30.0f;     // distant thunder before a storm
+    float mDogTimer = 120.0f;
+    float mFliesTimer = 0.0f;
+    bool mWasHeld = false;
+    bool mWasBurning = false;
+    bool mWasPowerOn = true;
+    float mQuietStepTimer = 0.0f;       // steps too quiet to be a noise are still heard
+    std::mt19937 mSoundRng{0xA0D10u};   // which groan, when a dog barks: never the simulation's
+    std::unordered_map<Entity, std::uint8_t> mHeardDead; // the dead's state as last heard
+    bool mSoundReady = false;
+
+    // Mood on the screen (GameMood.cpp). 1 full, 0.5 reduced, 0 off; the
+    // harness starts at 0 (`fx on` sets 1) so older screenshots stay the same.
+    float mScreenEffects = 1.0f;
+    float mBlinkTimer = 30.0f;
+    float mBlinkLeft = 0.0f;
+    float mMoodClock = 0.0f;
+    float mBreathPuffTimer = 0.0f;
+    float mBeatClock = 0.0f;         // the heart, seen: 0-1 through a beat
+    float mHeartbeatSeen = 0.0f;     // 0-1, 1 on the beat
+    std::uint32_t mMoodSeed = 0x4D00Du; // blinks: its own numbers, never the simulation's
+    moodrules::Params mMoodParams;   // this frame's pass (neutral: the pass is skipped)
+    void updateMood(float dtSeconds);
+    [[nodiscard]] float moodLevel() const;
+    [[nodiscard]] float moodRoll();  // 0-1 from mMoodSeed
+    // The idle a body falls into by its state ("" for none): low, cold, knee.
+    [[nodiscard]] const char* moodIdle() const;
+    void renderMoodWorld();          // in the world pass: wet drops, shadows, flies, motes, chimneys, the clock
+    bool beginPostFx();              // before the world: draw into the pass's texture
+    void endPostFx();                // after the world, before the HUD
+    PostFx mPostFx;
+    int mClockBuilding = -2;         // the town clock's building index (-2 not chosen, -1 none)
+    double mClockShows = -1.0;       // the absolute hour its hands show (-1 not yet)
 };

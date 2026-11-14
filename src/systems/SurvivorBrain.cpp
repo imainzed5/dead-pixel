@@ -342,7 +342,9 @@ void SurvivorBrain::near(World& world, Entity e, SurvivorAI& ai, const SurvivorT
         {
             ai.noiseClock = 0.5f;
             const bool running = speed > kWalkSpeed * 1.2f;
-            tick.noise->emitNoise(centre, running ? NoiseTier::Medium : NoiseTier::Soft, 0.4f, e);
+            // Their feet: a generic street surface (the brain has no ground lookup).
+            tick.noise->emitNoise(centre, running ? NoiseTier::Medium : NoiseTier::Soft, 0.4f, e, NoiseSource::World, 1.0f,
+                                  running ? SoundId::FootAsphaltRun : SoundId::FootAsphaltWalk);
         }
     }
 

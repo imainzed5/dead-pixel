@@ -1,0 +1,160 @@
+# Sound (phase 12), read from the mixer's log: harness runs are silent, but
+# the mixer still works out every sound and layer it would play. Birds by
+# day stop when one of the dead comes near; steps sound of the ground; rain
+# is on the roof indoors; a door bang two buildings away comes through the
+# walls muffled, and plain with an ear to the door; your own shot rings the
+# ears and ducks the rest; a pistol 20 tiles off is its far tail; over six
+# calm hours indoors Hopeless plays no music and Grim Human one pad, once.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/soundscape.txt --hidden --world-seed 1234 --shots shots/soundscape
+
+newrun
+god on
+trait plain
+waits 1
+zoom 2.5
+slay 80
+tone grim
+
+# Outdoors by day with none of the dead near: the birds are up.
+hours 10
+weather clear
+goto pavement
+slay 40
+waits 4
+sounds
+expect layer birds above 0.3
+shot day_birds
+# One of the dead 8 tiles off: within 2 s the birds stop.
+zombie 0 8 shambler still
+waits 2
+sounds
+expect layer birds below 0.02
+shot birds_stopped
+slay 20
+waits 0.5
+
+# Walking: the steps sound of the ground underfoot.
+sound mark
+hold D 60
+waits 1.2
+sounds
+expect sound foot_asphalt_walk 2
+
+# Indoors with the door shut, in the rain: the rain is on the roof.
+weather rain
+goto home
+waits 4
+sounds
+expect layer rain_roof above 0.3
+expect layer rain_light below 0.05
+shot rain_on_roof
+# A door bang two buildings away: through shut walls, the muffled twin.
+sound mark
+sound dead_door_bang building 2
+waits 0.2
+expect sound dead_door_bang muffled
+# Crouched and still by the shut door for a second: listening ("Listening."),
+# and the same bang comes through plain.
+goto door
+hold C 240
+waits 2
+expect listening
+sounds
+shot listening
+sound mark
+sound dead_door_bang building 2
+waits 0.2
+expect sound dead_door_bang plain
+waits 2.5
+expect listening no
+
+# A shot of your own: the ears ring and the rest ducks for 3 s.
+weather clear
+goto pavement
+slay 40
+waits 2
+give Pistol
+give Pistol Ammo 9
+select Pistol
+reload
+waits 2
+mouse 760 420
+sound mark
+click left
+waits 0.5
+sounds
+expect sound pistol
+expect sound casing
+expect duck below 0.6
+expect layer tinnitus above 0.1
+shot gunshot_ringing
+waits 4
+expect duck none
+# The same pistol heard from 20 tiles off: its far tail.
+sound mark
+sound pistol 20 0
+waits 0.2
+sounds
+expect sound pistol far
+
+# Music. Hopeless: six calm game hours indoors (the dead kept away every
+# half hour) and no pad rises.
+goto home
+tone hopeless
+hours 6
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+sounds
+expect music none
+# Grim Human: the same six hours, and one pad, once.
+tone grim
+hours 6
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+slay 200
+waits 30
+sounds
+expect music starts 1

@@ -525,6 +525,7 @@ void Game::enterVehicle(Entity vehicle)
     mInteractionMessage = message;
     mInteractionMessageTimer = 2.5f;
     refreshVehicleSprite(vehicle);
+    if (k.engine) playAt(SoundId::CarDoor, vehicleCentre(vehicle));
     std::cout << "[Vehicle] in " << vehiclerules::kindName(v.kind) << '\n';
 }
 
@@ -620,6 +621,7 @@ bool Game::exitVehicle(bool thrown)
         mInteractionMessageTimer = 1.5f;
     }
     refreshVehicleSprite(vehicle);
+    if (v.kind != VehicleKind::Bicycle && !thrown) playAt(SoundId::CarDoor, out);
     std::cout << "[Vehicle] out" << (thrown ? " (thrown)" : "") << '\n';
     return true;
 }
@@ -634,8 +636,8 @@ void Game::fallOffBicycle(const char* why)
     }
     mPlayerDownTimer = std::max(mPlayerDownTimer, vehiclerules::kFallDownSeconds);
     mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.35f);
-    mAudioManager.playSound(SoundId::PlayerHurt, 0.5f);
-    mNoiseModel.emitNoise(playerWorldCenter(), NoiseTier::Medium, 0.8f, mPlayerEntity);
+    mAudioManager.play(SoundId::BodyGruntBig);
+    makeNoise(playerWorldCenter(), NoiseTier::Medium, 0.8f, SoundId::DeadFall, mPlayerEntity);
     mInteractionMessage = why;
     mInteractionMessageTimer = 2.5f;
 }
@@ -671,10 +673,10 @@ void Game::updateVehicleSeat(float dtSeconds)
     const bool held = mInput.isKeyDown(SDL_SCANCODE_E);
     const int mechanics = skillLevel(Skill::Mechanics);
 
+    // It catches (the engine loop takes over), or it does not.
     const auto crank = [&]()
     {
-        mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.0f, mPlayerEntity);
-        mAudioManager.playSound(SoundId::FootstepLoud, 0.5f);
+        makeNoise(centre, NoiseTier::Loud, 1.0f, v.engineOn ? SoundId::CarCrank : SoundId::CarCrankFail, mPlayerEntity);
     };
     const auto tryStart = [&]()
     {
@@ -839,8 +841,7 @@ void Game::driveVehicle(Entity vehicle, float dtSeconds)
         {
             knockDownScenery(hit.tile);
             v.condition = std::max(0.0f, v.condition - 2.0f);
-            mNoiseModel.emitNoise(tileCentre(mTileMap, hit.tile), NoiseTier::Loud, 1.0f, mPlayerEntity);
-            mAudioManager.playSound(SoundId::WeaponHit, 0.6f);
+            makeNoise(tileCentre(mTileMap, hit.tile), NoiseTier::Loud, 1.0f, SoundId::CarImpact, mPlayerEntity);
             mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.2f);
             if (v.tyres > 0 && unitRoll(mVehicleRng) < vehiclerules::kFlatChance)
             {
@@ -866,8 +867,7 @@ void Game::driveVehicle(Entity vehicle, float dtSeconds)
             Health& h = mWorld.getComponent<Health>(mPlayerEntity);
             h.current = std::max(0.0f, h.current - wall.driverDamage);
         }
-        mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.0f, mPlayerEntity);
-        mAudioManager.playSound(SoundId::WeaponHit, 0.7f);
+        makeNoise(centre, NoiseTier::Loud, 1.0f, k.engine ? SoundId::CarImpact : SoundId::HitWall, mPlayerEntity);
         mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.45f);
         std::cout << "[Vehicle] hit a wall at " << static_cast<int>(hit.impact) << " px/s, condition "
                   << static_cast<int>(v.condition) << '\n';
@@ -951,8 +951,7 @@ void Game::driveVehicle(Entity vehicle, float dtSeconds)
         else ++mVehicleStops;
         mParticleSystem.spawnBloodSpray(item.position, dir, 10);
         mShakeTrauma = std::min(1.0f, mShakeTrauma + (hit.thrown ? 0.25f : 0.5f));
-        mNoiseModel.emitNoise(item.position, NoiseTier::Medium, 0.8f, mPlayerEntity);
-        mAudioManager.playSound(SoundId::WeaponHit, 0.6f);
+        makeNoise(item.position, NoiseTier::Medium, 0.8f, SoundId::HitHeavy, mPlayerEntity);
         std::cout << "[Vehicle] " << (hit.thrown ? "ran down" : "stopped by") << " one of the dead at "
                   << static_cast<int>(std::fabs(speed)) << " px/s, now " << static_cast<int>(std::fabs(v.speed)) << '\n';
     }
@@ -1016,8 +1015,8 @@ void Game::updateVehicleAlarms(float dtSeconds)
             v.alarmSeconds = std::max(0.0f, v.alarmSeconds - dtSeconds);
             if (std::floor(before) != std::floor(v.alarmSeconds) || before == vehiclerules::kAlarmSeconds)
             {
+                // The wail is a placed loop (GameSound.cpp); this is the noise.
                 mNoiseModel.emitNoise(centreOfTransform(t), NoiseTier::Loud, 1.0f);
-                mAudioManager.playSound(SoundId::FootstepLoud, 0.25f);
             }
         });
 }
@@ -1097,8 +1096,8 @@ void Game::updateVehicleAfterPhysics(float dtSeconds)
                 const bool damaged = vehiclerules::band(v.condition) == vehiclerules::Band::Damaged;
                 NoiseTier tier = moving ? NoiseTier::Loud : NoiseTier::Medium;
                 if (damaged) tier = moving ? NoiseTier::Explosive : NoiseTier::Loud;
+                // The engine is heard as its loop (GameSound.cpp).
                 mNoiseModel.emitNoise(centre, tier, interval + 0.05f, mPlayerEntity, NoiseSource::World, k.hearing);
-                mAudioManager.playSound(SoundId::FootstepLoud, moving ? 0.16f : 0.08f);
             }
             mMovementNoiseTier = moving ? NoiseTier::Loud : NoiseTier::Medium;
         }
@@ -1108,7 +1107,7 @@ void Game::updateVehicleAfterPhysics(float dtSeconds)
             const glm::ivec2 tile = worldToTile(mTileMap, centre);
             const NoiseTier tier =
                 NoiseModel::adjustTier(NoiseTier::Whisper, surfaceNoiseModifier(mTileMap.getSurfaceType(tile.x, tile.y)));
-            mNoiseModel.emitNoise(centre, tier, 0.55f, mPlayerEntity);
+            makeNoise(centre, tier, 0.55f, SoundId::BicycleTick, mPlayerEntity);
             mMovementNoiseTier = tier;
         }
 
@@ -1122,7 +1121,7 @@ void Game::updateVehicleAfterPhysics(float dtSeconds)
                                              [&](const std::pair<Entity, float>& b) { return b.first == zombie; });
                 if (it != mBatterers.end()) it->second = mVehicleClock;
                 else mBatterers.emplace_back(zombie, mVehicleClock);
-                mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
+                playAt(SoundId::DeadWindowBang, centre, 0.8f);
             }
             mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.08f);
             refreshVehicleSprite(vehicle);
@@ -1133,7 +1132,7 @@ void Game::updateVehicleAfterPhysics(float dtSeconds)
         if (k.engine && !v.windowBroken && v.batterSeconds >= vehiclerules::kWindowSeconds)
         {
             v.windowBroken = true;
-            mNoiseModel.emitNoise(centre, NoiseTier::Loud, 1.0f, mPlayerEntity);
+            makeNoise(centre, NoiseTier::Loud, 1.0f, SoundId::WindowBreak, mPlayerEntity);
             mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.4f);
             mInteractionMessage = "Glass gives. Hands reach in.";
             mInteractionMessageTimer = 3.0f;
@@ -1385,7 +1384,7 @@ void Game::finishVehicleAction()
         v.hasCargo = true;
         v.cargoOrigin = best->origin;
         moveFurniturePiece(best->tile, aboard);
-        mNoiseModel.emitNoise(rear, NoiseTier::Medium, 0.8f, mPlayerEntity);
+        makeNoise(rear, NoiseTier::Medium, 0.8f, SoundId::DragHeavy, mPlayerEntity);
         mInteractionMessage = "The " + what + " is in the bed.";
         refreshVehicleSprite(vehicle);
         std::cout << "[Vehicle] loaded " << what << '\n';
@@ -1442,7 +1441,7 @@ void Game::finishVehicleAction()
         const std::string what = pieceNameOf(piece->kind);
         moveFurniturePiece(piece->tile, target);
         v.hasCargo = false;
-        mNoiseModel.emitNoise(tileCentre(mTileMap, target), NoiseTier::Medium, 0.8f, mPlayerEntity);
+        makeNoise(tileCentre(mTileMap, target), NoiseTier::Medium, 0.8f, SoundId::DragHeavy, mPlayerEntity);
         mInteractionMessage = "The " + what + " is down.";
         noteDoorwayBlocked(target);
         refreshVehicleSprite(vehicle);

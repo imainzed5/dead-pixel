@@ -118,7 +118,7 @@ void Game::lightningStrike()
         const glm::vec2 at = player + glm::vec2(std::cos(angle), std::sin(angle)) * distance;
         const glm::ivec2 t = worldToTile(mTileMap, at);
         if (!mTileMap.inBounds(t.x, t.y) || mTileMap.isSolid(t.x, t.y) || mTileMap.isIndoors(t.x, t.y)) continue;
-        mNoiseModel.emitNoise(at, NoiseTier::Explosive, 1.0f);
+        makeNoise(at, NoiseTier::Explosive, 1.0f, SoundId::ThunderNear);
         mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.2f);
         break;
     }

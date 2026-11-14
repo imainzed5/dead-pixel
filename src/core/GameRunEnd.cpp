@@ -13,7 +13,9 @@ void Game::beginDeathState(const std::string& cause)
     mRunState = RunState::Dead;
     mDeathStateTimer = 0.0;
     mDeathCause = cause;
-    mAudioManager.playSound(SoundId::Death, 0.8f);
+    mAudioManager.silenceLayers();
+    mAudioManager.play(SoundId::BodyScream, 0.7f);
+    mAudioManager.play(SoundId::DeathSting);
     stopPlayerAtRunEnd();
     releaseMarkers(); // a marker carried goes back to its grave (phase 10)
     // Recording the grave or retirement advances the save's run number, so

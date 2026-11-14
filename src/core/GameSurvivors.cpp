@@ -341,7 +341,7 @@ public:
         const glm::ivec2 tile = worldToTile(g.mTileMap, glm::vec2(t.x + 1.0f, t.y + 1.0f));
         g.recordContainer(container);
         g.markSearchedBySurvivor(tile);
-        g.mNoiseModel.emitNoise(tileCentre(g.mTileMap, tile), NoiseTier::Soft, 0.6f, e);
+        g.makeNoise(tileCentre(g.mTileMap, tile), NoiseTier::Soft, 0.6f, SoundId::OpenCupboard, e);
         ai.carried.clear();
         ai.carried.emplace_back(moved, 0);
         ai.lastSearched = tile;
@@ -431,7 +431,7 @@ public:
         }
         InventorySystem::removeItem(inv, g.mItems.woodPlanks, 1);
         InventorySystem::removeItem(inv, g.mItems.nails, 2);
-        g.mNoiseModel.emitNoise(tileCentre(g.mTileMap, way), NoiseTier::Medium, 1.5f, e);
+        g.makeNoise(tileCentre(g.mTileMap, way), NoiseTier::Medium, 1.5f, SoundId::Hammer, e);
         std::cout << "[Survivors] " << ai.name << " boarded the " << (window ? "window" : "door") << " at (" << way.x << ","
                   << way.y << ")\n";
     }
@@ -500,6 +500,7 @@ public:
         if (!own && g.doorLocked(door)) return false;
         if (!own) g.rattleAlarm(door);
         g.mDoors.open(g.mTileMap, door);
+        g.playAt(SoundId::DoorOpen, tileCentre(g.mTileMap, door), 0.8f);
         ai.openedDoor = door;
         return true;
     }
@@ -514,7 +515,11 @@ public:
             {
                 if (other.alive && worldToTile(g.mTileMap, centreOf(t)) == door) blocked = true;
             });
-        if (!blocked) g.mDoors.toggle(g.mTileMap, door);
+        if (!blocked)
+        {
+            g.mDoors.toggle(g.mTileMap, door);
+            g.playAt(SoundId::PersonDoorSlam, tileCentre(g.mTileMap, door));
+        }
     }
 
     bool tileBurning(const glm::ivec2& tile) override { return g.mFireSystem.burning(tile); }
@@ -557,7 +562,8 @@ public:
             g.mPlayerHurtTimer = 0.3f;
             g.mShakeTrauma = std::min(1.0f, g.mShakeTrauma + 0.3f);
             g.mParticleSystem.spawnBloodSpray(at, dir, 10, 1.0f);
-            g.mAudioManager.playSound(SoundId::PlayerHurt, 0.6f);
+            g.soundOfHit(static_cast<int>(category), false, false, at);
+            g.mAudioManager.play(damage >= 10.0f ? SoundId::BodyGruntBig : SoundId::BodyGruntSmall);
             if ((category == WeaponCategory::Bladed || shot) && !g.mWorld.hasComponent<Bleeding>(target))
             {
                 g.mWorld.addComponent<Bleeding>(target, Bleeding{});
@@ -573,6 +579,7 @@ public:
             Health& h = g.mWorld.getComponent<Health>(target);
             const bool wasStanding = h.current > 0.0f;
             h.current -= damage;
+            if (!shot) g.soundOfHit(static_cast<int>(category), false, wasStanding && h.current <= 0.0f, at);
             if (wasStanding && h.current <= 0.0f) ++g.mWorld.getComponent<SurvivorAI>(e).kills;
             z.lastDamagedBy = e;
             z.lastBlow = static_cast<int>(category);
@@ -587,7 +594,9 @@ public:
         const SurvivorAI& ai = g.mWorld.getComponent<SurvivorAI>(e);
         const WeaponStats w = weaponOf(e);
         const float damage = w.damage * (0.6f + 0.6f * ai.p.competence);
-        g.mNoiseModel.emitNoise(centreOf(g.mWorld.getComponent<Transform>(e)), NoiseTier::Soft, 0.5f, e);
+        g.makeNoise(centreOf(g.mWorld.getComponent<Transform>(e)), NoiseTier::Soft, 0.5f,
+                    w.category == WeaponCategory::Unarmed ? SoundId::Shove : SoundId::SwingLight,
+                    e);
         hit(e, target, damage, w.category, false);
     }
 
@@ -612,9 +621,7 @@ public:
         const glm::vec2 from = centreOf(g.mWorld.getComponent<Transform>(e));
         const ItemDef* pistol = g.mItemDatabase.find(g.mItems.pistol);
         const WeaponStats w = pistol != nullptr ? weaponStatsForItem(*pistol, &g.mItemDatabase) : makeWeaponStats(WeaponCategory::Ranged);
-        g.mNoiseModel.emitNoise(from, NoiseTier::Loud, 2.0f, e);
-        const float player = glm::length(from - g.playerWorldCenter()) / 32.0f;
-        if (player < 30.0f) g.mAudioManager.playSound(SoundId::WeaponHit, std::clamp(1.0f - player / 30.0f, 0.15f, 0.9f));
+        g.makeNoise(from, NoiseTier::Loud, 2.0f, SoundId::Pistol, e);
         const float roll = survivorrules::unitHash(g.mSaveManager.worldSeed(), static_cast<std::uint32_t>(ai.id),
                                                    static_cast<std::uint32_t>(g.mHudClock * 60.0f), 0x5407u);
         if (roll < 0.45f + 0.4f * ai.p.competence) hit(e, target, w.damage, WeaponCategory::Ranged, true);
@@ -1218,6 +1225,18 @@ void Game::survivorSays(Entity survivor, const std::string& pool, std::uint32_t 
     ai.say = line;
     ai.sayTimer = kSaySeconds;
     if (mTalk.open && mTalk.who == survivor) mTalk.line = line;
+    // A voice to go with a line said across the street (phase 12; no words,
+    // only that someone called out).
+    if (!mTalk.open && mWorld.hasComponent<Transform>(survivor))
+    {
+        const glm::vec2 at = centreOf(mWorld.getComponent<Transform>(survivor));
+        if (pool == "hurt") playAt(SoundId::PersonCough, at);
+        else if (pool == "warn" || pool == "trespass" || pool == "hello_hostile" || pool == "rob" ||
+                 pool == "remembered" || pool == "bloodline")
+        {
+            playAt(SoundId::PersonHey, at);
+        }
+    }
 }
 
 void Game::updateSurvivors(float dtSeconds)
@@ -2286,7 +2305,7 @@ void Game::tradeAgree()
         mInteractionMessage = "No room in your pack for all of it.";
         mInteractionMessageTimer = 2.5f;
     }
-    mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
+    mAudioManager.play(SoundId::PackClose);
 }
 
 void Game::handleTalkInput()

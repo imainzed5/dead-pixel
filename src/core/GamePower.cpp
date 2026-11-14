@@ -182,7 +182,7 @@ void Game::updateRadio(float dtSeconds)
     }
     const float before = mRadioTimer;
     mRadioTimer -= dtSeconds;
-    // It is heard a little way off.
+    // It is heard a little way off (its music is the radio layer, GameSound.cpp).
     if (std::floor(before / kRadioNoiseSeconds) != std::floor(mRadioTimer / kRadioNoiseSeconds))
     {
         mNoiseModel.emitNoise(playerWorldCenter(), NoiseTier::Soft, 1.0f, mPlayerEntity);

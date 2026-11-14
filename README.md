@@ -88,6 +88,7 @@ done, what is next, and known issues.
 |---|---|
 | WASD | Move (screen directions); steer a vehicle |
 | Shift / C | Run / crouch (held still for 3 s: a slow breath that calms you) |
+| C, still, by a shut door | Listen: "Listening." shows, the walls stop muffling what is out there, and you hear further |
 | Mouse, left click | Aim, attack (on one lying down: stomp; with a gun: fire) |
 | Right click, then left click | Take down one turned away or on the floor |
 | Space | Shove (a crowd back, one hurt or from behind off its feet); when held, tap fast to tear free |
@@ -182,6 +183,7 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `--hidden` | Keep the window hidden |
 | `--watch` | Draw every tick (watch the script play) |
 | `--max-ticks N` | Hard stop |
+| `--mute` | Open no audio device (the mixer still works out what it would play) |
 
 **Script commands**
 
@@ -342,6 +344,21 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   `scrapes N` (at most N ticks against a wall), `lost N` (at least N
   condition), `same [worn]` (where and as it was; worn: 15 condition less,
   as the next life finds it).
+- **Sound and mood (phase 12):** scripts are silent, but the mixer still
+  works out everything it would play, and these read it. `sounds` (what
+  played in the last second, the layers up and their targets, the duck,
+  music starts, listening), `sound mark` (from now, for `expect sound`),
+  `sound KEY [DX DY]` (a sound from `assets/data/sounds.json` played at the
+  player or DX, DY tiles off, through the real mixer: distance, walls, the
+  far tail), `sound KEY building N` (inside the Nth nearest other
+  building), `fx on|reduced|off` (the screen effects; off for scripts unless
+  asked, so older shots do not change), `tone hopeless|grim|brutal` (the
+  music's tone, from now), `music reset`. Checks: `expect sound KEY
+  [muffled|far|plain] [N]` (since the mark, N times at least), `expect
+  nosound KEY`, `expect layer NAME above|below V`, `expect music starts
+  N|none`, `expect duck below V|none`, `expect listening [no]`, `expect fx
+  neutral|active` (the mood pass runs or not), `expect idle
+  low|cold|knee|none` (the idle the character falls into).
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
@@ -430,6 +447,8 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `weather_rules` | Each condition outdoors at noon, with its noise, sight and body numbers checked against the table; a Raincoat; in fog a zombie at 8 tiles is not drawn, at 5 it is |
 | `seasons` | Winter: snow building over six game hours, the pond frozen and walkable, a collector that stays empty, Cold within two hours of a night outdoors, and not with a Winter Coat by a fire indoors |
 | `fire_spread` | A molotov on grass in a heatwave, wind east: further east than west in five game minutes, out within forty in heavy rain; a house lit inside is gutted and stays gutted in the next life; 300 of the dead and 60 tiles burning within the tick budget |
+| `soundscape` | From the mixer's log: birds by day stop within 2 s of one of the dead 8 tiles off; footsteps of the ground; rain on the roof indoors; a door bang two buildings away muffled, and plain while listening at the door; your own shot rings the ears and ducks the rest for 3 s; a pistol 20 tiles off is its far tail; six calm hours indoors: no music in Hopeless, one pad once in Grim Human |
+| `mood` | With screen effects on: neutral, panic 80, sleep debt 90, depression 90, cold and held each change the picture and the idle (shoulders down, a shiver, a hand on the knee); the HUD stays sharp; off again, the plain picture |
 | `bot_week` | The bot plays a week with metrics (what `tools/soak.py` runs) |
 | `bare_world`, `world_tour`, `combat_feel` | The town without the interface, a tour of it, the weight of a blow |
 
@@ -452,7 +471,7 @@ and the image scripts also need Pillow.
 | `tools/charrig.py` | The character rig `generate_sprites.py` draws the player and the dead from: poses, facings, animation tables. `python tools/charrig.py out.png` writes a preview sheet |
 | `tools/scenery.py` | Outdoor scenery `generate_sprites.py` packs into the atlas: trees, bushes, rocks, street furniture and ground litter. `python tools/scenery.py out.png` writes a preview sheet |
 | `tools/generate_font_atlas.py` | The pixel font in `assets/fonts/` |
-| `tools/generate_sounds.py` | Placeholder sound effects in `assets/sounds/` |
+| `tools/generate_sounds.py` | Every sound, loop and music pad in `assets/sounds/` (3 to 5 variants each, a muffled twin and a far tail where the table asks), synthesized in code, and the table `assets/data/sounds.json` |
 
 The game's content is data in `assets/data/`, edited by hand: `items.json`
 (items, by key), `recipes.json` (recipes by item key), `loot.json` (what each
@@ -466,7 +485,8 @@ kind of container holds) and `tuning.json` (numbers balance runs adjust).
 | `src/systems` | ECS systems: input, movement, combat, AI, needs, fire, rendering |
 | `src/components`, `src/ecs` | Components and the entity store |
 | `src/world`, `src/map` | Town generation, furniture, doors, tile map |
-| `src/rendering`, `src/ui` | Sprite batching, structures, furniture, HUD |
+| `src/rendering`, `src/ui` | Sprite batching, structures, furniture, HUD, the mood pass (`PostFx`, shaders in `assets/shaders/`) |
+| `src/audio` | The mixer (`AudioManager`), the sound table, ambience layers and the music director |
 | `src/save` | Save slots, checkpoints, world memory |
 | `src/dev` | Launch options, the dev harness and the bot (`Autoplayer`) |
 | `tests` | Unit tests |

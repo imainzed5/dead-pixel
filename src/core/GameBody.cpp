@@ -431,6 +431,7 @@ void Game::updateBody(float dtSeconds)
                 mental.panic = std::max(0.0f, mental.panic - mindrules::kDeepBreathRelief);
                 mental.deepBreathTimer = 0.0f;
                 mental.deepBreathCooldown = mindrules::kDeepBreathCooldownSeconds;
+                mAudioManager.play(SoundId::BodyBreathOut);
                 mInteractionMessage = "You breathe. In, and out.";
                 mInteractionMessageTimer = 2.5f;
             }
@@ -506,8 +507,12 @@ void Game::updateBody(float dtSeconds)
         {
             const float distance = glm::length(sign.world - view.player) / 32.0f;
             const float volume = std::clamp(0.6f - distance * 0.03f, 0.15f, 0.6f);
-            if (sign.kind == FalseSign::Kind::Knock) mAudioManager.playSound(SoundId::FootstepLoud, volume);
-            if (sign.kind == FalseSign::Kind::Groan) mAudioManager.playSound(SoundId::ZombieGrowl, volume * 0.6f);
+            // Heard, not made: no noise, and only you hear it.
+            const float pan = audiorules::panFromScreen(mCamera.worldToScreen(sign.world).x,
+                                                        mCamera.worldToScreen(view.player).x,
+                                                        static_cast<float>(mWindowWidth) * 0.5f);
+            if (sign.kind == FalseSign::Kind::Knock) mAudioManager.play(SoundId::DeadDoorBang, volume, pan);
+            if (sign.kind == FalseSign::Kind::Groan) mAudioManager.play(SoundId::ShamblerIdle, volume, pan);
         }
     }
     mPrevHolders = holders;

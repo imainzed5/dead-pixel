@@ -76,6 +76,10 @@ bool LaunchOptions::parse(int argc, char* argv[], LaunchOptions& out, std::strin
         {
             out.watch = true;
         }
+        else if (arg == "--mute")
+        {
+            out.mute = true;
+        }
         else
         {
             error = "unknown argument: " + std::string(arg);

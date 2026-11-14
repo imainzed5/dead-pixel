@@ -438,8 +438,9 @@ void Game::updateStand(float dtSeconds)
     {
         mStand.noiseTimer += gate::kNoiseSeconds;
         const glm::vec2 generator = tileCentre(mTileMap, site.generator);
-        mNoiseModel.emitNoise(generator, NoiseTier::Explosive, 1.0f);
-        mAudioManager.playSound(SoundId::WeaponHit, 0.25f);
+        // The engine itself is the generator layer (GameSound.cpp); this is
+        // the noise the dead hear, and the gate's grind as it labours.
+        makeNoise(generator, NoiseTier::Explosive, 1.0f, SoundId::GateGrind);
         mShakeTrauma = std::max(mShakeTrauma, 0.08f);
     }
     // Every one of the dead within 60 tiles comes.
@@ -475,6 +476,7 @@ void Game::updateStand(float dtSeconds)
     if (stage != mStandStage)
     {
         mStandStage = stage;
+        if (!site.gate.empty()) playAt(SoundId::GateGrind, tileCentre(mTileMap, site.gate.front()));
         if (stage < 3)
         {
             mInteractionMessage = stage == 1 ? "The gate grinds open a third." : "Two thirds open.";
@@ -491,6 +493,7 @@ void Game::updateStand(float dtSeconds)
         creditGate("held");
         saveGate();
         noteGateSeen();
+        if (!site.gate.empty()) playAt(SoundId::GateOpen, tileCentre(mTileMap, site.gate.front()));
         mInteractionMessage = "The gate stands open. Past it, the road.";
         mInteractionMessageTimer = 6.0f;
         std::cout << "[Gate] the gate is open\n";
@@ -589,6 +592,7 @@ bool Game::handleGateInteraction(const ProximityPrompt&)
                 spawnStandDead(gate::baseCrowd(infection));
             }
             saveGate();
+            playAt(SoundId::CarCrank, tileCentre(mTileMap, site.generator));
             mInteractionMessage = mStand.grind > 0.0f ? "The generator catches. The gate grinds and will not move yet."
                                                       : "The generator catches. The gate begins to grind open.";
             mInteractionMessageTimer = 4.0f;

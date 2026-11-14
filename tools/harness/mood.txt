@@ -1,0 +1,72 @@
+# Mood on the screen (phase 12), with screen effects on (`fx on`; harness
+# runs start with them off so older shots do not change). Each state's shot
+# differs from the neutral one, and the HUD text drawn after the pass stays
+# sharp: panic 80 closes the view, debt 90 blurs its edges, depression 90
+# drains the colour, cold tints the edges blue, held pulls the view in. The
+# body's idle carries it too: shoulders down, a shiver, a hand on the knee.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/mood.txt --hidden --world-seed 1234 --shots shots/mood
+
+newrun
+god on
+trait plain
+waits 1
+zoom 2.5
+slay 80
+hours 11
+weather clear
+goto pavement
+slay 40
+waits 1
+
+fx on
+waits 0.5
+expect fx neutral
+expect idle none
+shot neutral
+
+set panic 80
+waits 0.3
+expect fx active
+shot panic_80
+set panic 0
+waits 0.3
+
+set sleepdebt 90
+waits 0.5
+expect fx active
+expect idle knee
+shot debt_90
+set sleepdebt 0
+waits 0.3
+
+set depression 90
+waits 0.5
+expect fx active
+expect idle low
+shot depression_90
+set depression 0
+waits 0.3
+
+set temp 34
+waits 0.5
+expect fx active
+expect idle cold
+shot cold
+set temp 37
+waits 0.3
+
+# Held by one of the dead: the view pulls in.
+zombie 1 0 shambler
+waitfor 10 held
+waits 0.2
+expect fx active
+shot held
+slay 5
+waits 1
+
+# Off again: the plain picture.
+fx off
+waits 0.3
+expect fx neutral
+shot fx_off

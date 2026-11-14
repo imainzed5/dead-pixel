@@ -144,7 +144,14 @@ bool Game::buildingSealed(int building)
     }
     std::int8_t& cached = mShellSealed[static_cast<std::size_t>(building)];
     if (cached >= 0) return cached == 1;
+    const bool sealed = buildingSealedNow(building);
+    cached = sealed ? 1 : 0;
+    return sealed;
+}
 
+bool Game::buildingSealedNow(int building) const
+{
+    if (building <= 0) return false;
     bool sealed = true;
     // Every door of it closed (boarded or not); a broken one is a hole.
     static const glm::ivec2 kSides[4] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
@@ -177,7 +184,6 @@ bool Game::buildingSealed(int building)
             }
         }
     }
-    cached = sealed ? 1 : 0;
     return sealed;
 }
 
@@ -808,24 +814,39 @@ void Game::handleZombieEvents()
     for (const ZombieEvent& event : mZombieEvents)
     {
         const float distanceTiles = glm::length(event.position - player) / tile;
-        const float near = std::clamp(1.0f - distanceTiles / 30.0f, 0.15f, 1.0f);
         switch (event.type)
         {
         case ZombieEvent::Type::Scream:
-            mAudioManager.playSound(SoundId::ZombieGrowl, std::min(1.0f, 0.9f * near + 0.2f));
+            playAt(SoundId::ScreamerScream, event.position);
+            // Right beside you, it leaves your ears ringing (phase 12).
+            if (distanceTiles < ambience::kTinnitusTiles) startTinnitus();
             if (distanceTiles < 12.0f) mShakeTrauma = std::min(1.0f, mShakeTrauma + 0.15f);
             // A scream close by goes straight through you (phase 5).
             if (distanceTiles < mindrules::kScreamerPanicTiles) addPanic(mindrules::kScreamerPanic);
             break;
         case ZombieEvent::Type::Scrape:
-            if (distanceTiles < 8.0f) mAudioManager.playSound(SoundId::FootstepSoft, 0.5f);
+            playAt(SoundId::CrawlerScrape, event.position);
             break;
         case ZombieEvent::Type::StartRun:
-            if (distanceTiles < 20.0f) mAudioManager.playSound(SoundId::ZombieGrowl, 0.55f * near);
+            playAt(SoundId::RunnerShriek, event.position);
             break;
         case ZombieEvent::Type::Groan:
-            if (distanceTiles < 15.0f) mAudioManager.playSound(SoundId::ZombieGrowl, 0.25f * near);
+        {
+            // Each kind has its own voice in the chase.
+            SoundId voice = SoundId::ShamblerChase;
+            if (mWorld.hasComponent<ZombieAI>(event.zombie))
+            {
+                switch (mWorld.getComponent<ZombieAI>(event.zombie).kind)
+                {
+                case ZombieKind::Brute: voice = SoundId::BruteGrowl; break;
+                case ZombieKind::Runner: voice = SoundId::RunnerBreath; break;
+                case ZombieKind::Crawler: voice = SoundId::CrawlerDrag; break;
+                default: break;
+                }
+            }
+            playAt(voice, event.position);
             break;
+        }
         case ZombieEvent::Type::UnknownSeen:
         {
             const std::size_t rule = static_cast<std::size_t>(std::clamp(event.rule, 0, zombiekinds::kUnknownRuleCount - 1));
@@ -943,6 +964,7 @@ void Game::applyPlayerBlows()
             vel.dy += blow.direction.y * push;
         }
         mParticleSystem.spawnBloodSpray(centre, blow.direction, 9);
+        playAt(pinned ? SoundId::DeadBite : (blow.kind == ZombieKind::Brute ? SoundId::HitHeavy : SoundId::HitBlunt), centre);
         if (blow.knockdownSeconds > 0.0f)
         {
             mPlayerDownTimer = std::max(mPlayerDownTimer, blow.knockdownSeconds);

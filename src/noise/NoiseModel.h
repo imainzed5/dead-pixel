@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "audio/SoundId.h"
 #include "ecs/Types.h"
 
 enum class NoiseTier
@@ -64,7 +65,8 @@ public:
         float durationSeconds,
         Entity sourceEntity = kInvalidEntity,
         NoiseSource source = NoiseSource::World,
-        float reach = 1.0f);
+        float reach = 1.0f,
+        SoundId sound = SoundId::None);
     void clear();
 
     // Where a noise at a world position stands: (building id, shell shut).
@@ -77,6 +79,21 @@ public:
     [[nodiscard]] const NoiseAttractor* attractorNear(const glm::vec2& at, float radius) const;
     static constexpr float kLoudAttractorSeconds = 60.0f;
     static constexpr float kExplosiveAttractorSeconds = 180.0f;
+
+    // The sounds that went with noises since the last take (phase 12: one
+    // call makes the noise the dead hear and the sound the player hears).
+    struct HeardSound
+    {
+        NoiseEvent event;
+        SoundId sound = SoundId::None;
+    };
+    [[nodiscard]] std::vector<HeardSound> takeSounds()
+    {
+        std::vector<HeardSound> out;
+        out.swap(mHeard);
+        return out;
+    }
+    static constexpr std::size_t kHeardLimit = 256;
 
     [[nodiscard]] float getNoiseAtPosition(const glm::vec2& worldPosition) const;
     [[nodiscard]] const std::vector<NoiseEvent>& activeEvents() const { return mActiveEvents; }
@@ -92,5 +109,6 @@ private:
     std::vector<NoiseEvent> mActiveEvents;
     std::vector<NoiseAttractor> mAttractors;
     ShellResolver mShellResolver;
+    std::vector<HeardSound> mHeard;
     std::uint64_t mEmittedTotal = 0;
 };

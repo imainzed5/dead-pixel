@@ -22,7 +22,7 @@ ATLAS_H = 1024
 # Phase 4 doubled its height for the kinds of the dead (the lower half);
 # phase 8 adds a band below for the survivors' three outfits.
 SHEET_W = 4096
-SHEET_H = 5632
+SHEET_H = 5696   # phase 12 grew it by two rows for the mood idles (every older rect is where it was)
 
 # Tile sizes
 ISO_TILE_W = 64
@@ -305,6 +305,34 @@ def add_armin_sprites(img, sprites):
             y = ARMIN_BLOCK_Y + (slot // cols) * ENTITY_SIZE
             if y + ENTITY_SIZE > SHEET_H:
                 raise RuntimeError("arm-in block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
+
+
+# Phase 12: the player's idles by mood (low, cold, knee), at the foot of the
+# sheet: the free row at 5568 and one more below it.
+MOOD_BLOCK_Y = 5568
+
+
+def add_mood_sprites(img, sprites):
+    import charrig
+
+    slot = 0
+    cols = SHEET_W // ENTITY_SIZE
+    for name, frames in charrig.mood_frames():
+        if slot % cols + len(frames) > cols:
+            slot += cols - slot % cols
+        rects = []
+        for frame in frames:
+            x = (slot % cols) * ENTITY_SIZE
+            y = MOOD_BLOCK_Y + (slot // cols) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("mood block is full")
             img.alpha_composite(frame, (x, y))
             rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
             slot += 1
@@ -803,6 +831,7 @@ def generate_atlas():
     add_character_sprites(img, sprites)
     add_kind_sprites(img, sprites)
     add_armin_sprites(img, sprites)
+    add_mood_sprites(img, sprites)
     add_scenery_sprites(img, sprites)
     add_building_sprites(img, sprites)
     add_window_sprites(img, sprites)

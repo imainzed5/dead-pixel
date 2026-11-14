@@ -97,6 +97,14 @@ class Game;
 //   expect vehicle in|out|engine|off|started|cargo|nocargo|window|ringing|silent
 //   expect vehicle speed|condition|fuel|tyres above|below N | trunk N | randown|stopped N
 //   expect vehicle moved N|scrapes N|lost N|same [worn]   (since vehicle mark)
+//   sounds                        print the sounds of the last second, the layers up, voices, duck (phase 12)
+//   sound mark | sound KEY [DX DY]   from now (expect sound) / play KEY at the player or DX, DY tiles off
+//   fx on|reduced|off             the screen effects (harness runs start off)
+//   tone hopeless|grim|brutal | music reset   the tone (music and stings) / forget the pads played
+//   expect sound KEY [muffled|far|plain] [N] | expect nosound KEY   (since sound mark; harness runs are silent,
+//                                 the mixer still decides what would play)
+//   expect layer NAME above|below V | expect music starts N|none | expect duck below V|none
+//   expect listening [no] | expect fx neutral|active | expect idle low|cold|knee|none
 //   log TEXT                      print a line
 //   quit                          end the run
 class DevHarness
@@ -143,6 +151,9 @@ private:
     bool legacyCommand(Game& game, const Command& command);
     // DevHarnessVehicles.cpp: true when the command was one of the vehicles' (phase 11).
     bool vehicleCommand(Game& game, const Command& command);
+    // DevHarnessSound.cpp: true when the command was one of sound and mood's (phase 12).
+    bool soundCommand(Game& game, const Command& command);
+    double mSoundMark = 0.0;         // "sound mark": the mixer's clock then
     // `drive`: the keys a driver would press, set every tick until it ends.
     void steerVehicle(Game& game);
     Entity survivorFocus(Game& game, const std::string& name);
