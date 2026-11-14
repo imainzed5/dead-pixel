@@ -1,24 +1,40 @@
 // Furniture: placing it in the town, and keeping run spawns off it.
 #include "core/GameShared.h"
 
+#include <string_view>
+
+#include "world/BuildingKinds.h"
+
 using namespace gameshared;
 
 void Game::furnishWorld()
 {
     mFurniture = furniture::furnish(mMapGenerator.layoutData(), static_cast<std::uint32_t>(mSaveManager.worldSeed()));
     // What earlier lives moved and broke up.
+    // A save from before phase 6: shops are furnished by the new rules, so
+    // what was moved or broken up in them no longer applies (houses keep it).
+    const bool migrating = mSaveManager.migratedFromVersion() > 0 && mSaveManager.migratedFromVersion() < 3;
+    const LayoutData& layout = mMapGenerator.layoutData();
+    const auto inShop = [&](int x, int y)
+    {
+        const int building = buildingkinds::buildingAt(layout, glm::ivec2(x, y));
+        return building > 0 && buildingkinds::kindOf(layout.buildings[static_cast<std::size_t>(building - 1)]) != BuildingKind::House;
+    };
     furnitureuse::Memory memory;
     for (const FurnitureMoveRecord& move : mSaveManager.furnitureMemory().moves)
     {
+        if (migrating && inShop(move.fromX, move.fromY)) continue;
         memory.moves.push_back(furnitureuse::Move{glm::ivec2(move.fromX, move.fromY), glm::ivec2(move.toX, move.toY)});
     }
     for (const auto& [x, y] : mSaveManager.furnitureMemory().removed)
     {
+        if (migrating && inShop(x, y)) continue;
         memory.removed.emplace_back(x, y);
     }
     furnitureuse::apply(mFurniture, memory);
     mRemovedFurniture = memory.removed;
     refreshFurnitureLayer();
+    if (migrating) migrateScavenging();
 }
 
 void Game::plantScenery()
@@ -50,13 +66,23 @@ void Game::plantScenery()
         return piece.blocker && taken[static_cast<std::size_t>(tile.y * mTileMap.width() + tile.x)] != 0;
     });
 
+    // Where there is something to forage (phase 6): bushes, the foot of a
+    // living tree, tufts of tall grass.
+    mForageSpots.clear();
     for (const SceneryPiece& piece : pieces)
     {
+        const glm::ivec2 tile = scenery::tileOf(piece);
         if (piece.blocker)
         {
-            const glm::ivec2 tile = scenery::tileOf(piece);
             mTileMap.setScenery(tile.x, tile.y, true);
         }
+        const std::string_view sprite = piece.sprite;
+        forage::Spot spot = forage::Spot::None;
+        if (sprite.starts_with("scn_bush")) spot = forage::Spot::Bush;
+        else if (sprite.starts_with("scn_tree") && sprite != "scn_tree_dead") spot = forage::Spot::TreeBase;
+        else if (sprite == "scn_stump") spot = forage::Spot::TreeBase;
+        else if (sprite.starts_with("scn_tuft") || sprite == "scn_weeds") spot = forage::Spot::Tuft;
+        if (spot != forage::Spot::None) mForageSpots.emplace_back(tile, spot);
     }
     mSceneryView.build(pieces);
 }
@@ -88,4 +114,9 @@ void Game::nudgeSpawnsOffFurniture()
     {
         nudge(*list);
     }
+    // The player too: the start is the middle of the house, where a floor
+    // lamp may now stand (phase 6), and a start inside a piece cannot move.
+    std::vector<glm::ivec2> start{mSpawnData.playerStart};
+    nudge(start);
+    mSpawnData.playerStart = start.front();
 }

@@ -51,6 +51,8 @@ add_library(dead_pixel_core STATIC
     src/core/GameDead.cpp
     src/core/GameBody.cpp
     src/core/GameCharacter.cpp
+    src/core/GameScavenge.cpp
+    src/core/GamePower.cpp
     src/core/Tuning.cpp
     src/core/Input.cpp
     src/ai/Pathfinder.cpp
@@ -105,6 +107,10 @@ add_library(dead_pixel_core STATIC
     src/world/WoundRules.cpp
     src/world/SleepRules.cpp
     src/world/MindRules.cpp
+    src/world/BuildingKinds.cpp
+    src/world/Power.cpp
+    src/world/Forage.cpp
+    src/world/Garden.cpp
     src/systems/HallucinationSystem.cpp
     src/items/ItemDatabase.cpp
     src/items/LootTables.cpp
@@ -187,6 +193,9 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_skills.cpp
         tests/test_wounds.cpp
         tests/test_mind.cpp
+        tests/test_buildings.cpp
+        tests/test_power.cpp
+        tests/test_forage.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

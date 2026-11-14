@@ -83,6 +83,8 @@ bool ItemDatabase::loadFromFile(const std::string& jsonPath)
         def.sleepDebtMask = obj.value("sleepDebtMask", 0.0f);
         def.rawIllness = obj.value("rawIllness", 0.0f);
         def.treats = obj.value("treats", std::string{});
+        def.fits = obj.value("fits", std::string{});
+        def.carryBonus = obj.value("carryBonus", 0.0f);
         if (obj.contains("weapon") && obj["weapon"].is_object())
         {
             const auto& w = obj["weapon"];

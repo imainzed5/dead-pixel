@@ -31,6 +31,15 @@ constexpr std::array<UseInfo, static_cast<std::size_t>(K::Count)> kUse = {{
     {W::Fixed, 0, 0, true, 0.0f},    // MetalRack
     {W::Fixed, 0, 0, false, 0.0f},   // Workbench
     {W::Fixed, 0, 0, false, 0.0f},   // Barrels
+    {W::Light, 1, 1, false, 150.0f}, // Cot
+    {W::Heavy, 2, 0, false, 350.0f}, // Desk
+    {W::Fixed, 0, 0, true, 0.0f},    // FilingCabinet
+    {W::Fixed, 0, 0, true, 0.0f},    // Locker
+    {W::Light, 2, 0, false, 200.0f}, // PalletStack: two planks, bare hands
+    {W::Heavy, 2, 0, false, 350.0f}, // PharmacyShelf
+    {W::Fixed, 0, 0, true, 0.0f},    // ToolRack
+    {W::Heavy, 2, 0, false, 350.0f}, // DinerTable
+    {W::Light, 0, 0, false, 100.0f}, // FloorLamp
 }};
 } // namespace
 

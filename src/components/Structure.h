@@ -15,7 +15,10 @@ enum class StructureType
     Workbench = 6,
     CanAlarm = 7,
     SpikeBoard = 8,
-    Light = 9 // a candle or a can lantern
+    Light = 9, // a candle or a can lantern
+    // Phase 6.
+    GardenBed = 10,
+    Snare = 11
 };
 
 enum class StructureCondition
@@ -39,6 +42,14 @@ struct Structure
     bool lantern = false;       // light: a can lantern (not seen through windows)
     int uses = 0;               // spike board: the dead it can still catch
     glm::ivec2 target{-1};      // can alarm: the door or window tile it hangs on
+    // Phase 6.
+    float standingHours = 0.0f; // rain collector: hours its water has stood (over 72: dirty)
+    float growHours = 0.0f;     // garden bed (world/Garden.h)
+    float sinceWaterHours = 0.0f;
+    bool regrowing = false;
+    bool dead = false;
+    int snareState = 0;         // snare: 0 set, 1 holds Raw Meat, 2 sprung empty
+    int lastDawn = 0;           // snare: the last day its dawn was rolled
 };
 
 // Health, wear and a sprite for each kind.
@@ -62,6 +73,8 @@ struct StructureInfo
     static const StructureInfo kAlarm{"Can Alarm", "prop_canalarm", 20.0f, 0.0f, false, false};
     static const StructureInfo kSpikes{"Spike Board", "prop_spikeboard", 30.0f, 0.0f, false, true};
     static const StructureInfo kLight{"Candle", "prop_candle", 10.0f, 0.0f, false, false};
+    static const StructureInfo kGarden{"Garden bed", "prop_garden_0", 60.0f, 0.0f, false, true};
+    static const StructureInfo kSnare{"Snare", "prop_snare", 10.0f, 0.0f, false, false};
     switch (type)
     {
     case StructureType::Campfire: return kCampfire;
@@ -72,6 +85,8 @@ struct StructureInfo
     case StructureType::CanAlarm: return kAlarm;
     case StructureType::SpikeBoard: return kSpikes;
     case StructureType::Light: return kLight;
+    case StructureType::GardenBed: return kGarden;
+    case StructureType::Snare: return kSnare;
     }
     return kCampfire;
 }

@@ -41,4 +41,9 @@ struct Needs
     double lastSedativeHour = -1000.0;   // Painkillers or Spirits: spoils a night
     double lastPainkillerHour = -1000.0; // stitches hurt less within 2 h
     float restedHours = 0.0f;         // after a full night: "Rested"
+
+    // Phase 6: dirty water or bad food (hunger and thirst drain x1.5), and
+    // the warmth of a hot meal (+5 degrees). Game hours left.
+    float badStomachHours = 0.0f;
+    float hotMealHours = 0.0f;
 };

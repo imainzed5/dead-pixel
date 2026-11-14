@@ -42,6 +42,15 @@ const char* pieceName(FurnitureKind kind)
     case FurnitureKind::MetalRack: return "metal rack";
     case FurnitureKind::Workbench: return "workbench";
     case FurnitureKind::Barrels: return "barrels";
+    case FurnitureKind::Cot: return "cot";
+    case FurnitureKind::Desk: return "desk";
+    case FurnitureKind::FilingCabinet: return "filing cabinet";
+    case FurnitureKind::Locker: return "locker";
+    case FurnitureKind::PalletStack: return "pallet stack";
+    case FurnitureKind::PharmacyShelf: return "shelf";
+    case FurnitureKind::ToolRack: return "tool rack";
+    case FurnitureKind::DinerTable: return "table";
+    case FurnitureKind::FloorLamp: return "lamp";
     case FurnitureKind::Count: break;
     }
     return "piece";
@@ -60,6 +69,7 @@ constexpr float kFireNoiseSeconds = 5.0f;
 constexpr float kFireSpreadPerHour = 0.05f;
 constexpr float kMatchKeepChance = 0.8f;
 constexpr float kCollectorMaxWater = 6.0f;
+constexpr float kCollectorStaleHours = 72.0f; // phase 6: then the water is dirty
 // Spike boards and alarms.
 constexpr int kSpikeUses = 3;
 constexpr float kSpikeDamage = 35.0f;
@@ -119,6 +129,7 @@ void Game::refreshFurnitureLayer()
         }
     }
     mFurnitureView.build(mFurniture);
+    applyFurnitureAlts();
 }
 
 void Game::rememberFurniture()
@@ -255,7 +266,7 @@ furnitureuse::Tool Game::breakingTool() const
     return furnitureuse::Tool::Hands;
 }
 
-void Game::dropOnFloor(const glm::ivec2& tile, int itemId, int count)
+void Game::dropOnFloor(const glm::ivec2& tile, int itemId, int count, float condition, int loaded)
 {
     if (itemId < 0 || count <= 0) return;
     // Onto a pile already there, or a new one.
@@ -292,7 +303,7 @@ void Game::dropOnFloor(const glm::ivec2& tile, int itemId, int count)
         mWorld.addComponent<Interactable>(pile, inter);
         mWorld.addComponent<Inventory>(pile, inv);
     }
-    InventorySystem::addItem(mWorld.getComponent<Inventory>(pile), mItemDatabase, itemId, count);
+    InventorySystem::addItemWithCondition(mWorld.getComponent<Inventory>(pile), mItemDatabase, itemId, count, condition, loaded);
 }
 
 void Game::breakFurniture(const glm::ivec2& tile)
@@ -474,6 +485,13 @@ Entity Game::spawnStructure(StructureType type, const glm::ivec2& tile, const St
         s.lantern = record->lantern;
         if (type == StructureType::SpikeBoard) s.uses = std::clamp(record->uses, 0, kSpikeUses);
         s.target = glm::ivec2(record->targetX, record->targetY);
+        s.standingHours = record->standingHours;
+        s.growHours = record->growHours;
+        s.sinceWaterHours = record->sinceWaterHours;
+        s.regrowing = record->regrowing;
+        s.dead = record->dead;
+        s.snareState = record->snareState;
+        s.lastDawn = record->lastDawn;
     }
 
     Sprite sprite{};
@@ -481,7 +499,7 @@ Entity Game::spawnStructure(StructureType type, const glm::ivec2& tile, const St
     std::string spriteName = info.sprite;
     if (type == StructureType::Light && s.lantern) spriteName = "prop_lantern";
     sprite.uvRect = mSpriteSheet.uvRect(spriteName);
-    sprite.layer = 5;
+    sprite.layer = type == StructureType::GardenBed || type == StructureType::Snare ? 4 : 5;
     sprite.drawSize = 80.0f;
     sprite.sink = 16.0f;
 
@@ -556,6 +574,22 @@ std::vector<StructureRecord> Game::structureRecords(bool runEnd) const
             rec.uses = s.uses;
             rec.targetX = s.target.x;
             rec.targetY = s.target.y;
+            rec.standingHours = s.standingHours;
+            rec.growHours = s.growHours;
+            rec.sinceWaterHours = s.sinceWaterHours;
+            rec.regrowing = s.regrowing;
+            rec.dead = s.dead;
+            rec.snareState = s.snareState;
+            rec.lastDawn = s.lastDawn;
+            // A garden bed comes back as seedlings; a dead one not at all.
+            if (runEnd && s.type == StructureType::GardenBed)
+            {
+                if (s.dead) return;
+                rec.growHours = 0.0f;
+                rec.sinceWaterHours = 0.0f;
+                rec.regrowing = false;
+            }
+            if (runEnd && s.type == StructureType::Snare) rec.snareState = 0;
             if (s.type == StructureType::StorageCrate && world.hasComponent<Inventory>(e))
             {
                 rec.items = InventorySystem::itemsUnloaded(world.getComponent<Inventory>(e), mItemDatabase);
@@ -572,7 +606,7 @@ void Game::restoreStructures(const std::vector<StructureRecord>& records)
     for (Entity e : old) mWorld.destroyEntity(e);
     for (const StructureRecord& record : records)
     {
-        if (record.type < static_cast<int>(StructureType::Campfire) || record.type > static_cast<int>(StructureType::Light))
+        if (record.type < static_cast<int>(StructureType::Campfire) || record.type > static_cast<int>(StructureType::Snare))
         {
             continue;
         }
@@ -851,13 +885,14 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
         switch (s.type)
         {
         case StructureType::Campfire:
-            prompt += s.lit ? " (burning, " + hours(s.burnHours) + ")   E: Add 2 planks" : "   E: Light it";
+            prompt += s.lit ? " (burning, " + hours(s.burnHours) + ")   E: Cook   X: Add 2 planks" : "   E: Light it";
             break;
         case StructureType::Workbench:
             prompt += "   E: Mend the weapon in hand";
             break;
         case StructureType::RainCollector:
-            prompt += " (" + std::to_string(static_cast<int>(s.water)) + "/" + std::to_string(static_cast<int>(kCollectorMaxWater)) + ")   R: Fill bottles";
+            prompt += " (" + std::to_string(static_cast<int>(s.water)) + "/" + std::to_string(static_cast<int>(kCollectorMaxWater)) +
+                      (s.standingHours > kCollectorStaleHours ? ", stale" : "") + ")   R: Fill bottles";
             break;
         case StructureType::SpikeBoard:
             prompt += "   E: Pick it up";
@@ -884,11 +919,14 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
                 }
                 else
                 {
+                    // Water that has stood three days is not clean (phase 6).
+                    const bool stale = s.standingHours > kCollectorStaleHours;
                     InventorySystem::removeItem(*inv, mItems.emptyBottle, fill);
-                    const int added = InventorySystem::addItem(*inv, mItemDatabase, mItems.waterBottle, fill).added;
+                    const int added = InventorySystem::addItem(*inv, mItemDatabase, stale ? mItems.dirtyWater : mItems.waterBottle, fill).added;
                     if (added < fill) InventorySystem::addItem(*inv, mItemDatabase, mItems.emptyBottle, fill - added);
                     s.water -= static_cast<float>(added);
-                    mInteractionMessage = "You fill " + std::to_string(added) + (added == 1 ? " bottle" : " bottles") + " with rainwater.";
+                    mInteractionMessage = "You fill " + std::to_string(added) + (added == 1 ? " bottle" : " bottles") +
+                                          (stale ? ". It has stood too long." : " with rainwater.");
                 }
                 mInteractionMessageTimer = 2.5f;
                 return true;
@@ -911,6 +949,31 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
                 mInteractionMessageTimer = 2.5f;
                 return true;
             }
+        }
+        // A burning fire: X feeds it, E cooks on it (phase 6).
+        if (s.type == StructureType::Campfire && s.lit && mInput.wasKeyPressed(SDL_SCANCODE_X))
+        {
+            if (InventorySystem::countItem(*inv, mItems.woodPlanks) < 2)
+            {
+                mInteractionMessage = "You need two planks to feed it.";
+                mInteractionMessageTimer = 2.5f;
+            }
+            else
+            {
+                InventorySystem::removeItem(*inv, mItems.woodPlanks, 2);
+                s.burnHours += kFireHoursPerFeed;
+                mInteractionMessage = "You feed the fire.";
+                mInteractionMessageTimer = 2.0f;
+            }
+            return true;
+        }
+        if (s.type == StructureType::Campfire && s.lit && mInput.wasKeyPressed(SDL_SCANCODE_E))
+        {
+            mShowCrafting = true;
+            mShowInventory = false;
+            mCraftingCategory = kCraftingFoodTab;
+            mCraftingRecipeCursor = 0;
+            return true;
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_X) && s.type == StructureType::Light && !s.lit)
         {
@@ -1341,6 +1404,17 @@ void Game::updateBaseActions(float dtSeconds)
         mBaseAction.noiseTimer -= 1.0f;
         NoiseTier tier = NoiseTier::Soft;
         if (mBaseAction.kind == BaseAction::Kind::Break || mBaseAction.kind == BaseAction::Kind::Board) tier = NoiseTier::Loud;
+        // Phase 6: glass breaking, a door or the armoury forced (a crowbar
+        // on a door: every 2 s).
+        if (mBaseAction.kind == BaseAction::Kind::Smash ||
+            (mBaseAction.kind == BaseAction::Kind::Search && mBaseAction.window))
+        {
+            tier = NoiseTier::Loud;
+        }
+        if (mBaseAction.kind == BaseAction::Kind::Force)
+        {
+            tier = static_cast<int>(mBaseAction.timer) % 2 == 1 ? NoiseTier::Loud : NoiseTier::Soft;
+        }
         if (mBaseAction.kind == BaseAction::Kind::Build)
         {
             const StationRecipe* recipe = BuildSystem::recipeFor(mBaseAction.building);
@@ -1388,6 +1462,14 @@ void Game::updateBaseActions(float dtSeconds)
         break;
     case BaseAction::Kind::Read:
         finishReading();
+        break;
+    case BaseAction::Kind::Search:
+    case BaseAction::Kind::Force:
+    case BaseAction::Kind::Smash:
+    case BaseAction::Kind::Tape:
+    case BaseAction::Kind::StopAlarm:
+    case BaseAction::Kind::Forage:
+        finishScavengeAction();
         break;
     case BaseAction::Kind::Repair:
     {

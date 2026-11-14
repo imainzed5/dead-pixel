@@ -28,14 +28,15 @@ struct StationRecipe
     {
         Indoors,
         Outdoors,
-        OutdoorsOrHardFloor
+        OutdoorsOrHardFloor,
+        Soil // outdoors, on grass or dirt (a garden bed)
     } where = Where::Indoors;
 };
 
 class BuildSystem
 {
 public:
-    static constexpr int kRecipeCount = 5;
+    static constexpr int kRecipeCount = 6;
     static const std::array<StationRecipe, kRecipeCount> kRecipes;
 
     // Tiles from the player a station may be set down.

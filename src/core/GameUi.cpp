@@ -239,6 +239,8 @@ void Game::buildHudState()
                 out.wear = std::clamp(slot.condition, 0.0f, 1.0f);
                 out.equipped = static_cast<int>(i) == mEquippedWeaponSlot;
             }
+            // A flashlight or radio whose battery is flat (phase 6).
+            out.dim = (slot.itemId == mItems.flashlight || item->hasTag("radio")) && slot.condition <= 0.0f;
         }
     }
 
@@ -378,7 +380,7 @@ void Game::renderNotebookOverlay()
                            18.0f + static_cast<float>(leadRows) * bodyLine + (leads.size() > kMaxLeads ? 16.0f : 0.0f) + 14.0f +
                            18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) + 14.0f +
                            18.0f + static_cast<float>(knownLines.size() + ruleLines.size()) * bodyLine +
-                           44.0f;
+                           60.0f;
     const float panelW = std::min(900.0f, w - 40.0f);
     const float panelH = std::min(contentH, h - 40.0f);
     const float panelX = std::floor((w - panelW) * 0.5f);
@@ -449,7 +451,7 @@ void Game::renderNotebookOverlay()
     heading(y, "WHO CAME BEFORE");
     y += 18.0f;
     const auto& graves = mLegacyGraves.empty() ? mSaveManager.graves() : mLegacyGraves;
-    const float statsY = panelY + panelH - 30.0f;
+    const float statsY = panelY + panelH - 46.0f;
     if (history.empty())
     {
         mFont.drawText(mSpriteBatch, glm::vec2(left, y), "No one. You are the first.", dimInk, kBody);
@@ -536,6 +538,13 @@ void Game::renderNotebookOverlay()
     if (laidToRest > 0) stats += "   Laid to rest " + std::to_string(laidToRest);
     mSpriteBatch.draw(glm::vec2(left, statsY - 8.0f), glm::vec2(textW, 1.0f), uiUv, kPanelRule);
     mFont.drawText(mSpriteBatch, glm::vec2(left, statsY), fit(stats, 1.0f), dimInk, 1.0f);
+    // What the town has left (phase 6).
+    if (mTownContainers > 0)
+    {
+        mFont.drawText(mSpriteBatch, glm::vec2(left, statsY + 16.0f),
+                       "Cupboards still unopened: " + std::to_string(mTownUnopened) + " of " + std::to_string(mTownContainers) + ".",
+                       dimInk, 1.0f);
+    }
 }
 
 void Game::renderRunEndOverlay()
@@ -832,7 +841,7 @@ void Game::renderInventoryPanel()
             mSpriteBatch.draw(glm::vec2(left, layout.detailY), glm::vec2(64.0f), iconUv, glm::vec4(1.0f));
         }
         const float textX = left + 80.0f;
-        std::string title = item->name;
+        std::string title = packItemName(slot);
         if (slot.count > 1) title += " x" + std::to_string(slot.count);
         text(glm::vec2(textX, layout.detailY + 2.0f), fit(title, right - textX, 3.0f), kPanelInk, 3.0f);
 
@@ -917,6 +926,11 @@ void Game::renderInventoryPanel()
             {
                 stat("Freshness", left01, percent, wearColor);
             }
+            // A flashlight or radio: what is left of its battery (phase 6).
+            if (slot.itemId == mItems.flashlight || item->hasTag("radio"))
+            {
+                stat("Battery", left01, percent, wearColor);
+            }
             const std::string effects = itemEffectSummary(*item);
             if (!effects.empty())
             {
@@ -932,9 +946,16 @@ void Game::renderInventoryPanel()
                 }
             }
         }
+        // Where it is useful (phase 6).
+        if (!item->fits.empty())
+        {
+            text(glm::vec2(left, y), fit("Fits: " + item->fits, innerW, 2.0f), kPanelDim, 2.0f);
+            y += 22.0f;
+        }
     }
 
-    text(glm::vec2(left, layout.footerY), fit("F use   Enter swap with belt   Tab body   Esc close", innerW, 2.0f), kPanelDim, 2.0f);
+    text(glm::vec2(left, layout.footerY),
+         fit("F use   Enter swap with belt   Backspace drop (Shift: stack)   Tab body   Esc close", innerW, 2.0f), kPanelDim, 2.0f);
 }
 
 Game::CraftingLayout Game::craftingLayout() const
@@ -949,7 +970,7 @@ Game::CraftingLayout Game::craftingLayout() const
 
     // Category tabs in a row under the header.
     float tabX = left;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < kCraftingCategories; ++i)
     {
         const float tabW = mFont.measureText(craftingCategoryLabel(i), 2.0f).x;
         layout.tabs[static_cast<std::size_t>(i)] = glm::vec4(tabX - 6.0f, 74.0f, tabW + 12.0f, 28.0f);
@@ -1075,12 +1096,12 @@ void Game::renderCraftingOverlay()
     const glm::ivec2 standingOn = playerTile();
     const auto stationOk = [&](const CraftingRecipe& recipe)
     {
-        return craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, standingOn);
+        return craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, standingOn, powerOn());
     };
 
     // Backing and header; the world stays in view to the left.
     renderDockedHeader(layout.pos, layout.size.x, true);
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < kCraftingCategories; ++i)
     {
         const glm::vec4 tab = layout.tabs[static_cast<std::size_t>(i)];
         const bool active = i == mCraftingCategory;
@@ -1268,7 +1289,22 @@ void Game::renderCraftingOverlay()
     {
         const float condition = craftToolCondition(inv, mItemDatabase, tool);
         const bool ok = condition >= 0.0f;
-        needRow(tool.iconItemId, ok ? "tool, " + std::to_string(static_cast<int>(std::round(std::clamp(condition, 0.0f, 1.0f) * 100.0f))) + "%"
+        // A tag met by what is carried shows that item (a Cooking Pot, not
+        // the first thing in the book with the tag).
+        int shown = tool.iconItemId;
+        if (ok && !tool.tag.empty())
+        {
+            for (const InventorySlot& slot : inv.slots)
+            {
+                const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+                if (item != nullptr && item->hasTag(tool.tag))
+                {
+                    shown = item->id;
+                    break;
+                }
+            }
+        }
+        needRow(shown, ok ? "tool, " + std::to_string(static_cast<int>(std::round(std::clamp(condition, 0.0f, 1.0f) * 100.0f))) + "%"
                                     : "tool, missing",
                 ok);
     }

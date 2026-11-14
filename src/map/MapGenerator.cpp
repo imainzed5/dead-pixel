@@ -2,7 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <numeric>
+#include <string>
+
+#include "world/BuildingKinds.h"
 
 LayoutData MapGenerator::generateLayout(std::uint32_t layoutSeed, int width, int height)
 {
@@ -69,6 +73,8 @@ LayoutData MapGenerator::generateLayout(std::uint32_t layoutSeed, int width, int
 void MapGenerator::loadLayout(const LayoutData& layout)
 {
     mLayout = layout;
+    // Layouts saved before phase 6 have no kinds: the same rule gives them.
+    buildingkinds::assignMissing(mLayout);
     unpackLayout();
 }
 
@@ -141,6 +147,11 @@ void MapGenerator::packLayout()
     {
         mLayout.doors.push_back({d.x, d.y});
     }
+
+    // What each building was (phase 6).
+    std::vector<std::string> notes;
+    buildingkinds::assignMissing(mLayout, &notes);
+    for (const std::string& note : notes) std::cout << "[World] building kinds: " << note << "\n";
 }
 
 void MapGenerator::unpackLayout()

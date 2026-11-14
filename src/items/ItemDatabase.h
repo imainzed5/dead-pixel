@@ -80,6 +80,9 @@ struct ItemDef
     // What it does to a wound (phase 5): dress, dress_clean, stitch, splint,
     // cure, disinfect; empty when nothing. See world/WoundRules.h.
     std::string treats;
+    // Phase 6: where it is useful, for the pack's detail line ("Fits: ...").
+    std::string fits;
+    float carryBonus = 0.0f; // kg added to the carry limit while carried (one counts)
     WeaponOverrides weapon;
     ThrowDef throwDef;
 

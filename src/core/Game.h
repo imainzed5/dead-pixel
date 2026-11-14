@@ -33,6 +33,7 @@
 #include "world/Windows.h"
 #include "world/FirstDays.h"
 #include "world/Furniture.h"
+#include "world/Forage.h"
 #include "world/Scenery.h"
 #include "world/BloodTrail.h"
 #include "world/ZombieKinds.h"
@@ -157,7 +158,7 @@ private:
     {
         glm::vec2 pos{0.0f};
         glm::vec2 size{0.0f};
-        std::array<glm::vec4, 3> tabs{}; // x, y, w, h
+        std::array<glm::vec4, 4> tabs{}; // x, y, w, h
         glm::vec2 listPos{0.0f};
         float listW = 0.0f;
         float rowH = 0.0f;
@@ -409,7 +410,7 @@ private:
     void breakFurniture(const glm::ivec2& tile);
     // The best tool carried for breaking things up.
     [[nodiscard]] furnitureuse::Tool breakingTool() const;
-    void dropOnFloor(const glm::ivec2& tile, int itemId, int count);
+    void dropOnFloor(const glm::ivec2& tile, int itemId, int count, float condition = 1.0f, int loaded = 0);
     // A blow on the piece blocking a doorway.
     void furnitureBlow(const glm::ivec2& tile, float damage);
     // E/X/R/F in reach of furniture, stations and things set down.
@@ -454,6 +455,76 @@ private:
     void restoreStructures(const std::vector<StructureRecord>& records);
     // A light inside the building shows through its uncovered windows at night.
     [[nodiscard]] bool buildingLit(int building) const;
+
+    // --- Scavenging (phase 6, GameScavenge.cpp) ---
+    // Each run: locks, alarms, piles on the floor, what was searched.
+    void setupScavenging();
+    // The small box inside a building's street door that stops its alarm.
+    void addAlarmBox(int building);
+    [[nodiscard]] ScavengeRunRecord scavengeRunRecord() const;
+    void restoreScavenging(const ScavengeRunRecord& record);
+    // World memory: piles indoors, doors unlocked, containers searched.
+    void saveScavengeMemory();
+    // A v2 save: shops refurnished; records of containers no longer there go.
+    void migrateScavenging();
+    [[nodiscard]] bool doorLocked(const glm::ivec2& tile) const;
+    // E, X at a locked door. True when it was one (and the key was used).
+    bool handleLockedDoor(const glm::ivec2& tile);
+    void unlockDoor(const glm::ivec2& tile, const char* how);
+    // A building broken into while its alarm works: Loud every 2 s for 45 s.
+    void tripAlarm(int building, const glm::ivec2& door);
+    void updateAlarms(float dtSeconds);
+    bool handleAlarmBox(const ProximityPrompt& entityPrompt);
+    // E at a container: open at once if searched this run, else search it
+    // (held, Soft). The armoury locker wants a crowbar.
+    void beginSearch(Entity container);
+    void finishSearch();
+    [[nodiscard]] bool searchedThisRun(const glm::ivec2& tile) const;
+    // R at a pond, a toilet or a stale collector: Dirty Water.
+    bool handleWaterSource(const ProximityPrompt& entityPrompt);
+    // E at a bush, a tree base, a tuft of grass or open wild ground.
+    bool handleForage(const ProximityPrompt& entityPrompt);
+    void finishForage();
+    // F on food or drink. True when it was eaten or drunk.
+    bool eatOrDrink(int slotIndex);
+    // F on a Battery (into the emptiest light or radio) or a Radio (on/off).
+    bool useBatteryOrRadio(int slotIndex);
+    // Backspace in the pack: onto the floor where you stand.
+    void dropFromPack(int slotIndex, bool wholeStack);
+    // F with a Snare selected: set it on grass far from buildings.
+    bool placeSnare(int slotIndex);
+    // E, R at a garden bed or a snare. True when it handled the key.
+    bool handleFieldStructure(const ProximityPrompt& entityPrompt);
+    void updateScavenging(float dtSeconds);
+    // Food with its state ("Bread (stale)"), anything else by its name.
+    [[nodiscard]] std::string packItemName(const InventorySlot& slot) const;
+    // What is left to find: containers not yet searched, per district and in all.
+    void countTownStock();
+    [[nodiscard]] float districtStock(int district) const; // 0..1, -1 unknown
+    // The pile entity on `tile`, or kInvalidEntity.
+    [[nodiscard]] Entity pileAt(const glm::ivec2& tile) const;
+    [[nodiscard]] std::vector<FloorItemRecord> floorPiles(bool indoorsOnly) const;
+    void restoreFloorPiles(const std::vector<FloorItemRecord>& piles);
+    void markSeenBuildings();
+    // Searched containers stand ajar, lit floor lamps glow (after each build).
+    void applyFurnitureAlts();
+    // A held scavenging action has run its time (search, force, smash, tape,
+    // the alarm box, foraging).
+    void finishScavengeAction();
+    // Scavenging 2: marks over unsearched containers close by (shape pass).
+    void renderScavengeMarks();
+
+    // --- Power (phase 6, GamePower.cpp) ---
+    [[nodiscard]] bool powerOn() const;
+    void updatePower(float dtSeconds);
+    // E at a floor lamp: on or off (with the power on).
+    bool handleFloorLamp(const ProximityPrompt& entityPrompt);
+    [[nodiscard]] bool lampLit(const glm::ivec2& tile) const;
+    // The flashlight's battery: drains while on; dead, it will not light.
+    void updateFlashlightBattery(float dtSeconds);
+    [[nodiscard]] float flashlightCharge() const;
+    // The radio, on: the forecast once a game hour, music in shelter.
+    void updateRadio(float dtSeconds);
 
     // The dead (overhaul phase 4), GameDead.cpp: kinds, senses, blood,
     // hordes, threat modes and what the districts remember.
@@ -727,6 +798,52 @@ private:
     bool mWokeToZombieCheck = false; // set when sleep ends; the next tick checks
     float mBodyMessageCooldown = 0.0f;
     std::vector<Entity> mXpSearched; // containers already looked through (Scavenging XP)
+
+    // Scavenging and power (phase 6). Checkpointed as ScavengeRunRecord
+    // unless said.
+    struct DoorLockState
+    {
+        glm::ivec2 tile{0};
+        int building = 0;
+        bool alarm = false;
+        float damage = 0.0f; // blows on it (not saved)
+        bool edge = true;    // in the outer wall (inside, it unlocks); a stock room's is not
+    };
+    std::vector<DoorLockState> mLocks;      // follows from the layout and world memory
+    struct AlarmRinging
+    {
+        int building = 0;
+        glm::ivec2 door{0};
+        float left = 0.0f;
+        float noiseTimer = 0.0f;
+    };
+    std::vector<AlarmRinging> mAlarms;      // ringing now (not saved)
+    std::vector<std::pair<glm::ivec2, int>> mAlarmBoxes; // box tile, building
+    std::vector<int> mAlarmsSpent;
+    std::vector<glm::ivec2> mSearchedThisRun;
+    std::vector<glm::ivec2> mLitLamps;
+    struct ForagedSpot
+    {
+        glm::ivec2 tile{0};
+        int day = 0;
+    };
+    std::vector<ForagedSpot> mForaged;
+    glm::ivec2 mForageTile{-1};             // the spot being searched (not saved)
+    int mPowerForced = -1;
+    bool mPowerWasOn = true;                // not saved: follows the clock
+    bool mDipAnnounced = false;
+    bool mPowerOutAnnounced = false;
+    bool mPowerWentAsleep = false;          // not saved
+    bool mRadioOn = false;
+    float mRadioTimer = 0.0f;               // seconds to the next forecast (not saved)
+    std::vector<int> mDistrictContainers;   // per district id, at the life's start (not saved)
+    std::vector<int> mDistrictStocked;
+    int mTownContainers = 0;
+    int mTownUnopened = 0;
+    float mSeenTimer = 0.0f;
+    double mLastRainHour = -1000.0;         // for mushrooms (not saved)
+    std::vector<std::pair<glm::ivec2, forage::Spot>> mForageSpots; // from the scenery
+    std::vector<std::pair<Entity, glm::ivec2>> mOnBeds; // the dead standing in a garden bed
     // The character screen.
     struct CharacterDraft
     {
@@ -802,7 +919,14 @@ private:
             Repair,   // mending a weapon at a workbench
             Board,    // nailing a board across a door or window (phase 5)
             Treat,    // stitching or splinting a wound (phase 5)
-            Read      // a book, in shelter (phase 5)
+            Read,     // a book, in shelter (phase 5)
+            // Phase 6.
+            Search,   // a container, before its panel opens
+            Force,    // a locked door, with a crowbar
+            Smash,    // a window's glass, from outside
+            Tape,     // a window's glass, taped and knocked out quietly
+            StopAlarm, // the box by a shop's door
+            Forage    // a bush, a tree base, a tuft of grass
         } kind = Kind::None;
         glm::ivec2 tile{0};       // the piece, window or build site
         glm::ivec2 to{0};         // climb: where you come out
@@ -820,6 +944,7 @@ private:
         int slot = -1;         // treat, read: the pack slot of the item
         int wound = -1;        // treat: which wound
         int treatment = 0;     // treat: a woundrules::Treatment
+        Entity target = kInvalidEntity; // search: the container
     };
     BaseAction mBaseAction;
     bool mBuildWheelOpen = false;

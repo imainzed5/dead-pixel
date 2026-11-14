@@ -82,12 +82,13 @@ void Game::spoilContainers(float gameHours)
     }
     const float step = mContainerSpoilHours;
     mContainerSpoilHours = 0.0f;
+    const bool power = powerOn(); // a fridge keeps things only while it runs
     mWorld.forEach<Interactable, Inventory, Transform>(
         [&](Entity e, Interactable& inter, Inventory& inv, Transform& t)
         {
             if (inter.type != InteractableType::Container || e == mPlayerEntity) return;
             const FurnitureKind kind = containerKindAt(worldToTile(mTileMap, glm::vec2(t.x, t.y)));
-            InventorySystem::degradeFood(inv, mItemDatabase, step * storage::spoilScale(kind, true));
+            InventorySystem::degradeFood(inv, mItemDatabase, step * storage::spoilScale(kind, power));
         });
 }
 

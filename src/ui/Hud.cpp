@@ -180,6 +180,12 @@ Layout computeLayout(const HudState& state, const glm::vec2& viewport)
     layout.itemNameY = viewport.y - Hud::kEdge - 8.0f;
     layout.iconBottom = layout.itemNameY - 20.0f;
     layout.messageY = layout.docked ? viewport.y - Hud::kEdge - 40.0f : layout.iconBottom - Hud::kActiveIcon - 30.0f;
+    if (layout.docked && layout.conditionRows > 0)
+    {
+        // With a panel docked the line sits low on the left, where the
+        // condition labels stack: keep it above them.
+        layout.messageY = std::min(layout.messageY, layout.conditionY(0) - 30.0f);
+    }
 
     layout.toastY = Hud::kEdge;
     return layout;
@@ -548,7 +554,9 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
         {
             batch.draw(iconPos + glm::vec2(0.0f, active ? 3.0f : 2.0f), glm::vec2(size), uv,
                        glm::vec4(0.0f, 0.0f, 0.0f, 0.6f));
-            batch.draw(iconPos, glm::vec2(size), uv, active ? glm::vec4(1.0f) : glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
+            glm::vec4 tint = active ? glm::vec4(1.0f) : glm::vec4(1.0f, 1.0f, 1.0f, 0.82f);
+            if (slot.dim) tint = glm::vec4(0.42f, 0.42f, 0.46f, tint.a);
+            batch.draw(iconPos, glm::vec2(size), uv, tint);
         }
         else if (slot.empty)
         {
@@ -659,16 +667,29 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
             glm::mix(kAmber, glm::vec4(1.0f), 0.3f * pulse), kLabelScale, TextAlign::Center);
     }
 
-    // Message (transient) wins over the standing interaction prompt.
+    // Message (transient) wins over the standing interaction prompt. With a
+    // panel docked the world is narrower: shorten the line to fit what is
+    // left of it, or a long message runs off the left edge.
+    const float lineRoom = (viewport.x - state.dockedWidth) - 2.0f * Hud::kEdge;
+    const auto fitLine = [&](const std::string& text)
+    {
+        std::size_t chars = 72;
+        std::string line = truncateText(text, chars);
+        while (chars > 8 && font.measureText(line, kLabelScale).x > lineRoom)
+        {
+            line = truncateText(text, --chars);
+        }
+        return line;
+    };
     const bool showMessage = !state.message.empty() && state.messageAlpha > 0.01f;
     if (showMessage)
     {
-        put(glm::vec2(layout.centreX, layout.messageY), truncateText(state.message, 72),
+        put(glm::vec2(layout.centreX, layout.messageY), fitLine(state.message),
             withAlpha(kTextColor, state.messageAlpha), kLabelScale, TextAlign::Center);
     }
     else if (!state.prompt.empty())
     {
-        put(glm::vec2(layout.centreX, layout.messageY), truncateText(state.prompt, 72), kTextColor, kLabelScale,
+        put(glm::vec2(layout.centreX, layout.messageY), fitLine(state.prompt), kTextColor, kLabelScale,
             TextAlign::Center);
     }
 

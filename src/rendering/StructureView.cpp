@@ -650,4 +650,22 @@ void StructureView::collect(const Camera& camera, const glm::ivec2& playerTile, 
             }
         }
     }
+
+    // Shop signs on the street face over the door, sheared along the wall.
+    const float signSize = kSignSize * zoom;
+    for (const ShopSign& sign : mSigns)
+    {
+        const int x = sign.door.x;
+        const int y = sign.door.y;
+        if (!inBounds(x, y) || isCutAway(sign.door, playerTile)) continue;
+        // The outside face of a bottom wall stands at the tile's -y edge
+        // (StructureView puts that wall there), a slab's thickness in.
+        const float faceY = static_cast<float>(y) * kTile + kWallThickness;
+        const glm::vec2 foot = camera.worldToScreen(glm::vec2(static_cast<float>(x) * kTile, faceY));
+        const glm::vec2 at(std::round(foot.x), std::round(foot.y - kSignLift * zoom));
+        if (at.x + signSize < 0.0f || at.x > viewport.x || at.y + signSize < 0.0f || at.y > viewport.y) continue;
+        // In front of the roofs over this tile and the next one along.
+        out.push_back(StaticSprite{at, glm::vec2(signSize), sign.uv, glm::vec4(1.0f),
+                                   static_cast<float>(x + y + 1) * kTile + 17.0f});
+    }
 }

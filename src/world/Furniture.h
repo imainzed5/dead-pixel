@@ -31,6 +31,16 @@ enum class FurnitureKind : std::uint8_t
     MetalRack,
     Workbench,
     Barrels,
+    // Phase 6: what shops, offices and the police station hold.
+    Cot,
+    Desk,
+    FilingCabinet,
+    Locker,
+    PalletStack,
+    PharmacyShelf,
+    ToolRack,
+    DinerTable,
+    FloorLamp, // lights a house room while the town has power
     Count
 };
 
@@ -72,13 +82,30 @@ struct FurniturePiece
     glm::ivec2 origin{0};
     // Blows taken while it blocks a doorway (not saved).
     float damage = 0.0f;
+    // Phase 6: what the building was (BuildingKind as int), whether the piece
+    // stands in a back room (stock), and the police station's one armoury
+    // locker. All follow from the layout; none is saved.
+    int buildingKind = 0;
+    bool stock = false;
+    bool armoury = false;
 };
 
 namespace furniture
 {
 [[nodiscard]] const FurnitureInfo& info(FurnitureKind kind);
-// Atlas sprite for a placed piece.
-[[nodiscard]] std::string spriteName(const FurniturePiece& piece);
+// Atlas sprite for a placed piece. `alt`: a searched container standing ajar,
+// or a floor lamp that is lit (phase 6).
+[[nodiscard]] std::string spriteName(const FurniturePiece& piece, bool alt = false);
+// The piece has a second look (ajar, or lit).
+[[nodiscard]] bool hasAltSprite(FurnitureKind kind);
+// The loot class (assets/data/loot.json) a container piece rolls from, by
+// the building it stands in; "" when it holds nothing.
+[[nodiscard]] std::string lootClass(const FurniturePiece& piece);
+// Seconds to search it (phase 6), before the Scavenging skill: 1.5 for a
+// cupboard, 3 for a wardrobe, crate or shelf, 5 for a locker or files.
+[[nodiscard]] float searchSeconds(FurnitureKind kind);
+// The armoury locker needs a crowbar and this long, loudly.
+constexpr float kArmouryForceSeconds = 30.0f;
 // The tile in front of an oriented piece (where you stand to use it).
 [[nodiscard]] glm::ivec2 frontTile(const FurniturePiece& piece);
 

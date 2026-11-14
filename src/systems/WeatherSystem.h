@@ -5,6 +5,15 @@
 #include <cstdint>
 #include <random>
 #include <string>
+#include <vector>
+
+// One step of the radio's forecast (phase 6): a condition starting this many
+// game hours from now.
+struct ForecastStep
+{
+    float startsIn = 0.0f;
+    WeatherCondition condition = WeatherCondition::Clear;
+};
 
 class WeatherSystem
 {
@@ -23,6 +32,13 @@ public:
     // The next condition for `season`, and how long it lasts (2-6 game hours).
     static WeatherCondition rollCondition(Season season, std::mt19937& rng);
     static float rollHours(std::mt19937& rng);
+
+    // The coming `hours` of weather, from a copy of the generator (the real
+    // weather will follow it): the current condition first.
+    [[nodiscard]] std::vector<ForecastStep> forecast(const WeatherState& weather, float hours) const;
+    // The radio's one line for a forecast heard at `hourOfDay`, e.g.
+    // "Rain by evening. Colder tonight."
+    [[nodiscard]] static std::string forecastLine(const std::vector<ForecastStep>& steps, double hourOfDay);
 
     // For the checkpoint: hours left on this condition and the generator.
     [[nodiscard]] float hoursLeft() const { return mHoursLeft; }

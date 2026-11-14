@@ -171,6 +171,22 @@ public:
     [[nodiscard]] int openBuilding(const glm::ivec2& playerTile) const;
 
     [[nodiscard]] const StructureTile& tile(int tileX, int tileY) const;
+
+    // A shop's sign (phase 6): a small pictogram board on the street face
+    // of the wall over its street door. Kept across build().
+    struct ShopSign
+    {
+        glm::ivec2 door{0};
+        glm::vec4 uv{0.0f};
+    };
+    void setSigns(std::vector<ShopSign> signs) { mSigns = std::move(signs); }
+    [[nodiscard]] const std::vector<ShopSign>& signs() const { return mSigns; }
+    // Must match P6_SIGN_W and the sign's sheared height in generate_sprites.py.
+    static constexpr float kSignSize = 32.0f;
+    // Sprite top above the left end of the face's foot: the board sits on
+    // the eave over the door (its bottom 43 px up), where the roof would
+    // otherwise hide the top of the wall.
+    static constexpr float kSignLift = 61.0f;
     [[nodiscard]] float roofAlpha(int building) const;
     [[nodiscard]] int buildingCount() const { return static_cast<int>(mRoofAlpha.size()) - 1; }
 
@@ -186,4 +202,5 @@ private:
     std::vector<StructureTile> mTiles;
     std::vector<StructureMaterial> mBuildingMaterial; // per building id, [0] unused
     std::vector<float> mRoofAlpha;                    // per building id, [0] unused
+    std::vector<ShopSign> mSigns;
 };

@@ -1,5 +1,6 @@
 #include "rendering/FurnitureView.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
@@ -23,10 +24,29 @@ void FurnitureView::build(const std::vector<FurniturePiece>& pieces)
         Entry entry;
         entry.tile = piece.tile;
         entry.sprite = furniture::spriteName(piece);
+        if (furniture::hasAltSprite(piece.kind)) entry.altSprite = furniture::spriteName(piece, true);
         entry.tall = furniture::info(piece.kind).tall;
         mEntries.push_back(std::move(entry));
     }
     mUvReady = false;
+}
+
+void FurnitureView::setAlt(const glm::ivec2& tile, bool alt)
+{
+    for (Entry& entry : mEntries)
+    {
+        if (entry.tile == tile && !entry.altSprite.empty()) entry.alt = alt;
+    }
+}
+
+void FurnitureView::setAlts(std::vector<glm::ivec2> tiles)
+{
+    const auto less = [](const glm::ivec2& a, const glm::ivec2& b) { return a.x != b.x ? a.x < b.x : a.y < b.y; };
+    std::sort(tiles.begin(), tiles.end(), less);
+    for (Entry& entry : mEntries)
+    {
+        if (!entry.altSprite.empty()) entry.alt = std::binary_search(tiles.begin(), tiles.end(), entry.tile, less);
+    }
 }
 
 bool FurnitureView::hidesPlayer(const glm::ivec2& piece, const glm::ivec2& player)
@@ -45,6 +65,7 @@ void FurnitureView::collect(const Camera& camera, const StructureView& structure
         for (Entry& entry : mEntries)
         {
             entry.uv = sheet.uvRect(entry.sprite);
+            entry.altUv = entry.altSprite.empty() ? entry.uv : sheet.uvRect(entry.altSprite);
         }
         mUvReady = true;
     }
@@ -72,7 +93,7 @@ void FurnitureView::collect(const Camera& camera, const StructureView& structure
         }
         const float alpha = entry.tall && hidesPlayer(entry.tile, playerTile) ? kFadedAlpha : 1.0f;
         out.push_back(StaticSprite{
-            glm::vec2(left, top - up), glm::vec2(tileW, tileH + up), entry.uv, glm::vec4(1.0f, 1.0f, 1.0f, alpha),
+            glm::vec2(left, top - up), glm::vec2(tileW, tileH + up), entry.alt ? entry.altUv : entry.uv, glm::vec4(1.0f, 1.0f, 1.0f, alpha),
             static_cast<float>(entry.tile.x + entry.tile.y) * kTile});
     }
 }

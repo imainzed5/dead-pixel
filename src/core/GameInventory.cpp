@@ -126,7 +126,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
 
             if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
             {
-                for (int i = 0; i < 3; ++i)
+                for (int i = 0; i < kCraftingCategories; ++i)
                 {
                     if (inside(layout.tabs[static_cast<std::size_t>(i)]) && i != mCraftingCategory)
                     {
@@ -183,12 +183,12 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
 
         if (mInput.wasKeyPressed(SDL_SCANCODE_A) || mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
         {
-            mCraftingCategory = (mCraftingCategory + 2) % 3;
+            mCraftingCategory = (mCraftingCategory + kCraftingCategories - 1) % kCraftingCategories;
             mCraftingRecipeCursor = 0;
         }
         if (mInput.wasKeyPressed(SDL_SCANCODE_D) || mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
         {
-            mCraftingCategory = (mCraftingCategory + 1) % 3;
+            mCraftingCategory = (mCraftingCategory + 1) % kCraftingCategories;
             mCraftingRecipeCursor = 0;
         }
 
@@ -227,7 +227,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 mInteractionMessage = "Recipe is still undiscovered.";
                 mInteractionMessageTimer = 2.0f;
             }
-            else if (!craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile()))
+            else if (!craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn()))
             {
                 mInteractionMessage = recipe.station == CraftStation::Workbench ? "Needs a workbench nearby." : "Needs a fire nearby.";
                 mInteractionMessageTimer = 2.5f;
@@ -299,7 +299,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                     }
                 }
 
-                if (!interrupted && !craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile()))
+                if (!interrupted && !craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn()))
                 {
                     interrupted = true;
                     interruptReason = "Crafting interrupted: walked away from it.";
@@ -541,6 +541,12 @@ void Game::updateInventoryInput(bool drivingVehicle)
             mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 1, 0);
         }
 
+        // Backspace: the cursor item onto the floor (Shift: the whole stack).
+        if (mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE))
+        {
+            dropFromPack(mInventoryCursor, mInput.isKeyDown(SDL_SCANCODE_LSHIFT) || mInput.isKeyDown(SDL_SCANCODE_RSHIFT));
+        }
+
         // Enter key: swap cursor slot with active hotbar slot
         if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) && mInventoryCursor != inv.activeSlot)
         {
@@ -569,7 +575,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
             // Alarms, spike boards and lights are set down, not used up.
-            if (placeItem(useSlot) || useFightingItem(useSlot))
+            if (placeSnare(useSlot) || placeItem(useSlot) || useFightingItem(useSlot) || useBatteryOrRadio(useSlot))
             {
                 // Set down, wound, or poured on a fire.
             }
@@ -577,10 +583,6 @@ void Game::updateInventoryInput(bool drivingVehicle)
             {
                 const ItemDef* item = mItemDatabase.find(slot.itemId);
                 const double nowHour = absoluteHour();
-                // Comfort is worth half when Worn down (phase 5).
-                const float comfort = mWorld.hasComponent<MentalState>(mPlayerEntity)
-                                          ? mindrules::comfortScale(mindrules::depressionBand(mWorld.getComponent<MentalState>(mPlayerEntity).depression))
-                                          : 1.0f;
                 if (item)
                 {
                     // A medical item (or a bottle of Spirits) goes on the worst
@@ -593,63 +595,9 @@ void Game::updateInventoryInput(bool drivingVehicle)
                     {
                         // Reading, or holding it.
                     }
-                    else if (item->category == ItemCategory::Food && mWorld.hasComponent<Needs>(mPlayerEntity))
+                    else if (eatOrDrink(useSlot))
                     {
-                        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-                        const float restore = item->hungerRestore * slot.condition;
-                        needs.hunger = std::min(needs.maxHunger, needs.hunger + restore);
-
-                        // Spoiled food causes illness (twice over for a Weak Stomach).
-                        if (slot.condition < 0.3f)
-                        {
-                            const Traits* traits = playerTraits();
-                            const float scale = traits != nullptr ? traitrules::badFoodIllnessScale(*traits) : 1.0f;
-                            needs.illness = std::min(100.0f, needs.illness + (1.0f - slot.condition) * 20.0f * scale);
-                            mInteractionMessage = "Ate spoiled " + item->name + "... feeling sick.";
-                        }
-                        else
-                        {
-                            mInteractionMessage = "Ate " + item->name + ".";
-                        }
-                        // Chocolate settles the nerves; a hot meal lifts the mood.
-                        if (item->panicRelief > 0.0f) addPanic(-item->panicRelief);
-                        bool hot = false;
-                        for (const CraftingRecipe& recipe : mCraftingSystem.recipes())
-                        {
-                            if (recipe.station == CraftStation::Fire && recipe.outputItemId == item->id) hot = true;
-                        }
-                        float lift = item->depressionRelief;
-                        if (hot) lift = std::max(lift, mindrules::kHotMealRelief);
-                        if (lift > 0.0f) addDepression(-lift * comfort);
-
-                        InventorySystem::consumeOne(inv, mItemDatabase, useSlot);
-                        mInteractionMessageTimer = 3.0f;
-                        mAudioManager.playSound(SoundId::FoodEat, 0.5f);
-                    }
-                    else if (item->category == ItemCategory::Drink && mWorld.hasComponent<Needs>(mPlayerEntity))
-                    {
-                        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-                        needs.thirst = std::min(needs.maxThirst, needs.thirst + item->thirstRestore);
-                        mInteractionMessage = "Drank " + item->name + ".";
-                        // Coffee hides tiredness for a while; two too close, the shakes.
-                        if (item->sleepDebtMask > 0.0f)
-                        {
-                            if (sleeprules::doubleCoffee(nowHour, needs.lastCoffeeHour))
-                            {
-                                addPanic(sleeprules::kCoffeeDoublePanic);
-                                needs.coffeeJitterHours = sleeprules::kCoffeeJitterHours;
-                                mInteractionMessage = "Another coffee. Your hands start to shake.";
-                            }
-                            needs.coffeeHours = item->sleepDebtMask;
-                            needs.lastCoffeeHour = nowHour;
-                        }
-                        if (item->panicRelief > 0.0f) addPanic(-item->panicRelief);
-                        if (item->depressionRelief > 0.0f) addDepression(-item->depressionRelief * comfort);
-                        if (item->hasTag("sedative")) needs.lastSedativeHour = nowHour;
-                        // What is left (an empty bottle a tap can fill again) stays in the pack.
-                        InventorySystem::consumeOne(inv, mItemDatabase, useSlot);
-                        mInteractionMessageTimer = 3.0f;
-                        mAudioManager.playSound(SoundId::FoodEat, 0.4f);
+                        // Eaten or drunk (phase 6: fresh, stale or spoiled; raw; dirty).
                     }
                     else if (item->category == ItemCategory::Medical)
                     {

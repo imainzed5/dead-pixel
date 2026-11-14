@@ -113,7 +113,7 @@ Plan planFor(int day, double hours, const Facts& facts)
         break;
     case 3:
         plan.title = "Day 3: the taps are dry";
-        plan.steps.push_back({facts.rainCollector ? "Rain collector built" : "Find water" + count(facts.waterBottles, kWaterGoal),
+        plan.steps.push_back({facts.rainCollector ? "Rain collector built" : "Find or boil water" + count(facts.waterBottles, kWaterGoal),
                               facts.rainCollector || facts.waterBottles >= kWaterGoal});
         plan.steps.push_back({"Find food" + count(facts.food, kFoodGoal), facts.food >= kFoodGoal});
         plan.steps.push_back({"Board up the house" + (facts.ways > 0 ? count(facts.waysBoarded, facts.ways) : ""),
@@ -143,7 +143,7 @@ DayCard dayCard(int day)
     {
     case 1: card.line = "Make the house safe before dark."; break;
     case 2: card.line = "The water pressure is dropping. Fill every bottle."; break;
-    case 3: card.line = "The taps are dry. Build a rain collector, or find water."; break;
+    case 3: card.line = "The taps are dry. Build a rain collector, or find water and boil it."; break;
     case 4: card.line = "Nothing restocks. What you need is out there."; break;
     default: break;
     }

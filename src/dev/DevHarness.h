@@ -110,6 +110,11 @@ private:
     int mSimZombies = 0;             // "mark sim": the simulation, for expect sim
     std::uint64_t mSimNoises = 0;
     int mWeatherMark = -1;
+    // "fridge mark": a food's condition in the nearest fridge, and when (phase 6).
+    float mFridgeCondition = -1.0f;
+    double mFridgeHour = 0.0;
+    int mFridgeItem = -1;
+    glm::ivec2 mFridgeTile{-1, -1};
     std::uint64_t mNoiseAtLastRow = 0;
     double mClockAtLastRow = -1.0;
     int mMetricsInterval = 0;

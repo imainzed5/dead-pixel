@@ -125,7 +125,7 @@ void Game::updateDoors(float dtSeconds)
             const glm::vec2 centre(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f);
             const Doors::Door* door = mDoors.nearest(mTileMap, centre, tileSize * 0.8f);
             if (door != nullptr && mTileMap.doorState(door->tile.x, door->tile.y) == DoorState::Closed &&
-                mDoors.boards(door->tile) == 0)
+                mDoors.boards(door->tile) == 0 && !doorLocked(door->tile))
             {
                 rattleAlarm(door->tile);
                 mDoors.open(mTileMap, door->tile);
@@ -192,6 +192,11 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
         mInteractionMessage = "You take the cans down.";
         mInteractionMessageTimer = 2.0f;
         return true;
+    }
+    // Locked (phase 6): E says so; X forces or breaks it; from inside it unlocks.
+    if (state == DoorState::Closed && boards == 0 && doorLocked(door->tile))
+    {
+        return handleLockedDoor(door->tile);
     }
     if (state == DoorState::Open)
     {

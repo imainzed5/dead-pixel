@@ -1,0 +1,68 @@
+# Getting in (phase 6): a locked pharmacy says "Locked."; a crowbar forces
+# it in 6 s and, with the power on, its alarm rings (Loud every 2 s); the
+# dead 20 tiles off turn to it; the box inside by the door stops it. With the
+# power off, forcing the police station rings nothing.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/break_in.txt --hidden --world-seed 1234 --shots shots/break_in
+
+newrun
+god on
+waits 1
+slay 300
+hours 12
+# Two of the dead wander twenty tiles down the street from the pharmacy.
+goto kind pharmacy 20
+waits 0.3
+mark
+zombie mark idle
+zombie mark idle
+goto kind pharmacy
+waits 0.5
+expect locked
+expect prompt Locked
+tap E
+waits 0.2
+expect message Locked.
+shot 01_locked
+# Seed 1234's pharmacy has no alarm of its own (60 %): give it one.
+locks arm
+expect zombies calm 30
+give Crowbar
+tap X
+waits 1
+expect action busy
+shot 02_forcing
+waits 5.5
+expect unlocked
+expect alarm on
+expect message alarm
+shot 03_alarm_ringing
+waits 4
+expect zombies coming 30
+slay 300
+# Inside, the box by the door: three seconds and it stops (longer with
+# shaking hands: phase 5's panic slows held work).
+goto kind pharmacy inside
+waits 0.3
+expect prompt Alarm box
+tap E
+waits 0.5
+expect action busy
+waits 4
+expect action none
+expect alarm off
+expect message alarm stops
+shot 04_alarm_stopped
+# With the power off, alarms are dead: the police station opens quietly.
+slay 300
+power off
+goto kind police
+waits 0.5
+expect locked
+tap X
+waits 6.5
+expect unlocked
+expect alarm off
+shot 05_police_quiet
+expect alive
+quit

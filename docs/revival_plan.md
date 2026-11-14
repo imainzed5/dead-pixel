@@ -999,6 +999,80 @@ Median 1.8 days (Swarm in phase 4: 1.5), mean 1.6; 10 of 10 clean; none
 died at home on night 1. Deaths: overrun 6, infection 2, bled out 1,
 killed 1. Infection appears but does not lead, as the phase asks.
 
+## Overhaul phase 6: scavenging and the town that runs out (2026-11-14)
+
+Buildings with a purpose: every building has a kind (grocery, pharmacy,
+hardware, clinic, police, diner, office, garage, warehouse, workshop or
+house), a pure function of the layout, so old towns get the same kinds.
+Shops are furnished by kind (shelves and a checkout, a pharmacy counter
+and a locked stock room, an armoury locker, cots, desks, filing cabinets,
+pallet stacks) with eight new pieces, and a pictogram sign over the street
+door; the town map marks the kinds you have seen, and remembers them.
+
+Getting in: doors can be locked ("Locked."); a crowbar forces one in 6 s,
+a weapon or a shoulder breaks it, a window breaks or is taped quietly,
+half of locked buildings have an open back door, and one kitchen cupboard
+in eight holds a key ring for the street. Alarmed shops ring for 45 s
+while the power is on, until the box by the door is stopped. Searching a
+container is a held action (1.5 to 5 s), and a searched one stands ajar.
+
+The town runs down: Dirty Water from ponds, toilets and stale collectors
+(boil it or use tablets); power until about 19:00 on day 5, flickering
+from day 4, then street lamps, floor lamps, fridges and alarms die; food
+goes fresh, stale, spoiled; cooking at a campfire or a powered stove (a
+FOOD tab); foraging bushes, trees and tufts; snares; garden beds that
+grow, die dry and come back as seedlings in the next life; a backpack,
+dropping on the floor (Backspace), batteries, and a radio that gives the
+forecast. The notebook counts cupboards still unopened and the map tints
+districts by what is left.
+
+Save version 3: a version 2 slot is backed up (`*.v2.backup`), shops are
+refurnished, container records on tiles that no longer hold a container
+are dropped, houses are untouched (floor lamps are placed last with their
+own dice). Checked by `save_v2_slot_migrates_to_v3` and by hand in the
+game: a version 2 slot with four container records loaded, kept the
+house's and the shop's real containers, dropped the two stale ones, and
+ran.
+
+Harness: `town_kinds` (seeds 1234, 42, 777), `break_in`, `power_out`,
+`cooking`, `garden`; all 40 scripts pass (42 runs, each in a fresh
+directory, on the final build), 209 unit tests pass, clean build without
+warnings. The screenshots of the five new scripts were looked at; they
+showed the HUD's message line running off the narrowed world and over the
+condition labels while a panel is docked, which is now fixed. 300 of the
+dead: 1.5 ms a tick on average. `power_out` forces the failure with `power
+soon` rather than waiting at `day 5`, `hours 18.9`; the hour itself is
+covered by the unit test `power_fails_on_day_five_near_dusk`.
+
+The bot drinks Dirty Water only when nothing clean is carried, fills
+bottles at toilets and ponds, forces locks with a crowbar and ranges
+further each day. It had stepped while pressing E at a cupboard, which
+cancelled the new held search (1 to 14 containers a run, no boards on any
+seed) until fixed. `bot_week`, seeds 1 to 10, default mode (run on the
+build before the HUD fix, which touches no simulation; `bot_week` seed 1
+was run again on the final build with the same result):
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 2.9 | Overrun, day 4 | 64 | 9 | 10 | 96 | 3 |
+| 2 | 2.6 | Killed, day 3 | 72 | 6 | 3 | 48 | 1 |
+| 3 | 1.6 | Overrun, day 2 | 45 | 11 | 5 | 53 | 1 |
+| 4 | 0.9 | Overrun, day 2 | 32 | 7 | 7 | 7 | 1 |
+| 5 | 3.9 | Overrun, day 5 | 71 | 12 | 6 | 66 | 2 |
+| 6 | 3.2 | Overrun, day 4 | 48 | 5 | 1 | 19 | 3 |
+| 7 | 0.7 | Overrun, day 1 | 15 | 8 | 7 | 32 | 3 |
+| 8 | 1.6 | Overrun, day 2 | 42 | 10 | 10 | 54 | 0 |
+| 9 | 0.5 | Overrun, day 1 | 3 | 7 | 7 | 7 | 0 |
+| 10 | 1.4 | Overrun, day 2 | 21 | 6 | 2 | 43 | 2 |
+
+Median 1.6 days (phase 5: 1.8), mean 1.9 (phase 5: 1.6); four lives
+reach day 4 or 5 (phase 5: none past day 3); 10 of 10 clean; seed 9 died
+at home on night 1 (phase 5: none). Deaths: overrun 9, killed 1; none
+from thirst in either phase, so "deaths from thirst after day 3 fall"
+cannot be read. "Days survived rises" is met on the mean and the longest
+lives, not on the median. Seed 9's night and boards that come down and
+are not put back are leads for phase 14 (`DECISIONS.md`).
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -1159,3 +1233,9 @@ Candidates for the next stretch, roughly in order. None is started.
   with their own care and a BODY tab, sleep debt, panic and depression
   bands, false figures, boarding as a held action; bot median 1.8 days,
   infection 2 of 10 deaths (bar: appears, does not lead; met).
+- 2026-11-14: Overhaul phase 6, scavenging: building kinds with signs and
+  furnishings, locks, alarms and ways in, held searching, dirty water,
+  power that fails on day 5, spoilage and cooking, foraging, snares,
+  garden beds, backpack, dropping, batteries and the radio; save version
+  3 with a migration; bot median 1.6 days, mean 1.9 (phase 5: 1.8, 1.6),
+  night 1 at home 1 of 10.

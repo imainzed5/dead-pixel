@@ -33,6 +33,10 @@
 #include "core/GameShared.h"
 #include "core/Tuning.h"
 #include "world/Storage.h"
+#include "world/BuildingKinds.h"
+#include "world/Forage.h"
+#include "world/Garden.h"
+#include "world/Power.h"
 #include "world/CombatRules.h"
 #include "world/FurnitureUse.h"
 #include "systems/BuildSystem.h"
@@ -893,6 +897,160 @@ void DevHarness::execute(Game& game, const Command& command)
         // piece (of a kind such as fridge or bed; with something in it).
         if (!need(1)) return;
         const std::string kind = lower(a[1]);
+        if (kind == "kind")
+        {
+            // goto kind NAME [inside] [N]: the ground N tiles (default 1) in
+            // front of the street door of the nearest building of that kind
+            // (pharmacy, police...), or the floor just inside it.
+            if (!need(2)) return;
+            BuildingKind want = BuildingKind::House;
+            if (!buildingkinds::fromName(a[2], want))
+            {
+                fail(command, "unknown building kind '" + a[2] + "'");
+                return;
+            }
+            const bool inside = std::find(a.begin(), a.end(), "inside") != a.end();
+            int out = 1;
+            if (a.size() > 3 && std::isdigit(static_cast<unsigned char>(a.back()[0]))) out = std::max(1, std::stoi(a.back()));
+            const LayoutData& layout = game.mMapGenerator.layoutData();
+            const glm::vec2 from = glm::vec2(game.playerTile());
+            glm::ivec2 best(-1);
+            float bestD = 0.0f;
+            int bestBuilding = 0;
+            for (std::size_t i = 0; i < layout.buildings.size(); ++i)
+            {
+                if (buildingkinds::kindOf(layout.buildings[i]) != want) continue;
+                const glm::ivec2 door = buildingkinds::streetDoor(layout, static_cast<int>(i) + 1);
+                if (door.x < 0) continue;
+                const float d = glm::length(glm::vec2(door) - from);
+                if (best.x < 0 || d < bestD)
+                {
+                    best = door;
+                    bestD = d;
+                    bestBuilding = static_cast<int>(i) + 1;
+                }
+            }
+            if (best.x < 0)
+            {
+                fail(command, std::string("the town has no ") + buildingkinds::name(want));
+                return;
+            }
+            glm::ivec2 tile = best + glm::ivec2(0, inside ? -1 : 1);
+            if (inside && game.mTileMap.isSolid(tile.x, tile.y)) tile = best + glm::ivec2(1, -1);
+            for (int i = 1; !inside && i < out; ++i)
+            {
+                const glm::ivec2 next = tile + glm::ivec2(0, 1);
+                if (game.mTileMap.isSolid(next.x, next.y)) break;
+                tile = next;
+            }
+            std::cout << "[harness] goto kind: " << buildingkinds::name(want) << " (building " << bestBuilding << "), door "
+                      << best.x << "," << best.y << (game.doorLocked(best) ? " locked" : " unlocked") << '\n';
+            execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
+            return;
+        }
+        if (kind == "wild")
+        {
+            // goto wild: the nearest open grass at least 15 tiles from any
+            // building (where a snare may be set).
+            const TileMap& map = game.mTileMap;
+            const int w = map.width();
+            const int h = map.height();
+            std::vector<int> dist(static_cast<std::size_t>(w * h), -1);
+            std::vector<glm::ivec2> queue;
+            for (int y = 0; y < h; ++y)
+            {
+                for (int x = 0; x < w; ++x)
+                {
+                    if (map.getBuildingId(x, y) <= 0) continue;
+                    dist[static_cast<std::size_t>(y * w + x)] = 0;
+                    queue.emplace_back(x, y);
+                }
+            }
+            for (std::size_t i = 0; i < queue.size(); ++i)
+            {
+                const glm::ivec2 t = queue[i];
+                const int d = dist[static_cast<std::size_t>(t.y * w + t.x)];
+                for (const glm::ivec2& step : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+                {
+                    const glm::ivec2 n = t + step;
+                    if (n.x < 0 || n.y < 0 || n.x >= w || n.y >= h || dist[static_cast<std::size_t>(n.y * w + n.x)] >= 0) continue;
+                    dist[static_cast<std::size_t>(n.y * w + n.x)] = d + 1;
+                    queue.push_back(n);
+                }
+            }
+            const glm::ivec2 from = game.playerTile();
+            const std::vector<glm::ivec2> occupied = game.occupiedTiles();
+            glm::ivec2 best(-1);
+            int bestD = 0;
+            for (int y = 0; y < h; ++y)
+            {
+                for (int x = 0; x < w; ++x)
+                {
+                    // Steps overstate the distance: check the circle as placeSnare does.
+                    if (dist[static_cast<std::size_t>(y * w + x)] < 15) continue;
+                    if (map.isSolid(x, y) || map.isIndoors(x, y) || map.getSurfaceType(x, y) != SurfaceType::Grass) continue;
+                    bool clear = true;
+                    for (int dy = -15; dy <= 15 && clear; ++dy)
+                    {
+                        for (int dx = -15; dx <= 15 && clear; ++dx)
+                        {
+                            if (dx * dx + dy * dy > 225 || !map.inBounds(x + dx, y + dy)) continue;
+                            if (map.getBuildingId(x + dx, y + dy) > 0) clear = false;
+                        }
+                    }
+                    if (!clear) continue;
+                    if (std::find(occupied.begin(), occupied.end(), glm::ivec2(x, y)) != occupied.end()) continue;
+                    const int d = (x - from.x) * (x - from.x) + (y - from.y) * (y - from.y);
+                    if (best.x < 0 || d < bestD)
+                    {
+                        best = {x, y};
+                        bestD = d;
+                    }
+                }
+            }
+            if (best.x < 0)
+            {
+                fail(command, "no open grass far from the buildings");
+                return;
+            }
+            execute(game, Command{command.line, {"teleport", std::to_string(best.x), std::to_string(best.y)}});
+            return;
+        }
+        if (kind == "forage")
+        {
+            // goto forage [bush|tree|tuft]: beside the nearest such spot.
+            const std::string which = a.size() > 2 ? lower(a[2]) : std::string("any");
+            const forage::Spot want = which == "bush" ? forage::Spot::Bush : which == "tree" ? forage::Spot::TreeBase
+                                    : which == "tuft" ? forage::Spot::Tuft : forage::Spot::None;
+            const glm::vec2 from = glm::vec2(game.playerTile());
+            const std::pair<glm::ivec2, forage::Spot>* best = nullptr;
+            float bestD = 0.0f;
+            for (const auto& spot : game.mForageSpots)
+            {
+                if (want != forage::Spot::None && spot.second != want) continue;
+                const float d = glm::length(glm::vec2(spot.first) - from);
+                if (best == nullptr || d < bestD)
+                {
+                    best = &spot;
+                    bestD = d;
+                }
+            }
+            if (best == nullptr)
+            {
+                fail(command, "no forage spot");
+                return;
+            }
+            for (const glm::ivec2& side : {glm::ivec2(0, 1), glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, -1)})
+            {
+                const glm::ivec2 tile = best->first + side;
+                if (game.mTileMap.isSolid(tile.x, tile.y)) continue;
+                std::cout << "[harness] goto forage: spot " << best->first.x << "," << best->first.y << '\n';
+                execute(game, Command{command.line, {"teleport", std::to_string(tile.x), std::to_string(tile.y)}});
+                return;
+            }
+            fail(command, "no free tile beside the forage spot");
+            return;
+        }
         if (kind == "furniture")
         {
             if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
@@ -1192,6 +1350,188 @@ void DevHarness::execute(Game& game, const Command& command)
         {
             game.beginRetirementState(cause);
         }
+    }
+    else if (op == "recipe")
+    {
+        // recipe NAME...: with the Make panel open, put the cursor on that
+        // recipe (in the tab showing) and press Enter.
+        if (!need(1)) return;
+        std::string name;
+        for (std::size_t i = 1; i < a.size(); ++i) name += (i > 1 ? " " : "") + lower(a[i]);
+        if (!game.mShowCrafting || game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+        {
+            fail(command, "the Make panel is not open");
+            return;
+        }
+        const auto visible = gameshared::buildVisibleRecipeList(game.mCraftingSystem, game.mSaveManager,
+                                                                game.mWorld.getComponent<Inventory>(game.mPlayerEntity),
+                                                                game.mSessionDiscoveredRecipes, game.mCraftingCategory);
+        int found = -1;
+        for (std::size_t i = 0; i < visible.size(); ++i)
+        {
+            if (lower(game.mCraftingSystem.recipes()[visible[i]].label) == name) found = static_cast<int>(i);
+        }
+        if (found < 0)
+        {
+            fail(command, "no recipe '" + name + "' in this tab");
+            return;
+        }
+        game.mCraftingRecipeCursor = found;
+        game.mInput.setKeyState(SDL_SCANCODE_RETURN, true);
+        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_RETURN, 0});
+    }
+    else if (op == "power")
+    {
+        // power on|off|auto: force the town's power (phase 6).
+        // power soon: back to the clock, six game minutes before it fails.
+        if (!need(1)) return;
+        const std::string state = lower(a[1]);
+        game.mPowerForced = state == "on" ? 1 : state == "off" ? 0 : -1;
+        if (state == "soon")
+        {
+            const double at = power::failHour(game.mSaveManager.currentRunSeed()) - 0.1;
+            game.mCurrentDay = static_cast<int>(at / 24.0);
+            game.mGameHours = at - static_cast<double>(game.mCurrentDay) * 24.0;
+        }
+        std::cout << "[harness] power " << state << " (now " << (game.powerOn() ? "on" : "off") << ", fails at hour "
+                  << power::failHour(game.mSaveManager.currentRunSeed()) << ")\n";
+    }
+    else if (op == "grow")
+    {
+        // grow DAYS [dry]: every garden bed lives DAYS days, watered each day
+        // (or not, with dry).
+        if (!need(1)) return;
+        const int days = std::max(0, std::stoi(a[1]));
+        const bool dry = a.size() > 2 && lower(a[2]) == "dry";
+        int beds = 0;
+        game.mWorld.forEach<Structure>(
+            [&](Entity, Structure& s)
+            {
+                if (s.type != StructureType::GardenBed) return;
+                garden::Bed bed;
+                bed.growHours = s.growHours;
+                bed.sinceWaterHours = s.sinceWaterHours;
+                bed.regrowing = s.regrowing;
+                bed.dead = s.dead;
+                for (int d = 0; d < days; ++d)
+                {
+                    if (!dry) garden::water(bed);
+                    for (int h = 0; h < 24; ++h) garden::tick(bed, 1.0f, false, 0);
+                }
+                s.growHours = bed.growHours;
+                s.sinceWaterHours = bed.sinceWaterHours;
+                s.regrowing = bed.regrowing;
+                s.dead = bed.dead;
+                ++beds;
+                std::cout << "[harness] grow: bed stage " << garden::stage(bed) << (bed.dead ? " dead" : "")
+                          << (garden::ripe(bed) ? " ripe" : "") << '\n';
+            });
+        if (beds == 0) fail(command, "no garden beds");
+    }
+    else if (op == "locks")
+    {
+        // locks: list the locked doors and the alarms (to the log).
+        // locks arm: the building whose locked door is nearest gets an alarm.
+        const LayoutData& layout = game.mMapGenerator.layoutData();
+        if (a.size() > 1 && lower(a[1]) == "arm")
+        {
+            const glm::vec2 me = glm::vec2(game.playerTile());
+            int building = 0;
+            float bestD = 0.0f;
+            for (const auto& lock : game.mLocks)
+            {
+                const float d = glm::length(glm::vec2(lock.tile) - me);
+                if (building == 0 || d < bestD)
+                {
+                    building = lock.building;
+                    bestD = d;
+                }
+            }
+            if (building == 0)
+            {
+                fail(command, "no locked doors");
+                return;
+            }
+            for (auto& lock : game.mLocks)
+            {
+                if (lock.building == building) lock.alarm = true;
+            }
+            std::erase(game.mAlarmsSpent, building);
+            game.addAlarmBox(building);
+            std::cout << "[harness] locks arm: building " << building << '\n';
+        }
+        int alarms = 0;
+        for (const auto& lock : game.mLocks)
+        {
+            const auto kind = buildingkinds::kindOf(layout.buildings[static_cast<std::size_t>(lock.building - 1)]);
+            alarms += lock.alarm ? 1 : 0;
+            std::cout << "[harness] lock: " << lock.tile.x << "," << lock.tile.y << " " << buildingkinds::name(kind)
+                      << (lock.alarm ? " alarm" : "") << (lock.edge ? "" : " (inner)") << '\n';
+        }
+        std::cout << "[harness] locks: " << game.mLocks.size() << " locked doors, " << alarms << " with alarms, "
+                  << game.mAlarms.size() << " ringing\n";
+    }
+    else if (op == "fridge")
+    {
+        // fridge mark: note the condition of a food in the nearest fridge.
+        const glm::vec2 here = game.playerWorldCenter();
+        Entity best = kInvalidEntity;
+        float bestD = 0.0f;
+        glm::ivec2 bestTile(-1);
+        for (const FurniturePiece& piece : game.mFurniture)
+        {
+            if (piece.kind != FurnitureKind::Fridge) continue;
+            const float d = glm::length(glm::vec2(piece.tile) * 32.0f + glm::vec2(16.0f) - here);
+            if (best != kInvalidEntity && d >= bestD) continue;
+            game.mWorld.forEach<Interactable, Inventory, Transform>(
+                [&](Entity e, Interactable&, Inventory&, Transform& t)
+                {
+                    if (static_cast<int>(t.x) / 32 == piece.tile.x && static_cast<int>(t.y) / 32 == piece.tile.y)
+                    {
+                        best = e;
+                        bestD = d;
+                        bestTile = piece.tile;
+                    }
+                });
+        }
+        if (best == kInvalidEntity)
+        {
+            fail(command, "no fridge");
+            return;
+        }
+        Inventory& inv = game.mWorld.getComponent<Inventory>(best);
+        InventorySlot* food = nullptr;
+        for (InventorySlot& slot : inv.slots)
+        {
+            const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? game.mItemDatabase.find(slot.itemId) : nullptr;
+            if (item != nullptr && item->spoilHours > 0.0f)
+            {
+                food = &slot;
+                break;
+            }
+        }
+        if (food == nullptr)
+        {
+            // Stock it: a fresh apple, so there is something to watch.
+            const ItemDef* apple = game.mItemDatabase.findByName("Apple");
+            if (apple == nullptr || InventorySystem::addItem(inv, game.mItemDatabase, apple->id, 1).added < 1)
+            {
+                fail(command, "the fridge holds no food and takes none");
+                return;
+            }
+            for (InventorySlot& slot : inv.slots)
+            {
+                if (slot.itemId == apple->id) food = &slot;
+            }
+            if (food == nullptr) return;
+            food->condition = 1.0f;
+        }
+        mFridgeItem = food->itemId;
+        mFridgeCondition = food->condition;
+        mFridgeHour = game.absoluteHour();
+        mFridgeTile = bestTile;
+        std::cout << "[harness] fridge mark: " << game.mItemDatabase.find(food->itemId)->name << " at " << food->condition
+                  << " (power " << (game.powerOn() ? "on" : "off") << ")\n";
     }
     else if (op == "hours")
     {
@@ -1717,6 +2057,116 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         if (!need(1)) return;
         const std::string want = lower(a[1]);
+        if (want == "message" || want == "prompt")
+        {
+            // expect message|prompt TEXT...: the line on screen holds TEXT.
+            if (!need(2)) return;
+            std::string text;
+            for (std::size_t i = 2; i < a.size(); ++i) text += (i > 2 ? " " : "") + a[i];
+            const std::string have = want == "message" ? (game.mInteractionMessageTimer > 0.0f ? game.mInteractionMessage : std::string{})
+                                                       : game.mProximityPrompt;
+            if (lower(have).find(lower(text)) == std::string::npos) fail(command, "expected " + want + " '" + text + "', it is '" + have + "'");
+            else std::cout << "[harness] tick " << mTick << ": " << want << " '" << have << "'\n";
+            return;
+        }
+        if (want == "power")
+        {
+            if (!need(2)) return;
+            const bool on = game.powerOn();
+            if (on != (lower(a[2]) == "on")) fail(command, std::string("expected power ") + a[2] + ", it is " + (on ? "on" : "off"));
+            return;
+        }
+        if (want == "alarm")
+        {
+            // expect alarm on|off: one is ringing, or none.
+            if (!need(2)) return;
+            const bool ringing = !game.mAlarms.empty();
+            if (ringing != (lower(a[2]) == "on")) fail(command, std::string("expected alarm ") + a[2] + ", it is " + (ringing ? "ringing" : "quiet"));
+            else std::cout << "[harness] tick " << mTick << ": alarm " << (ringing ? "ringing" : "quiet") << '\n';
+            return;
+        }
+        if (want == "locked" || want == "unlocked")
+        {
+            // expect locked|unlocked: the door nearest the player.
+            const Doors::Door* door = game.mDoors.nearest(game.mTileMap, game.playerWorldCenter(), 1.0e9f);
+            if (door == nullptr)
+            {
+                fail(command, "no doors");
+                return;
+            }
+            const bool locked = game.doorLocked(door->tile);
+            if (locked != (want == "locked")) fail(command, std::string("expected the door ") + want + ", it is " + (locked ? "locked" : "unlocked"));
+            return;
+        }
+        if (want == "garden")
+        {
+            // expect garden STAGE|dead|ripe: the nearest garden bed.
+            if (!need(2)) return;
+            const glm::vec2 here = game.playerWorldCenter();
+            const Structure* bestBed = nullptr;
+            float bestD = 0.0f;
+            game.mWorld.forEach<Structure, Transform>(
+                [&](Entity, Structure& s, Transform& t)
+                {
+                    if (s.type != StructureType::GardenBed) return;
+                    const float d = glm::length(glm::vec2(t.x + 16.0f, t.y + 16.0f) - here);
+                    if (bestBed == nullptr || d < bestD)
+                    {
+                        bestBed = &s;
+                        bestD = d;
+                    }
+                });
+            if (bestBed == nullptr)
+            {
+                fail(command, "no garden bed");
+                return;
+            }
+            garden::Bed bed;
+            bed.growHours = bestBed->growHours;
+            bed.sinceWaterHours = bestBed->sinceWaterHours;
+            bed.regrowing = bestBed->regrowing;
+            bed.dead = bestBed->dead;
+            const std::string have = bed.dead ? "dead" : garden::ripe(bed) ? "ripe" : std::to_string(garden::stage(bed));
+            const std::string w = lower(a[2]);
+            const bool ok = w == have || (w != "dead" && w != "ripe" && !bed.dead && std::to_string(garden::stage(bed)) == w);
+            if (!ok) fail(command, "expected garden " + w + ", it is " + have);
+            else std::cout << "[harness] tick " << mTick << ": garden " << have << '\n';
+            return;
+        }
+        if (want == "fridgerate")
+        {
+            // expect fridgerate LO HI: since "fridge mark", the food spoiled at
+            // LO..HI times its normal speed (by condition per game hour).
+            if (!need(3)) return;
+            if (mFridgeItem < 0)
+            {
+                fail(command, "no fridge mark");
+                return;
+            }
+            float now = -1.0f;
+            game.mWorld.forEach<Interactable, Inventory, Transform>(
+                [&](Entity, Interactable&, Inventory& inv, Transform& t)
+                {
+                    if (static_cast<int>(t.x) / 32 != mFridgeTile.x || static_cast<int>(t.y) / 32 != mFridgeTile.y) return;
+                    for (const InventorySlot& slot : inv.slots)
+                    {
+                        if (slot.itemId == mFridgeItem && slot.count > 0) now = std::max(now, slot.condition);
+                    }
+                });
+            const ItemDef* item = game.mItemDatabase.find(mFridgeItem);
+            const double hours = game.absoluteHour() - mFridgeHour;
+            if (now < 0.0f || item == nullptr || hours <= 0.01)
+            {
+                fail(command, "the marked food is gone or no time passed");
+                return;
+            }
+            const double normal = hours / static_cast<double>(item->spoilHours);
+            const double rate = (static_cast<double>(mFridgeCondition) - static_cast<double>(now)) / normal;
+            std::cout << "[harness] tick " << mTick << ": fridge food " << mFridgeCondition << " -> " << now << " over " << hours
+                      << " h: " << rate << "x normal\n";
+            if (rate < std::stod(a[2]) || rate > std::stod(a[3])) fail(command, "spoiled at " + std::to_string(rate) + "x normal");
+            return;
+        }
         if (want == "maxhp")
         {
             if (!need(2)) return;
@@ -2109,6 +2559,21 @@ void DevHarness::execute(Game& game, const Command& command)
                 have = game.mWorld.getComponent<Health>(game.mPlayerEntity).current;
             if (std::abs(have - wantValue) > 0.51f) fail(command, "expected " + want + " " + a[2] + ", it is " + std::to_string(have));
             else std::cout << "[harness] tick " << mTick << ": " << want << " " << have << '\n';
+            return;
+        }
+        if (want == "need")
+        {
+            // expect need illness|hunger|thirst below|above V (phase 6).
+            if (!need(4)) return;
+            const Entity player = game.mPlayerEntity;
+            if (player == kInvalidEntity || !game.mWorld.hasComponent<Needs>(player)) { fail(command, "no needs"); return; }
+            const Needs& needs = game.mWorld.getComponent<Needs>(player);
+            const std::string which = lower(a[2]);
+            const float have = which == "illness" ? needs.illness : which == "hunger" ? needs.hunger : needs.thirst;
+            const float bound = std::stof(a[4]);
+            const bool ok = lower(a[3]) == "below" ? have < bound : have > bound;
+            if (!ok) fail(command, "expected " + a[2] + " " + a[3] + " " + a[4] + ", it is " + std::to_string(have));
+            else std::cout << "[harness] tick " << mTick << ": " << a[2] << " " << have << '\n';
             return;
         }
         if (want == "mind")

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -59,6 +60,14 @@ struct StructureRecord
     int uses = 0;           // spike board
     int targetX = -1;       // can alarm: its door or window
     int targetY = -1;
+    // Phase 6 fields (optional in the file).
+    float standingHours = 0.0f; // rain collector
+    float growHours = 0.0f;     // garden bed
+    float sinceWaterHours = 0.0f;
+    bool regrowing = false;
+    bool dead = false;
+    int snareState = 0;
+    int lastDawn = 0;
 };
 
 // A window someone changed: glass broken, boards across it, a curtain drawn.
@@ -203,6 +212,41 @@ struct ContainerRecord
     int tileY = 0;
     int runIndex = 0; // the run that last changed it
     std::vector<ContainerItemRecord> items;
+};
+
+// Phase 6: things left lying on a floor (a pile), as the world or a
+// checkpoint remembers them.
+struct FloorItemRecord
+{
+    int x = 0;
+    int y = 0;
+    std::vector<ContainerItemRecord> items;
+};
+
+// Phase 6 world memory: what later lives inherit of scavenging.
+struct ScavengeMemoryRecord
+{
+    std::vector<std::pair<int, int>> unlockedDoors; // forced, keyed or opened from inside
+    std::vector<std::pair<int, int>> searched;      // containers searched in any life (drawn ajar)
+    std::vector<int> seenBuildings;                 // building ids whose kind the map shows
+    std::vector<std::pair<int, int>> usedWater;     // toilets drawn from (one fill each per world)
+    std::vector<std::pair<int, int>> usedKeyRings;  // kitchen containers whose keys were found
+    std::vector<FloorItemRecord> floorItems;        // piles indoors
+};
+
+// Phase 6 run state, kept in the checkpoint.
+struct ScavengeRunRecord
+{
+    bool saved = false;
+    int powerForced = -1;          // -1 none, 0 off, 1 on (harness)
+    bool dipAnnounced = false;
+    bool outAnnounced = false;
+    std::vector<std::pair<int, int>> searched;      // opened this run: no wait
+    std::vector<std::array<int, 3>> foraged;        // x, y, day searched
+    std::vector<FloorItemRecord> floorItems;        // every pile
+    std::vector<std::pair<int, int>> litLamps;
+    std::vector<int> alarmsSpent;                   // buildings whose alarm has gone off
+    bool radioOn = false;
 };
 
 // Weather as a checkpoint leaves it, so a resume continues the same weather.
@@ -369,6 +413,8 @@ struct RunCheckpoint
     std::vector<WindowRecord> windows;
     bool structuresSaved = false;
     std::vector<StructureRecord> structures;
+    // Phase 6: power, piles, searched containers, foraging.
+    ScavengeRunRecord scavenge;
 };
 
 class SaveManager
@@ -380,7 +426,7 @@ public:
     // 1: the first revival saves. 2: container records replace looted
     // positions; known molotov recipes use the Empty Bottle. Version 1 slots
     // are migrated on load and their old files kept as *.v1.backup.
-    static constexpr int kCurrentSaveVersion = 2;
+    static constexpr int kCurrentSaveVersion = 3;
 
     bool loadOrCreateSlot(const std::string& slotName);
     bool resetCurrentSlotWorld(bool keepPresentationSettings = true);
@@ -405,6 +451,8 @@ public:
     [[nodiscard]] const FurnitureMemoryRecord& furnitureMemory() const { return mFurnitureMemory; }
     void setFurnitureMemory(FurnitureMemoryRecord memory) { mFurnitureMemory = std::move(memory); }
     bool saveFurnitureMemory() const;
+    [[nodiscard]] const ScavengeMemoryRecord& scavengeMemory() const { return mScavenge; }
+    void setScavengeMemory(ScavengeMemoryRecord memory) { mScavenge = std::move(memory); }
     [[nodiscard]] const DistrictMemoryRecord& districtMemory() const { return mDistrictMemory; }
     void setDistrictMemory(DistrictMemoryRecord memory) { mDistrictMemory = std::move(memory); }
     bool saveDistrictMemory() const;
@@ -524,6 +572,7 @@ private:
     std::vector<std::pair<int,int>> mBrokenDoors;
     std::vector<BoardedDoorRecord> mBoardedDoors;
     std::vector<WindowRecord> mWindows;
+    ScavengeMemoryRecord mScavenge;
     FurnitureMemoryRecord mFurnitureMemory;
     BaseRecord mBase;
     LastHomeRecord mLastHome;

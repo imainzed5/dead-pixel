@@ -107,6 +107,88 @@ bool WeatherSystem::restore(WeatherState& weather, WeatherCondition condition, f
     return true;
 }
 
+std::vector<ForecastStep> WeatherSystem::forecast(const WeatherState& weather, float hours) const
+{
+    std::vector<ForecastStep> steps;
+    steps.push_back(ForecastStep{0.0f, weather.condition});
+    std::mt19937 rng = mRng;
+    float at = std::max(0.0f, mHoursLeft);
+    while (at < hours)
+    {
+        const WeatherCondition next = rollCondition(weather.season, rng);
+        steps.push_back(ForecastStep{at, next});
+        at += rollHours(rng);
+    }
+    return steps;
+}
+
+namespace
+{
+bool wet(WeatherCondition c)
+{
+    return c == WeatherCondition::Rain || c == WeatherCondition::HeavyRain || c == WeatherCondition::Thunderstorm ||
+           c == WeatherCondition::Blizzard;
+}
+
+const char* wetName(WeatherCondition c)
+{
+    switch (c)
+    {
+    case WeatherCondition::HeavyRain: return "Heavy rain";
+    case WeatherCondition::Thunderstorm: return "Storms";
+    case WeatherCondition::Blizzard: return "Snow";
+    default: return "Rain";
+    }
+}
+
+const char* partOfDay(double hour)
+{
+    const double h = std::fmod(std::fmod(hour, 24.0) + 24.0, 24.0);
+    if (h >= 5.0 && h < 11.0) return "morning";
+    if (h >= 11.0 && h < 17.0) return "afternoon";
+    if (h >= 17.0 && h < 21.0) return "evening";
+    return "nightfall";
+}
+} // namespace
+
+std::string WeatherSystem::forecastLine(const std::vector<ForecastStep>& steps, double hourOfDay)
+{
+    std::string line;
+    const bool wetNow = !steps.empty() && wet(steps.front().condition);
+    if (wetNow)
+    {
+        line = std::string(wetName(steps.front().condition)) + " all day.";
+        for (const ForecastStep& step : steps)
+        {
+            if (step.startsIn > 0.0f && !wet(step.condition))
+            {
+                line = std::string("Dry by ") + partOfDay(hourOfDay + step.startsIn) + ".";
+                break;
+            }
+        }
+    }
+    else
+    {
+        line = "Dry for now.";
+        for (const ForecastStep& step : steps)
+        {
+            if (step.startsIn > 0.0f && wet(step.condition))
+            {
+                line = std::string(wetName(step.condition)) + " by " + partOfDay(hourOfDay + step.startsIn) + ".";
+                break;
+            }
+            if (step.startsIn > 0.0f && step.condition == WeatherCondition::Fog)
+            {
+                line = std::string("Fog by ") + partOfDay(hourOfDay + step.startsIn) + ".";
+                break;
+            }
+        }
+    }
+    const double h = std::fmod(hourOfDay, 24.0);
+    line += h >= 10.0 && h < 22.0 ? " Colder tonight." : " Warmer by midday.";
+    return line;
+}
+
 void WeatherSystem::update(WeatherState& weather, float dtSeconds, double gameHours, int currentDay)
 {
     // --- Season progression ---

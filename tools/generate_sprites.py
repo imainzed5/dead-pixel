@@ -779,6 +779,7 @@ def generate_atlas():
     add_building_sprites(img, sprites)
     add_window_sprites(img, sprites)
     add_base_props(img, sprites)
+    add_phase6_sprites(img, sprites)
 
     return img, sprites
 
@@ -3267,6 +3268,573 @@ def add_furniture_sprites(img, sprites):
             if x + FURN_W > ATLAS_W:
                 x = 0
                 y += FURN_H
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: scavenging. New furniture (cot, desk, filing cabinet, locker,
+# pallets, pharmacy shelf, tool rack, diner table, floor lamp), a searched
+# frame for every container piece (a door ajar, a drawer out, goods pulled
+# about), the signs over shop doors, garden beds, snares, the alarm box and
+# the new items. All in regions free before this phase:
+#   furniture and searched frames: y=1792 band, full sheet width
+#   props (80x80): x 0..1024 from y=1088; item icons and signs below them
+# ---------------------------------------------------------------------------
+
+P6_FURN_Y = 1792
+P6_PROP_Y = 1088
+P6_ICON_Y = 1168
+P6_SIGN_Y = 1200
+P6_SIGN_W = 32
+P6_SIGN_H = 24
+
+
+def furn_cot(f):
+    metal = (118, 124, 116)
+    canvas = (116, 132, 98)
+    for a in (0.12, 0.84):
+        for b in (0.22, 0.74):
+            f.cbox(a, b, a + 0.05, b + 0.05, 0, 9, shade(metal, -20))
+    f.cbox(0.08, 0.20, 0.92, 0.80, 9, 11, metal)
+    f.cbox(0.10, 0.22, 0.90, 0.78, 11, 13, canvas)
+    f.cbox(0.12, 0.28, 0.30, 0.72, 13, 16, (214, 210, 196))   # a folded blanket
+    f.fline(0.90, 0.22, 0.78, 12, 12, shade(canvas, -30))
+
+
+def furn_desk(f):
+    wood = (132, 96, 62)
+    f.cbox(0.06, 0.10, 0.52, 0.40, 0, 16, shade(wood, -6))    # drawers
+    for z in (5, 10):
+        f.fline(0.52, 0.12, 0.38, z, z, shade(wood, -40))
+    for z in (3, 8, 13):
+        f.fline(0.52, 0.24, 0.26, z, z, (210, 186, 120))
+    f.cbox(0.06, 0.84, 0.52, 0.90, 0, 16, shade(wood, -16))   # a leg
+    f.cbox(0.00, 0.08, 0.56, 0.92, 16, 19, wood)
+    f.cbox(0.16, 0.50, 0.40, 0.76, 19, 20, (232, 228, 214))   # papers
+    f.cbox(0.06, 0.20, 0.18, 0.34, 19, 27, (60, 62, 66))      # a lamp
+
+
+def furn_filing(f):
+    metal = (150, 154, 150)
+    f.cbox(0.00, 0.20, 0.50, 0.80, 0, 38, metal)
+    for z in (12, 25):
+        f.fline(0.50, 0.22, 0.78, z, z, shade(metal, -46))
+    for z in (6, 19, 32):
+        f.fline(0.50, 0.44, 0.56, z, z, (70, 72, 76))
+        f.fline(0.50, 0.46, 0.54, z + 2, z + 2, (236, 232, 214))   # the label
+
+
+def furn_locker(f):
+    metal = (92, 112, 132)
+    f.cbox(0.00, 0.06, 0.40, 0.94, 0, 46, metal)
+    f.fline(0.40, 0.50, 0.50, 1, 45, shade(metal, -44))
+    for b in (0.12, 0.56):
+        for z in (38, 40, 42):
+            f.fline(0.40, b, b + 0.12, z, z, shade(metal, -36))    # vents
+    for b in (0.42, 0.86):
+        f.fline(0.40, b, b, 20, 26, (190, 194, 198))               # handles
+
+
+def furn_pallets(f):
+    wood = (176, 140, 92)
+    for i, z in enumerate((0, 6, 12, 18)):
+        col = shade(wood, (i % 2) * -10)
+        f.box(0.10, 0.10, 0.90, 0.90, z, z + 4, col)
+        for v in (0.30, 0.50, 0.70):
+            f.draw.line([f.P(0.10, v, z + 4), f.P(0.90, v, z + 4)], fill=shade(col, -34) + (255,))
+    f.box(0.20, 0.24, 0.60, 0.62, 22, 32, (190, 170, 128))       # a sack on top
+
+
+def furn_pharmshelf(f):
+    white = (222, 226, 228)
+    f.cbox(0.00, 0.00, 0.44, 1.00, 0, 42, white)
+    goods = [(220, 70, 60), (90, 150, 210), (240, 240, 236), (110, 180, 110), (236, 196, 80)]
+    for z in (2, 12, 22, 32):
+        f.fline(0.44, 0.02, 0.98, z, z, shade(white, -50))
+        b = 0.06
+        while b < 0.92:
+            col = goods[f.rng.randrange(len(goods))]
+            h = f.rng.randint(3, 6)
+            for k in range(2):
+                f.fline(0.44, b + k * 0.02, b + k * 0.02, z + 1, z + h, shade(col, -k * 12))
+            b += 0.08
+    f.cbox(0.00, 0.40, 0.06, 0.60, 42, 48, (60, 150, 80))          # a green cross on top
+    f.cbox(0.00, 0.46, 0.06, 0.54, 39, 51, (60, 150, 80))
+
+
+def furn_toolrack(f):
+    board = (150, 130, 100)
+    f.cbox(0.00, 0.04, 0.06, 0.96, 10, 46, board)
+    for b, z0, z1, col in ((0.16, 24, 38, (70, 72, 78)), (0.30, 26, 40, (160, 60, 44)), (0.46, 22, 36, (70, 72, 78)),
+                           (0.62, 28, 40, (210, 170, 60)), (0.80, 24, 38, (70, 72, 78))):
+        f.fline(0.06, b, b, z0, z1, col)
+        f.fline(0.06, b - 0.03, b + 0.03, z1, z1, col)
+    f.cbox(0.00, 0.04, 0.36, 0.96, 8, 10, shade(board, -20))      # a shelf
+    for b in (0.06, 0.88):
+        f.cbox(0.00, b, 0.30, b + 0.06, 0, 8, shade(board, -30))
+    f.cbox(0.06, 0.20, 0.26, 0.44, 10, 16, (180, 60, 50))           # a red box
+
+
+def furn_dinertable(f):
+    chrome = (186, 190, 196)
+    f.box(0.44, 0.44, 0.56, 0.56, 0, 14, shade(chrome, -30))
+    f.box(0.30, 0.30, 0.70, 0.70, 0, 2, shade(chrome, -20))
+    f.box(0.10, 0.10, 0.90, 0.90, 14, 16, chrome)
+    f.box(0.12, 0.12, 0.88, 0.88, 16, 17, (176, 54, 48))
+    f.box(0.40, 0.44, 0.52, 0.56, 17, 23, (220, 220, 214))         # a napkin holder
+    f.box(0.62, 0.30, 0.68, 0.36, 17, 25, (200, 50, 40))           # ketchup
+
+
+def furn_floorlamp(f, on=False):
+    pole = (70, 66, 62)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.ellipse_at((gx, gy), 6, 3, shade(pole, -10))
+    f.draw.line([(gx, gy), (gx, gy - 40)], fill=pole + (255,), width=2)
+    shade_col = (250, 226, 150) if on else (206, 190, 156)
+    f.draw.polygon([(gx - 9, gy - 36), (gx + 9, gy - 36), (gx + 6, gy - 48), (gx - 6, gy - 48)],
+                   fill=shade_col + (255,))
+    f.draw.line([(gx + 3, gy - 36), (gx + 9, gy - 36)], fill=shade(shade_col, -30) + (255,))
+    if on:
+        f.ellipse_at((gx, gy - 35), 5, 2, (255, 246, 200))
+
+
+# Searched frames: a door swung out, a drawer pulled, goods pulled about.
+
+DARK_INSIDE = (38, 30, 26)
+
+
+def p6_door(f, a, b0, b1, z0, z1, col, hinge_far=False):
+    """A door on the front plane a, from b0 to b1, swung out on its hinge."""
+    f.draw.polygon([f.M(a, b0, z0), f.M(a, b1, z0), f.M(a, b1, z1), f.M(a, b0, z1)], fill=DARK_INSIDE + (255,))
+    w = b1 - b0
+    if hinge_far:
+        hb, tip = b1, (a + w * 0.62, b1 - w * 0.52)
+    else:
+        hb, tip = b0, (a + w * 0.62, b0 + w * 0.52)
+    f.draw.polygon([f.M(a, hb, z0), f.M(tip[0], tip[1], z0), f.M(tip[0], tip[1], z1), f.M(a, hb, z1)],
+                   fill=col + (255,))
+    f.draw.line([f.M(tip[0], tip[1], z0), f.M(tip[0], tip[1], z1)], fill=shade(col, -40) + (255,))
+
+
+def p6_drawer(f, a, b0, b1, z0, z1, col):
+    """A drawer pulled half out of the front plane a."""
+    f.cbox(a - 0.02, b0, a + 0.20, b1, z0, z1, col)
+    f.cbox(a, b0 + 0.03, a + 0.17, b1 - 0.03, z1 - 1, z1, DARK_INSIDE)
+
+
+def p6_pulled(f, a, z_rows, b0=0.06, b1=0.94):
+    """Gaps on a shelf front and a box fallen in front of it."""
+    for z in z_rows:
+        for _ in range(2):
+            b = f.rng.uniform(b0, b1 - 0.16)
+            f.draw.polygon([f.M(a, b, z + 1), f.M(a, b + 0.14, z + 1), f.M(a, b + 0.14, z + 7), f.M(a, b, z + 7)],
+                           fill=DARK_INSIDE + (255,))
+    fb = f.rng.uniform(0.25, 0.6)
+    f.cbox(min(0.92, a + 0.12), fb, min(0.98, a + 0.24), fb + 0.14, 0, 5, (186, 150, 96))
+
+
+def p6_open_crates(f):
+    wood = (160, 120, 70)
+    lid_top = f.P(0.31, 0.33, 30)
+    f.draw.polygon([f.P(0.16, 0.18, 30), f.P(0.46, 0.18, 30), f.P(0.46, 0.48, 30), f.P(0.16, 0.48, 30)],
+                   fill=DARK_INSIDE + (255,))
+    f.draw.line([f.P(0.52, 0.10, 2), f.P(0.70, 0.30, 16)], fill=shade(wood, 10) + (255,), width=3)  # the lid leaning
+    f.ellipse_at((lid_top[0], lid_top[1]), 1, 1, (210, 200, 170))
+
+
+def p6_open_barrels(f):
+    gx, gy = f.P(0.66, 0.66, 26)
+    f.ellipse_at((gx, gy), 7, 3, DARK_INSIDE)
+    lx, ly = f.P(0.92, 0.40, 0)
+    f.ellipse_at((lx, ly - 2), 9, 4, (130, 60, 46))     # its lid on the floor
+
+
+# How each container's searched frame is drawn, on top of the piece itself.
+P6_OPEN = {
+    "bookshelf": lambda f: p6_pulled(f, 0.36, (2, 13, 24)),
+    "wardrobe": lambda f: p6_door(f, 0.42, 0.50, 0.88, 2, 44, (128, 92, 62)),
+    "dresser": lambda f: p6_drawer(f, 0.45, 0.14, 0.86, 7, 13, (140, 100, 66)),
+    "fridge": lambda f: p6_door(f, 0.60, 0.16, 0.84, 1, 27, (222, 224, 226), True),
+    "stove": lambda f: p6_drawer(f, 0.60, 0.20, 0.80, 2, 13, (204, 206, 210)),
+    "counter": lambda f: p6_door(f, 0.58, 0.52, 0.94, 1, 15, (196, 176, 146), True),
+    "sink": lambda f: p6_door(f, 0.10, 0.30, 0.70, 24, 40, (226, 228, 230)),
+    "tvstand": lambda f: p6_door(f, 0.40, 0.12, 0.48, 1, 11, (88, 64, 46)),
+    "storeshelf": lambda f: p6_pulled(f, 0.48, (2, 13, 24, 35)),
+    "checkout": lambda f: p6_drawer(f, 0.55, 0.30, 0.70, 12, 18, (100, 104, 112)),
+    "crates": p6_open_crates,
+    "metalrack": lambda f: p6_pulled(f, 0.50, (2, 17, 32)),
+    "workbench": lambda f: p6_drawer(f, 0.62, 0.30, 0.70, 10, 15, (150, 110, 70)),
+    "barrels": p6_open_barrels,
+    "desk": lambda f: p6_drawer(f, 0.52, 0.12, 0.38, 10, 15, (132, 96, 62)),
+    "filing": lambda f: p6_drawer(f, 0.50, 0.24, 0.76, 26, 36, (150, 154, 150)),
+    "locker": lambda f: p6_door(f, 0.40, 0.08, 0.48, 2, 45, (92, 112, 132)),
+    "pharmshelf": lambda f: p6_pulled(f, 0.44, (2, 12, 22, 32)),
+    "toolrack": lambda f: p6_pulled(f, 0.36, (0,), 0.10, 0.90),
+}
+
+FURNITURE_P6 = [
+    ("cot", furn_cot, True),
+    ("desk", furn_desk, True),
+    ("filing", furn_filing, True),
+    ("locker", furn_locker, True),
+    ("pallets", furn_pallets, False),
+    ("pharmshelf", furn_pharmshelf, True),
+    ("toolrack", furn_toolrack, True),
+    ("dinertable", furn_dinertable, False),
+    ("floorlamp", furn_floorlamp, False),
+]
+
+
+def p6_place(sprites, cursor, w, h, row_y, row_w):
+    x, y = cursor
+    if x + w > row_w:
+        x = 0
+        y += h
+    rect = {"x": x, "y": y, "w": w, "h": h}
+    return rect, (x + w, y)
+
+
+def add_phase6_furniture(img, sprites):
+    painters = {name: (painter, oriented, 1000 + i) for i, (name, painter, oriented) in enumerate(FURNITURE)}
+    for j, (name, painter, oriented) in enumerate(FURNITURE_P6):
+        painters[name] = (painter, oriented, 1000 + len(FURNITURE) + j)
+    cursor = (0, P6_FURN_Y)
+    jobs = []
+    for name, _, _ in FURNITURE_P6:
+        jobs.append((name, "", None))
+    jobs.append(("floorlamp", "_on", lambda f: furn_floorlamp(f, True)))
+    for name in P6_OPEN:
+        jobs.append((name, "_open", P6_OPEN[name]))
+    for name, suffix, extra in jobs:
+        painter, oriented, seed = painters[name]
+        for orient in (("r", "l") if oriented else (None,)):
+            f = Furn(seed, orient)
+            if suffix == "_on":
+                extra(f)
+            else:
+                painter(f)
+                if extra is not None:
+                    extra(f)
+            piece = f.finish()
+            rect, cursor = p6_place(sprites, cursor, FURN_W, FURN_H, P6_FURN_Y, SHEET_W)
+            img.paste(piece, (rect["x"], rect["y"]), piece)
+            sprites["furn_" + name + suffix + ("_" + orient if orient else "")] = rect
+
+
+# Props: garden beds in four stages and dead, snares, the alarm box.
+
+def prop_garden(f, stage, dead=False):
+    wood = (128, 94, 60)
+    soil = (74, 56, 40)
+    f.box(0.08, 0.08, 0.92, 0.92, 0, 5, wood)
+    f.box(0.12, 0.12, 0.88, 0.88, 5, 6, soil)
+    for i in range(1, 4):
+        v = i * 0.22 + 0.04
+        f.draw.line([f.P(0.16, v, 6), f.P(0.84, v, 6)], fill=shade(soil, -18) + (255,))
+    leaf = (86, 150, 62) if not dead else (122, 96, 58)
+    for i in range(3):
+        for j in range(3):
+            u = 0.22 + i * 0.26
+            v = 0.24 + j * 0.24
+            x, y = f.P(u, v, 6)
+            if dead:
+                f.draw.line([(x, y), (x + 2, y - 4)], fill=leaf + (255,))
+                f.draw.line([(x, y), (x - 3, y - 2)], fill=shade(leaf, -20) + (255,))
+                continue
+            h = (2, 5, 9, 11)[stage]
+            r = (1, 2, 4, 5)[stage]
+            f.draw.line([(x, y), (x, y - h)], fill=shade(leaf, -30) + (255,))
+            f.ellipse_at((x - 1, y - h), r, max(1, r - 1), leaf)
+            f.ellipse_at((x + 1, y - h + 1), max(1, r - 1), max(1, r - 2), shade(leaf, 18))
+            if stage == 3:
+                f.ellipse_at((x + 2, y - 3), 2, 2, (220, 110, 40) if (i + j) % 2 else (190, 50, 44))
+
+
+def prop_snare(f, state):
+    peg = (120, 90, 56)
+    wire = (186, 190, 196)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.draw.line([(gx + 8, gy - 2), (gx + 8, gy - 9)], fill=peg + (255,), width=2)
+    if state == "sprung":
+        f.draw.line([(gx + 8, gy - 8), (gx - 4, gy + 1)], fill=wire + (255,))
+        f.draw.line([(gx - 4, gy + 1), (gx - 8, gy - 1)], fill=wire + (255,))
+    else:
+        f.draw.line([(gx + 8, gy - 8), (gx, gy - 4)], fill=wire + (255,))
+        f.draw.ellipse([gx - 8, gy - 8, gx + 1, gy - 1], outline=wire + (255,))
+    if state == "caught":
+        fur = (128, 102, 76)
+        f.ellipse_at((gx - 4, gy - 3), 6, 4, fur)
+        f.ellipse_at((gx - 9, gy - 6), 3, 3, shade(fur, 10))
+        f.draw.line([(gx - 10, gy - 9), (gx - 11, gy - 14)], fill=shade(fur, 16) + (255,), width=2)
+
+
+def prop_alarm_box(f):
+    metal = (150, 152, 156)
+    gx, gy = f.P(0.12, 0.5, 0)
+    f.draw.line([(gx, gy), (gx, gy - 30)], fill=(90, 92, 96, 255), width=2)     # the conduit
+    f.draw.rectangle([gx - 6, gy - 40, gx + 6, gy - 28], fill=metal + (255,))
+    f.draw.rectangle([gx + 2, gy - 40, gx + 6, gy - 28], fill=shade(metal, -30) + (255,))
+    f.ellipse_at((gx - 1, gy - 36), 2, 2, (200, 40, 36))                       # the lamp
+    f.draw.line([(gx - 4, gy - 31), (gx + 1, gy - 31)], fill=(60, 60, 64, 255))
+
+
+PROPS_P6 = [
+    ("prop_garden_0", lambda f: prop_garden(f, 0)),
+    ("prop_garden_1", lambda f: prop_garden(f, 1)),
+    ("prop_garden_2", lambda f: prop_garden(f, 2)),
+    ("prop_garden_3", lambda f: prop_garden(f, 3)),
+    ("prop_garden_dead", lambda f: prop_garden(f, 0, True)),
+    ("prop_snare", lambda f: prop_snare(f, "set")),
+    ("prop_snare_caught", lambda f: prop_snare(f, "caught")),
+    ("prop_snare_sprung", lambda f: prop_snare(f, "sprung")),
+    ("prop_alarm_box", prop_alarm_box),
+]
+
+
+def add_phase6_props(img, sprites):
+    for i, (name, painter) in enumerate(PROPS_P6):
+        f = Furn(6000 + i)
+        painter(f)
+        piece = f.finish()
+        x = i * PROP_CELL
+        img.paste(piece, (x + (PROP_CELL - FURN_W) // 2, P6_PROP_Y), piece)
+        sprites[name] = {"x": x, "y": P6_PROP_Y, "w": PROP_CELL, "h": PROP_CELL}
+
+
+# Signs: a small board on the wall over a shop's street door, a pictogram,
+# no text. Drawn flat, then sheared to lie along a wall running south-east.
+
+def sign_picture(kind):
+    ic = Icon("sign_" + kind)
+    board = (226, 220, 204)
+    ic.rect(4, 8, 28, 24, board)
+    ink = {"cross": (52, 150, 76), "wrench": (70, 74, 82), "cart": (40, 90, 160), "badge": (40, 60, 120),
+           "cup": (150, 70, 46), "crate": (140, 100, 56)}[kind]
+    if kind == "cross":
+        ic.rect(14, 10, 18, 22, ink)
+        ic.rect(10, 14, 22, 18, ink)
+    elif kind == "wrench":
+        ic.line(10, 21, 20, 12, ink, 2)
+        ic.ellipse(21, 11, 3.2, 3.2, ink)
+        ic.rect(20, 9, 23, 12, board)
+    elif kind == "cart":
+        ic.line(8, 11, 11, 11, ink, 1)
+        ic.poly([(11, 12), (24, 12), (22, 18), (12, 18)], ink)
+        ic.ellipse(13.5, 21, 1.6, 1.6, ink)
+        ic.ellipse(21.5, 21, 1.6, 1.6, ink)
+    elif kind == "badge":
+        ic.poly([(16, 9), (23, 12), (21, 21), (16, 23), (11, 21), (9, 12)], ink)
+        ic.ellipse(16, 15.5, 2.2, 2.2, (220, 190, 80))
+    elif kind == "cup":
+        ic.rect(11, 12, 20, 21, ink)
+        ic.ellipse(21, 16, 2.6, 2.6, ink)
+        ic.ellipse(21, 16, 1.2, 1.2, board)
+        ic.line(13, 9, 14, 11, (150, 150, 150), 1)
+        ic.line(17, 9, 16, 11, (150, 150, 150), 1)
+    elif kind == "crate":
+        ic.rect(10, 11, 22, 21, ink)
+        ic.line(10, 11, 22, 21, shade(ink, -40), 1)
+        ic.line(22, 11, 10, 21, shade(ink, -40), 1)
+    ic.outline()
+    return ic
+
+
+SIGNS = ("cross", "wrench", "cart", "badge", "cup", "crate")
+
+
+def add_phase6_signs(img, sprites):
+    for i, kind in enumerate(SIGNS):
+        ic = sign_picture(kind)
+        flat = Image.new("RGBA", (ITEM_SIZE, ITEM_SIZE), (0, 0, 0, 0))
+        ic.paste(flat, 0, 0)
+        # Shear: one pixel down for every two across, as a south-east wall runs.
+        sheared = Image.new("RGBA", (P6_SIGN_W, P6_SIGN_H + 8), (0, 0, 0, 0))
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                px = flat.getpixel((x, y))
+                if px[3] == 0:
+                    continue
+                ty = y - 6 + x // 2
+                if 0 <= ty < P6_SIGN_H + 8:
+                    sheared.putpixel((x, ty), px)
+        sheared = sheared.crop((0, 0, P6_SIGN_W, P6_SIGN_H + 8))
+        x = i * (P6_SIGN_W)
+        img.paste(sheared, (x, P6_SIGN_Y), sheared)
+        sprites["sign_" + kind] = {"x": x, "y": P6_SIGN_Y, "w": P6_SIGN_W, "h": P6_SIGN_H + 8}
+        # The flat pictogram for the town map.
+        fx = (len(SIGNS) + i) * ITEM_SIZE
+        ic.paste(img, fx, P6_SIGN_Y)
+        sprites["map_" + kind] = {"x": fx, "y": P6_SIGN_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+
+
+# Item icons for the new things to find, cook and grow.
+
+def draw_phase6_icon(name):
+    ic = Icon(name)
+    if name == "item_herbal_tea" or name == "item_dirty_water":
+        glass = (200, 214, 220)
+        water = (150, 190, 120) if name == "item_herbal_tea" else (120, 110, 70)
+        ic.rect(12, 9, 20, 27, glass)
+        ic.rect(14, 5, 18, 9, glass)
+        ic.rect(13, 13, 19, 26, water)
+        ic.light()
+        ic.rect(14, 4, 18, 6, (60, 70, 80))
+        if name == "item_herbal_tea":
+            ic.ellipse(16, 18, 2.4, 1.6, (70, 130, 60))
+        else:
+            for x, y in ((14, 22), (17, 19), (15, 16)):
+                ic.set(x, y, (70, 60, 40))
+    elif name == "item_cooked_meat":
+        ic.ellipse(16, 18, 9, 6, (150, 86, 50))
+        ic.ellipse(15, 17, 6, 3.6, (186, 116, 70))
+        ic.line(23, 15, 27, 11, (230, 224, 208), 2)
+        ic.light()
+    elif name == "item_berries":
+        for cx, cy in ((12, 18), (17, 15), (20, 20), (14, 23), (19, 25), (23, 16)):
+            ic.ellipse(cx, cy, 3, 3, (70, 50, 140))
+            ic.set(int(cx) - 1, int(cy) - 1, (150, 130, 210))
+        ic.line(16, 8, 17, 14, (70, 110, 50), 1)
+        ic.ellipse(13, 9, 3, 1.8, (80, 140, 60))
+    elif name == "item_mushrooms":
+        for cx in (12, 20):
+            ic.rect(cx - 1, 16, cx + 2, 25, (226, 214, 190))
+            ic.ellipse(cx + 0.5, 15, 6, 4, (170, 110, 60))
+            ic.set(cx - 2, 13, (230, 220, 200))
+            ic.set(cx + 2, 14, (230, 220, 200))
+        ic.light()
+    elif name == "item_herbs":
+        for i, (x, y) in enumerate(((10, 10), (16, 7), (22, 11), (13, 15), (20, 16))):
+            ic.ellipse(x, y, 3, 2.2, (80 + i * 8, 146, 64))
+        ic.line(16, 26, 12, 11, (90, 120, 60), 1)
+        ic.line(16, 26, 20, 12, (90, 120, 60), 1)
+        ic.rect(13, 22, 20, 25, (200, 170, 110))    # tied with string
+    elif name == "item_cooking_pot":
+        metal = (150, 154, 160)
+        ic.rect(8, 13, 24, 25, metal)
+        ic.rect(6, 12, 26, 14, shade(metal, 20))
+        ic.rect(3, 15, 8, 17, (60, 60, 64))
+        ic.rect(24, 15, 29, 17, (60, 60, 64))
+        ic.light()
+    elif name in ("item_rice", "item_cooked_rice", "item_stew"):
+        if name == "item_rice":
+            ic.rect(9, 8, 23, 27, (210, 196, 160))
+            ic.rect(9, 8, 23, 11, (180, 160, 120))
+            ic.rect(11, 14, 21, 21, (240, 236, 224))
+            ic.light()
+        else:
+            bowl = (190, 120, 80) if name == "item_stew" else (226, 226, 220)
+            fill = (150, 80, 46) if name == "item_stew" else (246, 244, 236)
+            ic.ellipse(16, 19, 10, 6, bowl)
+            ic.ellipse(16, 16, 9, 3, fill)
+            ic.rect(7, 16, 26, 20, bowl)
+            if name == "item_stew":
+                for x, y in ((12, 16), (18, 15), (20, 17)):
+                    ic.set(x, y, (220, 140, 60))
+                    ic.set(x + 1, y, (100, 160, 70))
+            ic.line(10, 10, 12, 14, (200, 200, 200), 1)
+            ic.line(20, 9, 19, 13, (200, 200, 200), 1)
+    elif name == "item_chips":
+        ic.poly([(9, 6), (23, 6), (25, 27), (7, 27)], (210, 60, 50))
+        ic.rect(9, 12, 23, 20, (240, 200, 70))
+        ic.light()
+    elif name == "item_soda":
+        ic.rect(11, 8, 21, 27, (60, 120, 200))
+        ic.rect(11, 14, 21, 18, (230, 230, 230))
+        ic.rect(12, 6, 20, 8, (180, 184, 190))
+        ic.light()
+    elif name == "item_battery":
+        ic.rect(9, 11, 23, 22, (60, 60, 64))
+        ic.rect(9, 11, 14, 22, (200, 150, 50))
+        ic.rect(23, 14, 25, 19, (190, 190, 194))
+        ic.light()
+    elif name == "item_radio":
+        ic.rect(6, 11, 26, 25, (70, 66, 60))
+        ic.rect(8, 13, 16, 23, (40, 40, 42))
+        for y in range(14, 23, 2):
+            ic.line(8, y, 15, y, (90, 90, 90), 1)
+        ic.ellipse(21, 16, 2.4, 2.4, (200, 190, 160))
+        ic.rect(18, 21, 24, 23, (190, 170, 120))
+        ic.line(22, 11, 27, 3, (170, 170, 176), 1)
+        ic.light()
+    elif name == "item_backpack":
+        cloth = (90, 110, 70)
+        ic.rect(9, 9, 23, 27, cloth)
+        ic.ellipse(16, 9, 7, 4, cloth)
+        ic.rect(11, 18, 21, 25, shade(cloth, -18))
+        ic.line(13, 6, 19, 6, (60, 50, 40), 1)
+        ic.light()
+    elif name == "item_duct_tape":
+        ic.ellipse(16, 16, 10, 10, (150, 156, 164))
+        ic.ellipse(16, 16, 4.5, 4.5, (0, 0, 0))
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                if ic.get(x, y) == (0, 0, 0):
+                    ic.set(x, y, None)
+        ic.rect(22, 18, 28, 22, (150, 156, 164))
+        ic.light()
+    elif name == "item_snare":
+        ic.line(8, 24, 22, 10, (186, 190, 196), 1)
+        for a in range(0, 360, 20):
+            r = math.radians(a)
+            ic.set(int(20 + math.cos(r) * 6), int(13 + math.sin(r) * 6), (186, 190, 196))
+        ic.rect(6, 22, 10, 28, (120, 90, 56))
+    elif name == "item_seed_packet":
+        ic.rect(9, 6, 23, 27, (232, 222, 190))
+        ic.ellipse(16, 15, 5, 5, (90, 160, 70))
+        ic.ellipse(16, 13, 2, 2, (220, 110, 40))
+        ic.rect(9, 22, 23, 25, (180, 60, 50))
+        ic.light()
+    elif name == "item_vegetables":
+        ic.poly([(8, 10), (14, 9), (17, 26), (13, 27)], (230, 120, 40))   # a carrot
+        ic.line(10, 9, 8, 4, (80, 150, 60), 1)
+        ic.line(12, 9, 13, 4, (80, 150, 60), 1)
+        ic.ellipse(21, 20, 6, 6, (130, 60, 120))                          # a beet
+        ic.line(21, 14, 22, 8, (80, 150, 60), 1)
+        ic.light()
+    elif name == "item_toolbox":
+        red = (190, 54, 44)
+        ic.rect(5, 13, 27, 26, red)
+        ic.rect(5, 13, 27, 16, shade(red, 20))
+        ic.frame(12, 8, 20, 13, (70, 72, 78))
+        ic.rect(14, 18, 18, 20, (200, 200, 200))
+        ic.light()
+    elif name == "item_purification_tablets":
+        ic.rect(8, 9, 24, 25, (230, 232, 236))
+        ic.rect(8, 9, 24, 13, (60, 120, 190))
+        for x, y in ((12, 17), (17, 17), (12, 21), (17, 21)):
+            ic.ellipse(x + 1.5, y + 1, 1.8, 1.8, (200, 220, 240))
+        ic.light()
+    else:
+        ic.rect(9, 9, 23, 23, (150, 150, 150))
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+ITEM_ICONS_P6 = [
+    "item_herbal_tea", "item_cooked_meat", "item_berries", "item_mushrooms", "item_herbs", "item_dirty_water",
+    "item_cooking_pot", "item_rice", "item_cooked_rice", "item_chips", "item_soda", "item_battery", "item_radio",
+    "item_backpack", "item_duct_tape", "item_snare", "item_seed_packet", "item_vegetables", "item_toolbox",
+    "item_stew", "item_purification_tablets",
+]
+
+
+def add_phase6_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    add_phase6_furniture(img, sprites)
+    add_phase6_props(img, sprites)
+    for i, name in enumerate(ITEM_ICONS_P6):
+        x = i * ITEM_SIZE
+        draw_phase6_icon(name).paste(img, x, P6_ICON_Y)
+        sprites[name] = {"x": x, "y": P6_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    add_phase6_signs(img, sprites)
+    # Nothing new may overlap what was there before.
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 6 sprite " + k + " overlaps " + ok)
+
 
 
 def main():

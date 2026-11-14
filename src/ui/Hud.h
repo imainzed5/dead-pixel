@@ -82,6 +82,7 @@ struct HudSlot
     int count = 0;
     bool equipped = false; // the weapon in hand
     float wear = -1.0f;    // weapon durability left, 0..1; -1 for other items
+    bool dim = false;      // a flashlight or radio with a flat battery
 };
 
 struct HudState

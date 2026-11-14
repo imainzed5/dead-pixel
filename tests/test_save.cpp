@@ -3,6 +3,7 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -377,4 +378,178 @@ DP_TEST(save_old_checkpoint_without_traits_or_parts_still_loads)
     DP_CHECK(loaded.wounds[1].infected);
     DP_CHECK_EQ(loaded.boardedDoors.size(), std::size_t{1});
     DP_CHECK_NEAR(loaded.boardedDoors[0].toughness, 1.0f, 0.001);
+}
+
+DP_TEST(save_v3_scavenging_round_trips)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(61u);
+
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("scavenge_slot"));
+    DP_CHECK_EQ(SaveManager::kCurrentSaveVersion, 3);
+
+    // World memory: doors unlocked, containers searched, kinds seen, a
+    // toilet drawn from, a key ring found, a pile indoors.
+    ScavengeMemoryRecord memory;
+    memory.unlockedDoors = {{4, 5}};
+    memory.searched = {{10, 12}, {11, 12}};
+    memory.seenBuildings = {3, 7};
+    memory.usedWater = {{20, 21}};
+    memory.usedKeyRings = {{30, 31}};
+    FloorItemRecord pile;
+    pile.x = 8;
+    pile.y = 9;
+    pile.items = {ContainerItemRecord{2, 3, 0.5f, 0}};
+    memory.floorItems = {pile};
+    save.setScavengeMemory(memory);
+    DP_CHECK(save.saveWorldMemory());
+
+    // Structures: a garden bed and a snare keep their state.
+    StructureRecord bed;
+    bed.type = 10;
+    bed.x = 64.0f;
+    bed.y = 96.0f;
+    bed.growHours = 50.0f;
+    bed.sinceWaterHours = 12.0f;
+    bed.regrowing = true;
+    StructureRecord snare;
+    snare.type = 11;
+    snare.snareState = 1;
+    snare.lastDawn = 4;
+    StructureRecord collector;
+    collector.type = 5;
+    collector.water = 3.0f;
+    collector.standingHours = 80.0f;
+    DP_CHECK(save.saveStructures({bed, snare, collector}));
+
+    // The checkpoint: power, searched, foraged, piles, lamps, alarms, radio.
+    RunCheckpoint cp;
+    cp.valid = true;
+    cp.runSeed = save.currentRunSeed();
+    cp.characterName = "Nell Ashby";
+    cp.needs.badStomachHours = 3.5f;
+    cp.needs.hotMealHours = 1.0f;
+    cp.scavenge.saved = true;
+    cp.scavenge.powerForced = 0;
+    cp.scavenge.dipAnnounced = true;
+    cp.scavenge.outAnnounced = true;
+    cp.scavenge.searched = {{1, 2}};
+    cp.scavenge.foraged = {{{5, 6, 3}}};
+    cp.scavenge.floorItems = {pile};
+    cp.scavenge.litLamps = {{7, 7}};
+    cp.scavenge.alarmsSpent = {12};
+    cp.scavenge.radioOn = true;
+    DP_CHECK(save.saveCheckpoint(cp));
+
+    SaveManager reloaded;
+    DP_CHECK(reloaded.loadOrCreateSlot("scavenge_slot"));
+    DP_CHECK_EQ(reloaded.migratedFromVersion(), 0);
+    const ScavengeMemoryRecord& m = reloaded.scavengeMemory();
+    DP_CHECK_EQ(m.unlockedDoors.size(), std::size_t{1});
+    DP_CHECK_EQ(m.searched.size(), std::size_t{2});
+    DP_CHECK(m.seenBuildings == std::vector<int>({3, 7}));
+    DP_CHECK_EQ(m.usedWater.size(), std::size_t{1});
+    DP_CHECK_EQ(m.usedKeyRings.size(), std::size_t{1});
+    DP_CHECK_EQ(m.floorItems.size(), std::size_t{1});
+    DP_CHECK_EQ(m.floorItems[0].items.size(), std::size_t{1});
+    DP_CHECK_NEAR(m.floorItems[0].items[0].condition, 0.5f, 0.001);
+
+    const auto& structures = reloaded.structures();
+    DP_CHECK_EQ(structures.size(), std::size_t{3});
+    DP_CHECK_EQ(structures[0].type, 10);
+    DP_CHECK_NEAR(structures[0].growHours, 50.0f, 0.001);
+    DP_CHECK_NEAR(structures[0].sinceWaterHours, 12.0f, 0.001);
+    DP_CHECK(structures[0].regrowing);
+    DP_CHECK_EQ(structures[1].snareState, 1);
+    DP_CHECK_EQ(structures[1].lastDawn, 4);
+    DP_CHECK_NEAR(structures[2].standingHours, 80.0f, 0.001);
+
+    const RunCheckpoint back = reloaded.loadCheckpoint();
+    DP_CHECK(back.valid);
+    DP_CHECK(back.scavenge.saved);
+    DP_CHECK_EQ(back.scavenge.powerForced, 0);
+    DP_CHECK(back.scavenge.dipAnnounced && back.scavenge.outAnnounced);
+    DP_CHECK_EQ(back.scavenge.searched.size(), std::size_t{1});
+    DP_CHECK_EQ(back.scavenge.foraged.size(), std::size_t{1});
+    DP_CHECK_EQ(back.scavenge.foraged[0][2], 3);
+    DP_CHECK_EQ(back.scavenge.floorItems.size(), std::size_t{1});
+    DP_CHECK_EQ(back.scavenge.litLamps.size(), std::size_t{1});
+    DP_CHECK(back.scavenge.alarmsSpent == std::vector<int>({12}));
+    DP_CHECK(back.scavenge.radioOn);
+    DP_CHECK_NEAR(back.needs.badStomachHours, 3.5f, 0.001);
+    DP_CHECK_NEAR(back.needs.hotMealHours, 1.0f, 0.001);
+
+    // Building kinds are kept in the layout.
+    MapGenerator generator;
+    LayoutData layout = generator.generateLayout(61u);
+    DP_CHECK(!layout.buildings.empty());
+    DP_CHECK(layout.buildings[0].kind >= 0);
+    DP_CHECK(reloaded.saveWorldLayout(layout));
+    const LayoutData loadedLayout = reloaded.loadWorldLayout();
+    DP_CHECK_EQ(loadedLayout.buildings.size(), layout.buildings.size());
+    for (std::size_t i = 0; i < layout.buildings.size(); ++i)
+    {
+        DP_CHECK_EQ(loadedLayout.buildings[i].kind, layout.buildings[i].kind);
+    }
+}
+
+DP_TEST(save_v2_slot_migrates_to_v3)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(71u);
+    {
+        SaveManager fresh;
+        DP_CHECK(fresh.loadOrCreateSlot("v2_slot"));
+        ContainerRecord cupboard;
+        cupboard.tileX = 3;
+        cupboard.tileY = 4;
+        cupboard.runIndex = 1;
+        cupboard.items = {{0, 1, 1.0f}};
+        fresh.setContainerRecord(cupboard);
+        DP_CHECK(fresh.saveWorldMemory());
+        MapGenerator generator;
+        LayoutData layout = generator.generateLayout(71u);
+        DP_CHECK(fresh.saveWorldLayout(layout));
+    }
+    // Make it a version 2 slot: no scavenging in memory, no kinds in the layout.
+    const auto rewrite = [](const std::string& path, const std::function<void(nlohmann::json&)>& change)
+    {
+        nlohmann::json json;
+        {
+            std::ifstream in(path);
+            DP_CHECK(in.good());
+            in >> json;
+        }
+        change(json);
+        std::ofstream out(path, std::ios::trunc);
+        out << json.dump();
+    };
+    rewrite("save/v2_slot.json", [](nlohmann::json& j) { j["saveVersion"] = 2; });
+    rewrite("save/v2_slot_memory.json", [](nlohmann::json& j) { j.erase("scavenge"); });
+    rewrite("save/v2_slot_layout.json", [](nlohmann::json& j) {
+        if (!j.contains("buildings")) return;
+        for (auto& b : j["buildings"]) b.erase("kind");
+    });
+
+    SaveManager migrated;
+    DP_CHECK(migrated.loadOrCreateSlot("v2_slot"));
+    DP_CHECK_EQ(migrated.migratedFromVersion(), 2);
+    DP_CHECK(std::filesystem::exists("save/v2_slot.json.v2.backup"));
+    DP_CHECK(migrated.containerRecord(3, 4) != nullptr);
+    DP_CHECK(migrated.scavengeMemory().searched.empty());
+    // The layout has no kinds; loading it gives them back, the same as new.
+    MapGenerator generator;
+    generator.loadLayout(migrated.loadWorldLayout());
+    MapGenerator fresh;
+    const LayoutData expected = fresh.generateLayout(71u);
+    DP_CHECK_EQ(generator.layoutData().buildings.size(), expected.buildings.size());
+    for (std::size_t i = 0; i < expected.buildings.size(); ++i)
+    {
+        DP_CHECK_EQ(generator.layoutData().buildings[i].kind, expected.buildings[i].kind);
+    }
+
+    SaveManager again;
+    DP_CHECK(again.loadOrCreateSlot("v2_slot"));
+    DP_CHECK_EQ(again.migratedFromVersion(), 0);
 }

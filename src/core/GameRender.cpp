@@ -1,5 +1,6 @@
 // World rendering: ground, entities, lighting, minimap, world map and text passes.
 #include "core/GameShared.h"
+#include "world/BuildingKinds.h"
 #include "world/CombatRules.h"
 
 #include <cctype>
@@ -121,6 +122,7 @@ void Game::render()
     uiLayer(
         [&]
         {
+            renderScavengeMarks();
             renderBodyEffects();
             renderTitleScreen();
             renderCharacterCreation();
@@ -513,6 +515,16 @@ void Game::renderWorldMapOverlay()
         }
     }
 
+    // What is left to find (phase 6): building floors darken in four steps
+    // as a district's cupboards are opened, in this life or earlier ones.
+    std::vector<int> stockStep(static_cast<std::size_t>(maxDistrictId + 1), -1);
+    for (std::size_t d = 0; d < stockStep.size(); ++d)
+    {
+        const float stock = districtStock(static_cast<int>(d));
+        if (stock < 0.0f) continue;
+        stockStep[d] = stock > 0.75f ? 0 : stock > 0.5f ? 1 : stock > 0.25f ? 2 : 3;
+    }
+
     // Each tile is a 2:1 brick centred on its iso centre; bricks tile the
     // diamond exactly (rows are half a tile apart, offset by half a brick).
     const glm::vec2 brick(2.0f * tileW * scale + 0.6f, 0.5f * tileH * scale + 0.6f);
@@ -540,6 +552,12 @@ void Game::renderWorldMapOverlay()
                       : base == TileGid::kWood   ? glm::vec3(0.52f, 0.44f, 0.34f)
                       : base == TileGid::kMetal  ? glm::vec3(0.40f, 0.42f, 0.44f)
                                                  : glm::vec3(0.50f, 0.48f, 0.43f);
+                const int district = mTileMap.getDistrictId(tx, ty);
+                if (district >= 0 && district < static_cast<int>(stockStep.size()) && stockStep[static_cast<std::size_t>(district)] > 0)
+                {
+                    color = glm::mix(color, glm::vec3(0.21f, 0.20f, 0.19f),
+                                     0.2f * static_cast<float>(stockStep[static_cast<std::size_t>(district)]));
+                }
             }
             else
             {
@@ -619,6 +637,25 @@ void Game::renderWorldMapOverlay()
         mFont.drawText(mSpriteBatch, centre - size * 0.5f, text, glm::vec4(1.0f, 0.70f, 0.62f, 0.95f), 1.0f);
     }
 
+    // Shops you have seen, in this life or an earlier one: their sign.
+    {
+        const LayoutData& layout = mMapGenerator.layoutData();
+        for (const int building : mSaveManager.scavengeMemory().seenBuildings)
+        {
+            if (building <= 0 || building > static_cast<int>(layout.buildings.size())) continue;
+            const LayoutData::BuildingRect& b = layout.buildings[static_cast<std::size_t>(building - 1)];
+            const char* sign = buildingkinds::signSprite(buildingkinds::signOf(buildingkinds::kindOf(b)));
+            if (sign == nullptr || sign[0] == '\0') continue;
+            const glm::vec4 uv = mSpriteSheet.uvRect(std::string("map_") + (sign + 5));
+            if (uv.z <= 0.0f) continue;
+            const glm::vec2 at = glm::round(toMap(glm::vec2((static_cast<float>(b.x) + static_cast<float>(b.w) * 0.5f) * tileW,
+                                                            (static_cast<float>(b.y) + static_cast<float>(b.h) * 0.5f) * tileH)));
+            constexpr float kPict = 16.0f;
+            mSpriteBatch.draw(at - glm::vec2(kPict * 0.5f) + glm::vec2(1.0f), glm::vec2(kPict), uv, glm::vec4(0.0f, 0.0f, 0.0f, 0.7f));
+            mSpriteBatch.draw(at - glm::vec2(kPict * 0.5f), glm::vec2(kPict), uv, glm::vec4(1.0f));
+        }
+    }
+
     const glm::vec4 risenColor = legacyLeadColor(legacy::LeadKind::Risen);
     const glm::vec4 packColor = legacyLeadColor(legacy::LeadKind::Pack);
     const glm::vec4 graveColor = legacyLeadColor(legacy::LeadKind::Grave);
@@ -675,6 +712,7 @@ void Game::renderWorldMapOverlay()
         {survivorColor, "Retired survivor"},
         {glm::vec4(0.62f, 0.16f, 0.14f, 1.0f), "Infected district"},
         {glm::vec4(0.10f, 0.07f, 0.06f, 1.0f), "Burned"},
+        {glm::vec4(0.30f, 0.28f, 0.26f, 1.0f), "Picked over"},
     };
     float lx = pad;
     const float ly = h - footerH + 22.0f;
@@ -804,8 +842,24 @@ void Game::setupLightingUniforms()
         addLight(lure.position, glm::vec3(1.0f, 0.28f, 0.22f) * flicker, combatrules::kFlareLightTiles);
     }
 
+    // Floor lamps switched on, while the power lasts (phase 6).
+    const bool power = powerOn();
+    if (power)
+    {
+        const float tw = static_cast<float>(std::max(1, mTileMap.tileWidth()));
+        const float th = static_cast<float>(std::max(1, mTileMap.tileHeight()));
+        const glm::vec2 view = mCamera.screenToWorld(mCamera.viewportSize() * 0.5f);
+        for (const glm::ivec2& lamp : mLitLamps)
+        {
+            const glm::vec2 at((static_cast<float>(lamp.x) + 0.5f) * tw, (static_cast<float>(lamp.y) + 0.5f) * th);
+            if (glm::length(at - view) > 16.0f * tw) continue;
+            addLight(at, glm::vec3(1.0f, 0.86f, 0.58f) * (0.25f + 0.65f * night), 4.0f);
+        }
+    }
+
     // Street lamps: some still burn, and some of those are on their way out.
-    if (night > 0.05f)
+    // When the town's power fails, none do.
+    if (night > 0.05f && power)
     {
         std::vector<glm::vec2> lamps;
         const glm::vec2 centre = mCamera.screenToWorld(mCamera.viewportSize() * 0.5f);

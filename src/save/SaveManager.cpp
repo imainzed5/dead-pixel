@@ -15,6 +15,93 @@
 
 namespace
 {
+// Phase 6 structure fields, optional in every file that holds structures.
+void writeStructureExtras(nlohmann::json& j, const StructureRecord& r)
+{
+    if (r.standingHours > 0.0f) j["standing"] = r.standingHours;
+    if (r.growHours > 0.0f) j["grow"] = r.growHours;
+    if (r.sinceWaterHours > 0.0f) j["dryHours"] = r.sinceWaterHours;
+    if (r.regrowing) j["regrowing"] = true;
+    if (r.dead) j["dead"] = true;
+    if (r.snareState != 0) j["snare"] = r.snareState;
+    if (r.lastDawn != 0) j["lastDawn"] = r.lastDawn;
+}
+
+nlohmann::json tilesJson(const std::vector<std::pair<int, int>>& tiles)
+{
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& [x, y] : tiles) out.push_back({x, y});
+    return out;
+}
+
+std::vector<std::pair<int, int>> tilesOf(const nlohmann::json& j, const char* key)
+{
+    std::vector<std::pair<int, int>> out;
+    if (!j.contains(key) || !j[key].is_array()) return out;
+    for (const auto& t : j[key])
+    {
+        if (t.is_array() && t.size() >= 2) out.emplace_back(t[0].get<int>(), t[1].get<int>());
+    }
+    return out;
+}
+
+nlohmann::json floorItemsJson(const std::vector<FloorItemRecord>& piles)
+{
+    nlohmann::json out = nlohmann::json::array();
+    for (const FloorItemRecord& pile : piles)
+    {
+        nlohmann::json items = nlohmann::json::array();
+        for (const ContainerItemRecord& item : pile.items)
+        {
+            nlohmann::json ij = {{"id", item.itemId}, {"count", item.count}, {"condition", item.condition}};
+            if (item.loaded > 0) ij["loaded"] = item.loaded;
+            items.push_back(ij);
+        }
+        out.push_back({{"x", pile.x}, {"y", pile.y}, {"items", items}});
+    }
+    return out;
+}
+
+std::vector<FloorItemRecord> floorItemsOf(const nlohmann::json& j, const char* key)
+{
+    std::vector<FloorItemRecord> out;
+    if (!j.contains(key) || !j[key].is_array()) return out;
+    for (const auto& pj : j[key])
+    {
+        FloorItemRecord pile;
+        pile.x = pj.value("x", 0);
+        pile.y = pj.value("y", 0);
+        if (pj.contains("items") && pj["items"].is_array())
+        {
+            for (const auto& ij : pj["items"])
+            {
+                ContainerItemRecord item;
+                item.itemId = ij.value("id", -1);
+                item.count = ij.value("count", 0);
+                item.condition = std::clamp(ij.value("condition", 1.0f), 0.0f, 1.0f);
+                item.loaded = std::max(0, ij.value("loaded", 0));
+                if (item.itemId >= 0 && item.count > 0) pile.items.push_back(item);
+            }
+        }
+        if (!pile.items.empty()) out.push_back(pile);
+    }
+    return out;
+}
+
+void readStructureExtras(const nlohmann::json& j, StructureRecord& r)
+{
+    r.standingHours = std::max(0.0f, j.value("standing", 0.0f));
+    r.growHours = std::max(0.0f, j.value("grow", 0.0f));
+    r.sinceWaterHours = std::max(0.0f, j.value("dryHours", 0.0f));
+    r.regrowing = j.value("regrowing", false);
+    r.dead = j.value("dead", false);
+    r.snareState = std::clamp(j.value("snare", 0), 0, 2);
+    r.lastDawn = j.value("lastDawn", 0);
+}
+} // namespace
+
+namespace
+{
 std::optional<std::uint32_t> gSeedOverride;
 
 std::uint32_t randomSeed()
@@ -935,6 +1022,7 @@ LayoutData SaveManager::loadWorldLayout() const
                 b.y = bJson.value("y", 0);
                 b.w = bJson.value("w", 0);
                 b.h = bJson.value("h", 0);
+                b.kind = bJson.value("kind", -1); // phase 6; computed for older layouts
                 out.buildings.push_back(b);
             }
         }
@@ -1021,7 +1109,9 @@ bool SaveManager::saveWorldLayout(const LayoutData& layout)
     json["buildings"] = nlohmann::json::array();
     for (const auto& b : layout.buildings)
     {
-        json["buildings"].push_back({{"x", b.x}, {"y", b.y}, {"w", b.w}, {"h", b.h}});
+        nlohmann::json bJson = {{"x", b.x}, {"y", b.y}, {"w", b.w}, {"h", b.h}};
+        if (b.kind >= 0) bJson["kind"] = b.kind;
+        json["buildings"].push_back(bJson);
     }
 
     json["doors"] = nlohmann::json::array();
@@ -1136,12 +1226,13 @@ bool SaveManager::loadStructures()
                 rec.uses = std::max(0, sJson.value("uses", 0));
                 rec.targetX = sJson.value("targetX", -1);
                 rec.targetY = sJson.value("targetY", -1);
+                readStructureExtras(sJson, rec);
                 rec.condition = std::clamp(rec.condition, 0, 2);
 
                 // The old barricade (0) and noise trap (1) are gone; the
                 // other old kinds keep their numbers (see Structure.h).
                 // Wear between lives is applied when a run ends.
-                if (rec.type < 2 || rec.type > 9)
+                if (rec.type < 2 || rec.type > 11)
                 {
                     continue;
                 }
@@ -1193,6 +1284,7 @@ bool SaveManager::writeStructures() const
         if (s.lit) sJson["lit"] = true;
         if (s.lantern) sJson["lantern"] = true;
         if (s.uses > 0) sJson["uses"] = s.uses;
+        writeStructureExtras(sJson, s);
         if (s.targetX >= 0)
         {
             sJson["targetX"] = s.targetX;
@@ -1252,6 +1344,8 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
     json["lastSedativeHour"] = cp.needs.lastSedativeHour;
     json["lastPainkillerHour"] = cp.needs.lastPainkillerHour;
     json["restedHours"] = cp.needs.restedHours;
+    json["badStomachHours"] = cp.needs.badStomachHours;
+    json["hotMealHours"] = cp.needs.hotMealHours;
 
     // Mental state
     json["panic"] = cp.mental.panic;
@@ -1401,11 +1495,30 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         {
             nlohmann::json items = nlohmann::json::array();
             for (const auto& [id, count] : r.items) items.push_back({{"id", id}, {"count", count}});
-            json["structures"].push_back({{"type", r.type}, {"x", r.x}, {"y", r.y}, {"condition", r.condition},
-                                          {"hpRatio", r.hpRatio}, {"items", items}, {"water", r.water},
-                                          {"burnHours", r.burnHours}, {"lit", r.lit}, {"lantern", r.lantern},
-                                          {"uses", r.uses}, {"targetX", r.targetX}, {"targetY", r.targetY}});
+            nlohmann::json sj = {{"type", r.type}, {"x", r.x}, {"y", r.y}, {"condition", r.condition},
+                                 {"hpRatio", r.hpRatio}, {"items", items}, {"water", r.water},
+                                 {"burnHours", r.burnHours}, {"lit", r.lit}, {"lantern", r.lantern},
+                                 {"uses", r.uses}, {"targetX", r.targetX}, {"targetY", r.targetY}};
+            writeStructureExtras(sj, r);
+            json["structures"].push_back(sj);
         }
+    }
+    if (cp.scavenge.saved)
+    {
+        const ScavengeRunRecord& sc = cp.scavenge;
+        nlohmann::json sj;
+        sj["powerForced"] = sc.powerForced;
+        sj["dip"] = sc.dipAnnounced;
+        sj["out"] = sc.outAnnounced;
+        sj["searched"] = tilesJson(sc.searched);
+        nlohmann::json foraged = nlohmann::json::array();
+        for (const auto& f : sc.foraged) foraged.push_back({f[0], f[1], f[2]});
+        sj["foraged"] = foraged;
+        sj["floor"] = floorItemsJson(sc.floorItems);
+        sj["lamps"] = tilesJson(sc.litLamps);
+        sj["alarmsSpent"] = sc.alarmsSpent;
+        sj["radio"] = sc.radioOn;
+        json["scavenge"] = sj;
     }
     if (cp.weather.saved)
     {
@@ -1466,6 +1579,8 @@ RunCheckpoint SaveManager::loadCheckpoint() const
     cp.needs.lastSedativeHour = json.value("lastSedativeHour", -1000.0);
     cp.needs.lastPainkillerHour = json.value("lastPainkillerHour", -1000.0);
     cp.needs.restedHours = json.value("restedHours", 0.0f);
+    cp.needs.badStomachHours = std::max(0.0f, json.value("badStomachHours", 0.0f));
+    cp.needs.hotMealHours = std::max(0.0f, json.value("hotMealHours", 0.0f));
 
     cp.mental.panic = json.value("panic", 0.0f);
     cp.mental.depression = json.value("depression", 0.0f);
@@ -1579,6 +1694,30 @@ RunCheckpoint SaveManager::loadCheckpoint() const
                                               std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false), wj.value("tough", 1.0f)});
         }
     }
+    if (json.contains("scavenge") && json["scavenge"].is_object())
+    {
+        const auto& sj = json["scavenge"];
+        ScavengeRunRecord& sc = cp.scavenge;
+        sc.saved = true;
+        sc.powerForced = std::clamp(sj.value("powerForced", -1), -1, 1);
+        sc.dipAnnounced = sj.value("dip", false);
+        sc.outAnnounced = sj.value("out", false);
+        sc.searched = tilesOf(sj, "searched");
+        if (sj.contains("foraged") && sj["foraged"].is_array())
+        {
+            for (const auto& f : sj["foraged"])
+            {
+                if (f.is_array() && f.size() >= 3) sc.foraged.push_back({f[0].get<int>(), f[1].get<int>(), f[2].get<int>()});
+            }
+        }
+        sc.floorItems = floorItemsOf(sj, "floor");
+        sc.litLamps = tilesOf(sj, "lamps");
+        if (sj.contains("alarmsSpent") && sj["alarmsSpent"].is_array())
+        {
+            for (const auto& b : sj["alarmsSpent"]) sc.alarmsSpent.push_back(b.get<int>());
+        }
+        sc.radioOn = sj.value("radio", false);
+    }
     if (json.contains("structures") && json["structures"].is_array())
     {
         cp.structuresSaved = true;
@@ -1607,6 +1746,7 @@ RunCheckpoint SaveManager::loadCheckpoint() const
             r.uses = std::max(0, sj.value("uses", 0));
             r.targetX = sj.value("targetX", -1);
             r.targetY = sj.value("targetY", -1);
+            readStructureExtras(sj, r);
             cp.structures.push_back(r);
         }
     }
@@ -1908,6 +2048,16 @@ bool SaveManager::saveWorldMemory()
     {
         json["base"] = {{"building", mBase.building}, {"x", mBase.x}, {"y", mBase.y}, {"run", mBase.runIndex}};
     }
+    {
+        nlohmann::json sj;
+        sj["unlocked"] = tilesJson(mScavenge.unlockedDoors);
+        sj["searched"] = tilesJson(mScavenge.searched);
+        sj["seen"] = mScavenge.seenBuildings;
+        sj["water"] = tilesJson(mScavenge.usedWater);
+        sj["keys"] = tilesJson(mScavenge.usedKeyRings);
+        sj["floor"] = floorItemsJson(mScavenge.floorItems);
+        json["scavenge"] = sj;
+    }
     if (mLastHome.building > 0)
     {
         json["lastHome"] = {{"building", mLastHome.building}, {"diedAway", mLastHome.diedAway}};
@@ -1960,6 +2110,7 @@ bool SaveManager::loadWorldMemory()
     mBrokenDoors.clear();
     mBoardedDoors.clear();
     mWindows.clear();
+    mScavenge = ScavengeMemoryRecord{};
     mBase = BaseRecord{};
     mLastHome = LastHomeRecord{};
     mWorldEvents.clear();
@@ -2113,6 +2264,19 @@ bool SaveManager::loadWorldMemory()
             mWindows.push_back(WindowRecord{wj.value("x", 0), wj.value("y", 0), wj.value("broken", false),
                                             std::max(0.0f, wj.value("hp", 0.0f)), wj.value("covered", false), wj.value("tough", 1.0f)});
         }
+    }
+    if (json.contains("scavenge") && json["scavenge"].is_object())
+    {
+        const auto& sj = json["scavenge"];
+        mScavenge.unlockedDoors = tilesOf(sj, "unlocked");
+        mScavenge.searched = tilesOf(sj, "searched");
+        if (sj.contains("seen") && sj["seen"].is_array())
+        {
+            for (const auto& b : sj["seen"]) mScavenge.seenBuildings.push_back(b.get<int>());
+        }
+        mScavenge.usedWater = tilesOf(sj, "water");
+        mScavenge.usedKeyRings = tilesOf(sj, "keys");
+        mScavenge.floorItems = floorItemsOf(sj, "floor");
     }
     if (json.contains("base") && json["base"].is_object())
     {

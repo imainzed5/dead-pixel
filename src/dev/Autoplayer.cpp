@@ -22,6 +22,7 @@
 #include "core/GameShared.h"
 #include "systems/CombatSystem.h"
 #include "systems/InventorySystem.h"
+#include "map/TileIds.h"
 #include "world/FirstDays.h"
 #include "world/WoundRules.h"
 
@@ -46,7 +47,14 @@ bool isFood(const ItemDatabase& db, int itemId, float condition)
 bool isDrink(const ItemDatabase& db, int itemId, float)
 {
     const ItemDef* def = db.find(itemId);
-    return def != nullptr && def->category == ItemCategory::Drink && def->thirstRestore > 0.0f;
+    return def != nullptr && def->category == ItemCategory::Drink && def->thirstRestore > 0.0f && def->key != "dirty_water";
+}
+
+// Dirty Water (phase 6): drunk only when there is nothing clean.
+bool isDirtyDrink(const ItemDatabase& db, int itemId, float)
+{
+    const ItemDef* def = db.find(itemId);
+    return def != nullptr && def->key == "dirty_water";
 }
 
 bool stopsBleeding(const ItemDatabase& db, int itemId, float)
@@ -314,6 +322,35 @@ Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run
     if (game.mTileMap.doorState(next.x, next.y) == DoorState::Closed)
     {
         const float d = glm::length(tileCentre(next) - centre);
+        // Locked (phase 6): from inside the lock turns (E); from outside, a
+        // bold player with a crowbar forces it, anyone else goes round.
+        if (d < kTile * 1.2f && game.doorLocked(next) && game.mTileMap.getBuildingId(here.x, here.y) <= 0)
+        {
+            bool crowbar = false;
+            if (game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+            {
+                crowbar = InventorySystem::countTagged(game.mWorld.getComponent<Inventory>(game.mPlayerEntity), game.mItemDatabase,
+                                                       "tool:pry") > 0;
+            }
+            if (!crowbar || mProfile == Profile::Careful)
+            {
+                mUnreachable.insert(Tile{goal.x, goal.y});
+                mDoorTicks = 0;
+                resetPath();
+                return Move::Failed;
+            }
+            if (++mDoorTicks > 900)
+            {
+                mUnreachable.insert(Tile{goal.x, goal.y});
+                mDoorTicks = 0;
+                resetPath();
+                return Move::Failed;
+            }
+            mActivity = "force";
+            // Still on the press: forcing is a held action and a step stops it.
+            if (!tap(SDL_SCANCODE_X)) steer(game, tileCentre(next) - centre);
+            return Move::Walking;
+        }
         if (d < kTile * 1.2f)
         {
             ++mDoorTicks;
@@ -497,7 +534,9 @@ bool Autoplayer::eatAndDrink(Game& game)
     const Needs& needs = game.mWorld.getComponent<Needs>(game.mPlayerEntity);
     if (needs.thirst < 60.0f)
     {
-        const int slot = findSlot(game, isDrink);
+        int slot = findSlot(game, isDrink);
+        // Nothing clean: dirty water, when it is that or worse (phase 6).
+        if (slot < 0 && needs.thirst < 35.0f) slot = findSlot(game, isDirtyDrink);
         if (slot >= 0)
         {
             mActivity = "drink";
@@ -1106,6 +1145,94 @@ bool Autoplayer::useTap(Game& game)
     return false;
 }
 
+bool Autoplayer::fetchWater(Game& game)
+{
+    if (firstdays::tapsRunning(game.mCurrentDay, game.mGameHours) || clock(game) < mWaterRetryAt) return false;
+    if (!game.mWorld.hasComponent<Inventory>(game.mPlayerEntity) || isDark(game)) return false;
+    const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+    if (InventorySystem::countItem(inv, game.mItems.emptyBottle) <= 0) return false;
+    // Only when the clean water has run out.
+    int drinks = 0;
+    for (const InventorySlot& slot : inv.slots)
+    {
+        if (slot.itemId >= 0 && slot.count > 0 && (isDrink(game.mItemDatabase, slot.itemId, slot.condition) ||
+                                                   isDirtyDrink(game.mItemDatabase, slot.itemId, slot.condition)))
+        {
+            drinks += slot.count;
+        }
+    }
+    if (drinks >= 2)
+    {
+        mWaterStand = glm::ivec2(-1);
+        return false;
+    }
+    if (mWaterStand.x < 0)
+    {
+        // The nearest toilet not yet drawn from, or open ground by a pond.
+        const glm::vec2 home = glm::vec2(homeTile(game));
+        const float range = 60.0f;
+        const auto& used = game.mSaveManager.scavengeMemory().usedWater;
+        float bestD = 0.0f;
+        for (const FurniturePiece& piece : game.mFurniture)
+        {
+            if (piece.kind != FurnitureKind::Toilet) continue;
+            if (std::find(used.begin(), used.end(), std::make_pair(piece.tile.x, piece.tile.y)) != used.end()) continue;
+            if (glm::length(glm::vec2(piece.tile) - home) > range) continue;
+            glm::ivec2 stand;
+            if (!standTileFor(game, piece.tile, stand) || mUnreachable.count(Tile{stand.x, stand.y}) != 0) continue;
+            const float d = glm::length(glm::vec2(piece.tile) - home);
+            if (mWaterStand.x < 0 || d < bestD)
+            {
+                mWaterStand = stand;
+                bestD = d;
+            }
+        }
+        const TileMap& map = game.mTileMap;
+        for (int y = 1; y < map.height() - 1; ++y)
+        {
+            for (int x = 1; x < map.width() - 1; ++x)
+            {
+                const int gid = map.groundGid(x, y);
+                const int base = gid > 0 ? ((gid - 1) % TileGid::kPerRow) + 1 : 0;
+                if (base != TileGid::kWater) continue;
+                const float d = glm::length(glm::vec2(x, y) - home);
+                if (d > range || (mWaterStand.x >= 0 && d + 5.0f >= bestD)) continue;
+                for (const glm::ivec2 step : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+                {
+                    const glm::ivec2 t(x + step.x, y + step.y);
+                    if (map.isSolid(t.x, t.y) || mUnreachable.count(Tile{t.x, t.y}) != 0) continue;
+                    const int g = map.groundGid(t.x, t.y);
+                    if ((g > 0 ? ((g - 1) % TileGid::kPerRow) + 1 : 0) == TileGid::kWater) continue;
+                    mWaterStand = t;
+                    bestD = d + 5.0f; // a pond is further to carry from
+                    break;
+                }
+            }
+        }
+        mWaterTries = 0;
+        if (mWaterStand.x < 0)
+        {
+            mWaterRetryAt = clock(game) + 12.0;
+            return false;
+        }
+    }
+    mActivity = "water";
+    const Move move = moveTo(game, mWaterStand, false);
+    if (move == Move::Failed)
+    {
+        mUnreachable.insert(Tile{mWaterStand.x, mWaterStand.y});
+        mWaterStand = glm::ivec2(-1);
+        return true;
+    }
+    if (move == Move::Arrived && tap(SDL_SCANCODE_R) && ++mWaterTries > 3)
+    {
+        // Filled, or nothing to fill from here: try again later.
+        mWaterStand = glm::ivec2(-1);
+        mWaterRetryAt = clock(game) + 3.0;
+    }
+    return true;
+}
+
 bool Autoplayer::searchContainers(Game& game)
 {
     if (game.mWorld.hasComponent<Health>(game.mPlayerEntity))
@@ -1113,7 +1240,10 @@ bool Autoplayer::searchContainers(Game& game)
         const Health& health = game.mWorld.getComponent<Health>(game.mPlayerEntity);
         if (health.current < health.maximum * fitShare()) return false; // hurt: home, and heal first
     }
-    const float range = mProfile == Profile::Careful ? 25.0f : mProfile == Profile::Bold ? 60.0f : 40.0f;
+    // The bot ranges further as the days go on and the near cupboards empty
+    // (phase 6: there is more out there, behind locks and in shops).
+    const float baseRange = mProfile == Profile::Careful ? 25.0f : mProfile == Profile::Bold ? 60.0f : 40.0f;
+    const float range = baseRange + std::min(40.0f, 8.0f * static_cast<float>(std::max(0, game.mCurrentDay - 1)));
     const glm::vec2 home = glm::vec2(homeTile(game));
     const glm::vec2 here = glm::vec2(playerTile(game));
 
@@ -1192,8 +1322,14 @@ bool Autoplayer::searchContainers(Game& game)
         // after a few tries count it as searched.
         const glm::vec2 boxCentre = tileCentre(mTarget);
         mouseAt(game, game.mCamera.worldToScreen(boxCentre));
-        steer(game, boxCentre - playerCentre(game)); // lean in: a hand's reach is under a tile
-        if (tap(SDL_SCANCODE_E) && ++mOpenTries > 4)
+        // Lean in between presses (a hand's reach is under a tile), but stand
+        // still on the press itself: searching is a held action (phase 6) and
+        // a step cancels it.
+        if (mTapCooldown > 0)
+        {
+            steer(game, boxCentre - playerCentre(game));
+        }
+        else if (tap(SDL_SCANCODE_E) && ++mOpenTries > 4)
         {
             mSearched.insert(Tile{mTarget.x, mTarget.y});
             mTargetContainer = kInvalidEntity;
@@ -1338,7 +1474,7 @@ void Autoplayer::tick(Game& game)
 
     const bool acted = handlePendingUse(game) || treatBleeding(game) || handleDanger(game) ||
                        handleContainerPanel(game) || eatAndDrink(game) || armSelf(game) || restWhenTired(game) || retreatWhenHurt(game) || sleepAtHome(game) ||
-                       eveningAtHome(game) || useTap(game) || searchContainers(game);
+                       eveningAtHome(game) || useTap(game) || fetchWater(game) || searchContainers(game);
     if (!acted)
     {
         wander(game);

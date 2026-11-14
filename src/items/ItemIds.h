@@ -65,6 +65,25 @@ struct ItemIds
     X(book, "book")                         \
     X(keepsake, "keepsake")                 \
     X(chocolate, "chocolate")               \
+    X(rawMeat, "rat_meat")                  \
+    X(herbalTea, "herbal_tea")              \
+    X(cookedMeat, "cooked_meat")            \
+    X(berries, "berries")                   \
+    X(mushrooms, "mushrooms")               \
+    X(herbs, "herbs")                       \
+    X(dirtyWater, "dirty_water")            \
+    X(cookingPot, "cooking_pot")            \
+    X(rice, "rice")                         \
+    X(cookedRice, "cooked_rice")            \
+    X(battery, "battery")                   \
+    X(radio, "radio")                       \
+    X(backpack, "backpack")                 \
+    X(ductTape, "duct_tape")                \
+    X(snare, "snare")                       \
+    X(seedPacket, "seed_packet")            \
+    X(vegetables, "vegetables")             \
+    X(toolbox, "toolbox")                   \
+    X(purificationTablets, "purification_tablets") \
     X(disinfectedBandage, "disinfected_bandage")
 
 #define DEAD_PIXEL_ITEM_FIELD(field, key) int field = -1;

@@ -361,6 +361,99 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
 - 2026-11-14, P05: dressed wounds stay on the body now, so the blood trail
   counts only undressed cuts and bites.
 
+- 2026-11-14, P06: where locks live -> in `Game` (`mLocks`: tile, alarm,
+  spent), rebuilt from the layout's kinds each run and thinned by the
+  world memory's "unlocked" list, not a field on the door record. Door
+  records only exist for doors that changed; a lock is a fact of the town.
+- 2026-11-14, P06: the inner lock (the pharmacy's stock room door)
+  -> E does not turn them from inside either; only the street and back
+  doors turn from inside. They exist to be forced.
+- 2026-11-14, P06: which break-ins ring an alarm -> any forced door,
+  broken door or broken window of an alarmed shop while the power is on,
+  taped windows included (the tape is quiet, the alarm is not). An alarm
+  needs its box: a building rings only if it has one (`addAlarmBox`), so
+  the box is always there to stop it.
+- 2026-11-14, P06: foraging spots -> only scenery (bush, tree base, tuft of
+  tall grass); `forage::Spot::Wild` exists for open Wilderness ground but
+  nothing uses it yet (see Later). Bushes and trees already stand in every
+  district, so the land is worth searching without new art.
+- 2026-11-14, P06: "Make panel filtered to what this station can do" -> a
+  fourth Make tab, FOOD (everything cooked at a fire); E at a lit campfire
+  opens it, X at one feeds it fuel (E had lit and put out fires). A kitchen
+  stove counts as a fire while the power is on.
+- 2026-11-14, P06: floor lamps without power -> the switch is remembered
+  (E still flips it, nothing lights) so the room lights again if the
+  harness forces the power back. Power is per run, as the phase says.
+- 2026-11-14, P06: a dead garden bed -> E clears it (gives back nothing).
+  Beds carry to the next life as seedlings (stage 0, regrow timer reset);
+  snares carry over too, reset to set and empty.
+- 2026-11-14, P06: where battery charge lives -> in the flashlight's or
+  radio's own slot condition (1.0 full, 0 flat): no new save field, and it
+  rides through containers, drops and checkpoints for free. The last-rain
+  hour (for mushrooms) is not saved: a resume forgets one day of rain.
+- 2026-11-14, P06: kinds and the world -> kinds are a pure function of the
+  layout (old layouts get the same kinds on load); 50 % of locked
+  buildings get an unlocked back door by a hash of the building, not a
+  roll; a key ring is decided per kitchen container by hash (1 in 8) and
+  remembered once used; a toilet gives one fill per world; there is no
+  bathtub piece, so toilets are the indoor dirty water; whether a mushroom
+  is bad is rolled when it is eaten, not when found.
+- 2026-11-14, P06: Game.cpp was near its size limit -> `buildNeedsEnvironment`
+  moved to `GameBody.cpp`; the phase's new code is in `GameScavenge.cpp`
+  (locks, alarms, searching, water, foraging, gardens, snares, piles) and
+  `GamePower.cpp` (power, lamps, fridges, batteries, radio).
+- 2026-11-14, P06: shop signs -> drawn by `StructureView` on the eave
+  above the street door (lifted 61 px and depth-sorted over the roof
+  edge), sheared to the wall's slope. On the wall face below the eave they
+  were hidden by the roof at default zoom.
+- 2026-11-14, P06: harness additions -> `goto kind|forage|wild`, `recipe`,
+  `power on|off|auto|soon`, `grow DAYS [dry]`, `locks [arm]`, `fridge
+  mark`, and checks for messages, prompts, power, alarms, locks, gardens,
+  fridge rate and needs. `locks arm` exists because seed 1234's pharmacy
+  rolled no alarm (60 %): `break_in` arms the nearest locked building
+  rather than search seeds.
+- 2026-11-14, P06: "interiors walkable end to end" -> the unit test floods
+  each non-house interior from the street door as built and again with the
+  furniture in, and requires every tile reached before to be reached after
+  and every piece to be usable. The map generator sometimes leaves a
+  doorless sliver room (seed 1234, a workshop) that no furniture could
+  open; that is the generator's, not the furnisher's, and is not counted.
+- 2026-11-14, P06: snares said "Something is already here." everywhere ->
+  the occupied check counted the player's own tile; it now looks for a
+  structure on the tile only.
+- 2026-11-14, P06: Scavenging 2's "worth searching" mark -> a small pale
+  diamond pulsing over unsearched containers within 3 tiles; searched
+  state only, never contents.
+- 2026-11-14, P06: older scripts -> `storage` waits 2.5 s after E (the
+  first opening of a cupboard is now a search); `guns` stands its target
+  still (`still`, not `idle`): an idle one drifted 13 px before the shot,
+  how far depending on every roll the town takes first, and at six tiles
+  the 11 px hit circle is that tight.
+- 2026-11-14, P06: the bot -> drinks Dirty Water only when nothing clean is
+  carried and thirst is below 35; fills empty bottles at an unused toilet
+  or a pond within 60 tiles once the taps are off; forces locked doors with
+  a crowbar (Careful never does, and goes round); ranges 8 tiles further
+  each day, up to 40 more.
+- 2026-11-14, P06: the first soak found the player starting inside a floor
+  lamp (the start is the house's middle tile, where a free-standing lamp
+  can land) and unable to move: seed 8 never left the tile. The player's
+  start is now nudged off furniture like every other spawn. A lamp also
+  took E from a cupboard or bottle beside it; it now yields to anything
+  else in reach, as a bush does (step to its free side to switch it).
+- 2026-11-14, P06: the bot stepped while pressing E at a cupboard (it
+  leans in to reach), which cancelled the new held search: it searched 1
+  to 14 containers a run and boarded nothing (0 boards on all ten seeds).
+  It now stands still on the press, as phase 5 made it do for boards, and
+  likewise when it forces a lock.
+- 2026-11-14, P06: `power_out` forces the failure with `power soon`
+  instead of `day 5`, `hours 18.9` and a wait: the run seed shifts the
+  hour by up to 12 hours, so a fixed clock would not meet it. The hour
+  itself is the unit test's (`power_fails_on_day_five_near_dusk`).
+- 2026-11-14, P06: with a panel docked, the HUD's message line ran off the
+  left edge of the narrowed world and over the condition labels (seen in
+  `cooking`'s shots). It is now shortened to the width that is left (the
+  panel shows the full text) and sits above the condition labels.
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -391,6 +484,11 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   are hooks only (P10, P08); dependency on Spirits and Painkillers and a
   Smoker trait are the phase's own "Later".
 
+- 2026-11-14, P06: fishing at ponds and a house generator (the phase's own
+  "Later"); the radio's music in shelter (P12) and its campaign broadcast
+  (P09); foraging on open Wilderness ground (`forage::Spot::Wild` is in the
+  rules, unused).
+
 ## Balance: needs a design change
 
 - 2026-11-13, P01: the soak baseline. After the bot's second pass it lives
@@ -416,6 +514,18 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   comes). Not retuned, as the phase's numbers stand; a bot that reads the
   mode, or a follower that matters more, is phase 14's to weigh. See
   `docs/revival_plan.md` ("Overhaul phase 4").
+
+- 2026-11-14, P06: days survived against phase 5. The bar ("rises") is
+  met on the mean (1.9 against 1.6) and on the longest lives (four reach
+  day 4 or 5), not on the median (1.6 against 1.8). No life in either
+  phase died of thirst, so "deaths from thirst after day 3 fall" cannot
+  be read. Two leads for phase 14:
+  - Seed 9 died at home on night 1 (phase 5: none of ten): it searched 7
+    containers, killed 3 and put up no boards before the dead came in.
+    Not looked into.
+  - Boards come down and are not put back: on seed 1 three boards were up
+    at 17:00 on day 1 and none by 23:00, and the bot did not board again.
+  See `docs/revival_plan.md` ("Overhaul phase 6").
 
 ## Ideas, not built
 

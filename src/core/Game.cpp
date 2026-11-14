@@ -405,6 +405,7 @@ RunCheckpoint Game::buildRunCheckpoint()
     cp.windows = windowRecords();
     cp.structuresSaved = true;
     cp.structures = structureRecords(false);
+    cp.scavenge = scavengeRunRecord();
     return cp;
 }
 
@@ -1111,35 +1112,6 @@ void Game::refreshTitleCheckpoint()
     mTitleCheckpointX = titleCheckpoint.valid ? titleCheckpoint.playerX : 0.0f;
     mTitleCheckpointY = titleCheckpoint.valid ? titleCheckpoint.playerY : 0.0f;
     mTitleCheckpointRefreshTimer = 1.0f;
-}
-
-NeedsEnvironment Game::buildNeedsEnvironment()
-{
-    NeedsEnvironment environment;
-    environment.gameHours = mGameHours;
-    environment.outdoorTemperature = mWeatherState.temperature;
-    environment.rainIntensity = mWeatherState.rainIntensity;
-    environment.windStrength = mWeatherState.windStrength;
-    environment.tileMap = &mTileMap;
-
-    mWorld.forEach<Structure, Transform>(
-        [&](Entity, Structure& structure, Transform& st)
-        {
-            if (structure.type != StructureType::Campfire || !structure.lit || structure.hp <= 0.0f) return;
-            environment.heatSources.emplace_back(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
-        });
-    mWorld.forEach<Fire, Transform>(
-        [&](Entity, Fire& fire, Transform& ft)
-        {
-            if (fire.intensity <= 0.1f) return;
-            environment.heatSources.emplace_back(ft.x + kSpriteSize * 0.5f, ft.y + kSpriteSize * 0.5f);
-        });
-
-    // Clothing: the warmest thing in the pack counts as worn.
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity) && mWorld.hasComponent<Inventory>(mPlayerEntity))
-        mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation =
-            InventorySystem::bestWarmth(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
-    return environment;
 }
 
 bool Game::playerHasItem(int itemId) const

@@ -215,7 +215,11 @@ void Game::update(float dtSeconds)
     // Flashlight toggle (Q). Needs a flashlight in the pack.
     if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
     {
-        if (playerHasItem(mItems.flashlight))
+        if (playerHasItem(mItems.flashlight) && !mFlashlightOn && flashlightCharge() <= 0.0f)
+        {
+            mInteractionMessage = "The flashlight is dead. It needs a battery.";
+        }
+        else if (playerHasItem(mItems.flashlight))
         {
             mFlashlightOn = !mFlashlightOn;
             mInteractionMessage = mFlashlightOn ? "Flashlight on. It will be seen." : "Flashlight off.";
@@ -230,6 +234,13 @@ void Game::update(float dtSeconds)
     {
         mFlashlightOn = false;
     }
+    // Scavenging and power (phase 6): beds and snares, the lights, alarms,
+    // batteries running down.
+    updateScavenging(dtSeconds);
+    updatePower(dtSeconds);
+    updateAlarms(dtSeconds);
+    updateFlashlightBattery(dtSeconds);
+    updateRadio(dtSeconds);
 
     updateFire(dtSeconds, playerAlive, drivingVehicle);
 
@@ -422,14 +433,19 @@ void Game::update(float dtSeconds)
         // A door within reach takes E before anything else nearby, then a
         // window, then furniture and what was built.
         bool interceptedContainer = mBaseAction.kind != BaseAction::Kind::None && mBaseAction.kind != BaseAction::Kind::Grab;
+        if (!interceptedContainer) interceptedContainer = handleAlarmBox(prompt);
         if (!interceptedContainer) interceptedContainer = handleDoorInteraction(prompt);
         if (!interceptedContainer && doorInReach(prompt) == nullptr)
         {
             interceptedContainer = handleWindowInteraction(prompt);
             if (!interceptedContainer && windowInReach(prompt) == nullptr)
             {
-                interceptedContainer = handleBaseInteraction(prompt);
+                interceptedContainer = handleFieldStructure(prompt);
+                if (!interceptedContainer) interceptedContainer = handleBaseInteraction(prompt);
+                if (!interceptedContainer) interceptedContainer = handleFloorLamp(prompt);
                 if (!interceptedContainer) interceptedContainer = handleTapInteraction(prompt);
+                if (!interceptedContainer) interceptedContainer = handleWaterSource(prompt);
+                if (!interceptedContainer) interceptedContainer = handleForage(prompt);
             }
         }
         if (!interceptedContainer && mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
@@ -438,7 +454,8 @@ void Game::update(float dtSeconds)
             const Interactable& inter = mWorld.getComponent<Interactable>(prompt.entity);
             if (inter.type == InteractableType::Container && mWorld.hasComponent<Inventory>(prompt.entity))
             {
-                openContainer(prompt.entity);
+                // Searching takes a moment (phase 6); the panel opens after.
+                beginSearch(prompt.entity);
                 mProximityPrompt.clear();
                 interceptedContainer = true;
             }

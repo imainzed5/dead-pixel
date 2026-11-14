@@ -192,12 +192,12 @@ DP_TEST(a_version_one_save_migrates_to_version_two)
     DP_CHECK(migrated.isRecipeDiscovered(25, 29));
     DP_CHECK(!migrated.isRecipeDiscovered(3, 25));
 
-    // The old files are kept; the new ones say version 2.
+    // The old files are kept; the new ones say the current version.
     DP_CHECK(std::filesystem::exists("save/old_slot.json.v1.backup"));
     DP_CHECK(std::filesystem::exists("save/old_slot_memory.json.v1.backup"));
-    DP_CHECK_EQ(readJson("save/old_slot.json").value("saveVersion", 0), 2);
+    DP_CHECK_EQ(readJson("save/old_slot.json").value("saveVersion", 0), SaveManager::kCurrentSaveVersion);
 
-    // And it loads again as a plain version 2 slot.
+    // And it loads again as a plain current slot.
     SaveManager again;
     DP_CHECK(again.loadOrCreateSlot("old_slot"));
     DP_CHECK_EQ(again.migratedFromVersion(), 0);

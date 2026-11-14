@@ -257,6 +257,117 @@
       "startsKnown": false,
       "skill": "medicine",
       "skillLevel": 1
+    },
+    {
+      "name": "Boiled Water",
+      "inputA": "dirty_water",
+      "output": "water_bottle",
+      "count": 1,
+      "category": "FOOD",
+      "tools": [
+        "tool:pot"
+      ],
+      "station": "fire",
+      "craftTimeSeconds": 10,
+      "notes": "Boiled in a pot over a fire: safe to drink.",
+      "hintA": "",
+      "hintB": "",
+      "startsKnown": true
+    },
+    {
+      "name": "Treated Water",
+      "inputA": "dirty_water",
+      "inputB": "purification_tablets",
+      "output": "water_bottle",
+      "count": 1,
+      "category": "FOOD",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 2,
+      "notes": "A tablet in the bottle, a shake, a wait: safe to drink.",
+      "hintA": "",
+      "hintB": "",
+      "startsKnown": true
+    },
+    {
+      "name": "Cooked Meat",
+      "inputA": "rat_meat",
+      "output": "cooked_meat",
+      "count": 1,
+      "category": "FOOD",
+      "tools": [],
+      "station": "fire",
+      "craftTimeSeconds": 8,
+      "notes": "Cooked through, it will not make you sick.",
+      "hintA": "",
+      "hintB": "",
+      "startsKnown": true
+    },
+    {
+      "name": "Cooked Rice",
+      "inputA": "rice",
+      "inputB": "water_bottle",
+      "output": "cooked_rice",
+      "count": 1,
+      "category": "FOOD",
+      "tools": [
+        "tool:pot"
+      ],
+      "station": "fire",
+      "craftTimeSeconds": 12,
+      "notes": "A filling meal from a dry bag.",
+      "hintA": "",
+      "hintB": "",
+      "startsKnown": true
+    },
+    {
+      "name": "Stew",
+      "inputA": "cooked_meat",
+      "inputB": "vegetables",
+      "output": "stew",
+      "count": 2,
+      "category": "FOOD",
+      "tools": [
+        "tool:pot"
+      ],
+      "station": "fire",
+      "craftTimeSeconds": 14,
+      "notes": "The best meal there is now. Two bowls.",
+      "hintA": "meat",
+      "hintB": "something from the ground",
+      "startsKnown": false
+    },
+    {
+      "name": "Herbal Tea",
+      "inputA": "herbs",
+      "inputB": "water_bottle",
+      "output": "herbal_tea",
+      "count": 1,
+      "category": "FOOD",
+      "tools": [
+        "tool:pot"
+      ],
+      "station": "fire",
+      "craftTimeSeconds": 6,
+      "notes": "Warms you and settles the nerves.",
+      "hintA": "leaves",
+      "hintB": "water",
+      "startsKnown": false
+    },
+    {
+      "name": "Snare",
+      "inputA": "wire",
+      "inputB": "rope",
+      "output": "snare",
+      "count": 1,
+      "category": "TOOLS",
+      "tools": [],
+      "station": "none",
+      "craftTimeSeconds": 6,
+      "notes": "Set on grass far from buildings; check it at dawn.",
+      "hintA": "something thin and strong",
+      "hintB": "something to tie it down",
+      "startsKnown": false
     }
   ]
 }

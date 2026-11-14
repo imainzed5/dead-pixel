@@ -10,8 +10,9 @@ goto home
 goto furniture container
 mark
 waits 0.3
+# Opened for the first time, a cupboard takes a moment to go through (phase 6).
 tap E
-waits 0.3
+waits 2.5
 container
 give Wood Planks 2
 give Rope 1

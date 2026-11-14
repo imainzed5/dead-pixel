@@ -207,6 +207,7 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
     mSaveManager.setWindows(windowRecords());
     recordBase(mRunState == RunState::Dead);
     saveDistrictMemory(); // infection, this life's kills, the rules learned
+    saveScavengeMemory(); // things left lying indoors
 
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
 

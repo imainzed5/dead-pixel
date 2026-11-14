@@ -50,6 +50,9 @@ struct LayoutData
         int y = 0;
         int w = 0;
         int h = 0;
+        // BuildingKind as int (world/BuildingKinds.h); -1 until assigned.
+        // Old layouts have none and get it computed on load.
+        int kind = -1;
     };
     std::vector<BuildingRect> buildings;
 

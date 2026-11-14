@@ -484,7 +484,7 @@ struct ControlBinding
     const char* action;
 };
 
-constexpr std::array<ControlBinding, 26> kControlBindings = {{
+constexpr std::array<ControlBinding, 27> kControlBindings = {{
     {"WASD", "Move"},
     {"Shift", "Run"},
     {"C", "Crouch; still 3 s: breathe"},
@@ -494,14 +494,15 @@ constexpr std::array<ControlBinding, 26> kControlBindings = {{
     {"Space", "Shove / struggle"},
     {"G", "Throw (hold, aim)"},
     {"E", "Interact, search; hold: push"},
-    {"R", "Board, tap / reload"},
-    {"X", "Pry board / break up"},
-    {"F", "Use item / set down"},
+    {"R", "Board, tap, fill / reload"},
+    {"X", "Pry, break up, force"},
+    {"F", "Use, set down, snare, radio"},
     {"Q", "Flashlight"},
     {"1-8", "Hotbar slot"},
     {"Tab", "Pack / Body / Make"},
     {"Arrows", "Inventory cursor"},
     {"Enter", "Swap to hotbar"},
+    {"Bksp", "Drop (Shift: stack)"},
     {"N", "Crafting"},
     {"B", "Build wheel"},
     {"V", "Car in-out; Shift: refuel"},
@@ -521,7 +522,7 @@ struct ControlsLayout
     float columnWidth = 0.0f;
     static constexpr float kRowH = 22.0f;
     static constexpr float kKeyColumn = 108.0f;
-    static constexpr std::size_t kRowsPerColumn = 13;
+    static constexpr std::size_t kRowsPerColumn = 14;
 };
 
 inline ControlsLayout computeControlsLayout(int windowWidth, int windowHeight)
@@ -995,12 +996,17 @@ inline WeaponStats weaponStatsForItem(const ItemDef& item, const ItemDatabase* d
     return stats;
 }
 
+// The Make panel's tabs: ALL, TOOLS, MED, FOOD (phase 6: what a fire cooks).
+constexpr int kCraftingCategories = 4;
+constexpr int kCraftingFoodTab = 3;
+
 inline const char* craftingCategoryLabel(int category)
 {
     switch (category)
     {
     case 1: return "TOOLS";
     case 2: return "MED";
+    case 3: return "FOOD";
     default: return "ALL";
     }
 }
@@ -1065,9 +1071,10 @@ inline std::vector<std::size_t> buildVisibleRecipeList(
     return visible;
 }
 
-// A recipe's station in reach: a workbench, or a fire, within 3 tiles.
+// A recipe's station in reach: a workbench, or a fire, within 3 tiles. A
+// kitchen stove is a fire while the power is on (phase 6).
 inline bool craftStationNearby(CraftStation station, const std::vector<FurniturePiece>& furniturePieces, World& world,
-                               const TileMap& tileMap, const glm::ivec2& playerTile)
+                               const TileMap& tileMap, const glm::ivec2& playerTile, bool stoveWorks = false)
 {
     constexpr float kStationReachTiles = 3.0f;
     switch (station)
@@ -1092,6 +1099,7 @@ inline bool craftStationNearby(CraftStation station, const std::vector<Furniture
     }
     case CraftStation::Fire:
     {
+        if (stoveWorks && furniture::kindWithin(furniturePieces, FurnitureKind::Stove, playerTile, kStationReachTiles)) return true;
         bool found = false;
         const float tileW = static_cast<float>(std::max(1, tileMap.tileWidth()));
         // A campfire burning.

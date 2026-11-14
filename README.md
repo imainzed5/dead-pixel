@@ -24,6 +24,15 @@ done, what is next, and known issues.
 - **The first three days:** each run starts at home, with a plan for each
   day and night. Search the house and board it up before dark; the taps run
   until day 3; every night more of the dead come knocking.
+- **The town that runs out:** pharmacies, groceries, hardware stores,
+  clinics, police stations, diners, offices, garages and warehouses, each
+  furnished for what it was; most carry a sign above the street door, and
+  the town map marks the ones you have seen. Doors may be
+  locked (force them, break them, or find the back way) and shops may ring
+  an alarm. Searching takes time, and a searched cupboard stands ajar. The
+  taps fail on day 3 and the power around day 5: lamps go dark, fridges
+  stop keeping food, alarms die. Then boil dirty water, cook at a fire,
+  forage, set snares and grow a garden bed.
 - **Who wakes up:** each run starts with a name and traits picked on the
   character screen (good at, bad at, the points must balance; Space takes
   the seed's pick). Seven skills (Carpentry, Fighting, Fitness,
@@ -74,23 +83,27 @@ done, what is next, and known issues.
 | Right click, then left click | Take down one turned away or on the floor |
 | Space | Shove (a crowd back, one hurt or from behind off its feet); when held, tap fast to tear free |
 | Hold G, aim, let go | Throw the selected item (rock, alarm clock, flare, bottle, molotov) |
-| E | Interact: talk to a survivor (with nothing else in reach), open and close doors, open containers, search a body of the dead, sleep in a bed or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern |
+| E | Interact: talk to a survivor (with nothing else in reach), open and close doors (a locked one says "Locked."; from inside the lock turns), search containers (a held action: 1.5 to 5 seconds the first time, at once after), search a body of the dead, sleep in a bed, cot or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern, switch a floor lamp, stop a shop alarm at its box by the door (3 seconds), search a bush, tree or tuft of grass (3 seconds), collect a snare, harvest or clear a garden bed |
+| E at a lit campfire | Cook: the Make panel opens on its FOOD tab (a kitchen stove counts while the power is on) |
 | Hold E beside furniture, then walk | Grab and push it (heavy pieces slowly, a tile at a time; through an open doorway; onto the floor inside a door to block it) |
 | In a container: A/D or Left/Right, W/S, E or Enter, Shift+E, Esc | Pick the pack or the container side, move the cursor, move one across, move the whole stack, close (the mouse works too: click moves one, Shift+click the stack) |
 | R / X at a closed door or a window (from inside) | Board it up (hammer, a plank and 2 nails; about 4 seconds standing still, quicker with Carpentry, slower when shaken) / pry a board off (a crowbar saves the nails) |
-| X at furniture | Break it up for planks and rags (hands, faster with a hammer, axe or crowbar; a saw gives an extra plank) |
-| Click at a window in reach / crouch + F with duct tape | Smash the glass (loud) / break it quietly |
+| X at furniture | Break it up for planks and rags (hands, faster with a hammer, axe or crowbar; a saw gives an extra plank; a pallet stack gives 2 planks) |
+| X at a locked door, from outside | With a crowbar: force it (about 6 seconds, loud). Without: a blow with the weapon in hand, or a shoulder (25 stamina), until it breaks for good. A shop's alarm may ring while the power is on |
+| X at a lit campfire | Feed it fuel |
+| E at a window from outside, or click at one in reach / X with duct tape | Smash the glass (loud) / tape it and break it quietly (4 seconds, soft) |
 | R at a kitchen counter or sink, or a rain collector | Drink from the tap and fill empty bottles (taps until day 3) |
+| R at a pond or a toilet, or at a garden bed | Fill empty bottles with Dirty Water (a toilet once per world) / water the bed |
 | R at a worn station | Repair it with one of what it is made of |
 | R with a gun in hand (nothing else in reach) | Reload from the pack, or clear a jam |
-| F | Use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead |
+| F | Use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead; set a snare (on grass, 15 tiles from any building); turn the radio on or off; with a Battery selected, put it in the flashlight |
 | Q | Flashlight |
 | 1-8 | Hotbar slot |
 | Tab | Cycles the side panel: Pack, Body, Make, closed (Esc closes it) |
-| In the pack: arrows, Enter, F | Cursor, swap to hotbar, use |
+| In the pack: arrows, Enter, F, Backspace | Cursor, swap to hotbar, use, drop on the floor (Shift+Backspace: the whole stack) |
 | In the body tab: W/S, Enter or F | Pick a wound, treat it (then pick what with) |
 | N | Crafting |
-| B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll (click one, then click where it goes; right click puts it away) |
+| B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll, garden bed (click one, then click where it goes; right click puts it away) |
 | V / Shift+V | Enter or exit a car / refuel |
 | M / J | Town map / notebook |
 | +/- | Minimap zoom |
@@ -230,6 +243,20 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   named item at the spot DX, DY tiles off).
 - **Body and mind (phase 5):** `mark sim` remembers the zombie count and
   noise events; `expect sim` checks they are unchanged.
+- **Scavenging (phase 6):** `goto kind NAME [inside] [N]` (the nearest
+  building of that kind: N tiles out from its street door, default 1, or
+  just inside; logs whether the door is locked), `goto forage [bush|tree|tuft]`,
+  `goto wild` (open grass at least 15 tiles from any building), `recipe
+  NAME` (pick it in the Make panel and press Enter), `power on|off|auto|soon`
+  (forced, or back to the clock; `soon` sets the clock just before the
+  failure), `grow DAYS [dry]` (garden beds age that many days, watered or
+  not), `locks [arm]` (print the locks; `arm` gives the nearest locked
+  building a live alarm and its box), `fridge mark` (note a food in the
+  nearest fridge, putting in an Apple if it holds none). Checks: `expect message|prompt TEXT`,
+  `expect power on|off`, `expect alarm on|off`, `expect locked|unlocked`
+  (the nearest door), `expect garden STAGE|dead|ripe`, `expect fridgerate
+  LO HI` (since the mark it spoiled at LO to HI times normal speed), `expect need
+  illness|hunger|thirst below|above V`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
@@ -303,6 +330,11 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `mind` | At sleep debt 90 a false figure within two minutes, with the dead and the noise untouched; panic 60 makes boarding 30 % longer, Carpentry 3 quicker; a book lowers depression by 10, once |
 | `atmosphere` | Each kind of weather, a storm at night, lamps; weather left alone holds for hours |
 | `storage` | Putting things in a cupboard; they stay through a save, a resume and the next life |
+| `town_kinds` | The pharmacy, grocery, hardware store, clinic, police station and garage from the street, each with its sign; three interiors; the town map's pictograms (run on seeds 1234, 42 and 777) |
+| `break_in` | A locked door says "Locked."; a crowbar forces it in about 6 s and the alarm rings; the dead 20 tiles off come; the box stops it; with the power off, no alarm |
+| `power_out` | The power fails at its hour with "The power is out."; street lamps lit, then dark; a fridge halves spoilage, then does not; a floor lamp |
+| `cooking` | A campfire opens the FOOD tab; dirty water boiled, rice and meat cooked; raw meat and dirty water sicken, cooked food does not; feeding the fire |
+| `garden` | A bush searched, then picked over; a bed planted, watered, six days: four Vegetables; the next life finds seedlings; dry three days: dead; a snare set in the wild |
 | `bot_week` | The bot plays a week with metrics (what `tools/soak.py` runs) |
 | `bare_world`, `world_tour`, `combat_feel` | The town without the interface, a tour of it, the weight of a blow |
 

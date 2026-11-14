@@ -109,10 +109,10 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
     const bool covered = mTileMap.windowCovered(tile.x, tile.y);
     const int boards = mWindows.boards(tile);
     const bool alarm = alarmOn(tile);
-    // Duct tape arrives with phase 6; until then there is no quiet break.
+    // Duct tape: a quiet break, from either side (phase 6).
     const ItemDef* tape = mItemDatabase.findByKey("duct_tape");
     const int tapeId = tape != nullptr ? tape->id : -1;
-    const bool crouched = mInput.isKeyDown(SDL_SCANCODE_C) || mInput.isKeyDown(SDL_SCANCODE_LCTRL);
+    const bool hasTape = tapeId >= 0 && playerHasItem(tapeId);
 
     std::string prompt;
     if (alarm)
@@ -136,11 +136,12 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
     {
         prompt = covered ? "E: Open the curtain" : "E: Draw the curtain";
         prompt += "   R: Board up";
-        if (crouched && tapeId >= 0 && playerHasItem(tapeId)) prompt += "   (crouched) F: Tape and break";
+        if (hasTape) prompt += "   X: Tape and break";
     }
     else
     {
-        prompt = covered ? "A window, curtained" : "A window";
+        prompt = std::string(covered ? "A window, curtained" : "A window") + "   E: Smash the glass";
+        if (hasTape) prompt += "   X: Tape and break";
     }
     mProximityPrompt = prompt;
 
@@ -187,14 +188,19 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
         }
         return true;
     }
-    // A quiet break: tape over the glass, then a sharp tap.
-    if (mInput.wasKeyPressed(SDL_SCANCODE_F) && crouched && inside && !broken && boards == 0 && tapeId >= 0 &&
-        playerHasItem(tapeId))
+    // Breaking the glass: held, Loud from a smash (1.5 s), Soft through
+    // tape (4 s). Breaking in may set off a shop's alarm (phase 6).
+    const bool smash = !inside && !broken && boards == 0 && !alarm && mInput.wasKeyPressed(SDL_SCANCODE_E);
+    const bool taped = !broken && boards == 0 && !alarm && hasTape && mInput.wasKeyPressed(SDL_SCANCODE_X);
+    if (smash || taped)
     {
-        InventorySystem::removeItem(mWorld.getComponent<Inventory>(mPlayerEntity), tapeId, 1);
-        breakWindow(tile, false);
-        mInteractionMessage = "You tape the glass and knock it out. Hardly a sound.";
-        mInteractionMessageTimer = 3.0f;
+        mBaseAction = BaseAction{};
+        mBaseAction.kind = taped ? BaseAction::Kind::Tape : BaseAction::Kind::Smash;
+        mBaseAction.tile = tile;
+        mBaseAction.total = taped ? 4.0f : 1.5f;
+        mBaseAction.label = taped ? "Taping the glass" : "Smashing the glass";
+        mBaseAction.startPos = playerWorldCenter();
+        mBaseAction.startHp = mWorld.hasComponent<Health>(mPlayerEntity) ? mWorld.getComponent<Health>(mPlayerEntity).current : 0.0f;
         return true;
     }
     if (!mInput.wasKeyPressed(SDL_SCANCODE_E))
@@ -511,6 +517,14 @@ bool Game::buildingLit(int building) const
             lit = mTileMap.getBuildingId(tile.x, tile.y) == building;
         });
     if (lit) return true;
+    // A floor lamp switched on while the power is on (phase 6).
+    if (!mLitLamps.empty() && powerOn())
+    {
+        for (const glm::ivec2& lamp : mLitLamps)
+        {
+            if (mTileMap.getBuildingId(lamp.x, lamp.y) == building) return true;
+        }
+    }
     world.forEach<Fire, Transform>(
         [&](Entity, Fire&, Transform& t)
         {

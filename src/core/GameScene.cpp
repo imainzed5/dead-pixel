@@ -63,6 +63,7 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
 
     if (cp.windowsSaved) restoreWindows(cp.windows);
     if (cp.structuresSaved) restoreStructures(cp.structures);
+    restoreScavenging(cp.scavenge);
 
     // Scars from earlier runs are already on the ground; add this run's.
     for (const auto& [x, y] : cp.burnedTiles)
@@ -733,11 +734,11 @@ void Game::setupScene()
 
             Interactable inter{};
             inter.prompt = def.prompt;
-            if (piece.kind == FurnitureKind::Bed)
+            if (piece.kind == FurnitureKind::Bed || piece.kind == FurnitureKind::Cot)
             {
                 inter.type = InteractableType::SleepSpot;
                 inter.sleepHours = 8.0f;
-                inter.sleepQuality = 0.95f;
+                inter.sleepQuality = piece.kind == FurnitureKind::Cot ? 0.7f : 0.95f;
                 mWorld.addComponent<Interactable>(entity, inter);
                 continue;
             }
@@ -754,7 +755,8 @@ void Game::setupScene()
                 continue;
             }
             std::vector<std::pair<int, int>> stacks;
-            mLoot.roll(storage::lootClassFor(def.loot), lootRng, tone.suppliesScale, stacks);
+            // What it holds follows from the building it stands in (phase 6).
+            mLoot.roll(furniture::lootClass(piece), lootRng, tone.suppliesScale, stacks);
             for (const auto& [itemId, count] : stacks)
             {
                 InventorySystem::addItem(inv, mItemDatabase, itemId, count);
@@ -1022,6 +1024,7 @@ void Game::setupScene()
     for (FurniturePiece& piece : mFurniture) piece.damage = 0.0f;
     refreshFurnitureLayer();
     setupHome();
+    setupScavenging();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(

@@ -12,6 +12,7 @@ const std::array<StationRecipe, BuildSystem::kRecipeCount> BuildSystem::kRecipes
     {StructureType::StorageCrate, "Storage Crate", "wood_planks", 3, "nails", 8, true, true, 12.0f, true, Where::Indoors},
     {StructureType::RainCollector, "Rain Collector", "scrap_metal", 2, "wood_planks", 1, true, false, 12.0f, false, Where::Outdoors},
     {StructureType::Bedroll, "Bedroll", "rags", 2, "rope", 1, false, false, 6.0f, false, Where::Indoors},
+    {StructureType::GardenBed, "Garden Bed", "wood_planks", 2, "seed_packet", 1, false, false, 15.0f, false, Where::Soil},
 }};
 
 const StationRecipe* BuildSystem::recipeFor(StructureType type)
@@ -43,6 +44,12 @@ bool BuildSystem::placeable(const TileMap& map, const glm::ivec2& tile, Structur
         const int base = ((std::max(1, map.groundGid(tile.x, tile.y)) - 1) % TileGid::kPerRow) + 1;
         return map.getSurfaceType(tile.x, tile.y) != SurfaceType::Carpet && base != TileGid::kWood;
     }
+    case Where::Soil:
+    {
+        if (indoors) return false;
+        const int base = ((std::max(1, map.groundGid(tile.x, tile.y)) - 1) % TileGid::kPerRow) + 1;
+        return base == TileGid::kGrass || base == TileGid::kGrass2 || base == TileGid::kDirt;
+    }
     }
     return false;
 }
@@ -61,6 +68,8 @@ bool BuildSystem::carriesOver(StructureType type, bool sprung)
     case StructureType::Bedroll:
     case StructureType::Light:
         return false;
+    case StructureType::Snare:
+        return true; // set again by whoever finds it
     case StructureType::CanAlarm:
         return !sprung;
     default:

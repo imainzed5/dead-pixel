@@ -92,6 +92,8 @@ private:
     bool sleepAtHome(Game& game);
     bool eveningAtHome(Game& game);
     bool useTap(Game& game);
+    // After the taps: fill empty bottles at a toilet cistern or a pond (phase 6).
+    bool fetchWater(Game& game);
     bool searchContainers(Game& game);
     void wander(Game& game);
 
@@ -145,6 +147,9 @@ private:
     bool mUseDone = false;
     double mSleepRetryAt = -1.0;
     double mTapRetryAt = -1.0;
+    double mWaterRetryAt = -1.0;
+    glm::ivec2 mWaterStand{-1, -1};
+    int mWaterTries = 0;
     double mBoardRetryAt = -1.0;
     double mTreatRetryAt = -1.0;
     double mForgetAt = 0.0;

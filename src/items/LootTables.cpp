@@ -104,8 +104,10 @@ void LootTables::roll(std::string_view classKey, std::mt19937& rng, float suppli
         return;
     }
     // Most cupboards are already bare; tone and tuning scale how many are not.
-    const float stocked = std::clamp(
-        lootClass->stockedChance * suppliesScale * Tuning::get("loot.stocked.scale", 1.0f), 0.0f, 0.9f);
+    // A class stocked for certain (the armoury, 1.0) always is.
+    const float stocked = lootClass->stockedChance >= 1.0f
+        ? 1.0f
+        : std::clamp(lootClass->stockedChance * suppliesScale * Tuning::get("loot.stocked.scale", 1.0f), 0.0f, 0.9f);
     if (unit(rng) >= stocked)
     {
         return;

@@ -139,11 +139,13 @@ std::vector<RareFind> rareFinds(const std::vector<FurniturePiece>& pieces, const
                   return a.x != b.x ? a.x < b.x : a.y < b.y;
               });
 
-    // The outer third of the town's wardrobes (at least enough for all).
+    // The guns and the heavy blades: the outer third of the town's wardrobes
+    // (at least enough for all), as in phase 3.
     const std::vector<RareFind> wanted = {
         {{}, "pistol", 1, 3},  {{}, "pistol", 1, 5},   {{}, "shotgun", 1, 0}, {{}, "machete", 1, 0},
         {{}, "machete", 1, 0}, {{}, "sledgehammer", 1, 0}, {{}, "sledgehammer", 1, 0},
     };
+    std::vector<glm::ivec2> rest = wardrobes;
     const std::size_t pool = std::min(wardrobes.size(), std::max(wanted.size(), wardrobes.size() / 3));
     wardrobes.resize(pool);
     std::mt19937 rng(worldSeed ^ 0x6A5Fu);
@@ -159,6 +161,25 @@ std::vector<RareFind> rareFinds(const std::vector<FurniturePiece>& pieces, const
         {
             finds.push_back({wardrobes[i], "shotgun_shells", 4, 0});
         }
+    }
+
+    // Phase 6: three radios, four backpacks and six keepsakes anywhere in
+    // town, never in a wardrobe that already holds a find.
+    const std::vector<RareFind> more = {
+        {{}, "radio", 1, 0},    {{}, "radio", 1, 0},    {{}, "radio", 1, 0},    {{}, "backpack", 1, 0},
+        {{}, "backpack", 1, 0}, {{}, "backpack", 1, 0}, {{}, "backpack", 1, 0}, {{}, "keepsake", 1, 0},
+        {{}, "keepsake", 1, 0}, {{}, "keepsake", 1, 0}, {{}, "keepsake", 1, 0}, {{}, "keepsake", 1, 0},
+        {{}, "keepsake", 1, 0},
+    };
+    std::erase_if(rest, [&](const glm::ivec2& t)
+                  { return std::any_of(finds.begin(), finds.end(), [&](const RareFind& f) { return f.tile == t; }); });
+    std::mt19937 moreRng(worldSeed ^ 0x6A60u);
+    std::shuffle(rest.begin(), rest.end(), moreRng);
+    for (std::size_t i = 0; i < more.size() && !rest.empty(); ++i)
+    {
+        RareFind find = more[i];
+        find.tile = rest[i % rest.size()];
+        finds.push_back(find);
     }
     return finds;
 }

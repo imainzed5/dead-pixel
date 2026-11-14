@@ -1,4 +1,5 @@
 #include "systems/NeedsSystem.h"
+#include "world/Forage.h"
 #include "core/Tuning.h"
 
 #include <algorithm>
@@ -170,8 +171,10 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
 
             // Outdoorsy: rain chills half as much.
             const float rain = environment.rainIntensity * (traits != nullptr ? traitrules::rainChillScale(*traits) : 1.0f);
+            // A hot meal warms you for a while (phase 6).
+            const float hotMeal = needs.hotMealHours > 0.0f ? food::kHotMealWarmth : 0.0f;
             const float ambient = effectiveAmbient(environment.outdoorTemperature, indoors, rain,
-                                                   environment.windStrength, nearHeat, needs.clothingInsulation);
+                                                   environment.windStrength, nearHeat, needs.clothingInsulation + hotMeal);
             const float activityHeat = isRunning ? kRunningHeat : (isMoving ? kWalkingHeat : 0.0f);
             float targetTemp = targetBodyTemperature(ambient, activityHeat);
             // Thin-Skinned: cold and heat bite 30 % harder.
@@ -192,6 +195,15 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
 
             // Illness accelerates all decay
             const float illnessMultiplier = 1.0f + needs.illness * 0.01f;
+            // A bad stomach (phase 6): hunger and thirst drain faster.
+            const float gameHoursPassed = dtSeconds / 60.0f;
+            if (needs.badStomachHours > 0.0f)
+            {
+                hungerDecayMultiplier *= food::kBadStomachDrain;
+                thirstDecayMultiplier *= food::kBadStomachDrain;
+                needs.badStomachHours = std::max(0.0f, needs.badStomachHours - gameHoursPassed);
+            }
+            needs.hotMealHours = std::max(0.0f, needs.hotMealHours - gameHoursPassed);
 
             // --- Hunger decay ---
             const float traitHungerMul = traits != nullptr ? traitrules::hungerScale(*traits) : 1.0f;

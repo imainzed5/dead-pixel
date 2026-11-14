@@ -333,6 +333,9 @@ DP_TEST(combat_rules_rare_finds_far_and_fixed)
     int shells = 0;
     int machetes = 0;
     int sledges = 0;
+    int radios = 0;
+    int backpacks = 0;
+    int keepsakes = 0;
     for (std::size_t i = 0; i < a.size(); ++i)
     {
         DP_CHECK(a[i].tile == b[i].tile); // the same seed, the same places
@@ -343,7 +346,14 @@ DP_TEST(combat_rules_rare_finds_far_and_fixed)
         machetes += item == "machete";
         sledges += item == "sledgehammer";
         if (item == "pistol") DP_CHECK(a[i].loaded > 0);
+        radios += item == "radio";
+        backpacks += item == "backpack";
+        keepsakes += item == "keepsake";
     }
+    // Phase 6: the rest of section 5's fixed finds.
+    DP_CHECK_EQ(radios, 3);
+    DP_CHECK_EQ(backpacks, 4);
+    DP_CHECK_EQ(keepsakes, 6);
     DP_CHECK_EQ(pistols, 2);
     DP_CHECK_EQ(shotguns, 1);
     DP_CHECK_EQ(shells, 1);
@@ -360,6 +370,8 @@ DP_TEST(combat_rules_rare_finds_far_and_fixed)
     const float cutoff = distances[9];
     for (const storage::RareFind& find : a)
     {
+        const std::string item = find.item;
+        if (item == "radio" || item == "backpack" || item == "keepsake") continue;
         DP_CHECK(glm::length(glm::vec2(find.tile) - centre) >= cutoff - 1e-3f);
     }
 }

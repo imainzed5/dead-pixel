@@ -29,8 +29,9 @@ shot pistol_loaded
 # front (50 health), costs one round, and every wanderer in earshot comes to
 # look. (A Loud noise reaches 30 tiles; since phase 4 it carries 20 % less
 # upwind and a Brute hears at 0.7, so every kind is sure to hear it within
-# about 16.8 tiles.)
-zombie 6 0 idle hp 50
+# about 16.8 tiles.) It stands still: an idle one drifts a few pixels before
+# the shot, and how far depends on every roll the town took before it.
+zombie 6 0 still hp 50
 # A wanderer well inside earshot, behind the shooter.
 zombie -14 0 shambler
 waits 0.2

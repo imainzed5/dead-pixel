@@ -123,8 +123,18 @@ void Game::awardXp(Skill skill, float amount)
 float Game::playerCarryLimit() const
 {
     const Traits* traits = playerTraits();
-    if (traits == nullptr) return Inventory::kMaxCarryWeight;
-    return traitrules::carryLimitKg(*traits, skillLevel(Skill::Fitness));
+    const float base = traits == nullptr ? Inventory::kMaxCarryWeight : traitrules::carryLimitKg(*traits, skillLevel(Skill::Fitness));
+    // A backpack carries more (phase 6): the best one counts.
+    float bonus = 0.0f;
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        for (const InventorySlot& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+        {
+            const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+            if (item != nullptr) bonus = std::max(bonus, item->carryBonus);
+        }
+    }
+    return base + bonus;
 }
 
 void Game::addPanic(float amount)
@@ -1190,4 +1200,35 @@ void Game::updateBodyTabInput()
         mBodyChoosing = false;
         treatWithItem(slots[static_cast<std::size_t>(mBodyChoice)], mBodyCursor);
     }
+}
+
+// What the needs system is told of the world: heat nearby, the weather,
+// what is worn.
+NeedsEnvironment Game::buildNeedsEnvironment()
+{
+    NeedsEnvironment environment;
+    environment.gameHours = mGameHours;
+    environment.outdoorTemperature = mWeatherState.temperature;
+    environment.rainIntensity = mWeatherState.rainIntensity;
+    environment.windStrength = mWeatherState.windStrength;
+    environment.tileMap = &mTileMap;
+
+    mWorld.forEach<Structure, Transform>(
+        [&](Entity, Structure& structure, Transform& st)
+        {
+            if (structure.type != StructureType::Campfire || !structure.lit || structure.hp <= 0.0f) return;
+            environment.heatSources.emplace_back(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
+        });
+    mWorld.forEach<Fire, Transform>(
+        [&](Entity, Fire& fire, Transform& ft)
+        {
+            if (fire.intensity <= 0.1f) return;
+            environment.heatSources.emplace_back(ft.x + kSpriteSize * 0.5f, ft.y + kSpriteSize * 0.5f);
+        });
+
+    // Clothing: the warmest thing in the pack counts as worn.
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity) && mWorld.hasComponent<Inventory>(mPlayerEntity))
+        mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation =
+            InventorySystem::bestWarmth(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
+    return environment;
 }
