@@ -1029,6 +1029,25 @@ void Game::setupLightingUniforms()
         mShader.setFloatArray("uLightRadii[0]", lightRadii, lightCount);
     }
 
+    // A car's headlights (phase 11): one wide beam from its nose.
+    const Vehicle* car = mActiveVehicleEntity != kInvalidEntity && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity)
+                             ? &mWorld.getComponent<Vehicle>(mActiveVehicleEntity)
+                             : nullptr;
+    if (playerAlive && car != nullptr && car->headlights)
+    {
+        const glm::vec2 worldDir = vehiclerules::forward(car->heading);
+        const glm::vec2 nose = vehicleCentre(mActiveVehicleEntity) + worldDir * (vehiclerules::info(car->kind).length * 0.5f);
+        glm::vec2 groundDir(worldDir.x - worldDir.y, worldDir.x + worldDir.y);
+        groundDir = glm::length(groundDir) > 0.0001f ? glm::normalize(groundDir) : glm::vec2(1.0f, 0.0f);
+        mShader.setInt("uSpotEnabled", 1);
+        mShader.setVec2("uSpotPosition", mCamera.worldToScreen(nose));
+        mShader.setVec2("uSpotDirection", groundDir);
+        mShader.setFloat("uSpotCosHalfAngle", std::cos(glm::radians(32.0f)));
+        mShader.setFloat("uSpotRange", 9.0f * tilePx * groundScale);
+        mShader.setVec3("uSpotColor", glm::vec3(1.0f, 0.96f, 0.85f) * (0.2f + 0.85f * night));
+        return;
+    }
+
     // Flashlight beam along the facing direction.
     const bool beam = playerAlive && mFlashlightOn && mWorld.hasComponent<Facing>(mPlayerEntity);
     mShader.setInt("uSpotEnabled", beam ? 1 : 0);

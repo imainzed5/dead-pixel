@@ -792,6 +792,91 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   (it checks what it prints, not the boards); `journal.txt` and
   `aging.txt` give nails.
 
+- 2026-11-15, P11: where vehicles are placed -> `vehiclerules::place`
+  picks open ground beside buildings from the layout and the world seed
+  after the town is made; nothing is stamped, so the generator's layout for
+  every existing seed is unchanged. Standing scenery (trees, lamp posts,
+  hydrants, bins) planted later skips the tiles
+  under a vehicle (each tile rolls its own, so no other tile changes).
+- 2026-11-15, P11: the run's random stream -> spawning still takes the old
+  two draws per vehicle spawn tile from the run's RNG when the save has no
+  vehicles, so loot, the dead and survivors roll as before; vehicles use
+  their own RNG from the run seed (`^ 0x7EC1`), trunks theirs (`^ 0x7A11`).
+- 2026-11-15, P11: old saves -> a sedan record without a kind is read as a
+  sedan at its old place, centred; the rest of the fleet is placed around
+  it once and remembered (`fleetPlaced`). Save version stays 5; every new
+  field is optional with a default.
+- 2026-11-15, P11: the key's container -> a Kitchen or Bedroom container in
+  the nearest house (a counter, drawer or wardrobe, picked by the seed);
+  when that house has none, the key is in the car. Searching it says "Car
+  keys. The red sedan outside." and the car is known for good. A sedan
+  from an old save keeps its spot and has no key (hot-wire it).
+- 2026-11-15, P11: paints -> four for a sedan, two for a pickup, so "the
+  red sedan" means something; the sprites are drawn per paint by the
+  generator, five facings each (the other three mirrored).
+- 2026-11-15, P11: the owner's car -> the car nearest a survivor's home,
+  within 10 tiles, is theirs; getting into it is the theft (noted once a
+  life). A companion within 4 tiles gets into a car with you (seats 2).
+- 2026-11-15, P11: the E chain -> at a vehicle, E is the vehicle's first
+  for what needs a thing in hand or a load: Refuel with a Fuel Can
+  selected, Mend it with a Toolbox, Load and Unload at a pickup's
+  tailgate; otherwise the door or trunk prompt as before. "Set it off" on
+  a live alarm is last of all, and only when nothing else in reach offered
+  E (a door, a window, someone to talk to, a container, tall grass): the
+  first soak of the phase had the bot set off two alarms (seeds 5 and 8)
+  with presses meant for other things; a player would have too. The
+  "V: Get in" hint is added to whatever prompt is showing (a corpse, a
+  forage spot) rather than replacing it.
+- 2026-11-15, P11: thin scenery -> bins, hydrants and the cemetery's low
+  fence are run down; lamp posts and trees stop the car (bushes and grass
+  never blocked). A doorway is a wall to every vehicle, the bicycle too,
+  open or not: none of them goes indoors. Hordes needed no new rule: they
+  already ignore Soft noises and turn for Loud ones, so a parked car is
+  nothing to them and a running engine turns them.
+- 2026-11-15, P11: Shift+V refuelling is gone (the phase replaces it with E
+  "Refuel"); a can adds 12 units, 6 s held.
+- 2026-11-15, P11: the trunk -> an invisible container entity that rides
+  with the car (prompt "Open the trunk" or "Open the truck bed") and opens
+  with the normal held search; it is saved through the container records
+  like any other.
+- 2026-11-15, P11: the bicycle turns round instead of backing up: with the
+  keys pointing behind it, it brakes and turns at walking pace (a car
+  brakes and reverses). Survivors never ride it; a companion (P08) rides
+  in a car only.
+- 2026-11-15, P11: Unload at a doorway -> the piece goes on the first free
+  tile behind the tailgate; a doorway counts only when its door is open,
+  and the piece then stands across it (the doorway is blocked, P02). A
+  shut door: "The door is shut."
+- 2026-11-15, P11: a moved piece of furniture keeps the building it was
+  made in on its record; checks that need the building it is in now (the
+  harness's `expect blocked`) read the tile under it.
+- 2026-11-15, P11: the engine noise is the player's noise while driving:
+  the footstep emitter is off in a vehicle, the engine's Loud every 0.3 s
+  is on (Medium every second idling), a pickup's heard x1.2 through a new
+  `reach` on noise events.
+- 2026-11-15, P11: the harness's autopilot (`drive road`) follows the
+  asphalt with a breadth-first search back onto it and a lane-centring
+  nudge; `vehicle fetch` and `vehicle park door` are shortcuts (the piece
+  is moved against the tailgate; the pickup is put at a door and the door
+  opened) so `pickup_haul.txt` checks the load, the drive and the unload,
+  not pushing a wardrobe across town.
+- 2026-11-15, P11: `mind.txt` changed: its three "dormant" dead are
+  Shamblers, and the harness's `dormant` only makes a Crawler lie in
+  wait, so they wandered. The town now makes more entities (ten vehicles
+  and their trunks), the dead's wander rolls are keyed by entity, and on
+  seed 1234 one wandered to the home's door and banged on it: 16 noises
+  in the "nothing changes" check and the boarding interrupted. They are
+  now `dormant still` (stand where put, still look and listen), which is
+  what the script meant.
+- 2026-11-15, P11: `Game.cpp` only shrinks: the component registrations
+  are one `World::registerComponents<...>()` call (a new variadic
+  helper), which makes room for `TrunkOf` and the checkpoint's
+  `persistVehicles`.
+- 2026-11-15, P11: `vehicles.txt` lets the tail batter the parked sedan
+  for 60 s: by then the window is gone and the condition is near nothing,
+  so the script sets it back (`set condition`) before the run-downs and
+  again before the save, so the next life's -15 shows.
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -851,6 +936,21 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   cemetery (they are buried where they lie); a journal entry for weather
   that turned a life (the season line covers part of it).
 
+- 2026-11-15, P11: siphoning fuel with a hose item, a second seat for
+  carrying a wounded survivor home, and car radios (the phase's own
+  "Later"). Also moved:
+  - vehicles do not collide with each other (each is solid to walls,
+    scenery, the dead and the player, not to another vehicle);
+  - scenery run down is gone for the run only: a checkpoint resume or the
+    next life puts the bush or bin back;
+  - flats come from running down scenery alone: driving over a spike
+    board (P02) does not burst a tyre yet;
+  - the engine, the crank and the alarm play a loud footstep, and the
+    dead battering a car, a wall hit and a run-down play the weapon-hit
+    knock, until P12 gives each its own sound;
+  - the companion's seat carries no one else (a wounded survivor is the
+    "Later" above), and survivors never take a vehicle themselves.
+
 ## Balance: needs a design change
 
 - 2026-11-13, P01: the soak baseline. After the bot's second pass it lives
@@ -902,6 +1002,26 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   warning shots first, are the levers. See `docs/revival_plan.md`
   ("Overhaul phase 8").
 
+- 2026-11-15, P11: the bot's week fell to median 1.7 days, mean 1.8
+  (phase 10: 2.1, 2.0), kills 278 (351), boards 11 (14). Not the vehicles:
+  the same build with none in town gives 1.9 and 1.8, and with cars that
+  do not push the player 1.7 and 1.9, each seed swinging by days between
+  the three. The dead's wander is keyed by entity and any change in how
+  many entities the town makes moves every later arrival. Ten seeds are
+  too few to read a change smaller than that spread; phase 14 should soak
+  more seeds. See `docs/revival_plan.md` ("Overhaul phase 11").
+- 2026-11-15, P11: battering is harsh against a crowd: 3 a blow from
+  each of the dead round a car takes a sedan from 84 to nothing in 60 to
+  90 s once the tail arrives (`vehicles.txt` sets it back), and in `perf`
+  300 of the dead stop a sedan within a few tiles and batter it to Broken
+  in under eleven seconds. As the phase says; whether a car should hold
+  longer against a crowd is phase 14's.
+
 ## Ideas, not built
 
-(none yet)
+- 2026-11-15, P11: a horn, a Loud noise on purpose from the seat, to pull
+  the dead off a house the way the alarm does from outside.
+- 2026-11-15, P11: a dead car pushed (in neutral, Hold E) across a street
+  or a doorway as a barricade the dead batter instead of the boards.
+- 2026-11-15, P11: a parked car's trunk as a cache the town's survivors
+  can find between lives, like the player's crates (P10).

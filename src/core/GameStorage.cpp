@@ -24,6 +24,12 @@ std::string Game::containerName(Entity container) const
 {
     std::string name = "Container";
     if (mWorld.hasComponent<Corpse>(container)) return "Body";
+    if (mWorld.hasComponent<TrunkOf>(container))
+    {
+        const Entity vehicle = mWorld.getComponent<TrunkOf>(container).vehicle;
+        const bool pickup = mWorld.hasComponent<Vehicle>(vehicle) && mWorld.getComponent<Vehicle>(vehicle).kind == VehicleKind::Pickup;
+        return pickup ? "Truck bed" : "Trunk";
+    }
     if (mWorld.hasComponent<SurvivorAI>(container))
     {
         const SurvivorAI& ai = mWorld.getComponent<SurvivorAI>(container);
@@ -51,8 +57,9 @@ void Game::recordContainer(Entity container)
     const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(t.x, t.y));
     // Only furniture is remembered by its tile: a crate keeps its things in
     // the structures file, a pile on the floor lasts this life.
+    // A vehicle's trunk goes with the vehicle's own record (phase 11).
     if (mWorld.hasComponent<Structure>(container) || mWorld.hasComponent<Corpse>(container) ||
-        mWorld.hasComponent<SurvivorAI>(container) ||
+        mWorld.hasComponent<SurvivorAI>(container) || mWorld.hasComponent<TrunkOf>(container) ||
         (mWorld.hasComponent<Interactable>(container) && mWorld.getComponent<Interactable>(container).prompt == "Search the pile"))
     {
         return;
@@ -71,7 +78,7 @@ void Game::refreshContainerRecords()
         [&](Entity e, Interactable& inter, Inventory& inv, Transform& t)
         {
             if (inter.type != InteractableType::Container || mWorld.hasComponent<Structure>(e) ||
-                inter.prompt == "Search the pile") return;
+                mWorld.hasComponent<TrunkOf>(e) || inter.prompt == "Search the pile") return;
             const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(t.x, t.y));
             const ContainerRecord* existing = mSaveManager.containerRecord(tile.x, tile.y);
             if (existing == nullptr) return;
@@ -115,6 +122,7 @@ void Game::openContainer(Entity container)
     mShowCrafting = false;
     ++mContainersOpened;
     noteContainerSearched(container, false);
+    noteCarKeys(container); // a car's keys left in a drawer (phase 11)
     // Scavenging: the first look through each (phase 5).
     const bool companionPack = mWorld.hasComponent<SurvivorAI>(container) && mWorld.getComponent<SurvivorAI>(container).alive;
     if (!companionPack && std::find(mXpSearched.begin(), mXpSearched.end(), container) == mXpSearched.end())

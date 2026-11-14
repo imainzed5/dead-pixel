@@ -86,7 +86,7 @@ done, what is next, and known issues.
 
 | Key | Action |
 |---|---|
-| WASD | Move (screen directions) |
+| WASD | Move (screen directions); steer a vehicle |
 | Shift / C | Run / crouch (held still for 3 s: a slow breath that calms you) |
 | Mouse, left click | Aim, attack (on one lying down: stomp; with a gun: fire) |
 | Right click, then left click | Take down one turned away or on the floor |
@@ -107,14 +107,16 @@ done, what is next, and known issues.
 | R with a gun in hand (nothing else in reach) | Reload from the pack, or clear a jam |
 | E at a grave or stone | Read: the journal reader opens (Up/Down to read on, Backspace back); E again takes a grave's marker when it has no pack, or tends a weathered stone (5 seconds); at an emptied survivor's body, bury them (30 seconds) |
 | F | Inside the cemetery with a marker selected: set it, and the grave moves there. Otherwise: use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead; set a snare (on grass, 15 tiles from any building); turn the radio on or off; with a Battery selected, put it in the flashlight |
-| Q | Flashlight |
+| Q | Flashlight (in a car: headlights) |
 | 1-8 | Hotbar slot |
 | Tab | Cycles the side panel: Pack, Body, Make, closed (Esc closes it) |
 | In the pack: arrows, Enter, F, Backspace | Cursor, swap to hotbar, use, drop on the floor (Shift+Backspace: the whole stack) |
 | In the body tab: W/S, Enter or F | Pick a wound, treat it (then pick what with) |
 | N | Crafting |
 | B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll, garden bed (click one, then click where it goes; right click puts it away) |
-| V / Shift+V | Enter or exit a car / refuel |
+| V | Get in or out of a vehicle within reach: a sedan, a pickup or a bicycle (out on the driver's side, or whichever side is free; not above a crawl) |
+| In a vehicle: WASD, E, Q | Steer (the keys say where to go on the screen; it turns toward it, and brakes and backs up toward what lies behind) / start the engine with the key, or hold E to hot-wire it (20 seconds, loud when it fails; E again stops the engine) / headlights |
+| E at a vehicle | With a Fuel Can selected: refuel (6 seconds). With a Toolbox selected: mend it (60 seconds, a Scrap Metal; twice the work by a garage). At the back: open the trunk or the truck bed; at a pickup's tailgate, load a piece of furniture pushed up to it, or unload it (backed up to an open door, it goes in across the doorway). At a parked car with a blinking alarm light, with nothing else in reach: set it off |
 | M / J | Town map / notebook with tabs (Left/Right): Leads, The way out, People, Before you (Up/Down, Enter: read a journal), Know-how, Journal (this life's, written only while you carry a Notebook) |
 | +/- | Minimap zoom |
 | Esc | Pause |
@@ -318,6 +320,28 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   `expect echo SKILL N`, `expect bloodline NAME|none`, `expect stone
   NAME|any`, `expect graves N`, `expect remembered nothing|something`,
   `expect reader open|closed`, `expect marker N`.
+- **Vehicles (phase 11):** `vehicles` (every one: kind, tile, heading,
+  speed, condition, fuel, tyres, trunk, key), `goto vehicle [KIND]
+  [tailgate]` (beside the nearest one, of a kind: sedan, pickup, bicycle; at
+  its driver's door, or just behind it), `set fuel N`, `set condition N`,
+  `set tyres N`, `set key in|known|none`, `set alarm on|off`, `set started
+  on|off` (the one sat in, or the nearest), `drive DIR SECONDS [CAP]` (the
+  keys toward n, s, e, w, ne, nw, se or sw, the town's axes, for SECONDS;
+  the script waits), `drive road SECONDS [CAP]` (follow the road: off a
+  driveway to the nearest asphalt, straight on, the cross road where it
+  ends; under CAP px/s, 160 by default), `drive brake`, `vehicle mark`,
+  `vehicle turn DEGREES` (faces it that way where it stands), `vehicle
+  fetch KIND` (the nearest movable piece of that kind, e.g. wardrobe,
+  pushed up behind the tailgate), `vehicle park door` (backed up to the
+  nearest open doorway with a free floor inside), `vehicle map R` (the
+  ground as a vehicle sees it). Checks: `expect vehicle in|out|engine|off|
+  started|cargo|nocargo|window|ringing|silent`, `expect vehicle
+  speed|condition|fuel|tyres above|below N`, `expect vehicle trunk N`,
+  `expect vehicle randown|stopped N` (the dead thrown by a car, cars stopped
+  dead by one), and since `vehicle mark`: `expect vehicle moved N` (tiles),
+  `scrapes N` (at most N ticks against a wall), `lost N` (at least N
+  condition), `same [worn]` (where and as it was; worn: 15 condition less,
+  as the next life finds it).
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
@@ -379,7 +403,7 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `kinds` | The five kinds side by side at default zoom; a Runner covers 10 tiles in under 4 s; a knife does not move a Brute; a scream brings a wanderer from 20 tiles; a dormant Crawler wakes at 2 tiles |
 | `senses` | Crouched and still in the dark, unseen at 5 tiles; running, heard; a swing in a shut house not heard 10 tiles out, with the door open it is; heavy rain hides a walk; a bleeding walk is followed, and with dressed wounds in rain it is not |
 | `horde` | Night 7's horde passes a dark, curtained house by; with a candle in a clear window, some break in |
-| `perf` | 300 of the dead: average and worst tick time |
+| `perf` | 300 of the dead: average and worst tick time (the town's vehicles parked throughout); 20 survivors and 100 of the dead; a sedan driven up the road through 300 of the dead |
 | `ruin` | A district's ruin from quiet to overrun: litter, smears and bodies, the HUD word, the town map's shading; blood drops on the ground |
 | `guns` | Reload from the pack; a pistol shot kills at 6 tiles, costs a round, brings every wanderer in earshot; the empty click; the shotgun a shell at a time drops two side by side |
 | `resume` | Checkpoints keep the walking dead and the bodies |
@@ -395,6 +419,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `mind` | At sleep debt 90 a false figure within two minutes, with the dead and the noise untouched; panic 60 makes boarding 30 % longer, Carpentry 3 quicker; a book lowers depression by 10, once |
 | `atmosphere` | Each kind of weather, a storm at night, lamps; weather left alone holds for hours |
 | `storage` | Putting things in a cupboard; they stay through a save, a resume and the next life |
+| `vehicles` | A keyed sedan driven 20 s along the road touching no wall; parked, the tail of the dead arrives and batters it; a Shambler run down at speed (thrown, the car slowed), a Brute stops it; four headings; a wall hit costs condition; the trunk opens and stores; a save and resume and the next life keep it (one stage worse); a live alarm set off on purpose, never by an E meant for the trunk |
+| `bicycle` | A bicycle at night crosses 40 tiles; one of the dead 8 tiles off the route does not turn; one in the way pulls the rider off |
+| `pickup_haul` | A wardrobe pushed to a pickup's tailgate is loaded, driven, and unloaded with the tailgate backed up to a doorway: it stands across it inside |
 | `town_kinds` | The pharmacy, grocery, hardware store, clinic, police station and garage from the street, each with its sign; three interiors; the town map's pictograms (run on seeds 1234, 42 and 777) |
 | `break_in` | A locked door says "Locked."; a crowbar forces it in about 6 s and the alarm rings; the dead 20 tiles off come; the box stops it; with the power off, no alarm |
 | `power_out` | The power fails at its hour with "The power is out."; street lamps lit, then dark; a fridge halves spoilage, then does not; a floor lamp |

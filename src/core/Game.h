@@ -86,6 +86,7 @@
 #include "ui/Hud.h"
 
 class DevHarness;
+struct Vehicle;
 
 // The container panel: docked right at the crafting width, pack on the
 // left, the container on the right.
@@ -526,6 +527,46 @@ private:
     // Slides the piece at `tile` one tile in `dir`, by the push rules.
     // Returns an empty string on success, else why not.
     std::string pushFurniture(const glm::ivec2& tile, const glm::ivec2& dir, bool chargeStamina);
+    // Moves the piece at `tile` to `target` with its cupboard and records,
+    // and remembers it (pushing, a pickup's load).
+    void moveFurniturePiece(const glm::ivec2& tile, const glm::ivec2& target);
+    void noteDoorwayBlocked(const glm::ivec2& target);
+
+    // --- Vehicles (phase 11, GameVehicles.cpp over systems/VehicleSystem) ---
+    // The town's sedans, pickups and bicycles from world memory, placed the
+    // first time (vehiclerules::place).
+    void spawnVehicles(std::mt19937& runRng, float suppliesScale);
+    Entity spawnVehicle(const VehicleRecord& record);
+    // Every vehicle into world memory; at a life's end, the ones used a stage worse.
+    void persistVehicles(bool lifeOver);
+    void enterVehicle(Entity vehicle);
+    // Out beside it (`thrown`: off a bicycle, onto the ground). False if there is no room.
+    bool exitVehicle(bool thrown);
+    // E at a vehicle on foot: refuel, mend, load, unload.
+    bool handleVehicleInteraction(const ProximityPrompt& entityPrompt);
+    // E: set off a parked car's live alarm, when nothing else in reach wants E.
+    bool handleVehicleAlarm(const ProximityPrompt& entityPrompt);
+    void finishVehicleAction();
+    // The keys found in a drawer of the house a car belongs to.
+    void noteCarKeys(Entity container);
+    // What the dead know of the player's vehicle this tick.
+    void fillVehicleTick(ZombieTick& tick) const;
+    [[nodiscard]] Entity vehicleNear(const glm::vec2& at, float reach) const;
+    [[nodiscard]] std::string vehicleName(const Vehicle& vehicle) const;
+    [[nodiscard]] glm::vec2 vehicleCentre(Entity vehicle) const;
+    void refreshVehicleSprite(Entity vehicle);
+    // What a tile is to a vehicle's body.
+    [[nodiscard]] int vehicleTileKind(int x, int y) const;
+    void knockDownScenery(const glm::ivec2& tile);
+    // The view: leads the vehicle and pulls back at speed.
+    [[nodiscard]] glm::vec2 cameraTarget(const glm::vec2& playerCenter) const;
+    // Seat controls while inside: E to start, hold E to hot-wire.
+    void updateVehicleSeat(float dtSeconds);
+    void driveVehicle(Entity vehicle, float dtSeconds);
+    void keepClearOfVehicles();
+    void updateVehicleAlarms(float dtSeconds);
+    void fallOffBicycle(const char* why);
+    [[nodiscard]] bool alarmLive(const Vehicle& vehicle) const;
     // Breaks the piece up into the pack (overflow to the floor).
     void breakFurniture(const glm::ivec2& tile);
     // The best tool carried for breaking things up.
@@ -978,8 +1019,21 @@ private:
     } mDraft;
     bool mCreateCharacterOnStart = false;
 
-    // M8 narrow slice state
+    // Vehicles (phase 11): the one the player sits in, and its state.
     Entity mActiveVehicleEntity = kInvalidEntity;
+    Entity mRidingCompanion = kInvalidEntity;
+    std::vector<Entity> mVehicleBlows;                 // the dead that struck the body this tick
+    std::vector<std::pair<Entity, float>> mBatterers;  // who has struck it lately, and when
+    float mVehicleClock = 0.0f;
+    float mWireTimer = 0.0f;   // hot-wiring: seconds of E held
+    bool mWireHeld = false;
+    bool mVehicleZoomed = false;
+    bool mVehicleTheftNoted = false;
+    float mVehicleHitCooldown = 0.0f;
+    std::mt19937 mVehicleRng{0x7EC1u};
+    int mVehicleScrapes = 0; // walls touched while driving (counted for the harness)
+    int mVehicleRunDowns = 0; // the dead thrown by a car, and cars stopped by one (harness)
+    int mVehicleStops = 0;
     std::vector<std::pair<int, int>> mBurnedTiles;
     std::unordered_set<std::int64_t> mBurnedLookup; // the same, by FireSystem::key
 
@@ -1075,7 +1129,12 @@ private:
             FreeGenerator, // working the seized generator loose (Loud every 2 s)
             // Phase 10.
             Tend,          // a weathered grave (quiet)
-            Bury           // a dead survivor, by hand (Soft)
+            Bury,          // a dead survivor, by hand (Soft)
+            // Phase 11: vehicles (the target is the vehicle).
+            Refuel,        // a can into the tank
+            MendVehicle,   // toolbox and scrap metal
+            LoadCargo,     // a piece into a pickup's bed
+            UnloadCargo    // and out again
         } kind = Kind::None;
         glm::ivec2 tile{0};       // the piece, window or build site
         glm::ivec2 to{0};         // climb: where you come out
@@ -1257,6 +1316,8 @@ private:
     void survivorsBetweenLives(int days, bool retired);
     // Taking from a container in someone's house is theft.
     void noteTakenFrom(Entity container);
+    // Something of theirs taken from a lived-in house's people (a container, a car).
+    void noteTheft(int building);
     // A companion close by (for sleep and company).
     [[nodiscard]] bool companionNear(float tiles) const;
     // E with nothing else in reach: talk to the person nearest, or search

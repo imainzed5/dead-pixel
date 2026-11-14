@@ -194,6 +194,11 @@ void SurvivorBrain::update(World& world, const SurvivorTick& tick, SurvivorHooks
                 v.dx = v.dy = 0.0f;
                 return; // the game lays them down
             }
+            if (ai.riding)
+            {
+                v.dx = v.dy = 0.0f;
+                return; // in the player's vehicle: the game carries them
+            }
             const glm::vec2 centre = centreOf(t);
             const float tileSize = static_cast<float>(std::max(1, tick.map->tileWidth()));
             const bool farNow = !tick.playerValid ||

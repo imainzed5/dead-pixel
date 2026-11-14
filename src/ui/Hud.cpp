@@ -121,6 +121,16 @@ std::string weatherText(const HudState& state)
     return text;
 }
 
+struct Layout;
+// Where the vehicle lines go (phase 11): fuel (if it has a tank), condition, and the word above.
+struct VehicleRows
+{
+    float fuelY = -1.0f;
+    float conditionY = 0.0f;
+    float wordY = 0.0f;
+};
+VehicleRows vehicleRows(const HudState& state, const Layout& layout);
+
 // Shared geometry so the shape pass and the text pass agree.
 struct Layout
 {
@@ -131,6 +141,7 @@ struct Layout
     float barsX = 0.0f;
     float healthY = 0.0f;
     float staminaY = 0.0f;
+    float stackBase = 0.0f; // conditions stack up from here (over the vehicle lines when inside one)
     std::size_t conditionRows = 0;
 
     float rightX = 0.0f;
@@ -149,7 +160,7 @@ struct Layout
     // Conditions stack upward from the bars, the worst at the top.
     [[nodiscard]] float conditionY(std::size_t row) const
     {
-        return healthY - 12.0f - static_cast<float>(conditionRows - row) * Hud::kConditionRowHeight;
+        return stackBase - 12.0f - static_cast<float>(conditionRows - row) * Hud::kConditionRowHeight;
     }
 };
 
@@ -164,6 +175,7 @@ Layout computeLayout(const HudState& state, const glm::vec2& viewport)
     layout.staminaY = viewport.y - Hud::kEdge - Hud::kStaminaHeight;
     layout.healthY = layout.staminaY - 6.0f - Hud::kHealthHeight;
     layout.conditionRows = std::min(state.conditions.size(), Hud::kMaxConditionRows);
+    layout.stackBase = layout.healthY - (state.vehicle.inside ? Hud::kVehicleBlock : 0.0f);
 
     layout.rightX = viewport.x - Hud::kEdge;
     layout.clockY = Hud::kEdge - 4.0f;
@@ -192,6 +204,20 @@ Layout computeLayout(const HudState& state, const glm::vec2& viewport)
 
     layout.toastY = Hud::kEdge;
     return layout;
+}
+
+VehicleRows vehicleRows(const HudState& state, const Layout& layout)
+{
+    VehicleRows rows;
+    float y = layout.healthY - 8.0f - Hud::kVehicleLineHeight;
+    if (state.vehicle.fuelMax > 0.0f)
+    {
+        rows.fuelY = y;
+        y -= 7.0f;
+    }
+    rows.conditionY = y;
+    rows.wordY = y - 22.0f;
+    return rows;
 }
 
 // The objective: title, detail line, then the plan's steps.
@@ -526,6 +552,34 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
         line(glm::vec2(layout.barsX, layout.conditionY(i) + 3.0f), glm::vec2(8.0f), dot);
     }
 
+    // In a vehicle: its fuel, then its condition, as thin lines over the health line.
+    if (state.vehicle.inside)
+    {
+        const VehicleRows rows = vehicleRows(state, layout);
+        if (rows.fuelY > 0.0f)
+        {
+            const glm::vec2 pos(layout.barsX, rows.fuelY);
+            line(pos, glm::vec2(Hud::kBarsWidth, Hud::kVehicleLineHeight), kTrackColor);
+            const float r = ratio(state.vehicle.fuel, state.vehicle.fuelMax);
+            glm::vec4 c = kAmber;
+            if (r <= 0.15f) c.a = 0.45f + 0.55f * pulse;
+            batch.draw(pos, glm::vec2(std::round(Hud::kBarsWidth * r), Hud::kVehicleLineHeight), white, c);
+        }
+        {
+            const glm::vec2 pos(layout.barsX, rows.conditionY);
+            line(pos, glm::vec2(Hud::kBarsWidth, Hud::kVehicleLineHeight), kTrackColor);
+            const float r = ratio(state.vehicle.condition, 100.0f);
+            batch.draw(pos, glm::vec2(std::round(Hud::kBarsWidth * r), Hud::kVehicleLineHeight), white, healthColor(r));
+        }
+        if (state.vehicle.wire >= 0.0f)
+        {
+            const glm::vec2 pos(layout.barsX + 110.0f, rows.wordY + 6.0f);
+            line(pos, glm::vec2(110.0f, Hud::kVehicleLineHeight), kTrackColor);
+            batch.draw(pos, glm::vec2(std::round(110.0f * std::clamp(state.vehicle.wire, 0.0f, 1.0f)), Hud::kVehicleLineHeight),
+                       white, kTextColor);
+        }
+    }
+
     if (layout.docked)
     {
         return; // the open panel carries the belt, and covers the clock
@@ -550,8 +604,8 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
         }
     }
 
-    // Belt: bare items, the one in use drawn large over a line.
-    for (int i = 0; i < 8; ++i)
+    // Belt: bare items, the one in use drawn large over a line (put away in a vehicle).
+    for (int i = 0; i < 8 && !state.vehicle.inside; ++i)
     {
         const HudSlot& slot = state.hotbar[static_cast<std::size_t>(i)];
         const bool active = (i == state.activeSlot);
@@ -650,9 +704,15 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
             "+" + std::to_string(state.conditions.size() - layout.conditionRows) + " more", kDimTextColor, kSmallScale);
     }
 
-    if (!state.vehicleLine.empty())
+    if (state.vehicle.inside)
     {
-        put(glm::vec2(Hud::kEdge, Hud::kEdge), state.vehicleLine, state.driving ? kAmber : kTextColor, kLabelScale);
+        const VehicleRows rows = vehicleRows(state, layout);
+        put(glm::vec2(layout.barsX, rows.wordY), state.vehicle.word, kTextColor, kLabelScale);
+        if (rows.fuelY > 0.0f)
+        {
+            put(glm::vec2(layout.barsX + Hud::kBarsWidth + 8.0f, rows.fuelY - 5.0f), "fuel", kDimTextColor, kSmallScale);
+        }
+        put(glm::vec2(layout.barsX + Hud::kBarsWidth + 8.0f, rows.conditionY - 5.0f), "body", kDimTextColor, kSmallScale);
     }
 
     // Day card.
@@ -780,6 +840,7 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
     }
 
     // Belt: a number under each item that is not in use, and how many.
+    if (state.vehicle.inside) return; // put away
     for (int i = 0; i < 8; ++i)
     {
         const HudSlot& slot = state.hotbar[static_cast<std::size_t>(i)];

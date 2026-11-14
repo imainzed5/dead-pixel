@@ -60,6 +60,23 @@ void Game::plantScenery()
             }
         }
     });
+    // A car or a pickup is longer than its tile: every tile its body covers (phase 11).
+    mWorld.forEach<Vehicle, Transform>([&](Entity, Vehicle& vehicle, Transform& transform)
+    {
+        const glm::vec2 centre(transform.x + 16.0f, transform.y + 16.0f);
+        const vehiclerules::KindInfo& k = vehiclerules::info(vehicle.kind);
+        const glm::vec2 f = vehiclerules::forward(vehicle.heading);
+        for (float along = -k.length * 0.5f; along <= k.length * 0.5f; along += 8.0f)
+        {
+            for (const float across : {-k.width * 0.5f, 0.0f, k.width * 0.5f})
+            {
+                const glm::vec2 p = centre + f * along + glm::vec2(-f.y, f.x) * across;
+                const int x = static_cast<int>(std::floor(p.x / 32.0f));
+                const int y = static_cast<int>(std::floor(p.y / 32.0f));
+                if (mTileMap.inBounds(x, y)) taken[static_cast<std::size_t>(y * mTileMap.width() + x)] = 1;
+            }
+        }
+    });
     const LayoutData::GateSite& gateSite = mMapGenerator.layoutData().gate;
     std::erase_if(pieces, [&](const SceneryPiece& piece)
     {

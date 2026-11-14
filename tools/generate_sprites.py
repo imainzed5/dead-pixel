@@ -812,6 +812,7 @@ def generate_atlas():
     add_phase9_sprites(img, sprites)
     add_survivor_sprites(img, sprites)
     add_phase10_sprites(img, sprites)
+    add_phase11_sprites(img, sprites)
 
     return img, sprites
 
@@ -4384,6 +4385,229 @@ def add_phase10_sprites(img, sprites):
         for ok, ov in before.items():
             if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
                 raise SystemExit("phase 10 sprite " + k + " overlaps " + ok)
+
+
+# ---------------------------------------------------------------------------
+# Phase 11: vehicles. A sedan in four paints and a pickup in two (empty and
+# loaded), a bicycle standing and ridden. Each is built from boxes in its own
+# frame (a along the body, b across it, z up), turned to a heading and drawn
+# back to front. Five facings per vehicle (world headings 0, 45, 225, 270
+# and 315 degrees); the game mirrors them for the other three. The block
+# starts at y=3840, an empty band across the sheet.
+# Must match the frame sizes and sinks in src/core/GameVehicles.cpp.
+# ---------------------------------------------------------------------------
+
+VEH_Y = 3840
+VEH_CAR = 112          # car frames are 112x112; the ground centre sits at (56, 80)
+VEH_CAR_GROUND = 80
+VEH_BIKE = 64          # bicycle frames are 64x64; the ground centre at (32, 48)
+VEH_BIKE_GROUND = 48
+VEH_FACINGS = (0, 1, 5, 6, 7)
+VEH_OUTLINE = (24, 22, 22)
+SEDAN_PAINTS = (("red", (150, 42, 38)), ("blue", (52, 74, 132)), ("grey", (112, 114, 118)), ("white", (200, 200, 192)))
+PICKUP_PAINTS = (("green", (66, 94, 60)), ("tan", (164, 140, 100)))
+
+
+class VehicleDraw:
+    def __init__(self, size, ground_y, heading):
+        self.img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        self.draw = ImageDraw.Draw(self.img)
+        self.cx = size / 2.0
+        self.cy = float(ground_y)
+        self.f = (math.cos(heading), math.sin(heading))
+        self.l = (self.f[1], -self.f[0])
+        self.faces = []  # (depth key, points, colour)
+
+    def world(self, a, b):
+        return (a * self.f[0] + b * self.l[0], a * self.f[1] + b * self.l[1])
+
+    def scr(self, a, b, z):
+        x, y = self.world(a, b)
+        return (self.cx + (x - y), self.cy + (x + y) * 0.5 - z)
+
+    @staticmethod
+    def lit(col, normal):
+        # Light from the upper left of the screen: faces turned down-left are lit.
+        d = round(-14 + 16 * (normal[0] * -0.55 + normal[1] * 0.83))
+        return shade(col, d)
+
+    def box(self, a0, b0, a1, b1, z0, z1, side, top=None, front=None, back=None, order=0):
+        """A box; its visible faces are queued for drawing back to front."""
+        corners = [(a0, b0), (a1, b0), (a1, b1), (a0, b1)]
+        # Side faces: between consecutive corners, outward normal in world space.
+        for i in range(4):
+            p, q = corners[i], corners[(i + 1) % 4]
+            mid_a, mid_b = (p[0] + q[0]) * 0.5, (p[1] + q[1]) * 0.5
+            if i == 0:
+                n_local = (0.0, -1.0)
+            elif i == 1:
+                n_local = (1.0, 0.0)
+            elif i == 2:
+                n_local = (0.0, 1.0)
+            else:
+                n_local = (-1.0, 0.0)
+            n = self.world(n_local[0], n_local[1])
+            if n[0] + n[1] <= 0.01:
+                continue  # turned away from the camera
+            col = side
+            if i == 1 and front is not None:
+                col = front
+            if i == 3 and back is not None:
+                col = back
+            pts = [self.scr(p[0], p[1], z0), self.scr(q[0], q[1], z0), self.scr(q[0], q[1], z1), self.scr(p[0], p[1], z1)]
+            wx, wy = self.world(mid_a, mid_b)
+            self.faces.append((order, z0, wx + wy, pts, self.lit(col, n)))
+        top_pts = [self.scr(a, b, z1) for a, b in corners]
+        ca, cb = (a0 + a1) * 0.5, (b0 + b1) * 0.5
+        wx, wy = self.world(ca, cb)
+        self.faces.append((order, z1, wx + wy - 0.01, top_pts, shade(top or side, 16)))
+
+    def quad(self, pts_abz, col, order=5):
+        pts = [self.scr(a, b, z) for a, b, z in pts_abz]
+        self.faces.append((order, 99, 0.0, pts, col))
+
+    def flush(self):
+        for _, _, _, pts, col in sorted(self.faces, key=lambda f: (f[0], f[2], f[1])):
+            self.draw.polygon(pts, fill=(col[0], col[1], col[2], 255))
+        self.faces = []
+
+    def line(self, p, q, col, width=1):
+        self.draw.line([self.scr(*p), self.scr(*q)], fill=(col[0], col[1], col[2], 255), width=width)
+
+    def finish(self):
+        outline_opaque(self.img, VEH_OUTLINE)
+        return self.img
+
+
+def facing_heading(d):
+    return d * math.pi / 4.0
+
+
+def draw_car(paint, d, pickup=False, loaded=False):
+    v = VehicleDraw(VEH_CAR, VEH_CAR_GROUND, facing_heading(d))
+    tyre = (30, 30, 32)
+    glass = (46, 60, 72)
+    trim = shade(paint, -40)
+    half_l = 38.0 if pickup else 35.0
+    half_w = 15.0 if pickup else 14.0
+    # Wheels first: dark stubs at the corners, showing under the body.
+    for wa in (-half_l + 11, half_l - 12):
+        for wb in (-half_w - 0.5, half_w - 4.5):
+            v.box(wa - 6, wb, wa + 6, wb + 5, 0, 10, tyre, order=0)
+    v.flush()
+    # The body.
+    lights = (236, 226, 170)
+    tail = (170, 36, 30)
+    v.box(-half_l, -half_w, half_l, half_w, 4, 15, paint, front=shade(paint, -8), back=shade(paint, -8), order=1)
+    v.flush()
+    if pickup:
+        # The cab forward, the bed behind it with low sides.
+        v.box(-2, -half_w + 1, 18, half_w - 1, 15, 28, glass, top=paint, order=2)
+        v.box(-half_l, -half_w, -4, -half_w + 2.5, 15, 20, paint, order=2)
+        v.box(-half_l, half_w - 2.5, -4, half_w, 15, 20, paint, order=2)
+        v.box(-half_l, -half_w, -half_l + 2.5, half_w, 15, 20, shade(paint, -6), order=2)
+        if loaded:
+            wood = (122, 88, 58)
+            v.box(-half_l + 5, -half_w + 4, -8, half_w - 4, 15, 34, wood, top=shade(wood, 10), order=3)
+        v.flush()
+    else:
+        # The cabin: glass round, the roof in paint.
+        v.box(-16, -half_w + 2, 14, half_w - 2, 15, 26, glass, top=paint, order=2)
+        v.flush()
+    # Lamps on the nose and the tail (only where that face shows).
+    fx = v.world(1.0, 0.0)
+    if fx[0] + fx[1] > 0.01:
+        for lb in (-half_w + 3, half_w - 7):
+            v.quad([(half_l + 0.2, lb, 9), (half_l + 0.2, lb + 4, 9), (half_l + 0.2, lb + 4, 13), (half_l + 0.2, lb, 13)], lights)
+    else:
+        for lb in (-half_w + 3, half_w - 7):
+            v.quad([(-half_l - 0.2, lb, 9), (-half_l - 0.2, lb + 4, 9), (-half_l - 0.2, lb + 4, 13), (-half_l - 0.2, lb, 13)], tail)
+    # A trim line along the sides.
+    v.flush()
+    for side_b in (-half_w - 0.2, half_w + 0.2):
+        n = v.world(0.0, -1.0 if side_b < 0 else 1.0)
+        if n[0] + n[1] > 0.01:
+            v.line((-half_l + 2, side_b, 9), (half_l - 2, side_b, 9), trim)
+    return v.finish()
+
+
+def draw_bicycle(d, rider=False):
+    v = VehicleDraw(VEH_BIKE, VEH_BIKE_GROUND, facing_heading(d))
+    tyre = (28, 28, 30)
+    frame = (40, 96, 120)
+    r = 6.0
+
+    def wheel(ac):
+        pts = []
+        for i in range(17):
+            t = i * 2.0 * math.pi / 16.0
+            pts.append(v.scr(ac + r * math.cos(t), 0.0, r + r * math.sin(t)))
+        v.draw.line(pts, fill=tyre + (255,), width=2)
+
+    wheel(-9.0)
+    wheel(9.0)
+    v.line((-9, 0, r), (0, 0, 13), frame, 2)
+    v.line((0, 0, 13), (9, 0, r), frame, 2)
+    v.line((-9, 0, r), (-2, 0, 6), frame, 2)
+    v.line((-2, 0, 6), (0, 0, 13), frame, 2)
+    v.line((0, 0, 13), (-3, 0, 16), frame, 1)   # seat post
+    v.line((7, 0, 14), (9, 0, r), frame, 1)     # fork
+    v.line((7, -3, 17), (7, 3, 17), (60, 60, 60), 1)  # bars
+    v.line((7, 0, 14), (7, 0, 17), (60, 60, 60), 1)
+    if rider:
+        coat = (84, 96, 74)
+        skin = (206, 166, 132)
+        legs = (52, 56, 70)
+        v.line((-3, -2, 17), (0, -2, 8), legs, 2)
+        v.line((-3, 2, 17), (2, 2, 9), legs, 2)
+        v.box(-6, -3.5, 0, 3.5, 16, 30, coat, order=1)
+        v.flush()
+        v.line((-1, -3, 28), (7, -3, 17), coat, 2)
+        v.line((-1, 3, 28), (7, 3, 17), coat, 2)
+        hx, hy = v.scr(-2.5, 0.0, 35.0)
+        v.draw.ellipse([hx - 3.5, hy - 3.5, hx + 3.5, hy + 3.5], fill=skin + (255,))
+        v.draw.ellipse([hx - 3.5, hy - 4.0, hx + 3.5, hy - 0.5], fill=(70, 52, 40, 255))
+    return v.finish()
+
+
+def add_phase11_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    sedans_w = len(SEDAN_PAINTS) * len(VEH_FACINGS) * VEH_CAR
+    pickups_w = len(PICKUP_PAINTS) * 2 * len(VEH_FACINGS) * VEH_CAR
+    bikes_w = 2 * len(VEH_FACINGS) * VEH_BIKE
+    if sedans_w + bikes_w > SHEET_W or pickups_w > SHEET_W:
+        raise SystemExit("phase 11 block does not fit")
+    # the block must be empty sheet
+    for yy in range(VEH_Y, VEH_Y + 2 * VEH_CAR):
+        for xx in range(0, max(sedans_w + bikes_w, pickups_w)):
+            if img.getpixel((xx, yy))[3] != 0:
+                raise SystemExit("phase 11 block is not empty at %d,%d" % (xx, yy))
+    x = 0
+    for name, paint in SEDAN_PAINTS:
+        for d in VEH_FACINGS:
+            img.alpha_composite(draw_car(paint, d), (x, VEH_Y))
+            sprites["veh_sedan_%s_%d" % (name, d)] = {"x": x, "y": VEH_Y, "w": VEH_CAR, "h": VEH_CAR}
+            x += VEH_CAR
+    for rider in (False, True):
+        for d in VEH_FACINGS:
+            img.alpha_composite(draw_bicycle(d, rider), (x, VEH_Y))
+            key = "veh_bicycle_rider_%d" % d if rider else "veh_bicycle_%d" % d
+            sprites[key] = {"x": x, "y": VEH_Y, "w": VEH_BIKE, "h": VEH_BIKE}
+            x += VEH_BIKE
+    x = 0
+    y = VEH_Y + VEH_CAR
+    for name, paint in PICKUP_PAINTS:
+        for loaded in (False, True):
+            for d in VEH_FACINGS:
+                img.alpha_composite(draw_car(paint, d, pickup=True, loaded=loaded), (x, y))
+                key = "veh_pickup_%s%s_%d" % (name, "_load" if loaded else "", d)
+                sprites[key] = {"x": x, "y": y, "w": VEH_CAR, "h": VEH_CAR}
+                x += VEH_CAR
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 11 sprite " + k + " overlaps " + ok)
 
 
 def main():

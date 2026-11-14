@@ -30,4 +30,25 @@ shot perf_survivors
 waits 9
 expect perf 4 12
 survivors
+
+# Vehicles (phase 11): the town's ten stand parked through the timings
+# above. Then a sedan driven up the road through 300 of the dead.
+slay 400
+survivors gone
+hours 22
+goto vehicle sedan
+set key in
+set fuel 30
+set condition 100
+tap V
+waits 0.3
+tap E
+waits 0.5
+expect vehicle engine
+god on
+perf 300
+drive road 11
+shot perf_driving
+expect perf 4 12
+vehicles
 quit

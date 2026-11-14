@@ -103,9 +103,10 @@ void ZombieAISystem::attack(const Ctx& c, One& z, Velocity& v)
     bool preyValid = ai.prey != kInvalidEntity && world.hasComponent<Transform>(ai.prey) &&
                      world.hasComponent<Health>(ai.prey) && world.getComponent<Health>(ai.prey).current > 0.0f;
     if (preyIsPlayer) preyValid = preyValid && c.playerValid;
-    const glm::vec2 preyCenter = preyValid
-        ? glm::vec2(world.getComponent<Transform>(ai.prey).x + 16.0f, world.getComponent<Transform>(ai.prey).y + 16.0f)
-        : ai.targetWorld;
+    // The player is where the context says (in a vehicle: the near part of its body).
+    const glm::vec2 preyCenter = !preyValid ? ai.targetWorld
+        : preyIsPlayer ? c.playerCenter
+        : glm::vec2(world.getComponent<Transform>(ai.prey).x + 16.0f, world.getComponent<Transform>(ai.prey).y + 16.0f);
     const float distance = glm::length(preyCenter - z.center);
     const bool inRange = preyValid && distance <= kZombieAttackRange;
 
@@ -150,6 +151,13 @@ void ZombieAISystem::attack(const Ctx& c, One& z, Velocity& v)
         // Another of the living: a plain blow.
         Health& h = world.getComponent<Health>(ai.prey);
         h.current = std::max(0.0f, h.current - baseDamage * z.damageMultiplier);
+        return;
+    }
+
+    // Shut in a vehicle: the blow lands on the body (phase 11).
+    if (t.playerInVehicle && !t.vehicleOpen)
+    {
+        if (t.vehicleBlows != nullptr) t.vehicleBlows->push_back(z.entity);
         return;
     }
 

@@ -22,7 +22,8 @@ class SpriteSheet;
 //   top-center    district toast when entering a new district
 //   top-right     time, day and weather; objective below
 //   bottom-center belt of bare item icons, the one in use drawn large
-//   top-left      vehicle readout
+//                 (in a vehicle: put away; its fuel and condition lines and
+//                 speed word sit over the health line instead)
 //
 // Conditions follow the "only show problems" rule: nothing is listed while
 // the character is fine, and each entry is colored by severity.
@@ -130,8 +131,17 @@ struct HudState
     float messageAlpha = 0.0f;
     std::string prompt;   // context action ("E: Search shelf")
 
-    std::string vehicleLine;
-    bool driving = false;
+    // Phase 11: inside a vehicle, two thin lines over the health line (fuel,
+    // then the body's condition) and a word for the speed. The belt is put away.
+    struct VehicleReadout
+    {
+        bool inside = false;
+        float fuel = 0.0f;
+        float fuelMax = 0.0f;    // 0: no tank (a bicycle)
+        float condition = 100.0f;
+        std::string word;        // "Idle", "Slow", "Fast", "Engine off", "Hot-wiring"
+        float wire = -1.0f;      // hot-wiring, 0..1; -1 when not
+    } vehicle;
 
     std::string districtToast;
     float districtToastAlpha = 0.0f;
@@ -172,4 +182,6 @@ public:
     static constexpr float kBeltIcon = 32.0f;
     static constexpr float kActiveIcon = 64.0f;    // the item in use, drawn double size
     static constexpr float kSlotGap = 8.0f;
+    static constexpr float kVehicleLineHeight = 3.0f;
+    static constexpr float kVehicleBlock = 44.0f;  // what the vehicle lines take above the health line
 };

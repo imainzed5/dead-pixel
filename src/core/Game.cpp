@@ -424,6 +424,7 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
     if (ok)
     {
         refreshContainerRecords();
+        persistVehicles(false);
         mSaveManager.saveWorldMemory();
         mInteractionMessage = statusMessage;
         mInteractionMessageTimer = 2.0f;
@@ -439,32 +440,9 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
 
 void Game::registerComponents()
 {
-    mWorld.registerComponent<Transform>();
-    mWorld.registerComponent<Sprite>();
-    mWorld.registerComponent<Velocity>();
-    mWorld.registerComponent<PlayerInput>();
-    mWorld.registerComponent<Facing>();
-    mWorld.registerComponent<Stamina>();
-    mWorld.registerComponent<Combat>();
-    mWorld.registerComponent<Health>();
-    mWorld.registerComponent<ZombieAI>();
-    mWorld.registerComponent<Needs>();
-    mWorld.registerComponent<Interactable>();
-    mWorld.registerComponent<Animation>();
-    mWorld.registerComponent<Bleeding>();
-    mWorld.registerComponent<Sleeping>();
-    mWorld.registerComponent<Inventory>();
-    mWorld.registerComponent<MentalState>();
-    mWorld.registerComponent<Structure>();
-    mWorld.registerComponent<Vehicle>();
-    mWorld.registerComponent<Fire>();
-    mWorld.registerComponent<Projectile>();
-    mWorld.registerComponent<Wounds>();
-    mWorld.registerComponent<Traits>();
-    mWorld.registerComponent<Skills>();
-    mWorld.registerComponent<SurvivorAI>();
-    mWorld.registerComponent<LegacyLink>();
-    mWorld.registerComponent<Corpse>();
+    mWorld.registerComponents<Transform, Sprite, Velocity, PlayerInput, Facing, Stamina, Combat, Health, ZombieAI, Needs,
+                              Interactable, Animation, Bleeding, Sleeping, Inventory, MentalState, Structure, Vehicle,
+                              TrunkOf, Fire, Projectile, Wounds, Traits, Skills, SurvivorAI, LegacyLink, Corpse>();
 }
 
 void Game::startNewRun()

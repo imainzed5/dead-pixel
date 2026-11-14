@@ -97,6 +97,11 @@ float roll01(std::uint32_t seed)
 }
 } // namespace
 
+const char* gameshared::pieceNameOf(FurnitureKind kind)
+{
+    return pieceName(kind);
+}
+
 // ---------------------------------------------------------------------------
 // Furniture
 
@@ -197,6 +202,33 @@ std::string Game::pushFurniture(const glm::ivec2& tile, const glm::ivec2& dir, b
         return "It won't go any further that way.";
     }
 
+    moveFurniturePiece(tile, target);
+    if (chargeStamina && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Stamina>(mPlayerEntity))
+    {
+        Stamina& stamina = mWorld.getComponent<Stamina>(mPlayerEntity);
+        stamina.current = std::max(0.0f, stamina.current - cost);
+    }
+    mNoiseModel.emitNoise(tileCentre(mTileMap, target), heavy ? NoiseTier::Medium : NoiseTier::Soft, 0.8f, mPlayerEntity);
+    mAudioManager.playSound(SoundId::FootstepLoud, heavy ? 0.45f : 0.3f);
+    noteDoorwayBlocked(target);
+    return {};
+}
+
+void Game::noteDoorwayBlocked(const glm::ivec2& target)
+{
+    const FurniturePiece* piece = furnitureAt(target);
+    if (piece != nullptr && mTileMap.doorwayBlocked(target.x, target.y))
+    {
+        mInteractionMessage = std::string("The ") + pieceName(piece->kind) + " stands across the doorway.";
+        mInteractionMessageTimer = 2.5f;
+        noteAccomplishment();
+    }
+}
+
+void Game::moveFurniturePiece(const glm::ivec2& tile, const glm::ivec2& target)
+{
+    FurniturePiece* piece = furnitureAt(tile);
+    if (piece == nullptr) return;
     // What stands for the piece in the world (its cupboard, its bed) goes with it.
     const float tileW = static_cast<float>(mTileMap.tileWidth());
     const float tileH = static_cast<float>(mTileMap.tileHeight());
@@ -229,22 +261,8 @@ std::string Game::pushFurniture(const glm::ivec2& tile, const glm::ivec2& dir, b
 
     piece->tile = target;
     piece->damage = 0.0f;
-    if (chargeStamina && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Stamina>(mPlayerEntity))
-    {
-        Stamina& stamina = mWorld.getComponent<Stamina>(mPlayerEntity);
-        stamina.current = std::max(0.0f, stamina.current - cost);
-    }
-    mNoiseModel.emitNoise(tileCentre(mTileMap, target), heavy ? NoiseTier::Medium : NoiseTier::Soft, 0.8f, mPlayerEntity);
-    mAudioManager.playSound(SoundId::FootstepLoud, heavy ? 0.45f : 0.3f);
     refreshFurnitureLayer();
     rememberFurniture();
-    if (mTileMap.doorwayBlocked(target.x, target.y))
-    {
-        mInteractionMessage = std::string("The ") + pieceName(piece->kind) + " stands across the doorway.";
-        mInteractionMessageTimer = 2.5f;
-        noteAccomplishment();
-    }
-    return {};
 }
 
 furnitureuse::Tool Game::breakingTool() const
@@ -275,7 +293,7 @@ void Game::dropOnFloor(const glm::ivec2& tile, int itemId, int count, float cond
         [&](Entity e, Interactable& inter, Inventory&, Transform& t)
         {
             if (pile != kInvalidEntity || inter.type != InteractableType::Container) return;
-            if (!mWorld.hasComponent<Sprite>(e) || mWorld.hasComponent<Structure>(e) || mWorld.hasComponent<Vehicle>(e) ||
+            if (!mWorld.hasComponent<Sprite>(e) || mWorld.hasComponent<Structure>(e) || mWorld.hasComponent<Vehicle>(e) || mWorld.hasComponent<TrunkOf>(e) ||
                 mWorld.hasComponent<Corpse>(e))
             {
                 return; // a pile of its own, not a body's pockets
@@ -1475,6 +1493,12 @@ void Game::updateBaseActions(float dtSeconds)
     case BaseAction::Kind::Tend:
     case BaseAction::Kind::Bury:
         finishLegacyAction();
+        break;
+    case BaseAction::Kind::Refuel:
+    case BaseAction::Kind::MendVehicle:
+    case BaseAction::Kind::LoadCargo:
+    case BaseAction::Kind::UnloadCargo:
+        finishVehicleAction();
         break;
     case BaseAction::Kind::Repair:
     {

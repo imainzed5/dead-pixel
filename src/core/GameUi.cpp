@@ -262,36 +262,27 @@ void Game::buildHudState()
     }
     hud.prompt = mProximityPrompt;
 
-    // Vehicle readout: the car you drive, or the nearest one in reach.
+    // Inside a vehicle (phase 11): its fuel, condition and a word for the speed.
+    if (mActiveVehicleEntity != kInvalidEntity && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity))
     {
-        Entity statusVehicle = mActiveVehicleEntity;
-        if (statusVehicle == kInvalidEntity)
+        const Vehicle& vehicle = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
+        const bool engine = vehiclerules::info(vehicle.kind).engine;
+        hud.vehicle.inside = true;
+        hud.vehicle.fuel = vehicle.fuel;
+        hud.vehicle.fuelMax = engine ? vehicle.maxFuel : 0.0f;
+        hud.vehicle.condition = vehicle.condition;
+        if (mWireHeld)
         {
-            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-            const glm::vec2 playerCenter(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
-            float bestDistSq = kVehicleInteractRangePixels * kVehicleInteractRangePixels;
-            mWorld.forEach<Vehicle, Transform>(
-                [&](Entity entity, Vehicle&, Transform& vt)
-                {
-                    const glm::vec2 vc(vt.x + kSpriteSize * 0.5f, vt.y + kSpriteSize * 0.5f);
-                    const glm::vec2 d = vc - playerCenter;
-                    const float distSq = glm::dot(d, d);
-                    if (distSq < bestDistSq)
-                    {
-                        bestDistSq = distSq;
-                        statusVehicle = entity;
-                    }
-                });
+            hud.vehicle.word = "Hot-wiring";
+            hud.vehicle.wire = mWireTimer / std::max(1.0f, vehiclerules::hotwireSeconds(skillLevel(Skill::Mechanics)));
         }
-
-        if (statusVehicle != kInvalidEntity && mWorld.hasComponent<Vehicle>(statusVehicle))
+        else if (engine && !vehicle.engineOn && std::fabs(vehicle.speed) < 8.0f)
         {
-            const Vehicle& vehicle = mWorld.getComponent<Vehicle>(statusVehicle);
-            hud.driving = (statusVehicle == mActiveVehicleEntity);
-            hud.vehicleLine = std::string(hud.driving ? "Driving" : "Car")
-                + "  " + vehicleConditionLabel(vehicle.condition)
-                + "  Fuel " + std::to_string(static_cast<int>(std::round(vehicle.fuel)))
-                + "/" + std::to_string(static_cast<int>(std::round(vehicle.maxFuel)));
+            hud.vehicle.word = "Engine off";
+        }
+        else
+        {
+            hud.vehicle.word = vehiclerules::speedWord(vehicle.speed);
         }
     }
 

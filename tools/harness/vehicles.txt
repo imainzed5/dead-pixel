@@ -1,0 +1,169 @@
+# Vehicles (phase 11): a keyed sedan is entered and driven along the road
+# for 20 s without touching a wall, then parked; the tail of the dead
+# arrives. The trunk opens and stores. A wall hit damages the car. A save
+# and resume, and the next life, keep it where it was, as it was (the next
+# life one stage worse). Screenshots in four headings. A live alarm is set
+# off on purpose, and never by an E meant for the trunk or the grass.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/vehicles.txt --hidden --world-seed 1234 --shots shots/vehicles
+
+survivors gone
+newrun
+god on
+hours 11
+waits 1
+vehicles
+goto vehicle sedan
+slay 12
+set key in
+set fuel 30
+set condition 90
+waits 0.3
+expect prompt V: Get in
+shot 00_beside
+# A live alarm, set off on purpose from outside (then quiet again). From
+# the front corner: beside the door the tall grass keeps E.
+set alarm on
+waits 0.3
+expect prompt Search it
+teleport 80 87
+waits 0.3
+expect prompt Set it off
+tap E
+waits 0.3
+expect vehicle ringing
+expect message You set the alarm off
+set alarm off
+expect vehicle silent
+goto vehicle sedan
+waits 0.3
+tap V
+waits 0.3
+expect vehicle in
+expect message The key is in it
+tap E
+waits 0.5
+expect vehicle engine
+shot 01_seat_hud
+
+# Twenty seconds up the road, nothing touched.
+vehicle mark
+drive road 20
+expect vehicle moved 30
+expect vehicle scrapes 0
+expect vehicle lost 0
+shot 02_driving
+drive brake
+waits 0.5
+expect vehicle speed below 5
+
+# Parked, engine off: the tail the drive dragged arrives (and batters it).
+tap E
+waits 0.3
+expect vehicle off
+zombies
+waits 60
+zombies
+expect zombies coming 12
+shot 07_the_tail
+slay 40
+waits 0.5
+set condition 85
+tap E
+waits 0.5
+expect vehicle engine
+
+# A Shambler on the road, run down at speed: thrown, the car slowed.
+vehicle turn 90
+slay 30
+zombie 0 9 still
+drive s 3
+expect vehicle randown 1
+drive brake
+waits 0.5
+# A Brute stops it dead.
+zombie 0 9 brute still
+drive s 3
+expect vehicle stopped 1
+drive brake
+waits 0.5
+slay 20
+vehicles
+shot 02b_after_the_brute
+
+# Four headings, standing on the road.
+vehicle turn 0
+waits 0.1
+shot 03_heading_east
+vehicle turn 90
+waits 0.1
+shot 04_heading_south
+vehicle turn 180
+waits 0.1
+shot 05_heading_west
+vehicle turn -90
+waits 0.1
+shot 06_heading_north
+
+# Into a wall: the car takes it.
+vehicle turn -90
+vehicle mark
+drive n 7
+expect vehicle lost 4
+vehicles
+drive brake
+waits 0.5
+tap E
+waits 0.3
+expect vehicle off
+
+# The trunk opens and stores.
+tap V
+waits 0.3
+expect vehicle out
+goto vehicle sedan tailgate
+waits 0.3
+expect prompt trunk
+tap E
+waits 4
+container
+give Rope 1
+stash Rope 1
+expect container Rope 1
+shot 08_trunk
+tap Esc
+waits 0.5
+
+# A live alarm: at the trunk the trunk keeps E, so a hand meant for it
+# never sets the alarm off.
+set alarm on
+waits 0.3
+expect prompt trunk
+tap E
+waits 4
+expect vehicle silent
+tap Esc
+waits 0.5
+set alarm off
+
+# Saved and resumed: where it was, as it was. (The dead have battered it
+# to nothing while the tail stood round it: mended first, so the next
+# life's wear shows.)
+set condition 70
+vehicle mark
+save
+waits 0.5
+resume
+waits 0.5
+expect vehicle same
+
+# The next life: there still, one stage worse.
+enter 4
+kill Harness
+waits 1
+newrun
+god on
+waits 0.5
+expect vehicle same worn
+vehicles
+quit

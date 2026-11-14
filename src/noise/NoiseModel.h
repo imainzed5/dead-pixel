@@ -43,6 +43,8 @@ struct NoiseEvent
     // shut (then it carries one tier less outside).
     int building = 0;
     bool sealed = false;
+    // How far it carries past its tier (phase 11: a pickup's engine, x1.2).
+    float reach = 1.0f;
 };
 
 // A loud noise leaves a place the dead linger at once they reach it.
@@ -61,7 +63,8 @@ public:
         NoiseTier tier,
         float durationSeconds,
         Entity sourceEntity = kInvalidEntity,
-        NoiseSource source = NoiseSource::World);
+        NoiseSource source = NoiseSource::World,
+        float reach = 1.0f);
     void clear();
 
     // Where a noise at a world position stands: (building id, shell shut).

@@ -135,6 +135,14 @@ struct LastHomeRecord
     bool diedAway = false; // the character died away from it
 };
 
+struct ContainerItemRecord
+{
+    int itemId = -1;
+    int count = 0;
+    float condition = 1.0f;
+    int loaded = 0; // a gun's rounds (phase 3; absent in older files)
+};
+
 struct VehicleRecord
 {
     float x = 0.0f;
@@ -143,7 +151,29 @@ struct VehicleRecord
     float fuel = 0.0f;
     float maxFuel = 30.0f;
     bool engineOn = false;
-    std::vector<std::pair<int,int>> items; // persisted trunk storage
+    std::vector<std::pair<int,int>> items; // persisted trunk storage (old files)
+
+    // Phase 11 (optional fields; an older record is a sedan with its key lost).
+    // x, y are the body's centre when `centred` (older records: a tile's top-left).
+    bool centred = false;
+    int kind = 0;            // VehicleKind
+    int color = 0;
+    float heading = 0.0f;
+    int tyres = 4;
+    bool started = false;
+    bool keyKnown = false;
+    bool keyInside = false;
+    int keyTileX = -1;
+    int keyTileY = -1;
+    bool alarm = false;
+    int alarmSpentRun = 0;
+    bool windowBroken = false;
+    bool hasCargo = false;
+    int cargoX = 0;
+    int cargoY = 0;
+    int ownerBuilding = 0;
+    bool usedThisLife = false;
+    std::vector<ContainerItemRecord> trunk; // the trunk, with condition and loads
 };
 
 // A zombie walking the town at a checkpoint.
@@ -231,14 +261,6 @@ struct FirstDaysRecord
 
 // What a container holds, as the world remembers it. A container with a
 // record is filled from it in every later life instead of being rolled.
-struct ContainerItemRecord
-{
-    int itemId = -1;
-    int count = 0;
-    float condition = 1.0f;
-    int loaded = 0; // a gun's rounds (phase 3; absent in older files)
-};
-
 struct ContainerRecord
 {
     int tileX = 0;
@@ -587,6 +609,9 @@ public:
     bool saveDiscoveredRecipes();
     bool loadWorldMemory();
     void setVehicleRecords(std::vector<VehicleRecord> vehicles);
+    // Phase 11: the sedans, pickups and bicycles were placed in this world.
+    [[nodiscard]] bool fleetPlaced() const { return mFleetPlaced; }
+    void setFleetPlaced(bool placed) { mFleetPlaced = placed; }
     void setFireTileRecords(std::vector<FireTileRecord> fireTiles);
     void setBurnedTiles(std::vector<std::pair<int,int>> burnedTiles);
     void setBrokenDoors(std::vector<std::pair<int,int>> brokenDoors);
@@ -696,6 +721,7 @@ private:
     int mMigratedFrom = 0;
     std::vector<std::pair<int,int>> mDiscoveredRecipes;
     std::vector<VehicleRecord> mVehicles;
+    bool mFleetPlaced = false; // phase 11: the town's vehicles were placed
     std::vector<FireTileRecord> mFireTiles;
     std::vector<std::pair<int,int>> mBurnedTiles;
     std::vector<std::pair<int,int>> mBrokenDoors;

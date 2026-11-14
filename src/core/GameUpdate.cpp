@@ -220,8 +220,18 @@ void Game::update(float dtSeconds)
     updateAtmosphere(dtSeconds);
     updateWeather(dtSeconds);
 
-    // Flashlight toggle (Q). Needs a flashlight in the pack.
-    if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
+    // Flashlight toggle (Q). Needs a flashlight in the pack. In a car, Q is
+    // the headlights (phase 11).
+    const bool inCar = drivingVehicle && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity) &&
+                       vehiclerules::info(mWorld.getComponent<Vehicle>(mActiveVehicleEntity).kind).engine;
+    if (playerAlive && inCar && mInput.wasKeyPressed(SDL_SCANCODE_Q))
+    {
+        Vehicle& car = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
+        car.headlights = !car.headlights;
+        mInteractionMessage = car.headlights ? "Headlights on. They will be seen." : "Headlights off.";
+        mInteractionMessageTimer = 2.0f;
+    }
+    else if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
     {
         if (playerHasItem(mItems.flashlight) && !mFlashlightOn && flashlightCharge() <= 0.0f)
         {
@@ -433,6 +443,10 @@ void Game::update(float dtSeconds)
         // A door within reach takes E before anything else nearby, then a
         // window, then furniture and what was built.
         bool interceptedContainer = mBaseAction.kind != BaseAction::Kind::None && mBaseAction.kind != BaseAction::Kind::Grab;
+        // A vehicle at hand: fuel, mending, a pickup's load (even backed up
+        // to a door) (phase 11). Its alarm comes last.
+        if (!interceptedContainer) interceptedContainer = handleVehicleInteraction(prompt);
+        const std::string vehiclePrompt = mProximityPrompt; // the alarm speaks only if nothing after this does
         if (!interceptedContainer) interceptedContainer = handleAlarmBox(prompt);
         if (!interceptedContainer) interceptedContainer = handleGateInteraction(prompt);
         if (!interceptedContainer) interceptedContainer = handleDoorInteraction(prompt);
@@ -451,6 +465,7 @@ void Game::update(float dtSeconds)
                 if (!interceptedContainer) interceptedContainer = handleTapInteraction(prompt);
                 if (!interceptedContainer) interceptedContainer = handleWaterSource(prompt);
                 if (!interceptedContainer) interceptedContainer = handleForage(prompt);
+                if (!interceptedContainer && mProximityPrompt == vehiclePrompt) interceptedContainer = handleVehicleAlarm(prompt);
             }
         }
         if (!interceptedContainer && mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
@@ -509,6 +524,17 @@ void Game::update(float dtSeconds)
         mInput.wasKeyPressed(SDL_SCANCODE_E) && mProximityPrompt.empty() && !mContainerOpen)
     {
         (void)searchNearestCorpse();
+    }
+    // A vehicle within reach: V gets in, whatever E does here (phase 11).
+    if (playerAlive && !drivingVehicle && !mShowCrafting && !mContainerOpen && !mTalk.open &&
+        mProximityPrompt.find("V: ") == std::string::npos)
+    {
+        const Entity near = vehicleNear(playerWorldCenter(), kVehicleReachPixels);
+        if (near != kInvalidEntity)
+        {
+            const bool bicycle = mWorld.getComponent<Vehicle>(near).kind == VehicleKind::Bicycle;
+            mProximityPrompt += std::string(mProximityPrompt.empty() ? "" : "   ") + (bicycle ? "V: Get on" : "V: Get in");
+        }
     }
 
     // Held, throwing, reloading, clocks and flares, things in flight.
@@ -773,7 +799,7 @@ void Game::update(float dtSeconds)
         mRunStats.prevX = playerTransform.x;
         mRunStats.prevY = playerTransform.y;
 
-        mCamera.follow(playerCenter, dtSeconds, 7.5f);
+        mCamera.follow(cameraTarget(playerCenter), dtSeconds, 7.5f); // runs ahead of a moving vehicle
         mCamera.clampToBounds(mTileMap.pixelSize());
     }
 
@@ -938,6 +964,7 @@ void Game::updateSleep(float dtSeconds)
                     flushGate();
                     mSaveManager.saveCheckpoint(buildRunCheckpoint());
                     refreshContainerRecords();
+                    persistVehicles(false);
                     mSaveManager.saveWorldMemory();
                 }
             }
@@ -1628,30 +1655,12 @@ void Game::updateNoiseModel(float dtSeconds)
     const Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
     const Facing& facing = mWorld.getComponent<Facing>(mPlayerEntity);
 
-    if (mActiveVehicleEntity != kInvalidEntity &&
-        mWorld.hasComponent<Vehicle>(mActiveVehicleEntity) &&
-        mWorld.hasComponent<Transform>(mActiveVehicleEntity))
+    // In a vehicle there are no footsteps: its own noise is made in
+    // updateVehicleAfterPhysics (GameVehicles.cpp).
+    if (mActiveVehicleEntity != kInvalidEntity)
     {
-        Vehicle& vehicle = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
-        if (vehicle.engineOn && vehicle.playerInside && vehicle.fuel > 0.01f && vehicle.condition >= 10.0f)
-        {
-            const Transform& vehicleTransform = mWorld.getComponent<Transform>(mActiveVehicleEntity);
-            const glm::vec2 noisePos(vehicleTransform.x + kSpriteSize * 0.5f, vehicleTransform.y + kSpriteSize * 0.5f);
-
-            vehicle.engineNoiseTimer += dtSeconds;
-            const float interval = std::max(0.22f, 0.36f - std::clamp(vehicle.condition / 100.0f, 0.0f, 1.0f) * 0.10f);
-            if (vehicle.engineNoiseTimer >= interval)
-            {
-                vehicle.engineNoiseTimer = 0.0f;
-                const NoiseTier tier = (vehicle.condition < 40.0f) ? NoiseTier::Explosive : NoiseTier::Loud;
-                mNoiseModel.emitNoise(noisePos, tier, 0.95f, mActiveVehicleEntity);
-                mAudioManager.playSound(SoundId::FootstepLoud, 0.16f);
-            }
-
-            mMovementNoiseTier = NoiseTier::Loud;
-            mNoiseEmitTimer = 0.0f;
-            return;
-        }
+        mNoiseEmitTimer = 0.0f;
+        return;
     }
 
     const float speedSquared = velocity.dx * velocity.dx + velocity.dy * velocity.dy;

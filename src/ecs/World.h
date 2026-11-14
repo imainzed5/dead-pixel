@@ -31,6 +31,13 @@ public:
         mComponentArrays[type] = std::make_shared<ComponentArray<T>>();
     }
 
+    // Several at once, in order.
+    template <typename... T>
+    void registerComponents()
+    {
+        (registerComponent<T>(), ...);
+    }
+
     template <typename T>
     void addComponent(Entity entity, const T& component)
     {

@@ -53,7 +53,8 @@ void NoiseModel::emitNoise(
     NoiseTier tier,
     float durationSeconds,
     Entity sourceEntity,
-    NoiseSource source)
+    NoiseSource source,
+    float reach)
 {
     if (tier == NoiseTier::None)
     {
@@ -69,6 +70,7 @@ void NoiseModel::emitNoise(
     event.sourceEntity = sourceEntity;
     event.tier = tier;
     event.source = source;
+    event.reach = reach > 0.0f ? reach : 1.0f;
     if (mShellResolver)
     {
         const std::pair<int, bool> shell = mShellResolver(worldPosition);

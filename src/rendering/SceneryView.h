@@ -84,6 +84,10 @@ public:
     [[nodiscard]] bool treeAt(const glm::ivec2& tile) const;
     // The tree on this tile burned: a black trunk from now on.
     void burnTree(const glm::ivec2& tile);
+    // What stands on a tile and fills it (phase 11): its atlas name, or "".
+    [[nodiscard]] const char* blockerAt(const glm::ivec2& tile) const;
+    // A vehicle ran it down: gone for the rest of the run. False if nothing stood there.
+    bool knockDown(const glm::ivec2& tile);
     // Every tree tile, for lightning.
     [[nodiscard]] std::vector<glm::ivec2> treeTiles() const;
 
@@ -133,6 +137,7 @@ private:
         bool lamp = false;
         bool autumn = false;
         bool burnt = false;
+        bool gone = false; // run down (phase 11)
     };
     void resolve(const SpriteSheet& sheet);
     [[nodiscard]] static int bucketKey(int tileX, int tileY) { return tileY * 4096 + tileX; }
@@ -145,6 +150,7 @@ private:
     std::vector<std::uint32_t> mLamps;
     std::vector<std::uint32_t> mTrees;
     std::unordered_map<int, std::uint32_t> mTreeByTile; // every standing tree, burnt or not
+    std::unordered_map<int, std::uint32_t> mBlockerByTile; // standing pieces that fill their tile
     float mClock = 0.0f;
     float mGust = 0.0f;
     bool mResolved = false; // the sprite sheet loads after the world

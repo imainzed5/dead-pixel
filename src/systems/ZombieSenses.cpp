@@ -41,8 +41,11 @@ void ZombieAISystem::see(const Ctx& c, One& z)
         in.weatherVisibility = t.visibility;
         in.crouched = t.playerCrouched;
         in.moving = t.playerMoving;
-        in.extraScale = extra;
-        const float range = senses::sightRangeTiles(in);
+        // Hidden in a parked car (phase 11): only the ones that saw you get in know.
+        in.extraScale = extra * (t.playerHidden && !alerted ? t.hiddenSightScale : 1.0f);
+        float range = senses::sightRangeTiles(in);
+        // Headlights in the dark are seen from far off.
+        if (t.lightsSeenTiles > 0.0f) range = std::max(range, t.lightsSeenTiles * t.visibility);
         const glm::vec2 toPlayer = c.playerCenter - z.center;
         const float distance = glm::length(toPlayer) / c.tileSize;
         if (distance <= range && (alerted || senses::inCone(ai.facing, toPlayer)) &&
@@ -104,7 +107,8 @@ void ZombieAISystem::hear(const Ctx& c, One& z)
         const glm::vec2 toListener = z.center - event.worldPosition;
         const float distance = glm::length(toListener);
         // Quick reject before the shells: nothing carries past this.
-        const float maxRadius = static_cast<float>(NoiseModel::tierRadiusTiles(event.tier)) * 1.2f * hearing * t.hearingScale * c.tileSize;
+        const float maxRadius = static_cast<float>(NoiseModel::tierRadiusTiles(event.tier)) * 1.2f * hearing * t.hearingScale *
+                                event.reach * c.tileSize;
         if (distance > maxRadius) continue;
         if (!listenerKnown)
         {
@@ -113,7 +117,8 @@ void ZombieAISystem::hear(const Ctx& c, One& z)
         }
         const senses::Shell source{event.building, event.sealed};
         const float wind = senses::windScale(event.tier, t.windTo, t.windStrength, toListener);
-        const float radius = senses::heardRadiusTiles(event.tier, source, listener, t.hearingScale, hearing, wind) * c.tileSize;
+        const float radius =
+            senses::heardRadiusTiles(event.tier, source, listener, t.hearingScale, hearing, wind) * event.reach * c.tileSize;
         if (distance > radius) continue;
         const int tier = static_cast<int>(event.tier);
         if (bestEvent == nullptr || tier > bestTier || (tier == bestTier && distance < bestDistance))

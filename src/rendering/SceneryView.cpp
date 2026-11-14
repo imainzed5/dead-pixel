@@ -37,6 +37,7 @@ void SceneryView::build(const std::vector<SceneryPiece>& pieces)
     mLamps.clear();
     mTrees.clear();
     mTreeByTile.clear();
+    mBlockerByTile.clear();
     for (const SceneryPiece& piece : pieces)
     {
         Entry entry;
@@ -76,6 +77,7 @@ void SceneryView::build(const std::vector<SceneryPiece>& pieces)
             entry.lamp = true;
             mLamps.push_back(id);
         }
+        if (piece.blocker) mBlockerByTile[bucketKey(entry.tile.x, entry.tile.y)] = id;
         mStanding.push_back(entry);
     }
     mResolved = false;
@@ -289,6 +291,28 @@ void SceneryView::burnTree(const glm::ivec2& tile)
     mResolved = false;
 }
 
+const char* SceneryView::blockerAt(const glm::ivec2& tile) const
+{
+    const auto it = mBlockerByTile.find(bucketKey(tile.x, tile.y));
+    if (it == mBlockerByTile.end()) return "";
+    return mStanding[it->second].piece.sprite;
+}
+
+bool SceneryView::knockDown(const glm::ivec2& tile)
+{
+    const int key = bucketKey(tile.x, tile.y);
+    const auto it = mBlockerByTile.find(key);
+    if (it == mBlockerByTile.end()) return false;
+    const std::uint32_t id = it->second;
+    mBlockerByTile.erase(it);
+    mStanding[id].gone = true;
+    std::erase(mLamps, id);
+    std::erase(mTrees, id);
+    const auto tree = mTreeByTile.find(key);
+    if (tree != mTreeByTile.end() && tree->second == id) mTreeByTile.erase(tree);
+    return true;
+}
+
 std::vector<glm::ivec2> SceneryView::treeTiles() const
 {
     std::vector<glm::ivec2> out;
@@ -345,6 +369,7 @@ void SceneryView::collect(const Camera& camera, const glm::ivec2& playerTile, co
     const glm::vec2 viewport = camera.viewportSize();
     for (const Entry& entry : mStanding)
     {
+        if (entry.gone) continue;
         const glm::vec2 ground = camera.worldToScreen(entry.piece.position);
         const glm::vec2 size = entry.size * zoom;
         const glm::vec2 topLeft(std::round(ground.x - entry.anchorX * zoom),

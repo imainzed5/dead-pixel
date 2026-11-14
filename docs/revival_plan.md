@@ -1447,6 +1447,143 @@ no aging, no echoes and no added dead, so the phase's rules do not reach
 the bot; the notebook in the home kit is the one new thing it carries.
 Not looked into further; worth watching in phase 14's balance pass.
 
+## Overhaul phase 11: vehicles (2026-11-15)
+
+**Three kinds, each its own body.** The old sedan that followed the
+player is gone. A `Vehicle` now has a kind (Sedan, Pickup, Bicycle), a
+paint, a heading, a speed, a trunk (a container entity that rides with
+it), a key or a wire, an alarm and four tyres; `VehicleSystem` drives it
+with the arcade model in `vehiclerules::drive` (the keys give a direction
+on the screen, turned into the world as the walk is; it turns toward it at
+a rate that falls with speed, brakes and reverses when it lies behind; a
+bicycle turns round instead). The body is three circles along its length
+against walls, trees, furniture, closed doors and the boundary; above
+120 px/s a wall costs the car speed/20 and the driver speed/40 and is
+Loud; bins, hydrants and the cemetery's low fence are run down above
+150 px/s (10 % a flat tyre), a lamp post or a tree stops it, and no
+doorway is wide enough for any of them. The town places 3 to 5 sedans by
+houses and the police lot, 1 or 2 pickups at the garage or a warehouse,
+and 4 to 6 bicycles by houses and the biggest building
+(`vehiclerules::place`, from the layout and the world seed, nothing
+stamped); seed 1234 has 4, 1 and 5. The generator draws all three in
+five facings (three mirrored) and in their paints, at the same pixel
+scale; headlights are a cone at night (Q), seen by the dead from 14 tiles.
+
+**Starting one.** A car in three has its key in it; the rest have it in a
+kitchen or bedroom container of the nearest house ("Car keys. The red
+sedan outside."), and the car is known for good. Without it, hold E in
+the seat: 20 s (Mechanics shortens), 40 % to fail (10 points less a
+level), a failure is a Loud crank and you try again. A car under 50 fails
+(50 - condition) x 2 % of its starts. A car in five has a live alarm for
+the first ten days of a life: the door without the key sets it off (Loud
+each second for 45 s), and from outside E "Set it off" does it on
+purpose. Fuel comes only from cans: E "Refuel" with one selected (6 s, 12
+units; Shift+V is gone). A Toolbox and a Scrap Metal mend 25 (a minute; a
+garage lift doubles it).
+
+**Consequences.** The engine is Loud every 0.3 s (Medium idling; a pickup
+heard 1.2 times as far; a Damaged engine one tier louder), and the dead
+that hear it follow: in `vehicles.txt` twenty seconds of road drag a tail
+that is round the parked car within the minute. Above 140 px/s a body hit
+throws the zombie down for 65, the car keeps 65 % of its speed and loses
+5; a Brute stops it dead (15). Slower, the car is blocked and battered (3
+a blow; after 20 s of three or more a window goes and the driver can be
+grabbed). Wear 0.5 an hour driven (x1.5 in rain and snow, x2 off the
+road, where it is also slower); bands Good, Worn (x0.86), Damaged (x0.72,
+starts fail), Broken (will not run). Crouched in a parked car with the
+engine off, the dead that did not see you get in see a fifth as far.
+Hordes ignore parked cars and turn for a running engine. On the bicycle
+the pedals cost 2 stamina a second (coasting free), it is a Whisper, and
+the dead pull the rider off (5 damage, the bike left where it fell); a
+body at speed throws the rider too.
+
+**The pickup** carries one piece of furniture in its bed: push it to the
+tailgate, E "Load"; E "Unload" sets it on the first free tile behind, and
+at an open doorway it stands across it (the doorway is blocked).
+
+**Getting in.** V gets in or out (the driver's side, or the other if it is
+blocked; "Slow down first."); E at the back opens the trunk or bed. While
+driving the bottom-left shows a thin fuel line, a thin condition line and
+Idle, Slow or Fast above the health lines; the belt is hidden; the camera
+leads three tiles along the heading and pulls back 15 % above 150 px/s. A
+companion within four tiles gets in and out with you. One survivor home
+has its car outside: getting in is theft (P08).
+
+**Memory.** Every vehicle is a save record (kind, paint, place, heading,
+condition, fuel, tyres, key, alarm, trunk, cargo); the fleet is placed once
+a world. A car used in a life is 15 worse the next. An old save's sedan
+stays where it was (keyless); save version stays 5.
+
+Harness: `vehicles`, `bicycle`, `pickup_haul`, and a driving pass in
+`perf`. Commands: `goto vehicle`, `vehicles`, `set fuel|condition|tyres|key|
+alarm|started`, `drive DIR|road SECONDS`, `drive brake`, `vehicle
+mark|turn|fetch|park door|map`, `expect vehicle ...` (see the README).
+Tests: `test_vehicles` (17) and two save round trips.
+
+Performance (`perf.txt`, Release, run alone): 300 of the dead with the
+town's ten vehicles parked, 1.72 ms a tick on average and 3.6 ms worst
+(phase 10, with the old sedans: 1.64 and 3.9); 20 survivors and 100 of the
+dead 0.95 and 1.9; a sedan driven up the road into 300 of the dead 1.41
+and 2.7 (the crowd closes round it within a few tiles, stops it and
+batters it to Broken inside the eleven seconds, so the timing is of a car
+mobbed with every vehicle rule running, not of a long drive). `gate.txt`
+1.48 and 2.1, `fire_spread` 1.71 and 6.0. Budget 4 and 12.
+
+All 53 older scripts and the three new ones pass, each in a fresh
+directory (`perf`, `fire_spread` and `gate` alone). `mind.txt` changed:
+its "dormant" dead were wandering Shamblers, and with the vehicles' new
+entities one wandered to the home's door; they now stand still. 321 unit
+tests pass; clean rebuild without warnings. `Game.cpp` is 22 lines
+shorter (the component registrations are one call).
+
+`bot_week`, seeds 1 to 10, default mode, on the final build:
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 1.8 | Overrun, day 3 | 30 | 9 | 8 | 50 | 3 |
+| 2 | 2.7 | Overrun, day 4 | 71 | 6 | 1 | 104 | 1 |
+| 3 | 2.4 | Overrun, day 3 | 21 | 21 | 10 | 90 | 0 |
+| 4 | 0.6 | Killed by zombies, day 1 | 9 | 7 | 4 | 15 | 0 |
+| 5 | 0.9 | Overrun, day 2 | 12 | 6 | 6 | 12 | 1 |
+| 6 | 0.9 | Overrun, day 2 | 25 | 7 | 1 | 55 | 3 |
+| 7 | 3.2 | Overrun, day 4 | 51 | 5 | 6 | 53 | 3 |
+| 8 | 2.8 | Overrun, day 4 | 22 | 2 | 3 | 71 | 0 |
+| 9 | 1.7 | Overrun, day 3 | 33 | 6 | 7 | 53 | 0 |
+| 10 | 0.5 | Killed by zombies, day 1 | 4 | 6 | 4 | 19 | 0 |
+
+Median 1.7 days (phase 10: 2.1), mean 1.8 (2.0); 10 of 10 clean; three
+died at home on night 1 (phase 10: one). Kills 278 (351), boards 11 (14),
+containers searched 522 (534). Days and kills fell, so they were looked
+into:
+
+- The first soak of the phase had the bot set off two car alarms (seeds 5
+  and 8) with E presses meant for something else: "Set it off" took E
+  ahead of doors, survivors and containers. It now comes last and only
+  when nothing else in reach offers E; no alarm went off in the soak
+  above. That run, before the fix, read median 1.7, mean 1.7.
+- The rest is not the vehicles. The same build with every vehicle taken
+  out of the town (nothing spawned, the old random draws kept) gives
+  median 1.9, mean 1.8, kills 384, searched 583, boards 16, night 1 at
+  home 0 of 10; with the cars not pushing the player aside, median 1.7,
+  mean 1.9, kills 248. Each seed swings by days between these three
+  builds (seed 5: 0.9, 2.0, 3.5; seed 7: 3.2, 2.3, 0.7), so the ten-seed
+  table moves by about as much as phase 10 to 11 does whenever anything
+  in the town changes. The cause is the one the phase-9 and 10 entries
+  saw for stamping: the dead's wander rolls are keyed by entity, and the
+  town now makes a different number of entities when it is set up (on
+  seed 1234 ten vehicles and five trunks, where each old sedan was one;
+  none at all in the experiment), so every one of the dead that arrives
+  later (the threat's spawns, night callers, the harness's) has another
+  id and walks another way (`mind.txt` shows it on seed 1234), and the
+  bot's day diverges from there. Seed 4, dead on its first evening, stays
+  where it was (0.6 days, 15 searched).
+- A first life never needs a vehicle and the bot does not drive; the cars
+  stand in its way (it walks into one and is put back outside) and their
+  trunks are searched like any container.
+
+Not retuned; phase 14's balance pass should read more than ten seeds, or
+the bot's spread will hide whatever it is tuning.
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 ## Next: the content overhaul (planned 2026-11-13)
@@ -1645,3 +1782,14 @@ Candidates for the next stretch, roughly in order. None is started.
   Living World; a notebook of six tabs; the Sergeant's tick spike gone;
   bot median 2.1 days, mean 2.0 (phase 9: 1.9, 1.9), containers searched
   534 (630).
+- 2026-11-15: Overhaul phase 11, vehicles: the sedan that followed the
+  player replaced by three kinds with bodies (sedan, pickup, bicycle),
+  placed by the town and remembered between lives (a used one 15 worse);
+  keys in the car or a nearby house, hot-wiring, failed starts, alarms set
+  off by the door or on purpose; fuel from cans only (E "Refuel"),
+  mending with a toolbox; engine noise that drags a tail, the dead run
+  down or stopping the car, battering and the broken window; a pickup
+  that carries a wardrobe; headlights, a driving HUD and a leading camera;
+  harness `vehicles`, `bicycle`, `pickup_haul`; bot median 1.7 days, mean
+  1.8 (phase 10: 2.1, 2.0), the swing traced to the dead's entity-keyed
+  wander, not to the vehicles.

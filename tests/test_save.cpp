@@ -1014,3 +1014,111 @@ DP_TEST(save_v4_slot_migrates_to_v5_with_its_objective_district)
     DP_CHECK_EQ(again.migratedFromVersion(), 0);
     DP_CHECK_EQ(again.legacyObjectiveDistrict(), 0);
 }
+
+// Phase 11: a vehicle's body, key, alarm, load and trunk round-trip; the
+// fleet is placed once.
+DP_TEST(save_phase11_vehicles_round_trip)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(31u);
+
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("vehicle_slot"));
+    DP_CHECK(!save.fleetPlaced());
+    VehicleRecord pickup;
+    pickup.centred = true;
+    pickup.x = 412.5f;
+    pickup.y = 96.25f;
+    pickup.kind = 1;
+    pickup.color = 1;
+    pickup.heading = 1.5707963f;
+    pickup.condition = 62.0f;
+    pickup.fuel = 17.5f;
+    pickup.maxFuel = 40.0f;
+    pickup.tyres = 3;
+    pickup.started = true;
+    pickup.keyKnown = true;
+    pickup.keyTileX = 14;
+    pickup.keyTileY = 9;
+    pickup.alarm = true;
+    pickup.alarmSpentRun = 2;
+    pickup.windowBroken = true;
+    pickup.hasCargo = true;
+    pickup.cargoX = 20;
+    pickup.cargoY = 21;
+    pickup.ownerBuilding = 5;
+    pickup.usedThisLife = true;
+    pickup.trunk = {{3, 4, 1.0f, 0}, {7, 1, 0.5f, 6}};
+    save.setVehicleRecords({pickup});
+    save.setFleetPlaced(true);
+    DP_CHECK(save.saveWorldMemory());
+
+    SaveManager reloaded;
+    DP_CHECK(reloaded.loadOrCreateSlot("vehicle_slot"));
+    DP_CHECK(reloaded.loadWorldMemory());
+    DP_CHECK(reloaded.fleetPlaced());
+    DP_CHECK_EQ(reloaded.vehicles().size(), std::size_t{1});
+    if (reloaded.vehicles().empty()) return;
+    const VehicleRecord& v = reloaded.vehicles()[0];
+    DP_CHECK(v.centred);
+    DP_CHECK_NEAR(v.x, 412.5f, 0.001);
+    DP_CHECK_NEAR(v.y, 96.25f, 0.001);
+    DP_CHECK_EQ(v.kind, 1);
+    DP_CHECK_EQ(v.color, 1);
+    DP_CHECK_NEAR(v.heading, 1.5707963f, 0.0001);
+    DP_CHECK_NEAR(v.condition, 62.0f, 0.001);
+    DP_CHECK_NEAR(v.fuel, 17.5f, 0.001);
+    DP_CHECK_EQ(v.tyres, 3);
+    DP_CHECK(v.started && v.keyKnown && !v.keyInside);
+    DP_CHECK_EQ(v.keyTileX, 14);
+    DP_CHECK_EQ(v.keyTileY, 9);
+    DP_CHECK(v.alarm);
+    DP_CHECK_EQ(v.alarmSpentRun, 2);
+    DP_CHECK(v.windowBroken);
+    DP_CHECK(v.hasCargo);
+    DP_CHECK_EQ(v.cargoX, 20);
+    DP_CHECK_EQ(v.cargoY, 21);
+    DP_CHECK_EQ(v.ownerBuilding, 5);
+    DP_CHECK(v.usedThisLife);
+    DP_CHECK_EQ(v.trunk.size(), std::size_t{2});
+    if (v.trunk.size() == 2)
+    {
+        DP_CHECK_EQ(v.trunk[0].itemId, 3);
+        DP_CHECK_EQ(v.trunk[0].count, 4);
+        DP_CHECK_NEAR(v.trunk[1].condition, 0.5f, 0.001);
+        DP_CHECK_EQ(v.trunk[1].loaded, 6);
+    }
+}
+
+// An old sedan record (before phase 11) reads with the defaults: a sedan at
+// a tile's corner, its key lost, the fleet not yet placed.
+DP_TEST(save_phase11_old_vehicle_records_read_with_defaults)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(37u);
+
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("old_vehicle_slot"));
+    VehicleRecord sedan;
+    sedan.x = 64.0f;
+    sedan.y = 96.0f;
+    sedan.condition = 70.0f;
+    sedan.fuel = 12.0f;
+    sedan.items = {{2, 1}};
+    save.setVehicleRecords({sedan});
+    DP_CHECK(save.saveWorldMemory());
+
+    SaveManager reloaded;
+    DP_CHECK(reloaded.loadOrCreateSlot("old_vehicle_slot"));
+    DP_CHECK(reloaded.loadWorldMemory());
+    DP_CHECK(!reloaded.fleetPlaced());
+    DP_CHECK_EQ(reloaded.vehicles().size(), std::size_t{1});
+    if (reloaded.vehicles().empty()) return;
+    const VehicleRecord& v = reloaded.vehicles()[0];
+    DP_CHECK(!v.centred);
+    DP_CHECK_EQ(v.kind, 0);
+    DP_CHECK_EQ(v.tyres, 4);
+    DP_CHECK(!v.keyKnown && !v.keyInside && !v.started && !v.alarm && !v.hasCargo);
+    DP_CHECK(v.trunk.empty());
+    DP_CHECK_EQ(v.items.size(), std::size_t{1});
+}

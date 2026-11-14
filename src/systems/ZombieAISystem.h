@@ -105,6 +105,23 @@ struct ZombieTick
     const bloodtrail::Trail* trail = nullptr;
     // The building a tile lies in and whether its shell is shut.
     std::function<senses::Shell(const glm::ivec2&)> shellAt;
+
+    // Phase 11: the player inside a vehicle. The dead go for its body, the
+    // nearest point of its centre line (vehicleA..vehicleB, vehicleHalfWidth
+    // either side); their blows land on it (vehicleBlows gets who struck)
+    // unless it is open (a window broken), when they reach the driver.
+    bool playerInVehicle = false;
+    bool vehicleOpen = false;
+    glm::vec2 vehicleA{0.0f};
+    glm::vec2 vehicleB{0.0f};
+    float vehicleHalfWidth = 0.0f;
+    std::vector<Entity>* vehicleBlows = nullptr;
+    // Crouched in a parked car with the engine off: the dead that have not
+    // seen you get in see you at a fifth of the range.
+    bool playerHidden = false;
+    float hiddenSightScale = 1.0f;
+    // Headlights at night: seen from at least this far (tiles), or 0.
+    float lightsSeenTiles = 0.0f;
 };
 
 class ZombieAISystem

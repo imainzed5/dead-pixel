@@ -121,6 +121,8 @@ add_library(dead_pixel_core STATIC
     src/world/SurvivorRules.cpp
     src/world/Gate.cpp
     src/world/Clues.cpp
+    src/world/VehicleRules.cpp
+    src/systems/VehicleSystem.cpp
     src/systems/HallucinationSystem.cpp
     src/items/ItemDatabase.cpp
     src/items/LootTables.cpp
@@ -145,6 +147,7 @@ add_library(dead_pixel_core STATIC
     src/dev/DevHarnessSurvivors.cpp
     src/dev/DevHarnessGate.cpp
     src/dev/DevHarnessLegacy.cpp
+    src/dev/DevHarnessVehicles.cpp
     src/dev/LaunchOptions.cpp
     src/dev/Autoplayer.cpp
 )
@@ -220,6 +223,7 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_journal.cpp
         tests/test_aging.cpp
         tests/test_bloodline.cpp
+        tests/test_vehicles.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

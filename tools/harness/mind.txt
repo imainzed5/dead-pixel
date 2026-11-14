@@ -17,10 +17,12 @@ zoom 2.5
 goto home
 waits 0.5
 slay 2000
-# Three of the dead nearby, dormant, and nobody else about.
-zombie 0 10 dormant
-zombie 8 8 dormant
-zombie -8 8 dormant
+# Three of the dead nearby, standing where they are put, and nobody else
+# about. (Plain "dormant" only lies in wait for a Crawler: a Shambler
+# wanders, and since phase 11 one wanders to the home's door here.)
+zombie 0 10 dormant still
+zombie 8 8 dormant still
+zombie -8 8 dormant still
 waits 1
 
 # Debt 90: within two minutes a figure at the edge of sight. The dead keep

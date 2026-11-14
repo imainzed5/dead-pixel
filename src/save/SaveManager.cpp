@@ -527,6 +527,7 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     mContainers.clear();
     mDiscoveredRecipes.clear();
     mVehicles.clear();
+    mFleetPlaced = false;
     mFireTiles.clear();
     mBurnedTiles.clear();
     mBrokenDoors.clear();
@@ -2229,8 +2230,42 @@ bool SaveManager::saveWorldMemory()
             }
         }
 
+        // Phase 11.
+        if (vehicle.centred)
+        {
+            vehicleJson["centred"] = true;
+            vehicleJson["kind"] = vehicle.kind;
+            vehicleJson["color"] = vehicle.color;
+            vehicleJson["heading"] = vehicle.heading;
+            vehicleJson["tyres"] = vehicle.tyres;
+            vehicleJson["started"] = vehicle.started;
+            vehicleJson["keyKnown"] = vehicle.keyKnown;
+            vehicleJson["keyInside"] = vehicle.keyInside;
+            vehicleJson["keyX"] = vehicle.keyTileX;
+            vehicleJson["keyY"] = vehicle.keyTileY;
+            vehicleJson["alarm"] = vehicle.alarm;
+            vehicleJson["alarmSpentRun"] = vehicle.alarmSpentRun;
+            vehicleJson["windowBroken"] = vehicle.windowBroken;
+            if (vehicle.hasCargo)
+            {
+                vehicleJson["cargoX"] = vehicle.cargoX;
+                vehicleJson["cargoY"] = vehicle.cargoY;
+            }
+            vehicleJson["owner"] = vehicle.ownerBuilding;
+            vehicleJson["used"] = vehicle.usedThisLife;
+            nlohmann::json trunk = nlohmann::json::array();
+            for (const ContainerItemRecord& item : vehicle.trunk)
+            {
+                nlohmann::json itemJson = {{"id", item.itemId}, {"count", item.count}, {"condition", item.condition}};
+                if (item.loaded > 0) itemJson["loaded"] = item.loaded;
+                trunk.push_back(itemJson);
+            }
+            vehicleJson["trunk"] = trunk;
+        }
+
         json["vehicles"].push_back(vehicleJson);
     }
+    if (mFleetPlaced) json["fleetPlaced"] = true;
 
     json["fires"] = nlohmann::json::array();
     for (const auto& fire : mFireTiles)
@@ -2328,6 +2363,7 @@ bool SaveManager::loadWorldMemory()
     mContainers.clear();
     mDiscoveredRecipes.clear();
     mVehicles.clear();
+    mFleetPlaced = false;
     mFireTiles.clear();
     mBurnedTiles.clear();
     mBrokenDoors.clear();
@@ -2435,9 +2471,42 @@ bool SaveManager::loadWorldMemory()
                 }
             }
 
+            // Phase 11 (absent in older files).
+            record.centred = vj.value("centred", false);
+            record.kind = std::clamp(vj.value("kind", 0), 0, 2);
+            record.color = std::max(0, vj.value("color", 0));
+            record.heading = vj.value("heading", 0.0f);
+            record.tyres = std::clamp(vj.value("tyres", 4), 0, 4);
+            record.started = vj.value("started", false);
+            record.keyKnown = vj.value("keyKnown", false);
+            record.keyInside = vj.value("keyInside", false);
+            record.keyTileX = vj.value("keyX", -1);
+            record.keyTileY = vj.value("keyY", -1);
+            record.alarm = vj.value("alarm", false);
+            record.alarmSpentRun = vj.value("alarmSpentRun", 0);
+            record.windowBroken = vj.value("windowBroken", false);
+            record.hasCargo = vj.contains("cargoX");
+            record.cargoX = vj.value("cargoX", 0);
+            record.cargoY = vj.value("cargoY", 0);
+            record.ownerBuilding = vj.value("owner", 0);
+            record.usedThisLife = vj.value("used", false);
+            if (vj.contains("trunk") && vj["trunk"].is_array())
+            {
+                for (const auto& ij : vj["trunk"])
+                {
+                    ContainerItemRecord item;
+                    item.itemId = ij.value("id", -1);
+                    item.count = ij.value("count", 0);
+                    item.condition = std::clamp(ij.value("condition", 1.0f), 0.0f, 1.0f);
+                    item.loaded = std::max(0, ij.value("loaded", 0));
+                    if (item.itemId >= 0 && item.count > 0) record.trunk.push_back(item);
+                }
+            }
+
             mVehicles.push_back(record);
         }
     }
+    mFleetPlaced = json.value("fleetPlaced", false);
 
     if (json.contains("fires") && json["fires"].is_array())
     {
@@ -2916,6 +2985,7 @@ bool SaveManager::forgetWorld()
     mContainers.clear();
     mDiscoveredRecipes.clear();
     mVehicles.clear();
+    mFleetPlaced = false;
     mFireTiles.clear();
     mBurnedTiles.clear();
     mBrokenDoors.clear();

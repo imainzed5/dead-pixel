@@ -99,6 +99,7 @@ struct SurvivorAI
     float trust = 0.0f;
     bool companion = false;
     bool waiting = false;
+    bool riding = false;        // phase 11: in the player's vehicle (not saved: out at a load)
     int angryDay = -1;          // hostile for this day (trespass, a blow)
     bool warnedHome = false;    // "Out." said once
     bool warnedWeapon = false;  // "Put it down." said for this drawing

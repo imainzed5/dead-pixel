@@ -1140,6 +1140,7 @@ void Game::runZombieAI(float feelDt)
     }
     tick.trail = &mBloodTrail;
     tick.shellAt = [this](const glm::ivec2& tile) { return shellAt(tile); };
+    fillVehicleTick(tick); // shut in a car: they reach its body, not you (phase 11)
 
     mZombieAISystem.update(mWorld, tick);
 }

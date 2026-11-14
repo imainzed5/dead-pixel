@@ -47,6 +47,8 @@
 #include "world/SleepRules.h"
 #include "world/TraitRules.h"
 #include "world/WoundRules.h"
+#include "world/VehicleRules.h"
+#include "systems/VehicleSystem.h"
 
 #include <algorithm>
 #include <array>
@@ -72,11 +74,8 @@ constexpr float kMaxFrameStepSeconds = 0.25f;
 constexpr double kFixedTimeStepSeconds = 1.0 / 60.0;
 constexpr double kGameHoursPerRealSecond = 1.0 / 60.0;
 constexpr double kDeathRestartDelaySeconds = 3.0;
-constexpr float kVehicleInteractRangePixels = 64.0f;
-constexpr float kVehicleCollisionRangePixels = 26.0f;
-constexpr float kVehicleFuelPerSecond = 0.28f;
-constexpr float kVehicleRefuelAmount = 12.0f;
-constexpr float kVehicleBaseSpeed = 248.0f;
+// Phase 11: how close to a vehicle's body the player must stand to use it.
+constexpr float kVehicleReachPixels = 30.0f;
 constexpr float kMinimapZoomMin = 0.70f;
 constexpr float kMinimapZoomMax = 4.20f;
 constexpr float kMinimapZoomStep = 0.20f;
@@ -238,22 +237,6 @@ inline glm::ivec2 worldToTile(const TileMap& tileMap, const glm::vec2& world)
     return glm::ivec2(
         static_cast<int>(std::floor(world.x / static_cast<float>(tw))),
         static_cast<int>(std::floor(world.y / static_cast<float>(th))));
-}
-
-inline const char* vehicleConditionLabel(float condition)
-{
-    if (condition >= 70.0f) return "GOOD";
-    if (condition >= 40.0f) return "WORN";
-    if (condition >= 10.0f) return "DAMAGED";
-    return "BROKEN";
-}
-
-inline float vehicleSpeedFromCondition(float condition)
-{
-    if (condition >= 70.0f) return kVehicleBaseSpeed;
-    if (condition >= 40.0f) return kVehicleBaseSpeed * 0.86f;
-    if (condition >= 10.0f) return kVehicleBaseSpeed * 0.72f;
-    return 0.0f;
 }
 
 inline float fireBaseFlammability(SurfaceType surface)
@@ -489,7 +472,7 @@ struct ControlBinding
 };
 
 constexpr std::array<ControlBinding, 27> kControlBindings = {{
-    {"WASD", "Move"},
+    {"WASD", "Move; steer a vehicle"},
     {"Shift", "Run"},
     {"C", "Crouch; still 3 s: breathe"},
     {"Mouse", "Aim"},
@@ -497,11 +480,11 @@ constexpr std::array<ControlBinding, 27> kControlBindings = {{
     {"RClick", "Take down (from behind)"},
     {"Space", "Shove / struggle"},
     {"G", "Throw (hold, aim)"},
-    {"E", "Interact, read; hold: push"},
+    {"E", "Use, refuel; hold: push"},
     {"R", "Board, tap, fill / reload"},
     {"X", "Pry, break up, force"},
     {"F", "Use, set down, marker"},
-    {"Q", "Flashlight"},
+    {"Q", "Flashlight; headlights"},
     {"1-8", "Hotbar slot"},
     {"Tab", "Pack / Body / Make"},
     {"Arrows", "Inventory cursor"},
@@ -509,7 +492,7 @@ constexpr std::array<ControlBinding, 27> kControlBindings = {{
     {"Bksp", "Drop (Shift: stack)"},
     {"N", "Crafting"},
     {"B", "Build wheel"},
-    {"V", "Car in-out; Shift: refuel"},
+    {"V", "Get in / out of a vehicle"},
     {"M", "World map"},
     {"J", "Notebook; Left/Right: tab"},
     {"+/-", "Minimap zoom"},
@@ -780,6 +763,9 @@ inline glm::mat4 buildProjection(int width, int height)
         -1.0f,
         1.0f);
 }
+
+// "wardrobe", "TV stand" (GameBase.cpp).
+[[nodiscard]] const char* pieceNameOf(FurnitureKind kind);
 
 inline int surfaceNoiseModifier(SurfaceType surface)
 {

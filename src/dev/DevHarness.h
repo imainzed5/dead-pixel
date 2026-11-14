@@ -89,6 +89,14 @@ class Game;
 //   expect journal [last] MIN [MAX] | expect crate intact|damaged|breaking|gone | expect boardhp LO HI
 //   expect infection above | expect echo SKILL N | expect bloodline NAME|none | expect stone NAME
 //   expect graves N | expect remembered nothing|something | expect reader open|closed | expect marker N
+//   vehicles                      print every vehicle (phase 11)
+//   goto vehicle [KIND] [tailgate]   beside the nearest (sedan|pickup|bicycle), or just behind it
+//   set fuel|condition|tyres N | set key in|known|none | set alarm|started on|off   (the one sat in, or the nearest)
+//   drive DIR|road SECONDS [CAP] | drive brake   the keys toward n s e w ne nw se sw / along the road (waits)
+//   vehicle mark|turn DEGREES|fetch KIND|park door|map R
+//   expect vehicle in|out|engine|off|started|cargo|nocargo|window|ringing|silent
+//   expect vehicle speed|condition|fuel|tyres above|below N | trunk N | randown|stopped N
+//   expect vehicle moved N|scrapes N|lost N|same [worn]   (since vehicle mark)
 //   log TEXT                      print a line
 //   quit                          end the run
 class DevHarness
@@ -133,6 +141,10 @@ private:
     bool gateCommand(Game& game, const Command& command);
     // DevHarnessLegacy.cpp: true when the command was one of legacy's (phase 10).
     bool legacyCommand(Game& game, const Command& command);
+    // DevHarnessVehicles.cpp: true when the command was one of the vehicles' (phase 11).
+    bool vehicleCommand(Game& game, const Command& command);
+    // `drive`: the keys a driver would press, set every tick until it ends.
+    void steerVehicle(Game& game);
     Entity survivorFocus(Game& game, const std::string& name);
     // A survivor condition (home, flee, stock ITEM N, ...): true when it holds; `what` says what was seen.
     bool survivorCondition(Game& game, const std::vector<std::string>& condition, std::string& what);
@@ -171,6 +183,28 @@ private:
     // Survivors (phase 8): the one the last `survivor` made (or `goto
     // survivor` found), and the fingerprints `advance` printed.
     int mSurvivorFocus = -1;
+    // Vehicles (phase 11): a `drive` order in progress, and `vehicle mark`.
+    struct DriveOrder
+    {
+        std::uint64_t ticksLeft = 0;
+        std::string mode;          // dir, road, brake
+        glm::ivec2 axis{0, 0};     // dir: the world direction; road: the axis followed
+        glm::ivec2 turnAt{-1, -1}; // road: where to take the next road
+        glm::ivec2 turnTo{0, 0};
+        float cap = 1.0e9f;        // px/s: above it the keys are let go
+        float travelled = 0.0f;
+        glm::vec2 last{0.0f};
+    } mDrive;
+    struct VehicleMark
+    {
+        bool set = false;
+        glm::vec2 centre{0.0f};
+        float heading = 0.0f;
+        float fuel = 0.0f;
+        float condition = 0.0f;
+        int trunkItems = 0;
+        int scrapes = 0;
+    } mVehicleMark;
     Command mWaitFor;
     std::uint64_t mWaitForLeft = 0;
     std::vector<std::uint64_t> mAdvancePrints;

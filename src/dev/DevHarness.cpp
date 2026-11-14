@@ -279,6 +279,9 @@ void DevHarness::beforeTickInner(Game& game)
                   << "), containers searched " << mBot.containersSearched() << '\n';
     }
 
+    // `drive`: the driver's keys for this tick (DevHarnessVehicles.cpp).
+    if (mDrive.ticksLeft > 0) steerVehicle(game);
+
     // `waitfor`: the script holds until the condition does (or time runs out).
     if (mWaitRemaining == 0 && waitingFor(game)) return;
 
@@ -362,6 +365,8 @@ void DevHarness::execute(Game& game, const Command& command)
     if (gateCommand(game, command)) return;
     // Legacy and the aging town (DevHarnessLegacy.cpp).
     if (legacyCommand(game, command)) return;
+    // Vehicles (DevHarnessVehicles.cpp).
+    if (vehicleCommand(game, command)) return;
 
     if (op == "wait")
     {
@@ -2420,7 +2425,12 @@ void DevHarness::execute(Game& game, const Command& command)
             }
             for (const FurniturePiece& piece : game.mFurniture)
             {
-                if (piece.building != building || !game.mTileMap.doorwayBlocked(piece.tile.x, piece.tile.y)) continue;
+                // Where it stands now (a pickup may have brought it from another house).
+                if (game.mTileMap.getBuildingId(piece.tile.x, piece.tile.y) != building ||
+                    !game.mTileMap.doorwayBlocked(piece.tile.x, piece.tile.y))
+                {
+                    continue;
+                }
                 const glm::ivec2 door = furnitureuse::blockedDoor(game.mTileMap, piece.tile);
                 std::cout << "[harness] tick " << mTick << ": " << furniture::info(piece.kind).sprite << " at "
                           << piece.tile.x << "," << piece.tile.y << " blocks door " << door.x << "," << door.y

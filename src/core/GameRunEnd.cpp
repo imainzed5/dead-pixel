@@ -285,28 +285,7 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
 
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
 
-    {
-        std::vector<VehicleRecord> vehicleRecords;
-        mWorld.forEach<Vehicle, Transform>(
-            [&](Entity e, Vehicle& vehicle, Transform& transform)
-            {
-                VehicleRecord record;
-                record.x = transform.x;
-                record.y = transform.y;
-                record.condition = vehicle.condition;
-                record.fuel = vehicle.fuel;
-                record.maxFuel = vehicle.maxFuel;
-                record.engineOn = false;
-
-                if (mWorld.hasComponent<Inventory>(e))
-                {
-                    record.items = InventorySystem::itemsUnloaded(mWorld.getComponent<Inventory>(e), mItemDatabase);
-                }
-
-                vehicleRecords.push_back(record);
-            });
-        mSaveManager.setVehicleRecords(std::move(vehicleRecords));
-    }
+    persistVehicles(true); // a life that used one leaves it a stage worse (GameVehicles.cpp)
 
     {
         std::vector<FireTileRecord> fireRecords;

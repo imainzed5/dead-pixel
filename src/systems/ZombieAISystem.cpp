@@ -83,37 +83,37 @@ void ZombieAISystem::update(World& world, const ZombieTick& tick)
     if (tick.tileMap == nullptr) return;
     const TileMap& tileMap = *tick.tileMap;
 
-    Ctx c;
-    c.world = &world;
-    c.tick = &tick;
-    c.tileSize = static_cast<float>(tileMap.tileWidth());
-    c.night = weatherrules::isNight(tick.day, tick.hours);
-    c.playerValid = tick.player != kInvalidEntity && world.hasComponent<Transform>(tick.player) &&
+    Ctx shared;
+    shared.world = &world;
+    shared.tick = &tick;
+    shared.tileSize = static_cast<float>(tileMap.tileWidth());
+    shared.night = weatherrules::isNight(tick.day, tick.hours);
+    shared.playerValid = tick.player != kInvalidEntity && world.hasComponent<Transform>(tick.player) &&
                     world.hasComponent<Health>(tick.player) && world.getComponent<Health>(tick.player).current > 0.0f;
-    if (c.playerValid)
+    if (shared.playerValid)
     {
-        c.playerCenter = entityCenter(world.getComponent<Transform>(tick.player));
+        shared.playerCenter = entityCenter(world.getComponent<Transform>(tick.player));
         if (world.hasComponent<Facing>(tick.player))
         {
             const float a = world.getComponent<Facing>(tick.player).angleRadians;
-            c.playerFacing = glm::vec2(std::cos(a), std::sin(a));
+            shared.playerFacing = glm::vec2(std::cos(a), std::sin(a));
         }
         if (world.hasComponent<Stamina>(tick.player))
         {
             const Stamina& st = world.getComponent<Stamina>(tick.player);
-            c.playerExhausted = combatrules::exhausted(st.current, st.maximum);
+            shared.playerExhausted = combatrules::exhausted(st.current, st.maximum);
         }
         if (world.hasComponent<Combat>(tick.player))
         {
             const Combat& pc = world.getComponent<Combat>(tick.player);
-            c.playerImmune = pc.grabImmunity > 0.0f;
-            c.playerHeld = pc.holders > 0;
+            shared.playerImmune = pc.grabImmunity > 0.0f;
+            shared.playerHeld = pc.holders > 0;
         }
     }
 
     // Who is where, for every "near here" question this tick.
-    mGrid.reset(static_cast<float>(tileMap.width()) * c.tileSize, static_cast<float>(tileMap.height()) * c.tileSize,
-                4.0f * c.tileSize);
+    mGrid.reset(static_cast<float>(tileMap.width()) * shared.tileSize, static_cast<float>(tileMap.height()) * shared.tileSize,
+                4.0f * shared.tileSize);
     world.forEach<ZombieAI, Transform>(
         [&](Entity e, ZombieAI&, Transform& t)
         {
@@ -126,7 +126,7 @@ void ZombieAISystem::update(World& world, const ZombieTick& tick)
             if (s.state == SurvivorState::Dead || !s.alive) return;
             // Far from the player a survivor lives an hour at a time and its
             // dangers are the rules' (SurvivorRules::farHour), not the dead's.
-            if (s.far) return;
+            if (s.far || s.riding) return;
             if (world.hasComponent<Health>(e) && world.getComponent<Health>(e).current <= 0.0f) return;
             mGrid.insert(e, entityCenter(t), SpatialGrid::Survivor);
         });
@@ -135,9 +135,9 @@ void ZombieAISystem::update(World& world, const ZombieTick& tick)
     mGrid.finish();
 
     // One field toward the player for every chase.
-    if (c.playerValid)
+    if (shared.playerValid)
     {
-        const glm::ivec2 playerTile = worldToTile(tileMap, c.playerCenter);
+        const glm::ivec2 playerTile = worldToTile(tileMap, shared.playerCenter);
         if (!mFlow.valid() || mTick % kFlowEveryTicks == 0 || glm::length(glm::vec2(playerTile - mFlow.goal())) > 6.0f)
         {
             mFlow.build(tileMap, playerTile);
@@ -163,6 +163,19 @@ void ZombieAISystem::update(World& world, const ZombieTick& tick)
             z.entity = zombieEntity;
             z.ai = &ai;
             z.center = entityCenter(zombieTransform);
+            // In a vehicle, the player is its body: each of the dead goes for
+            // the part of it nearest them (phase 11).
+            Ctx c = shared;
+            if (tick.playerInVehicle && c.playerValid)
+            {
+                const glm::vec2 ab = tick.vehicleB - tick.vehicleA;
+                const float len2 = glm::dot(ab, ab);
+                const float s = len2 > 0.001f ? std::clamp(glm::dot(z.center - tick.vehicleA, ab) / len2, 0.0f, 1.0f) : 0.0f;
+                const glm::vec2 axis = tick.vehicleA + ab * s;
+                const glm::vec2 out = z.center - axis;
+                const float d = glm::length(out);
+                c.playerCenter = d > 0.01f ? axis + out / d * std::max(0.0f, std::min(d, tick.vehicleHalfWidth - 4.0f)) : axis;
+            }
             z.tile = worldToTile(tileMap, z.center);
             z.dt = tick.dt;
 

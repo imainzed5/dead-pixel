@@ -1833,6 +1833,12 @@ void Game::noteTakenFrom(Entity container)
     const int building = mTileMap.getBuildingId(tile.x, tile.y);
     if (!survivorLivesIn(building)) return;
     mTheftNoted.push_back(container);
+    noteTheft(building);
+}
+
+void Game::noteTheft(int building)
+{
+    if (!survivorLivesIn(building)) return;
     const glm::vec2 player = playerWorldCenter();
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     mWorld.forEach<SurvivorAI, Transform>(

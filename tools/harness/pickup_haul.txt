@@ -1,0 +1,62 @@
+# The pickup's bed (phase 11): a wardrobe pushed up to the tailgate is
+# loaded (E), driven off along the road, and unloaded (E) with the
+# tailgate backed up to a house's open door: it stands across the doorway
+# inside.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/pickup_haul.txt --hidden --world-seed 1234 --shots shots/pickup_haul
+
+survivors gone
+newrun
+god on
+hours 11
+waits 1
+goto vehicle pickup
+slay 40
+set key in
+set fuel 40
+set condition 90
+waits 0.3
+shot 00_pickup
+
+# A wardrobe from the nearest house, pushed up behind the tailgate.
+vehicle fetch wardrobe
+goto vehicle pickup tailgate
+waits 0.3
+expect prompt Load the wardrobe
+shot 01_wardrobe_at_tailgate
+tap E
+waits 4
+expect vehicle cargo
+expect message in the bed
+shot 02_loaded
+
+# Driven off down the road.
+goto vehicle pickup
+tap V
+waits 0.3
+tap E
+waits 0.5
+expect vehicle engine
+vehicle mark
+drive road 8
+drive brake
+waits 0.5
+expect vehicle moved 10
+shot 03_driving_loaded
+
+# Backed up to a doorway: unloaded across it.
+vehicle park door
+expect vehicle off
+tap V
+waits 0.5
+goto vehicle pickup tailgate
+waits 0.3
+expect prompt Unload the wardrobe
+shot 04_at_the_door
+tap E
+waits 4
+expect vehicle nocargo
+expect message stands across the doorway
+expect blocked
+shot 05_unloaded
+quit
