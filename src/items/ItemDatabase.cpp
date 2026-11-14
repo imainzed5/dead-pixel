@@ -53,6 +53,7 @@ bool ItemDatabase::loadFromFile(const std::string& jsonPath)
         def.name = obj.value("name", std::string("Unknown"));
         def.category = parseCategory(obj.value("category", std::string("food")));
         def.weight = obj.value("weight", 1.0f);
+        def.value = obj.value("value", 1.0f);
         def.maxStack = obj.value("maxStack", 1);
         def.sprite = obj.value("sprite", std::string(""));
         def.hungerRestore = obj.value("hungerRestore", 0.0f);

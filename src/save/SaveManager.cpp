@@ -416,6 +416,13 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
         mSaveVersion = kCurrentSaveVersion;
         writeMeta();
         saveWorldMemory();
+        // Version 4: the survivors file in its new form (homes are found
+        // for them when the town is next built).
+        std::error_code exists;
+        if (std::filesystem::exists(mSurvivorPath, exists))
+        {
+            saveSurvivors(loadSurvivors());
+        }
     }
 
     return true;
@@ -530,6 +537,12 @@ bool SaveManager::recordDeath(const GraveRecord& record)
     }
 
     return true;
+}
+
+bool SaveManager::addGrave(const GraveRecord& record)
+{
+    mGraves.push_back(record);
+    return writeLegacy();
 }
 
 void SaveManager::updateGrave(std::size_t index, const GraveRecord& record)
@@ -727,6 +740,7 @@ bool SaveManager::loadLegacy()
                 record.cause = graveJson.value("cause", std::string("Unknown"));
                 record.risen = graveJson.value("risen", false);
                 record.laidToRest = graveJson.value("laidToRest", false);
+                record.travelledWith = graveJson.value("travelledWith", std::string{});
                 readStringList(graveJson, "positiveTraits", record.positiveTraits);
                 readStringList(graveJson, "negativeTraits", record.negativeTraits);
                 if (graveJson.contains("skills") && graveJson["skills"].is_array())
@@ -876,6 +890,7 @@ bool SaveManager::writeLegacy() const
         {
             graveJson["laidToRest"] = true;
         }
+        if (!grave.travelledWith.empty()) graveJson["travelledWith"] = grave.travelledWith;
         if (!grave.positiveTraits.empty()) graveJson["positiveTraits"] = grave.positiveTraits;
         if (!grave.negativeTraits.empty()) graveJson["negativeTraits"] = grave.negativeTraits;
         if (!grave.skills.empty())
@@ -2348,9 +2363,48 @@ bool SaveManager::saveSurvivors(const std::vector<SurvivorRecord>& survivors)
         j["cooperation"] = s.cooperation;
         j["competence"] = s.competence;
         j["homeDistrictId"] = s.homeDistrictId;
+        j["id"] = s.id;
+        j["role"] = s.role;
+        j["partner"] = s.partner;
+        j["group"] = s.group;
+        j["outfit"] = s.outfit;
+        j["stayer"] = s.stayer;
+        j["retired"] = s.retired;
+        j["homeBuilding"] = s.homeBuilding;
+        j["homeX"] = s.homeX;
+        j["homeY"] = s.homeY;
+        j["trust"] = s.trust;
+        j["sleepDebt"] = s.sleepDebt;
+        j["health"] = s.health;
+        j["wounds"] = s.wounds;
+        j["companion"] = s.companion;
+        j["buried"] = s.buried;
+        j["helloDay"] = s.helloDay;
+        j["lastSeenDay"] = s.lastSeenDay;
+        j["met"] = s.met;
+        j["metRun"] = s.metRun;
+        j["homeKnown"] = s.homeKnown;
+        j["avoiding"] = s.avoiding;
+        j["angryDay"] = s.angryDay;
+        j["warnedHome"] = s.warnedHome;
+        j["ignoredHours"] = s.ignoredHours;
+        j["outDay"] = s.outDay;
+        j["told"] = s.told;
+        nlohmann::json stock = nlohmann::json::array();
+        for (const ContainerItemRecord& item : s.stock)
+        {
+            nlohmann::json ij;
+            ij["id"] = item.itemId;
+            ij["count"] = item.count;
+            if (item.condition < 1.0f) ij["condition"] = item.condition;
+            if (item.loaded > 0) ij["loaded"] = item.loaded;
+            stock.push_back(ij);
+        }
+        j["stock"] = stock;
         arr.push_back(j);
     }
     nlohmann::json root;
+    root["saveVersion"] = kCurrentSaveVersion;
     root["survivors"] = arr;
 
     const std::string text = root.dump(2);
@@ -2392,6 +2446,47 @@ std::vector<SurvivorRecord> SaveManager::loadSurvivors() const
             r.cooperation = sj.value("cooperation", 0.5f);
             r.competence = sj.value("competence", 0.5f);
             r.homeDistrictId = sj.value("homeDistrictId", 0);
+            // Version 4; a version 3 file has none of these and keeps the
+            // defaults (no home yet, nothing in stock, trust 0).
+            r.id = sj.value("id", static_cast<int>(result.size()));
+            r.role = sj.value("role", 0);
+            r.partner = sj.value("partner", -1);
+            r.group = sj.value("group", 0);
+            r.outfit = sj.value("outfit", r.id % 3);
+            r.stayer = sj.value("stayer", false);
+            r.retired = sj.value("retired", false);
+            r.homeBuilding = sj.value("homeBuilding", 0);
+            r.homeX = sj.value("homeX", -1);
+            r.homeY = sj.value("homeY", -1);
+            r.trust = std::clamp(sj.value("trust", 0.0f), -100.0f, 100.0f);
+            r.sleepDebt = sj.value("sleepDebt", 0.0f);
+            r.health = sj.value("health", 60.0f);
+            r.wounds = sj.value("wounds", 0);
+            r.companion = sj.value("companion", false);
+            r.buried = sj.value("buried", false);
+            r.helloDay = sj.value("helloDay", -1);
+            r.lastSeenDay = sj.value("lastSeenDay", 0);
+            r.met = sj.value("met", false);
+            r.metRun = sj.value("metRun", 0);
+            r.homeKnown = sj.value("homeKnown", false);
+            r.avoiding = sj.value("avoiding", false);
+            r.angryDay = sj.value("angryDay", -1);
+            r.warnedHome = sj.value("warnedHome", false);
+            r.ignoredHours = sj.value("ignoredHours", 0.0f);
+            r.outDay = sj.value("outDay", -1);
+            readStringList(sj, "told", r.told);
+            if (sj.contains("stock") && sj["stock"].is_array())
+            {
+                for (const auto& ij : sj["stock"])
+                {
+                    ContainerItemRecord item;
+                    item.itemId = ij.value("id", -1);
+                    item.count = ij.value("count", 0);
+                    item.condition = ij.value("condition", 1.0f);
+                    item.loaded = ij.value("loaded", 0);
+                    if (item.itemId >= 0 && item.count > 0) r.stock.push_back(item);
+                }
+            }
             result.push_back(r);
         }
     }

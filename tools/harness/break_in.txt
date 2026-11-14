@@ -6,6 +6,8 @@
 #   dead_pixel_survival.exe --script tools/harness/break_in.txt --hidden --world-seed 1234 --shots shots/break_in
 
 newrun
+# The player and the dead alone (survivors draw the dead and make noise).
+survivors gone
 god on
 waits 1
 slay 300

@@ -119,8 +119,10 @@ void Game::beginRetirementState(const std::string& customCause)
     mSaveManager.addCharacterHistoryRecord(history);
     addRunEndMemoryEvent(WorldMemoryEventType::RetirementPlaced, runIndex);
 
-    // They stay on in town as a survivor, keeping to themselves.
-    const glm::ivec2 retireTile = worldToTile(mTileMap, mDeathWorldPosition);
+    // They stay on in town as a survivor (phase 8): the base, or the house
+    // they stopped in, is home; their pack is their stock; they greet the
+    // bloodline at trust 50 and will teach what they knew.
+    const glm::ivec2 retireTile = worldToTile(mTileMap, mDeathWorldPosition + glm::vec2(kSpriteSize * 0.5f));
     SurvivorRecord retiree;
     retiree.name = mCurrentCharacterName;
     retiree.alive = true;
@@ -128,9 +130,33 @@ void Game::beginRetirementState(const std::string& customCause)
     retiree.x = mDeathWorldPosition.x;
     retiree.y = mDeathWorldPosition.y;
     retiree.aggression = 0.1f;
-    retiree.cooperation = 0.85f;
-    retiree.competence = std::clamp(0.3f + static_cast<float>(mCurrentDay) * 0.05f, 0.3f, 0.9f);
+    retiree.cooperation = 0.7f;
+    retiree.competence = 0.8f;
     retiree.homeDistrictId = mTileMap.getDistrictId(retireTile.x, retireTile.y);
+    retiree.role = static_cast<int>(survivorrules::Role::Retired);
+    retiree.retired = true;
+    retiree.outfit = static_cast<int>(mSurvivors.size() % 3);
+    retiree.trust = survivorrules::kBloodlineTrust;
+    retiree.met = true;
+    {
+        int home = mFirstDays.homeBuilding;
+        if (home <= 0 && mSaveManager.baseRecord().building > 0) home = mSaveManager.baseRecord().building;
+        const int here = mTileMap.getBuildingId(retireTile.x, retireTile.y);
+        if (here > 0 && mTileMap.isIndoors(retireTile.x, retireTile.y)) home = home > 0 ? home : here;
+        retiree.homeBuilding = std::max(0, home);
+        const glm::ivec2 tile = home > 0 ? homeTileOf(home) : retireTile;
+        retiree.homeX = tile.x;
+        retiree.homeY = tile.y;
+        retiree.homeKnown = home > 0;
+    }
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        for (const InventorySlot& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+        {
+            if (slot.itemId < 0 || slot.count <= 0) continue;
+            retiree.stock.push_back(ContainerItemRecord{slot.itemId, slot.count, slot.condition, slot.loaded});
+        }
+    }
 
     persistWorldForNextRun(runIndex, &retiree);
 
@@ -201,6 +227,10 @@ void Game::addRunEndMemoryEvent(WorldMemoryEventType type, int runIndex)
 // checkpoint is deleted (death is permanent; retirement ends the run).
 void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
 {
+    // The days this character lived pass for everyone else (phase 8): their
+    // stock falls, they empty cupboards near home, some of them die.
+    survivorsBetweenLives(std::max(1, mCurrentDay), retiree != nullptr);
+
     // What was built and set down lasts, a stage worse; windows stay as they
     // were left; and the house this life held is remembered.
     mSaveManager.saveStructures(structureRecords(true));
@@ -280,30 +310,13 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
     refreshContainerRecords();
     mSaveManager.saveWorldMemory();
 
+    // The town's people as they are now (already advanced), and the one who
+    // retired among them.
+    if (retiree != nullptr)
     {
-        std::vector<SurvivorRecord> survivorRecords;
-        mWorld.forEach<SurvivorAI, Transform, Health>(
-            [&](Entity, SurvivorAI& ai, Transform& t, Health& h)
-            {
-                SurvivorRecord sr;
-                sr.name = ai.name;
-                sr.alive = ai.alive && h.current > 0.0f;
-                sr.spawnDay = ai.spawnDay;
-                sr.deathDay = sr.alive ? 0 : mCurrentDay;
-                sr.x = t.x;
-                sr.y = t.y;
-                sr.hunger = ai.hunger;
-                sr.thirst = ai.thirst;
-                sr.aggression = ai.personality.aggression;
-                sr.cooperation = ai.personality.cooperation;
-                sr.competence = ai.personality.competence;
-                sr.homeDistrictId = ai.homeDistrictId;
-                survivorRecords.push_back(sr);
-            });
-        if (retiree != nullptr)
-        {
-            survivorRecords.push_back(*retiree);
-        }
-        mSaveManager.saveSurvivors(survivorRecords);
+        SurvivorRecord record = *retiree;
+        record.id = static_cast<int>(mSurvivors.size());
+        mSurvivors.push_back(record);
     }
+    mSaveManager.saveSurvivors(mSurvivors);
 }

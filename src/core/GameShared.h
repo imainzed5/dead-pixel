@@ -493,7 +493,7 @@ constexpr std::array<ControlBinding, 27> kControlBindings = {{
     {"RClick", "Take down (from behind)"},
     {"Space", "Shove / struggle"},
     {"G", "Throw (hold, aim)"},
-    {"E", "Interact, search; hold: push"},
+    {"E", "Interact, talk; hold: push"},
     {"R", "Board, tap, fill / reload"},
     {"X", "Pry, break up, force"},
     {"F", "Use, set down, snare, radio"},
@@ -528,7 +528,8 @@ struct ControlsLayout
 inline ControlsLayout computeControlsLayout(int windowWidth, int windowHeight)
 {
     ControlsLayout layout;
-    layout.columnWidth = 320.0f;
+    // Wide enough for the longest action at scale 2 (27 characters).
+    layout.columnWidth = std::min(440.0f, std::floor((static_cast<float>(windowWidth) - 64.0f) * 0.5f));
     layout.panelSize = glm::vec2(layout.columnWidth * 2.0f + 48.0f,
                                  64.0f + ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) + 20.0f);
     layout.panelPos = glm::vec2(

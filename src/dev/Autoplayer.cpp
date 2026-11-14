@@ -15,6 +15,7 @@
 #include "components/Needs.h"
 #include "components/Sleeping.h"
 #include "components/Stamina.h"
+#include "components/SurvivorAI.h"
 #include "components/Wounds.h"
 #include "components/Transform.h"
 #include "components/ZombieAI.h"
@@ -35,7 +36,15 @@ constexpr int kTapGapTicks = 8;     // a key goes up for a few ticks between pre
 constexpr int kStuckGameHours = 3;
 constexpr float kMinReach = 24.0f;  // a weapon reaching less than this (a broken knife) is not worth swinging
 constexpr float kRunUntilFatigue = 70.0f; // sprinting tires fast and only standing still undoes it
+constexpr float kHostileHomeTiles = 12.0f; // cupboards this near a hostile survivor's home are left alone
+constexpr float kHostileSeenTiles = 10.0f; // a hostile survivor in sight this near is walked away from
 
+// Someone living who would go for us on sight (phase 8): hostile by their
+// numbers, or turned on us today.
+bool hostileSurvivor(int today, const SurvivorAI& ai)
+{
+    return ai.alive && (ai.attitude == survivorrules::Attitude::Hostile || ai.angryDay == today);
+}
 
 bool isFood(const ItemDatabase& db, int itemId, float condition)
 {
@@ -645,6 +654,29 @@ bool Autoplayer::handleDanger(Game& game)
             const bool engaged = ai.state == ZombieState::Chase || ai.state == ZombieState::Attack;
             if (engaged && d <= 8.0f * kTile && inSight(c)) close.push_back(Near{e, c, d, ai.attackWindup > 0.0f, h.current});
         });
+    // Someone living who has turned on us, or would on sight (phase 8): run
+    // from them before they close, fight only when cornered. They carry
+    // knives and do not tire of it the way the dead do.
+    // At home one who is only watching is not run from (a neighbour at their
+    // window would drive us out into the night).
+    bool person = false;
+    const glm::ivec2 nowAt = playerTile(game);
+    const bool insideHome = game.mFirstDays.homeBuilding > 0 &&
+                            game.mTileMap.getBuildingId(nowAt.x, nowAt.y) == game.mFirstDays.homeBuilding;
+    game.mWorld.forEach<SurvivorAI, Transform, Health>(
+        [&](Entity e, SurvivorAI& ai, Transform& t, Health& h)
+        {
+            if (!ai.alive || h.current <= 0.0f) return;
+            const bool attacking = ai.state == SurvivorState::Attack;
+            if (!attacking && (insideHome || !hostileSurvivor(game.mCurrentDay, ai))) return;
+            const glm::vec2 c(t.x + 16.0f, t.y + 16.0f);
+            const float d = glm::length(c - here);
+            if (d <= (attacking ? 8.0f : kHostileSeenTiles) * kTile && inSight(c))
+            {
+                close.push_back(Near{e, c, d, false, h.current});
+                person = true;
+            }
+        });
     if (close.empty())
     {
         mFleeTicks = 0;
@@ -689,6 +721,7 @@ bool Autoplayer::handleDanger(Game& game)
         if (health.current < health.maximum * 0.35f) fleeAt = 1; // hurt: run from anything
     }
     if (heldWeaponScore(game) <= 0.0f) fleeAt = 1; // nothing that outreaches them: do not trade blows
+    if (person) fleeAt = 1;                          // someone living who means it: get away
     if (mTicks < mCorneredUntil) fleeAt = 1000;      // running did not work: stand and fight
     if (game.mWorld.hasComponent<Stamina>(game.mPlayerEntity) &&
         game.mWorld.getComponent<Stamina>(game.mPlayerEntity).current < 20.0f && close.size() >= 2)
@@ -1265,6 +1298,14 @@ bool Autoplayer::searchContainers(Game& game)
             {
                 if (h.current > 0.0f) dead.emplace_back((t.x + 16.0f) / kTile, (t.y + 16.0f) / kTile);
             });
+        // Where people who would go for us live (phase 8): their street is
+        // left alone.
+        std::vector<glm::vec2> hostileHomes;
+        game.mWorld.forEach<SurvivorAI>(
+            [&](Entity, SurvivorAI& ai)
+            {
+                if (hostileSurvivor(game.mCurrentDay, ai)) hostileHomes.emplace_back(ai.homeTile);
+            });
         const float clearance = mProfile == Profile::Careful ? 8.0f : mProfile == Profile::Bold ? 6.0f : 7.0f;
         const int crowd = mProfile == Profile::Bold ? 2 : 1;
         const auto crowded = [&](const glm::ivec2& tile)
@@ -1285,6 +1326,14 @@ bool Autoplayer::searchContainers(Game& game)
                 if (mSearched.count(Tile{tile.x, tile.y}) != 0 || mUnreachable.count(Tile{tile.x, tile.y}) != 0) return;
                 if (glm::length(glm::vec2(tile) - home) > range) return;
                 if (crowded(tile)) return;
+                // Not in a house someone lives in (phase 8): they warn you
+                // out, then go for you.
+                const int building = game.mTileMap.getBuildingId(tile.x, tile.y);
+                if (building != game.mFirstDays.homeBuilding && game.survivorLivesIn(building)) return;
+                for (const glm::vec2& h : hostileHomes)
+                {
+                    if (building != game.mFirstDays.homeBuilding && glm::length(glm::vec2(tile) - h) < kHostileHomeTiles) return;
+                }
                 if (!daytime && game.mTileMap.getBuildingId(tile.x, tile.y) != game.mFirstDays.homeBuilding) return;
                 const bool atHome = game.mTileMap.getBuildingId(tile.x, tile.y) == game.mFirstDays.homeBuilding;
                 if (stocked && !atHome) return; // enough put by: no need to go out
@@ -1454,7 +1503,9 @@ void Autoplayer::tick(Game& game)
     }
 
     // Panels this bot does not use get closed.
-    if (game.mShowCrafting || game.mShowWorldMap || game.mShowNotebook)
+    // So is talking: an E meant for a cupboard can open it when someone
+    // stands near (phase 8).
+    if (game.mShowCrafting || game.mShowWorldMap || game.mShowNotebook || game.mTalk.open)
     {
         tap(SDL_SCANCODE_ESCAPE);
         applyInput(game);

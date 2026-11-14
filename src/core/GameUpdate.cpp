@@ -54,6 +54,7 @@ void Game::update(float dtSeconds)
                 mShowInventory = false;
                 mShowCrafting = false;
                 mContainerOpen = false;
+                closeTalk();
             }
         }
 
@@ -65,6 +66,7 @@ void Game::update(float dtSeconds)
                 mShowInventory = false;
                 mShowCrafting = false;
                 mContainerOpen = false;
+                closeTalk();
             }
         }
 
@@ -158,7 +160,7 @@ void Game::update(float dtSeconds)
 
     // Knocked down by a Brute: no walking, no swinging, until you are up.
     // Eyes shut for a moment (a microsleep): nothing either.
-    if (playerAlive && !mShowCrafting && !mContainerOpen && !playerKnockedDown() && mMicrosleepLeft <= 0.0f)
+    if (playerAlive && !mShowCrafting && !mContainerOpen && !mTalk.open && !playerKnockedDown() && mMicrosleepLeft <= 0.0f)
     {
         mInputSystem.update(mWorld, mInput, mMouseWorld, feelDt);
     }
@@ -248,12 +250,9 @@ void Game::update(float dtSeconds)
 
     updateFire(dtSeconds, playerAlive, drivingVehicle);
 
-    // Survivor AI system
-    mSurvivorAISystem.update(mWorld, mTileMap, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay);
+    // The other people in town (GameSurvivors.cpp).
+    updateSurvivors(dtSeconds);
     holdSurvivorsFromFire();
-
-    // Survivor interaction system tick
-    mSurvivorInteractionSystem.update(mWorld, mPlayerEntity, dtSeconds);
 
     // District infection daily update
     mDistrictInfectionSystem.dailyUpdate(mWorld, mMapGenerator.layoutData(), mCurrentDay);
@@ -409,7 +408,8 @@ void Game::update(float dtSeconds)
 
     // Held by the dead, there is no reaching for anything.
     const bool heldNow = playerAlive && playerHeld();
-    if (playerAlive && !heldNow && !mShowCrafting && !mContainerOpen && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    if (playerAlive && !heldNow && !mShowCrafting && !mContainerOpen && !mTalk.open && !drivingVehicle &&
+        !mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         // Update proximity prompt for HUD display
         const ProximityPrompt prompt = mInteractionSystem.getProximityPrompt(mWorld, mPlayerEntity);
@@ -438,7 +438,9 @@ void Game::update(float dtSeconds)
             interceptedContainer = handleWindowInteraction(prompt);
             if (!interceptedContainer && windowInReach(prompt) == nullptr)
             {
-                interceptedContainer = handleFieldStructure(prompt);
+                // Someone close enough to talk to comes before the furniture.
+                interceptedContainer = talkToSurvivor();
+                if (!interceptedContainer) interceptedContainer = handleFieldStructure(prompt);
                 if (!interceptedContainer) interceptedContainer = handleBaseInteraction(prompt);
                 if (!interceptedContainer) interceptedContainer = handleFloorLamp(prompt);
                 if (!interceptedContainer) interceptedContainer = handleTapInteraction(prompt);
@@ -497,56 +499,11 @@ void Game::update(float dtSeconds)
         }
     }
 
-    // --- NPC Survivor Interaction Keybinds ---
-    if (playerAlive && !mShowCrafting && !drivingVehicle && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
+    // E with nothing else in reach: the nearest body on the ground.
+    if (playerAlive && !mShowCrafting && !drivingVehicle && !mTalk.open && !mWorld.hasComponent<Sleeping>(mPlayerEntity) &&
+        mInput.wasKeyPressed(SDL_SCANCODE_E) && mProximityPrompt.empty() && !mContainerOpen)
     {
-        // O key: observe nearest survivor
-        if (mInput.wasKeyPressed(SDL_SCANCODE_O))
-        {
-            auto result = mSurvivorInteractionSystem.tryObserve(mWorld, mPlayerEntity);
-            if (!result.message.empty())
-            {
-                mInteractionMessage = result.message;
-                mInteractionMessageTimer = 4.0f;
-            }
-        }
-
-        // E with nothing else in reach: approach the nearest survivor (G
-        // throws now).
-        if (mInput.wasKeyPressed(SDL_SCANCODE_E) && mProximityPrompt.empty() && !mContainerOpen &&
-            !searchNearestCorpse())
-        {
-            auto result = mSurvivorInteractionSystem.tryApproach(mWorld, mPlayerEntity);
-            if (!result.message.empty())
-            {
-                mInteractionMessage = result.message;
-                mInteractionMessageTimer = 4.0f;
-            }
-        }
-
-        // T key: trade with approached survivor (offers active hotbar slot)
-        if (mInput.wasKeyPressed(SDL_SCANCODE_T) &&
-            mSurvivorInteractionSystem.currentMode() == SurvivorInteractionMode::Approaching)
-        {
-            int slot = 0;
-            if (mWorld.hasComponent<Inventory>(mPlayerEntity))
-            {
-                slot = mWorld.getComponent<Inventory>(mPlayerEntity).activeSlot;
-            }
-            auto result = mSurvivorInteractionSystem.tryTrade(mWorld, mPlayerEntity, mItemDatabase, slot);
-            if (!result.message.empty())
-            {
-                mInteractionMessage = result.message;
-                mInteractionMessageTimer = 4.0f;
-            }
-
-            if (result.tradeAccepted && mWorld.hasComponent<MentalState>(mPlayerEntity))
-            {
-                MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-                mental.depression = std::max(0.0f, mental.depression - result.depressionRelief);
-                mental.panic = std::max(0.0f, mental.panic - result.panicRelief);
-            }
-        }
+        (void)searchNearestCorpse();
     }
 
     // Held, throwing, reloading, clocks and flares, things in flight.
@@ -560,7 +517,7 @@ void Game::update(float dtSeconds)
         ? mWorld.getComponent<Combat>(mPlayerEntity).phase
         : AttackPhase::Idle;
 
-    if (!mShowCrafting && !mContainerOpen && !drivingVehicle && !mBuildWheelOpen && mBuildChoice < 0 &&
+    if (!mShowCrafting && !mContainerOpen && !mTalk.open && !drivingVehicle && !mBuildWheelOpen && mBuildChoice < 0 &&
         mBaseAction.kind == BaseAction::Kind::None && !playerKnockedDown())
     {
         mCombatSystem.update(mWorld, mInput, mTileMap, mNoiseModel, feelDt);
@@ -907,6 +864,8 @@ void Game::updateSleep(float dtSeconds)
             }
             // Thunder makes for poor sleep (phase 7).
             sleeping.quality = std::clamp(sleeping.quality + weatherrules::sleepQualityShift(mWeatherState.condition), 0.1f, 1.0f);
+            // Someone keeping watch (phase 8).
+            if (companionNear(6.0f)) sleeping.quality = std::min(1.0f, sleeping.quality + 0.1f);
         }
         constexpr float kSleepTimeMultiplier = 8.0f;
         constexpr float kSleepWakeRange = 160.0f;
@@ -966,6 +925,8 @@ void Game::updateSleep(float dtSeconds)
         {
             wakeRange *= traitrules::wakeRangeScale(mWorld.getComponent<Traits>(mPlayerEntity));
         }
+        // A companion on watch wakes you while they are still further off.
+        if (companionNear(6.0f)) wakeRange += 3.0f * static_cast<float>(mTileMap.tileWidth());
         if (mWorld.hasComponent<Transform>(mPlayerEntity))
         {
             const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
@@ -1022,6 +983,14 @@ void Game::updateSleep(float dtSeconds)
                 }
             }
             mInteractionMessageTimer = 3.0f;
+            // Robbed in the night: you find out when you wake.
+            if (mRobbedAsleep)
+            {
+                mRobbedAsleep = false;
+                mInteractionMessage = "Someone has been here. Food and water gone from your pack.";
+                mInteractionMessageTimer = 5.0f;
+                addPanic(10.0f);
+            }
             mWorld.removeComponent<Sleeping>(mPlayerEntity);
         }
     }
@@ -1455,22 +1424,58 @@ void Game::updateAnimations(float dtSeconds)
             }
         });
 
-    // Survivors walk like the player and face where they go.
+    // Survivors: their own clothes, what they hold, and where they go.
     mWorld.forEach<SurvivorAI, Animation, Velocity, Sprite>(
         [&](Entity, SurvivorAI& ai, Animation& anim, Velocity& vel, Sprite& sprite)
         {
-            if (ai.state == SurvivorState::Dead)
+            const std::string set = "surv" + std::to_string(((ai.outfit % 3) + 3) % 3);
+            if (mSpriteSheet.frameCount(set + "_none_idle_se") <= 0)
             {
-                playAnimation(anim, std::string("player_death") + viewSuffix(anim.dir), 0.085f, false);
+                // An older sheet: the player's frames.
+                const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 4.0f;
+                if (moving) face(anim, sprite, glm::vec2(vel.dx, vel.dy));
+                playAnimation(anim, std::string(ai.alive ? (moving ? "player_none_walk" : "player_none_idle") : "player_death") +
+                                        viewSuffix(anim.dir),
+                              moving ? 0.085f : 0.55f, ai.alive);
                 return;
             }
-            const bool moving = vel.dx * vel.dx + vel.dy * vel.dy > 4.0f;
-            if (moving)
+            const std::string view = viewSuffix(anim.dir);
+            if (!ai.alive || ai.state == SurvivorState::Dead)
+            {
+                playAnimation(anim, set + "_death" + view, 0.085f, false);
+                return;
+            }
+            if (ai.state == SurvivorState::Sleep && ai.actionTimer > 0.0f)
+            {
+                showFrame(anim, set + "_sleep" + view, 0);
+                return;
+            }
+            static const char* const kLoads[4] = {"_none", "_club", "_blade", "_gun"};
+            const std::string load = kLoads[std::clamp(ai.loadout, 0, 3)];
+            if (ai.swingTimer > 0.0f)
+            {
+                if (glm::length(ai.faceTo) > 0.01f) face(anim, sprite, ai.faceTo);
+                const char* move = ai.shooting ? "_shoot" : ai.loadout == 2 ? "_stab" : ai.loadout == 0 ? "_punch" : "_swing";
+                const float total = ai.shooting ? 0.3f : 0.4f;
+                const std::string name = set + move + view;
+                showFrame(anim, name, partFrame(ai.swingTimer, total, std::max(1, mSpriteSheet.frameCount(name))));
+                return;
+            }
+            if (ai.hurtFlash > 0.0f)
+            {
+                showFrame(anim, set + load + "_hurt" + view, 0);
+                return;
+            }
+            const float speed2 = vel.dx * vel.dx + vel.dy * vel.dy;
+            if (speed2 > 4.0f)
             {
                 face(anim, sprite, glm::vec2(vel.dx, vel.dy));
+                const bool running = speed2 > 120.0f * 120.0f;
+                playAnimation(anim, set + load + (running ? "_run" : "_walk") + viewSuffix(anim.dir), running ? 0.075f : 0.085f);
+                return;
             }
-            playAnimation(anim, std::string(moving ? "player_none_walk" : "player_none_idle") + viewSuffix(anim.dir),
-                          moving ? 0.085f : 0.55f);
+            if (glm::length(ai.faceTo) > 0.01f) face(anim, sprite, ai.faceTo);
+            playAnimation(anim, set + load + "_idle" + viewSuffix(anim.dir), 0.55f);
         });
 
     mAnimationSystem.update(mWorld, mSpriteSheet, dtSeconds);

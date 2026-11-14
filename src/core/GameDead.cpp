@@ -91,6 +91,7 @@ void Game::resetDead()
     mHobbleTimer = 0.0f;
     mLastBlowKind = ZombieKind::Shambler;
     mLastBlowFollower = false;
+    mLastBlowBy.clear();
     mThunderTimer = 60.0f;
     mRainStoppedTimer = 0.0f;
     mWasRaining = false;
@@ -885,6 +886,8 @@ std::string Game::zombieDeathCause()
     // What did it, so a death reads differently by mode: a crowd that closed
     // in, the one that followed you, or a kind of its own. Every phrase keeps
     // a word the legacy reads as "will rise" (zombie, bitten, overrun).
+    // A person's blow last (phase 8): they killed you, and you stay down.
+    if (!mLastBlowBy.empty()) return "Killed by " + mLastBlowBy;
     int near = 0;
     const glm::vec2 player = playerWorldCenter();
     const float tile = static_cast<float>(std::max(1, mTileMap.tileWidth()));
@@ -921,6 +924,7 @@ void Game::applyPlayerBlows()
     const bool pinned = playerHeld(); // a bite while held does not throw you clear
     for (const PlayerBlow& blow : mPlayerBlows)
     {
+        mLastBlowBy.clear();
         mLastBlowKind = blow.kind;
         mLastBlowFollower = blow.follower;
         const float push = blow.knockdownSeconds > 0.0f ? 340.0f : 230.0f;

@@ -63,6 +63,7 @@ void Game::updateFighting(float dtSeconds, bool playerAlive, bool drivingVehicle
         mShowCrafting = false;
         mShowInventory = false;
         if (mContainerOpen) closeContainer();
+        if (mTalk.open) closeTalk();
     }
 
     // A wound clock still in the pack.
@@ -84,7 +85,7 @@ void Game::updateFighting(float dtSeconds, bool playerAlive, bool drivingVehicle
     }
 
     // G: hold to aim a throw at the cursor, let go to throw.
-    const bool canAct = playerAlive && !drivingVehicle && !held && !mShowCrafting && !mContainerOpen &&
+    const bool canAct = playerAlive && !drivingVehicle && !held && !mShowCrafting && !mContainerOpen && !mTalk.open &&
                         mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity) &&
                         !mWorld.hasComponent<Sleeping>(mPlayerEntity);
     if (canAct)

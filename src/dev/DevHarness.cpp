@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <set>
 #include <sstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -26,6 +27,7 @@
 #include "components/MentalState.h"
 #include "components/Needs.h"
 #include "components/Stamina.h"
+#include "components/SurvivorAI.h"
 #include "components/Traits.h"
 #include "components/Wounds.h"
 #include "components/Transform.h"
@@ -276,7 +278,10 @@ void DevHarness::beforeTickInner(Game& game)
                   << "), containers searched " << mBot.containersSearched() << '\n';
     }
 
-    while (mWaitRemaining == 0 && mPc < mCommands.size() && !mFinished && !mBot.running())
+    // `waitfor`: the script holds until the condition does (or time runs out).
+    if (mWaitRemaining == 0 && waitingFor(game)) return;
+
+    while (mWaitRemaining == 0 && mPc < mCommands.size() && !mFinished && !mBot.running() && mWaitFor.args.empty())
     {
         execute(game, mCommands[mPc++]);
     }
@@ -349,6 +354,9 @@ void DevHarness::execute(Game& game, const Command& command)
         }
         return true;
     };
+
+    // The other people in town (DevHarnessSurvivors.cpp).
+    if (survivorCommand(game, command)) return;
 
     if (op == "wait")
     {
@@ -3477,6 +3485,20 @@ void DevHarness::writeMetricsRow(Game& game)
     for (const auto& window : game.mWindows.all())
     {
         boards += game.mWindows.boards(window.spot.tile);
+    }
+    // ...but not the survivors' own (phase 8): the column is the player's work.
+    {
+        std::set<int> homes;
+        world.forEach<SurvivorAI>([&](Entity, SurvivorAI& ai)
+                                  { if (ai.homeBuilding > 0 && ai.homeBuilding != game.mFirstDays.homeBuilding) homes.insert(ai.homeBuilding); });
+        for (const int building : homes)
+        {
+            for (const Game::WayIn& way : game.waysIn(building))
+            {
+                boards -= way.window ? game.mWindows.boards(way.tile) : game.mTileMap.doorBoards(way.tile.x, way.tile.y);
+            }
+        }
+        boards = std::max(0, boards);
     }
     bool atHome = false;
     if (hasPlayer && game.mFirstDays.homeBuilding > 0)

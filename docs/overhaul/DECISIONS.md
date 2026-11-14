@@ -540,6 +540,112 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
 - 2026-11-14, P07: a frozen pond's prompt -> "R: Break the ice, fill
   bottles (dirty)"; without an axe or hammer R says "The pond is frozen.
   An axe or a hammer would break the ice."
+- 2026-11-14, P08: a survivor's stock -> their own `Inventory` (the
+  record's `stock` when far or between lives), so trade, robbery, "Carry
+  this" and a body's loot all use the container code. No separate store.
+- 2026-11-14, P08: water -> a survivor not travelling with you drinks from
+  their house's tap (or rain barrel) when they have no bottle, so water
+  never sets their stock days or kills them; food does. Thirst killed
+  every survivor between lives in the first runs of `advance`.
+- 2026-11-14, P08: between lives -> one meal a day from stock, else a
+  forage roll (20 % + 40 % x competence); a loot trip when food is under
+  the low-stock line; death from hunger only after 6 days without food and
+  none left. Without the forage roll half the town starved in ten days,
+  which reads as a bug, not a world.
+- 2026-11-14, P08: going out for supplies -> once a game day, near or far,
+  and a trip cut short by the dead counts as that day's. Near survivors
+  otherwise stripped the cupboards round the player faster than the
+  between-lives rule does elsewhere.
+- 2026-11-14, P08: the dead and survivors out of sight -> a survivor beyond
+  the near radius (simulated an hour at a time) is not in the dead's grid,
+  and the dead see a survivor at 0.6 of their sight. A setup with the
+  houses' own dead cleared from lived-in homes. Before this, 5 of 12 died
+  in the first 10 hours with nobody near them; now about 1.
+- 2026-11-14, P08: health -> survivors mend 1 an hour when fed and watered
+  (3 asleep or far), as the player's slow mending; otherwise one bite
+  stayed with them for the whole life.
+- 2026-11-14, P08: Fortify -> every door but one is boarded (they still
+  come and go; they do not climb through windows), then the windows. A
+  house with one door gets its windows boarded. Planks and two nails a
+  board, as the player.
+- 2026-11-14, P08: "they climb windows" -> not built: survivors path
+  through doors only (open, close, shut behind them; a locked door stops
+  them). The shared A* (`Pathfinder`, the living mover) has no window
+  edges; a window route is "Later".
+- 2026-11-14, P08: where survivors go -> containers within 40 tiles of
+  home, never in a lived-in house, the player's home or base, an armoury
+  or a building with a locked door (no keys, no crowbar); one they could
+  not reach is skipped for the life. A locked door on the path made them
+  walk into it for ever.
+- 2026-11-14, P08: a companion and the dead at your side -> a companion
+  also fights one of the dead within 3 tiles of you when they are within 8
+  tiles of you, not only one on themselves; otherwise they watched you
+  being held.
+- 2026-11-14, P08: someone talking to you stands still (unless they are
+  fleeing or fighting), so the panel does not close as they walk off.
+- 2026-11-14, P08: a companion's grave -> a legacy grave with
+  `travelledWith` set; it is not a life of the bloodline (not counted in
+  "N came before you"), keeps no journal page, and the card and map list it
+  like any grave. Their pack lies by it.
+- 2026-11-14, P08: the notebook's "Who is out there" -> a section of the
+  one notebook page (tabs are P10's): up to five, living first; met by an
+  earlier life reads "Someone wrote: NAME, WHERE. STANDING." A record keeps
+  `metRun` for that (no version bump: it defaults to 0).
+- 2026-11-14, P08: the map's mark for a known home -> a small code-drawn
+  house in pale green with the name, and "Someone lives here" in the
+  legend when one shows.
+- 2026-11-14, P08: harness additions -> `survivor ...` (with `house`,
+  `crowd`, `dead`, `fill`), `survivors`, `goto survivor`, `goto open N`,
+  `set trust`, `set shunger`, `talk`, `trade`, `advance DAYS [apply]`,
+  `waitfor SECONDS survivor COND`, and the survivor, talk, card and advance
+  checks (README). `survivor fill` keeps that container for the focus:
+  everyone else skips it, or another survivor emptied it first.
+- 2026-11-14, P08: older scripts that test the player and the dead alone
+  (`break_in`, `windows`, `mind`) start with `survivors gone`: the town's
+  people now draw the dead (noise, prey) and make noise, so "the dead stay
+  calm" and "no noise was made" no longer held with Dev and Hana or Viktor
+  in earshot. `fighting` waits for the hold (`waitfor 10 held`) instead of
+  4.5 s: whether a lunge from the front claws or grabs (55/45) follows the
+  zombie's entity number, which the survivors shifted. `guns` expects 6
+  and 8 kills, not 8 and 10: `slay` finds five of the dead, not seven, now
+  that lived-in houses are cleared of theirs.
+- 2026-11-14, P08: the dead cleared from lived-in homes at setup -> never an
+  earlier life's risen (the legacy's own); a retiree's home held one in
+  `legacy.txt`, and it vanished.
+- 2026-11-14, P08: the Controls panel's columns -> 440 px (at most half the
+  window less margins), so "Use, set down, snare, radio" and the others no
+  longer run into the second column; no keys were added or taken away (O
+  and T were already gone; E now says "Interact, talk; hold: push").
+- 2026-11-14, P08: the bot -> it leaves alone the cupboards of a house
+  someone lives in (it walked in, was warned out, kept searching and was
+  killed by the owner: six of ten soak lives ended on day 1 with no kills),
+  leaves alone cupboards within 12 tiles of a hostile one's home, and runs
+  from a hostile survivor in sight within 10 tiles (or one going for it
+  within 8), fighting only when cornered; at home it does not run from one
+  only watching. It does not talk or trade.
+- 2026-11-14, P08: survivors and sight -> a hostile survivor goes for you
+  only along the dead's line of sight (walls; glass only so far), and
+  shoots only along a clear line; before, the one with the pistol shot
+  the bot through a wall from seven tiles.
+- 2026-11-14, P08: the garage and the start -> the two hostile ones are
+  never cast within 20 tiles of where the first life starts while a garage
+  or house away from it is free (`HomeChoice::nearStart`), and a later life
+  does not start within 20 tiles of a hostile household (aggression over
+  0.7, or the garage) while another house is free. In two soak seeds they
+  lived 12 and 16 tiles from the start and killed the bot on day 1; they are
+  somewhere to learn to avoid, not the neighbours on the first morning.
+- 2026-11-14, P08: the metrics' `boards_up` -> boards on the survivors'
+  own homes are not counted (it is the player's work; their Fortify put it
+  from 13 to 72 in the first soak).
+- 2026-11-14, P08: a death by a survivor's blow -> the cause reads "Killed
+  by NAME" (it read "Killed by zombies"); without a zombie word in it the
+  character stays down.
+- 2026-11-14, P08: the perf check -> appended to `perf.txt` (20 survivors
+  and 100 of the dead by day, after the 300 at night), not a new script.
+- 2026-11-14, P08: `companion.txt` -> the companion fights bare-handed and
+  is left waiting for the Brute; with a bat at the player's side they
+  killed the Brute without a scratch (they fight by their numbers, which
+  are phase 14's to weigh).
 
 ## Moved to "Later"
 
@@ -581,6 +687,12 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   distant thunder before a storm waits for P12's sounds (the darker sky
   and the cloud and wind warnings are in).
 
+- 2026-11-14, P08: groups that move home when their district is overrun,
+  and survivors at your door at night asking in (the phase's own
+  "Later"); survivors climbing through windows (see above); the town map's
+  "blue house by the diner" descriptions (the notebook says the building
+  kind, distance and direction).
+
 ## Balance: needs a design change
 
 - 2026-11-13, P01: the soak baseline. After the bot's second pass it lives
@@ -618,6 +730,19 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   - Boards come down and are not put back: on seed 1 three boards were up
     at 17:00 on day 1 and none by 23:00, and the bot did not board again.
   See `docs/revival_plan.md` ("Overhaul phase 6").
+
+- 2026-11-14, P08: the bot lives shorter with the town's people in it:
+  median 1.3 days, mean 1.5 (phase 7: 1.7, 2.0); the same build with the
+  survivors taken away (`survivors gone`) gives 1.8 and 1.8. Two of ten
+  lives end within the hour after one from the garage went for the bot
+  (seed 9: two pistol shots from full health; seed 8: with twelve of the
+  dead round it too). The player's own pistol, 55 a shot, takes a
+  character from full health to dead in two shots about a second and a
+  half apart, and the garage goes out for supplies across the town. Not
+  retuned (lethality is phase 14's);
+  a gun in a survivor's hand doing less to people than to the dead, or
+  warning shots first, are the levers. See `docs/revival_plan.md`
+  ("Overhaul phase 8").
 
 ## Ideas, not built
 

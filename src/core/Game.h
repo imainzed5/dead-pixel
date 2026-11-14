@@ -74,8 +74,7 @@
 #include "systems/WoundSystem.h"
 #include "systems/HallucinationSystem.h"
 #include "systems/ZombieAISystem.h"
-#include "systems/SurvivorAISystem.h"
-#include "systems/SurvivorInteractionSystem.h"
+#include "systems/SurvivorBrain.h"
 #include "systems/WeatherSystem.h"
 #include "systems/FireSystem.h"
 #include "systems/Atmosphere.h"
@@ -605,6 +604,7 @@ private:
     void recordTheDead(RunCheckpoint& cp); // the dead, bodies and blood into a checkpoint
     [[nodiscard]] std::string zombieDeathCause();
     ZombieKind mLastBlowKind = ZombieKind::Shambler;
+    std::string mLastBlowBy; // a survivor's blow last: "Killed by NAME" (phase 8)
     bool mLastBlowFollower = false;
     void buildRuinMarks();   // litter, smears and bodies by each district's ruin level
     void drawBloodTrail();
@@ -708,8 +708,7 @@ private:
     float mShoveArcAngle = 0.0f;
     glm::vec2 mLastThrowLanding{-1.0f};    // for the harness
     bool mHeldZoomed = false;              // the view pulled in while held
-    SurvivorAISystem mSurvivorAISystem;
-    SurvivorInteractionSystem mSurvivorInteractionSystem;
+    SurvivorBrain mSurvivorBrain;
     WeatherSystem mWeatherSystem;
     DistrictInfectionSystem mDistrictInfectionSystem;
     ThreatDirectorSystem mThreatDirector;
@@ -1068,4 +1067,106 @@ private:
     double mFpsTimer = 0.0;
     int mFramesThisSecond = 0;
     float mInterpolationAlpha = 1.0f;
+
+    // --- The other people in town (phase 8, GameSurvivors.cpp) ---
+    // Every survivor the world has (alive and dead), as the survivors file
+    // keeps them; the entity of a live one carries SurvivorAI::id = index.
+    std::vector<SurvivorRecord> mSurvivors;
+    // assets/data/survivor_lines.json: pools of lines by situation.
+    std::unordered_map<std::string, std::vector<std::string>> mSurvivorLines;
+    class SurvivorHooks;
+    friend class SurvivorHooks;
+    // The talk panel (E on a person) and its trade view.
+    struct TalkState
+    {
+        bool open = false;
+        Entity who = kInvalidEntity;
+        int cursor = 0;
+        std::string line;          // what they said last
+        enum class View
+        {
+            Talk,
+            Trade,
+            Give
+        } view = View::Talk;
+        bool packSide = true;      // trade: the cursor is in your pack
+        int packCursor = 0;
+        int theirCursor = 0;
+        std::vector<int> offer;    // trade: per pack slot, how many you put in
+        std::vector<int> ask;      // trade: per stock slot, how many you ask for
+    } mTalk;
+    float mSinceWeaponOut = 99.0f;   // seconds since a swing, or a gun in hand
+    bool mRobbedAsleep = false;      // "Someone has been here." on waking
+    float mSurvivorSmokeTimer = 0.0f;
+    std::vector<int> mLitHomes;      // buildings with a survivor's lamp lit (this tick)
+    // The town's cupboards as survivors see them: where each stands, and
+    // where to stand to search it.
+    struct SurvivorContainer
+    {
+        Entity entity = kInvalidEntity;
+        glm::ivec2 tile{0};
+        glm::ivec2 stand{-1};
+        int building = 0;
+    };
+    std::vector<SurvivorContainer> mSurvivorContainers;
+    std::unordered_map<int, std::vector<glm::ivec2>> mSurvivorHomeDoors; // doors to the outside, by building
+    std::vector<Entity> mTheftNoted; // containers already counted as theft this life
+    void buildSurvivorContainers();
+    [[nodiscard]] const std::vector<glm::ivec2>& survivorHomeDoors(int building);
+    // The container a survivor would go to next (the harness fills it).
+    [[nodiscard]] Entity survivorNextContainer(Entity survivor);
+    // A way into the building a survivor living there would board.
+    [[nodiscard]] bool survivorCouldBoard(int building);
+    [[nodiscard]] std::vector<survivorrules::StockLine> survivorStockLines(Entity survivor) const;
+    // The rules' advance of everyone alive over `days`; `apply` writes it
+    // into the records and the containers (else a dry run, for the harness).
+    survivorrules::BetweenLivesResult advanceSurvivors(int days, bool apply);
+    // A container emptied by a survivor: remembered as searched.
+    void markSearchedBySurvivor(const glm::ivec2& tile);
+
+    void loadSurvivorLines(const std::filesystem::path& assetsRoot);
+    [[nodiscard]] const std::string& survivorLine(const std::string& pool, const std::string& name, std::uint32_t salt) const;
+    // Before the start is chosen: the records, and never a start in someone's house.
+    void loadSurvivorRecords();
+    void avoidSurvivorHomes();
+    // In setupScene: cast the town's people once (world creation), find
+    // homes for any without one (an old save), and put them in the world.
+    void setupSurvivors();
+    void castSurvivors();
+    void giveSurvivorHome(SurvivorRecord& record, std::vector<int>& taken);
+    Entity spawnSurvivor(std::size_t index);
+    [[nodiscard]] Entity survivorEntity(int id) const;
+    [[nodiscard]] Entity companionEntity() const;
+    [[nodiscard]] bool survivorLivesIn(int building) const;
+    [[nodiscard]] glm::ivec2 homeTileOf(int building) const;
+    // The brain, then what the game makes of it: deaths, the companion,
+    // weapons drawn, trespass, robbery, being seen.
+    void updateSurvivors(float dtSeconds);
+    void onSurvivorDeath(Entity survivor);
+    void survivorSays(Entity survivor, const std::string& pool, std::uint32_t salt = 0);
+    // The live survivors back into their records, and the file written.
+    void syncSurvivorRecords();
+    void saveSurvivorRecords();
+    // At a run's end: the days the dead character lived pass for everyone.
+    void survivorsBetweenLives(int days, bool retired);
+    // Taking from a container in someone's house is theft.
+    void noteTakenFrom(Entity container);
+    // A companion close by (for sleep and company).
+    [[nodiscard]] bool companionNear(float tiles) const;
+    // E with nothing else in reach: talk to the person nearest, or search
+    // a body. True when it did something.
+    bool talkToSurvivor();
+    void openTalk(Entity survivor);
+    void closeTalk();
+    void handleTalkInput();
+    void talkChoose(int choice);
+    [[nodiscard]] std::vector<std::string> talkChoices() const;
+    void tradeAgree();
+    void renderTalkPanel();
+    void renderSurvivorSay();
+    [[nodiscard]] std::string survivorSeems(Entity survivor) const;
+    [[nodiscard]] float survivorWorth(Entity survivor, int itemId) const;
+    [[nodiscard]] std::vector<int> survivorSpare(Entity survivor) const;
+    [[nodiscard]] std::string survivorLead(Entity survivor);
+    void updateSurvivorSmoke(float dtSeconds);
 };

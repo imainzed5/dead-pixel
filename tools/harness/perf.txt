@@ -1,5 +1,6 @@
 # The dead in numbers (phase 4): 300 of them around the player, 600 ticks
-# timed. Average tick under 4 ms, worst under 12 ms (Release build).
+# timed. Average tick under 4 ms, worst under 12 ms (Release build). Then
+# 20 survivors and 100 of the dead, the same budget.
 # Run in a fresh directory:
 #   dead_pixel_survival.exe --script tools/harness/perf.txt --hidden --world-seed 1234 --shots shots/perf
 
@@ -14,4 +15,17 @@ waits 2
 shot perf_crowd
 waits 9
 expect perf 4 12
+
+# The living too (phase 8): 20 survivors around the player, by day, and
+# 100 of the dead.
+slay 400
+hours 12
+survivor crowd 20
+waits 1
+perf 100
+waits 2
+shot perf_survivors
+waits 9
+expect perf 4 12
+survivors
 quit

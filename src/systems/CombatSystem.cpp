@@ -17,6 +17,7 @@
 #include "components/MentalState.h"
 #include "components/PlayerInput.h"
 #include "components/Stamina.h"
+#include "components/SurvivorAI.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
 #include "components/ZombieAI.h"
@@ -849,6 +850,26 @@ void CombatSystem::resolveSwing(World& world, const TileMap& tileMap, NoiseModel
                     stuck = true;
                 }
             });
+
+        // People (phase 8): a swing meets them as it meets the dead, all but
+        // the one travelling with you. The game decides what it means.
+        if (combat.stompTarget == kInvalidEntity)
+        {
+            world.forEach<SurvivorAI, Transform, Velocity, Health>(
+                [&](Entity, SurvivorAI& ai, Transform& st, Velocity& sv, Health& sh)
+                {
+                    if (!ai.alive || ai.companion || sh.current <= 0.0f) return;
+                    const glm::vec2 centre = entityCenter(st);
+                    if (!isPointInsideArc(playerCenter, facingRadians, arcDegrees, rangePixels, centre)) return;
+                    if (wallBetween(tileMap, playerCenter, centre)) return;
+                    sh.current = std::max(0.0f, sh.current - damage);
+                    ai.playerDamage += damage;
+                    const glm::vec2 push = unitOr(centre - playerCenter, glm::vec2(1.0f, 0.0f)) * knockback * 4.0f;
+                    sv.dx = push.x;
+                    sv.dy = push.y;
+                    ++combat.lastHitCount;
+                });
+        }
     }
 
     // What the swing met decides the wear: flesh 1, air nothing, a wall 2.
@@ -981,6 +1002,31 @@ void CombatSystem::resolveShot(World& world, const TileMap& tileMap, NoiseModel&
             if (hit != kInvalidEntity)
             {
                 end = point;
+                break;
+            }
+            // People (phase 8), all but the one travelling with you.
+            Entity person = kInvalidEntity;
+            world.forEach<SurvivorAI, Transform, Health>(
+                [&](Entity se, SurvivorAI& ai, Transform& st, Health& h)
+                {
+                    if (!ai.alive || ai.companion || h.current <= 0.0f) return;
+                    const float d = glm::length(entityCenter(st) - point);
+                    if (d < best)
+                    {
+                        best = d;
+                        person = se;
+                    }
+                });
+            if (person != kInvalidEntity)
+            {
+                end = point;
+                const float distance = glm::length(point - playerCenter);
+                const float damage = pellets > 1 ? effectiveDamage(combat)
+                                                 : combatrules::bulletDamage(effectiveDamage(combat), distance, tile);
+                Health& h = world.getComponent<Health>(person);
+                h.current = std::max(0.0f, h.current - damage);
+                world.getComponent<SurvivorAI>(person).playerDamage += damage;
+                ++combat.lastHitCount;
                 break;
             }
         }

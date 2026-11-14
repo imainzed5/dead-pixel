@@ -1156,6 +1156,100 @@ kills 42 to 29), and seed 2 put up no boards (phase 6: 1); the weather
 now rolls differently and changes what the dead hear and see, so single
 seeds move. First infection death in these tables (seed 10).
 
+## Overhaul phase 8: survivors (2026-11-14)
+
+Twelve people (twenty in Infected Society) cast once with the world
+(`src/world/SurvivorRules`, pure and tested): six loners, two pairs who
+share a house (one keeps it while the other goes out) and the two at the
+garage, hostile, one with a pistol. Each has aggression, cooperation and
+competence, a home, a stock (their own `Inventory`) and trust toward the
+player; attitude (open, wary, hostile) comes from the numbers and
+desperation. They are world memory in the survivors file (save version 4,
+version 3 files migrate: homes found, empty stock, trust 0). The old
+survivor systems are gone; `src/systems/SurvivorBrain` is a utility AI:
+within 60 tiles every survivor scores flee, fight, eat, sleep, scavenge,
+fortify, tend, watch and idle every two seconds and walks the winner
+through doors (closing them behind), with the dead hunting them, noise,
+blood and footprints; further off they live an hour at a time on the same
+rule as between lives (upkeep, a loot trip that really empties the
+containers near home, a chance of a wound or death). Between lives
+`advanceBetweenLives` does the same for the days the last character
+lived, deterministic from the world seed and life number.
+
+Meeting them is one key: E on a survivor opens the talk panel (docked
+right, bare hands): say hello (trust, and a line keyed to what they know,
+which is how leads are handed out), trade, give, ask them along, leave.
+Trade weighs worth by need (`value` in `items.json`, food x2 to the hungry,
+medicine x3 to the hurt) with a "They want more / Fair / Generous" bar.
+A drawn weapon makes the wary say "Put it down."; walking into someone's
+home earns one "Out." and then a fight; taking from their cupboards is
+theft; the desperate rob a sleeping or turned back. A companion follows,
+waits, comes, fights beside you, carries 15 kg, eats from their pack and
+then asks, keeps watch at your base, can make it their home, and leaves a
+named grave the next life's card lists. Retired characters join the town
+and greet the bloodline. The notebook gains "Who is out there" (living
+first; an earlier life's entries read "Someone wrote: ..."), the map marks
+known homes, and a lived-in house sends up a thin column of smoke at meal
+times. Everything they say is in `assets/data/survivor_lines.json`,
+eight lines a situation.
+
+Harness: `survivors` (a survivor short of food walks out, searches the
+filled box, carries it home, stocks 4; eats when hungry; flees three of
+the dead home and shuts the door; boards a door of a two-door warehouse;
+`advance 10` lowers stocks, empties containers near homes and gives the
+same fingerprint twice), `trade` (talk and trade panels at 1280x720; a
+hungry survivor takes one can for two bandages, trust 23 to 28; the
+notebook and map shots), `companion` (follows, waits, comes, kills the
+dead holding the player; killed by a Brute, "Ana's grave" on the next
+life's card). `perf` adds 20 survivors and 100 of the dead by day: 0.84 ms
+a tick on average, 1.5 ms worst; 300 of the dead: 1.55 ms and 3.5 ms
+(budget 4 and 12). All 46 scripts pass (48 runs, each in a fresh
+directory, on the final build), 261 unit tests pass, clean rebuild
+without warnings. Older scripts that test the player and the dead alone
+(`break_in`, `windows`, `mind`) now start with `survivors gone`, `fighting`
+waits for the grab (`waitfor 10 held`) and `guns` expects two fewer slain
+(the dead are cleared from the survivors' homes); see `DECISIONS.md`.
+
+Changes the soak forced: the first soak (median 0.1 days) found the bot
+searching a lived-in house, being warned out and killed by the owner
+(reported as "Killed by zombies"). The bot now leaves lived-in houses and
+the streets round a hostile home alone and runs from a hostile survivor
+in sight; a death by a survivor's blow reads "Killed by NAME"; hostile
+survivors go for you and shoot only along a line of sight (the pistol had
+fired through a wall); the garage is never cast within 20 tiles of the
+first life's start (seeds 8 and 10 had them at 16 and 12 tiles), and a
+later life does not start that near a hostile household. The metrics'
+boards no longer count the survivors' own (their Fortify had put the
+column from 13 to 72).
+
+`bot_week`, seeds 1 to 10, default mode, on the final build:
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 1.7 | Overrun, day 3 | 65 | 7 | 7 | 67 | 3 |
+| 2 | 3.9 | Overrun, day 5 | 93 | 8 | 3 | 168 | 1 |
+| 3 | 1.9 | Overrun, day 3 | 23 | 11 | 5 | 61 | 2 |
+| 4 | 0.6 | Overrun, day 1 | 5 | 6 | 6 | 5 | 0 |
+| 5 | 1.4 | Overrun, day 2 | 22 | 6 | 5 | 6 | 0 |
+| 6 | 1.0 | Overrun, day 2 | 15 | 6 | 3 | 55 | 3 |
+| 7 | 0.9 | Overrun, day 2 | 6 | 8 | 9 | 35 | 3 |
+| 8 | 2.0 | Bled out, day 3 | 27 | 7 | 12 | 80 | 1 |
+| 9 | 1.1 | Bled out, day 2 | 19 | 6 | 4 | 50 | 1 |
+| 10 | 0.9 | Overrun, day 2 | 26 | 8 | 3 | 9 | 0 |
+
+Median 1.3 days (phase 7: 1.7), mean 1.5 (2.0); 10 of 10 clean; 2 died at
+home on night 1 (seeds 4 and 7; phase 7: 2). Containers searched 536 in
+all (phase 7: 525), boards 14 (13), kills 301 (437). Searching and
+boarding hold; kills fall with days lived (about 20 a day in both
+phases). The drop in days is real: the same build with the survivors
+taken away (`survivors gone` before the bot) gives median 1.8, mean 1.8,
+kills 343. Seeds 8 and 9 end within the hour after one from the garage
+went for the bot (seed 9: two pistol shots from full health, 55 each, the
+player's own pistol numbers), though the garage is 38 and 40 tiles from
+the start on those seeds: they go out for supplies across the town. Not retuned (phase 14's);
+logged under "Balance" in `DECISIONS.md`. The rest move seed by seed as
+the weather did in phase 7 (seed 7: 1.3 to 0.9, seed 2: 3.6 to 3.9).
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 The full plan for what comes next is in `docs/overhaul/` (start with its
@@ -1328,3 +1422,11 @@ Candidates for the next stretch, roughly in order. None is started.
   footprints, seasons with moving daylight, snow and frozen ponds, a fire
   grid with wind, rain, smoke and gutted houses kept in world memory; bot
   median 1.7 days, mean 2.0 (phase 6: 1.6, 1.9), night 1 at home 2 of 10.
+- 2026-11-14: Overhaul phase 8, survivors: twelve named people cast with
+  the world (loners, pairs, the hostile two at the garage) with homes,
+  stock and trust kept between lives, a utility-AI brain, talk, trade by
+  need, giving, companions and their graves, warnings, theft and robbery,
+  "Who is out there" in the notebook and homes on the map; save version 4
+  with a migration; bot median 1.3 days, mean 1.5 (phase 7: 1.7, 2.0;
+  1.8 and 1.8 with the survivors taken away), two lives ended by the
+  garage.

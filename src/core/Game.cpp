@@ -328,6 +328,8 @@ void Game::syncPresentationSettingsToSave()
 RunCheckpoint Game::buildRunCheckpoint()
 {
     RunCheckpoint cp;
+    // The town's people are kept beside the checkpoint (the survivors file).
+    saveSurvivorRecords();
     cp.runSeed = mSaveManager.currentRunSeed();
     cp.characterName = mCurrentCharacterName;
     cp.currentDay = mCurrentDay;
@@ -583,6 +585,11 @@ void Game::startNewRun()
     mContainerOpen = false;
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
+    mTalk = TalkState{};
+    mSinceWeaponOut = 99.0f;
+    mRobbedAsleep = false;
+    mSurvivorSmokeTimer = 0.0f;
+    mLitHomes.clear();
     mActiveVehicleEntity = kInvalidEntity;
     clearFireAndWeatherMarks();
     mShowWorldMap = false;
@@ -630,6 +637,10 @@ void Game::startNewRun()
             }
         }
     }
+
+    // The town's people (phase 8): never a start in someone else's house.
+    loadSurvivorRecords();
+    avoidSurvivorHomes();
 
     // Threat-mode spawn pressure tuning.
     {
@@ -882,6 +893,11 @@ void Game::returnToTitleScreen()
     mContainerOpen = false;
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
+    mTalk = TalkState{};
+    mSinceWeaponOut = 99.0f;
+    mRobbedAsleep = false;
+    mSurvivorSmokeTimer = 0.0f;
+    mLitHomes.clear();
     mActiveVehicleEntity = kInvalidEntity;
     clearFireAndWeatherMarks();
     mShowWorldMap = false;
@@ -1014,6 +1030,12 @@ void Game::handleEscapeKey()
             {
                 mContainerOpen = false;
                 mOpenContainerEntity = kInvalidEntity;
+            }
+            else if (mTalk.open)
+            {
+                // Out of trade or give first, then the talk.
+                if (mTalk.view != TalkState::View::Talk) mTalk.view = TalkState::View::Talk;
+                else closeTalk();
             }
             else if (mBuildWheelOpen || mBuildChoice >= 0)
             {

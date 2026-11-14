@@ -1228,7 +1228,7 @@ void Game::updateBaseActions(float dtSeconds)
     };
 
     // The build wheel: B opens it at the cursor; a click picks a station.
-    const bool panels = mShowCrafting || mContainerOpen || mShowInventory || mShowWorldMap || mShowNotebook;
+    const bool panels = mShowCrafting || mContainerOpen || mTalk.open || mShowInventory || mShowWorldMap || mShowNotebook;
     if (mInput.wasKeyPressed(SDL_SCANCODE_B) && !panels)
     {
         if (mBuildWheelOpen || mBuildChoice >= 0)

@@ -1,0 +1,148 @@
+{
+  "names": [
+    "Ana", "Tomas", "Ruth", "Dev", "Marta", "Owen", "Ines", "Karl", "Lena", "Pavel",
+    "June", "Hector", "Nadia", "Sol", "Greta", "Abel", "Mira", "Bram", "Tess", "Viktor",
+    "Rosa", "Eli", "Dora", "Felix", "Hana", "Luis", "Noor", "Otto", "Paula", "Sami"
+  ],
+  "seems_body": {
+    "hungry": ["Thin.", "Hollow in the face.", "Thin, and eyeing your pack."],
+    "hurt": ["Limping.", "A rag tied round one arm.", "Pale, and holding their side."],
+    "tired": ["Grey under the eyes.", "Swaying a little."],
+    "well": ["Clean hands.", "Steady on their feet.", "Fed, for now."]
+  },
+  "seems_manner": {
+    "open": ["Easy with you.", "Glad of the company.", "Looks you in the eye."],
+    "wary": ["Watching your hands.", "Keeps the door between you.", "One hand near a knife."],
+    "hostile": ["Wants you gone.", "Measuring you up.", "Not going to talk long."]
+  },
+  "hello_open": [
+    "You made it this far, then.",
+    "Sit a minute. Nothing is coming yet.",
+    "Good to see a face that talks.",
+    "Keep your voice down and you can stay.",
+    "Still alive. That is something.",
+    "I was hoping it would be you.",
+    "Quiet out there today.",
+    "Come in off the street."
+  ],
+  "hello_wary": [
+    "That is close enough.",
+    "Say what you want.",
+    "I have nothing for you.",
+    "Keep your hands where I can see them.",
+    "Who sent you this way.",
+    "Talk from there.",
+    "I am listening. Not for long.",
+    "You are not from round here."
+  ],
+  "hello_hostile": [
+    "Walk away.",
+    "Last time I say it. Go.",
+    "You picked the wrong street.",
+    "Nothing here for you.",
+    "Turn round.",
+    "One more step.",
+    "Go back the way you came.",
+    "I see you."
+  ],
+  "warn": [
+    "Put it down.",
+    "Lower it. Now.",
+    "Easy with that.",
+    "Not with that in your hand.",
+    "Point it somewhere else.",
+    "I said put it away.",
+    "We are not doing this.",
+    "Put it down or go."
+  ],
+  "trespass": [
+    "Out.",
+    "This is my house. Out.",
+    "Nobody asked you in.",
+    "Back out the way you came.",
+    "Not in here.",
+    "Get out of my house.",
+    "Out. Now.",
+    "You do not come in here."
+  ],
+  "thank": [
+    "Thank you.",
+    "I will not forget that.",
+    "That helps.",
+    "You did not have to.",
+    "I owe you one.",
+    "That is a day, that is.",
+    "Thanks. I mean it.",
+    "Right. Thank you."
+  ],
+  "refuse": [
+    "No.",
+    "Not for that.",
+    "I do not know you well enough.",
+    "Ask me another day.",
+    "I need it more than you.",
+    "No deal.",
+    "Not today.",
+    "You will have to do better."
+  ],
+  "hurt": [
+    "Get off me.",
+    "Why.",
+    "Stop.",
+    "You will pay for that.",
+    "I did nothing to you.",
+    "Back off.",
+    "Not like this.",
+    "Help."
+  ],
+  "rob": [
+    "Do not move.",
+    "Your pack. Put it down.",
+    "I need it more.",
+    "Nobody has to get hurt.",
+    "Slowly. The food first.",
+    "Sorry. Not sorry enough to stop.",
+    "Leave it and walk.",
+    "Give it here."
+  ],
+  "goodbye": [
+    "Go careful.",
+    "Watch the north road.",
+    "See you, maybe.",
+    "Keep off the main street.",
+    "Do not get bitten.",
+    "Shut the door behind you.",
+    "Come back in daylight.",
+    "Right then."
+  ],
+  "companion_hungry": ["I'm out of food.", "Have you got anything to eat.", "I need to eat something."],
+  "companion_thirsty": ["I'm out of water.", "I need a drink.", "Anything to drink."],
+  "companion_wait": ["I'll be here.", "Do not be long.", "Right. Here."],
+  "companion_come": ["Coming.", "Behind you.", "Lead on."],
+  "companion_join": ["All right. I'll come.", "Better than sitting here.", "Lead, then. I'll watch your back."],
+  "companion_refuse": ["I do not know you that well.", "Not yet.", "I stay here."],
+  "companion_leave": ["I am going home.", "You do not need me. I am going.", "This is not working. I am going home."],
+  "companion_home": ["This is home now.", "I can stay here.", "All right. This is home."],
+  "remembered": ["You look like someone I knew.", "You remind me of someone.", "I knew someone who walked like you."],
+  "bloodline": ["I know that walk. Sit down.", "You have their eyes.", "I knew the one before you."],
+  "lead_supplies": [
+    "Nobody has been in the {kind} on the {dir} side yet.",
+    "There was food in the {kind} to the {dir}. Might still be.",
+    "Try the {kind} {dir} of here. I never got to it."
+  ],
+  "lead_danger": [
+    "Stay off the {dir} streets. They are thick there.",
+    "The {dir} side is bad. Do not go at night.",
+    "I lost a friend to the {dir}. Too many of them."
+  ],
+  "lead_person": [
+    "{name} lives {dir} of here. {standing}",
+    "There is {name}, out to the {dir}. {standing}",
+    "{name} is still holding on, {dir} of here."
+  ],
+  "lead_none": [
+    "Keep your doors shut at night.",
+    "Boil what you drink if you can.",
+    "Noise brings them. Everything brings them."
+  ]
+}

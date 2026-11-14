@@ -139,8 +139,11 @@ void Game::spawnLegacy()
     const auto leads = currentLegacyLeads();
     if (!leads.empty())
     {
+        // A companion's grave is not a life of the bloodline.
+        const auto companionGraves = static_cast<std::size_t>(std::count_if(
+            mLegacyGraves.begin(), mLegacyGraves.end(), [](const GraveRecord& g) { return !g.travelledWith.empty(); }));
         const int previous = static_cast<int>(std::max(mSaveManager.characterHistory().size(),
-                                                       mLegacyGraves.size() + mSaveManager.retirements().size()));
+                                                       mLegacyGraves.size() - companionGraves + mSaveManager.retirements().size()));
         mLegacyCardTitle = legacy::runHeadline(mSaveManager.runNumber(), previous);
         const glm::vec2 player = playerWorldCenter();
         const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
@@ -178,10 +181,16 @@ void Game::spawnGrave(int graveIndex)
     inter.message = grave.laidToRest
         ? "Here lies " + grave.name + ", put to rest by another survivor. Fell on Day " + std::to_string(grave.day) + "."
         : "Here lies " + grave.name + ". " + grave.cause + ".";
+    if (!grave.travelledWith.empty())
+    {
+        inter.message = "Here lies " + grave.name + ". Fell on Day " + std::to_string(grave.day) + ". Travelled with " +
+                        grave.travelledWith + ".";
+    }
     mWorld.addComponent<Transform>(graveEntity, t);
     mWorld.addComponent<Sprite>(graveEntity, s);
     mWorld.addComponent<Interactable>(graveEntity, inter);
     mWorld.addComponent<LegacyLink>(graveEntity, LegacyLink{LegacyLinkKind::Grave, graveIndex});
+    if (!grave.travelledWith.empty()) return; // they kept no journal for you
 
     // A page from their journal, by the grave.
     const std::uint32_t hash = static_cast<std::uint32_t>(grave.day) * 2654435761u ^

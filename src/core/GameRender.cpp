@@ -159,6 +159,7 @@ void Game::render()
         [&]
         {
             renderLegacyText();
+            renderSurvivorSay();
             mHud.drawText(mSpriteBatch, mFont, mHudState, viewport);
         });
 
@@ -172,6 +173,7 @@ void Game::render()
             renderCraftingOverlay();
             renderInventoryPanel();
             renderContainerOverlay();
+            renderTalkPanel();
             if (!mShowCrafting)
             {
                 renderControlsPanel();
@@ -196,7 +198,7 @@ void Game::renderMinimapOverlay()
     if (mRunState != RunState::Playing ||
         mShowWorldMap ||
         mShowInventory ||
-        mShowCrafting || mContainerOpen || // a docked panel covers this corner
+        mShowCrafting || mContainerOpen || mTalk.open || // a docked panel covers this corner
         mPlayerEntity == kInvalidEntity ||
         !mWorld.hasComponent<Transform>(mPlayerEntity))
     {
@@ -718,6 +720,31 @@ void Game::renderWorldMapOverlay()
         label(at + glm::vec2(8.0f, -5.0f), "Objective", objectiveColor, 1.0f);
     }
 
+    // Homes you know of (phase 8): a small house, and who lives there.
+    const glm::vec4 homeColor(0.62f, 0.86f, 0.64f, 1.0f);
+    const auto houseMark = [&](const glm::vec2& at, const glm::vec4& color)
+    {
+        const glm::vec2 c = glm::round(at);
+        const glm::vec4 ink(0.0f, 0.0f, 0.0f, 0.9f);
+        // Outline, then the walls and a stepped roof.
+        mSpriteBatch.draw(c + glm::vec2(-5.0f, -1.0f), glm::vec2(10.0f, 7.0f), uiUv, ink);
+        mSpriteBatch.draw(c + glm::vec2(-6.0f, -4.0f), glm::vec2(12.0f, 4.0f), uiUv, ink);
+        mSpriteBatch.draw(c + glm::vec2(-3.0f, -7.0f), glm::vec2(6.0f, 4.0f), uiUv, ink);
+        mSpriteBatch.draw(c + glm::vec2(-4.0f, 0.0f), glm::vec2(8.0f, 5.0f), uiUv, color);
+        mSpriteBatch.draw(c + glm::vec2(-5.0f, -3.0f), glm::vec2(10.0f, 2.0f), uiUv, color);
+        mSpriteBatch.draw(c + glm::vec2(-2.0f, -6.0f), glm::vec2(4.0f, 3.0f), uiUv, color);
+        mSpriteBatch.draw(c + glm::vec2(-1.0f, 2.0f), glm::vec2(2.0f, 3.0f), uiUv, ink);
+    };
+    bool anyHome = false;
+    for (const SurvivorRecord& r : mSurvivors)
+    {
+        if (!r.alive || !r.homeKnown || r.companion || r.homeX < 0) continue;
+        const glm::vec2 at = toMap(glm::vec2((static_cast<float>(r.homeX) + 0.5f) * tileW, (static_cast<float>(r.homeY) + 0.5f) * tileH));
+        houseMark(at, homeColor);
+        label(at + glm::vec2(8.0f, -5.0f), r.name, homeColor, 1.0f);
+        anyHome = true;
+    }
+
     for (const legacy::Lead& lead : currentLegacyLeads())
     {
         const glm::vec4 color = legacyLeadColor(lead.kind);
@@ -764,6 +791,11 @@ void Game::renderWorldMapOverlay()
         marker(glm::vec2(lx + 4.0f, ly + 4.0f), entry.color, 7.0f);
         mFont.drawText(mSpriteBatch, glm::vec2(lx + 13.0f, ly), entry.text, glm::vec4(0.80f, 0.80f, 0.74f, 0.95f), 1.0f);
         lx += 13.0f + mFont.measureText(entry.text, 1.0f).x + 22.0f;
+    }
+    if (anyHome)
+    {
+        houseMark(glm::vec2(lx + 4.0f, ly + 4.0f), homeColor);
+        mFont.drawText(mSpriteBatch, glm::vec2(lx + 13.0f, ly), "Someone lives here", glm::vec4(0.80f, 0.80f, 0.74f, 0.95f), 1.0f);
     }
 }
 

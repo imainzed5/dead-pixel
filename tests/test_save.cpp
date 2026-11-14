@@ -387,7 +387,7 @@ DP_TEST(save_v3_scavenging_round_trips)
 
     SaveManager save;
     DP_CHECK(save.loadOrCreateSlot("scavenge_slot"));
-    DP_CHECK_EQ(SaveManager::kCurrentSaveVersion, 3);
+    DP_CHECK(SaveManager::kCurrentSaveVersion >= 3);
 
     // World memory: doors unlocked, containers searched, kinds seen, a
     // toilet drawn from, a key ring found, a pile indoors.
@@ -551,5 +551,148 @@ DP_TEST(save_v2_slot_migrates_to_v3)
 
     SaveManager again;
     DP_CHECK(again.loadOrCreateSlot("v2_slot"));
+    DP_CHECK_EQ(again.migratedFromVersion(), 0);
+}
+
+DP_TEST(save_v4_survivors_round_trip)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(81u);
+    SaveManager save;
+    DP_CHECK(save.loadOrCreateSlot("people_slot"));
+    DP_CHECK_EQ(SaveManager::kCurrentSaveVersion, 4);
+
+    SurvivorRecord ana;
+    ana.id = 0;
+    ana.name = "Ana";
+    ana.x = 320.0f;
+    ana.y = 448.0f;
+    ana.role = 1;
+    ana.partner = 1;
+    ana.outfit = 2;
+    ana.stayer = true;
+    ana.homeBuilding = 7;
+    ana.homeX = 11;
+    ana.homeY = 14;
+    ana.trust = 42.5f;
+    ana.companion = true;
+    ana.helloDay = 3;
+    ana.lastSeenDay = 4;
+    ana.met = true;
+    ana.homeKnown = true;
+    ana.told = {"lead_supplies:5"};
+    ana.stock = {ContainerItemRecord{0, 3, 1.0f, 0}, ContainerItemRecord{40, 1, 0.8f, 4}};
+    SurvivorRecord tomas;
+    tomas.id = 1;
+    tomas.name = "Tomas";
+    tomas.alive = false;
+    tomas.deathDay = 6;
+    tomas.buried = true;
+    DP_CHECK(save.saveSurvivors({ana, tomas}));
+
+    GraveRecord grave;
+    grave.name = "Tomas";
+    grave.day = 6;
+    grave.travelledWith = "Nell Ashby";
+    const int run = save.runNumber();
+    DP_CHECK(save.addGrave(grave));
+    DP_CHECK_EQ(save.runNumber(), run); // not a life of the bloodline
+
+    SaveManager reloaded;
+    DP_CHECK(reloaded.loadOrCreateSlot("people_slot"));
+    const std::vector<SurvivorRecord> back = reloaded.loadSurvivors();
+    DP_CHECK_EQ(back.size(), std::size_t{2});
+    if (back.size() == 2)
+    {
+        DP_CHECK_EQ(back[0].name, std::string("Ana"));
+        DP_CHECK_EQ(back[0].role, 1);
+        DP_CHECK_EQ(back[0].partner, 1);
+        DP_CHECK_EQ(back[0].outfit, 2);
+        DP_CHECK(back[0].stayer);
+        DP_CHECK_EQ(back[0].homeBuilding, 7);
+        DP_CHECK_EQ(back[0].homeX, 11);
+        DP_CHECK_NEAR(back[0].trust, 42.5f, 0.001);
+        DP_CHECK(back[0].companion && back[0].met && back[0].homeKnown);
+        DP_CHECK_EQ(back[0].helloDay, 3);
+        DP_CHECK(back[0].told == std::vector<std::string>({"lead_supplies:5"}));
+        DP_CHECK_EQ(back[0].stock.size(), std::size_t{2});
+        if (back[0].stock.size() == 2)
+        {
+            DP_CHECK_EQ(back[0].stock[1].itemId, 40);
+            DP_CHECK_EQ(back[0].stock[1].loaded, 4);
+            DP_CHECK_NEAR(back[0].stock[1].condition, 0.8f, 0.001);
+        }
+        DP_CHECK(!back[1].alive && back[1].buried);
+        DP_CHECK_EQ(back[1].deathDay, 6);
+    }
+    DP_CHECK(!reloaded.graves().empty());
+    DP_CHECK_EQ(reloaded.graves().back().travelledWith, std::string("Nell Ashby"));
+}
+
+DP_TEST(save_v3_survivors_migrate_to_v4)
+{
+    ScopedTempCwd cwd;
+    SaveManager::setSeedOverride(91u);
+    {
+        SaveManager fresh;
+        DP_CHECK(fresh.loadOrCreateSlot("v3_slot"));
+    }
+    // A version 3 slot: the meta says 3 and the survivors file has the old fields only.
+    {
+        nlohmann::json meta;
+        {
+            std::ifstream in("save/v3_slot.json");
+            DP_CHECK(in.good());
+            in >> meta;
+        }
+        meta["saveVersion"] = 3;
+        std::ofstream out("save/v3_slot.json", std::ios::trunc);
+        out << meta.dump();
+    }
+    {
+        nlohmann::json old;
+        old["survivors"] = nlohmann::json::array();
+        nlohmann::json alex;
+        alex["name"] = "Alex";
+        alex["alive"] = true;
+        alex["spawnDay"] = 2;
+        alex["x"] = 96.0f;
+        alex["y"] = 128.0f;
+        alex["hunger"] = 70.0f;
+        alex["thirst"] = 60.0f;
+        alex["aggression"] = 0.3f;
+        alex["cooperation"] = 0.7f;
+        alex["competence"] = 0.4f;
+        alex["homeDistrictId"] = 2;
+        old["survivors"].push_back(alex);
+        std::ofstream out("save/v3_slot_survivors.json", std::ios::trunc);
+        out << old.dump();
+    }
+
+    SaveManager migrated;
+    DP_CHECK(migrated.loadOrCreateSlot("v3_slot"));
+    DP_CHECK_EQ(migrated.migratedFromVersion(), 3);
+    DP_CHECK(std::filesystem::exists("save/v3_slot.json.v3.backup"));
+    DP_CHECK(std::filesystem::exists("save/v3_slot_survivors.json.v3.backup"));
+    const std::vector<SurvivorRecord> people = migrated.loadSurvivors();
+    DP_CHECK_EQ(people.size(), std::size_t{1});
+    if (!people.empty())
+    {
+        DP_CHECK_EQ(people[0].name, std::string("Alex"));
+        DP_CHECK_NEAR(people[0].cooperation, 0.7f, 0.001);
+        DP_CHECK_EQ(people[0].homeBuilding, 0); // found when the town is built
+        DP_CHECK(people[0].stock.empty());
+        DP_CHECK_NEAR(people[0].trust, 0.0f, 0.001);
+    }
+    // Written back in the new form.
+    {
+        std::ifstream in("save/v3_slot_survivors.json");
+        nlohmann::json json;
+        in >> json;
+        DP_CHECK_EQ(json.value("saveVersion", 0), 4);
+        DP_CHECK(json["survivors"][0].contains("trust"));
+    }
+    SaveManager again;
+    DP_CHECK(again.loadOrCreateSlot("v3_slot"));
     DP_CHECK_EQ(again.migratedFromVersion(), 0);
 }

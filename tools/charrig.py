@@ -1174,6 +1174,87 @@ KIND_MOVES = {
 KIND_VIEWS = {"crawler": ("se", "ne")}
 
 
+# Phase 8: the other people in town. Three outfits, no pack on the back,
+# each in the player's loadouts; a sleeping pose (lying, no blood).
+SURVIVOR_LOOKS = [
+    # A: a brown work jacket, short grey hair.
+    _look(hair_style="short",
+          skin=((222, 186, 150), (196, 160, 126), (150, 116, 92)),
+          hair=((158, 154, 146), (122, 118, 112), (86, 84, 80)),
+          top=((146, 110, 70), (114, 84, 52), (80, 58, 38)),
+          legs=((72, 78, 66), (54, 58, 50), (38, 42, 36)),
+          shoes=((62, 52, 44), (44, 36, 30), (30, 24, 20)),
+          detail=(64, 46, 30), eye=(36, 30, 28)),
+    # B: a dark red hooded top, long dark hair.
+    _look(hair_style="long",
+          skin=((200, 152, 118), (172, 126, 96), (130, 92, 72)),
+          hair=((44, 34, 30), (30, 24, 22), (20, 16, 14)),
+          top=((138, 58, 52), (106, 42, 40), (74, 30, 30)),
+          legs=((62, 64, 84), (46, 48, 64), (32, 34, 46)),
+          shoes=((70, 70, 72), (50, 50, 52), (34, 34, 36)),
+          detail=(70, 30, 30), eye=(30, 26, 24)),
+    # C: an olive field coat, shaved head.
+    _look(hair_style="bald",
+          skin=((176, 128, 96), (148, 104, 78), (108, 74, 56)),
+          hair=((60, 46, 36), (44, 34, 28), (30, 24, 20)),
+          top=((110, 118, 74), (86, 92, 56), (60, 66, 40)),
+          legs=((98, 86, 68), (76, 66, 52), (54, 46, 38)),
+          shoes=((56, 46, 38), (40, 32, 26), (26, 20, 16)),
+          detail=(52, 56, 34), eye=(34, 28, 26)),
+]
+SURVIVOR_MOVES = {
+    "idle": (pose_idle, 2),
+    "walk": (pose_walk, 8),
+    "run": (pose_run, 6),
+    "hurt": (pose_hurt, 1),
+}
+SURVIVOR_ATTACKS = {
+    "swing": (pose_swing, 6, "club"),
+    "stab": (pose_stab, 5, "blade"),
+    "punch": (pose_stab, 5, None),
+    "shoot": (pose_shoot, 3, "gun"),
+}
+
+
+def pose_sleep(f, n, weapon=None):
+    """Lying on the back, still: the last fall frame without the pool."""
+    p = pose_death(5, 6)
+    p["pool"] = 0.0
+    return p
+
+
+def survivor_frames():
+    """Yield (sprite name, [frames]) for the three survivor outfits."""
+    for i, look in enumerate(SURVIVOR_LOOKS):
+        for view in VIEW_ORDER:
+            for load, weapon in PLAYER_LOADOUTS:
+                for move, (fn, count) in SURVIVOR_MOVES.items():
+                    yield (f"surv{i}_{load}_{move}_{view}",
+                           [draw(look, fn(f, count, weapon), view) for f in range(count)])
+            for move, (fn, count, weapon) in SURVIVOR_ATTACKS.items():
+                yield (f"surv{i}_{move}_{view}",
+                       [draw(look, fn(f, count, weapon), view) for f in range(count)])
+            yield (f"surv{i}_death_{view}", [draw(look, pose_death(f, 6), view) for f in range(6)])
+            yield (f"surv{i}_sleep_{view}", [draw(look, pose_sleep(0, 1), view)])
+
+
+def survivors_preview(path, scale=3):
+    """python tools/charrig.py --survivors out.png: the three outfits."""
+    rows = []
+    for look in SURVIVOR_LOOKS:
+        rows.append([draw(look, pose_idle(0, 2, w), v) for _, w in PLAYER_LOADOUTS for v in VIEW_ORDER[:3]] +
+                    [draw(look, pose_sleep(0, 1), "se")])
+        rows.append([draw(look, pose_walk(f, 8), "se") for f in range(8)] +
+                    [draw(look, pose_swing(f, 6, "club"), "se") for f in range(6)])
+    w = max(len(r) for r in rows) * SIZE
+    sheet = Image.new("RGBA", (w, len(rows) * SIZE), (74, 98, 62, 255))
+    for j, r in enumerate(rows):
+        for i, frame in enumerate(r):
+            sheet.alpha_composite(frame, (i * SIZE, j * SIZE))
+    sheet = sheet.resize((sheet.width * scale, sheet.height * scale), Image.NEAREST)
+    sheet.save(path)
+
+
 def armin_frames():
     """Yield (sprite name, [frames]) for the player with a broken arm held in."""
     for view in VIEW_ORDER:
@@ -1256,6 +1337,9 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--kinds":
         kinds_preview(sys.argv[2] if len(sys.argv) > 2 else "kinds_preview.png")
+        sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == "--survivors":
+        survivors_preview(sys.argv[2] if len(sys.argv) > 2 else "survivors_preview.png")
         sys.exit(0)
     preview(sys.argv[1] if len(sys.argv) > 1 else "charrig_preview.png",
             int(sys.argv[2]) if len(sys.argv) > 2 else 4)

@@ -6,6 +6,8 @@
 #   dead_pixel_survival.exe --script tools/harness/mind.txt --hidden --world-seed 1234 --shots shots/mind
 
 newrun
+# The player and the dead alone (survivors draw the dead and make noise).
+survivors gone
 god on
 trait plain
 tune threat.spawn.interval 100000

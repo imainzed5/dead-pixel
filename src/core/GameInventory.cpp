@@ -421,6 +421,13 @@ void Game::updateInventoryInput(bool drivingVehicle)
 {
     bool useInventoryCursorItemRequested = false;
 
+    // Talking to someone: the panel has the keys.
+    if (mTalk.open)
+    {
+        handleTalkInput();
+        return;
+    }
+
     // Inventory toggle (Tab)
     if (mInput.wasKeyPressed(SDL_SCANCODE_TAB))
     {

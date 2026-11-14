@@ -123,7 +123,10 @@ void ZombieAISystem::update(World& world, const ZombieTick& tick)
     world.forEach<SurvivorAI, Transform>(
         [&](Entity e, SurvivorAI& s, Transform& t)
         {
-            if (s.state == SurvivorState::Dead) return;
+            if (s.state == SurvivorState::Dead || !s.alive) return;
+            // Far from the player a survivor lives an hour at a time and its
+            // dangers are the rules' (SurvivorRules::farHour), not the dead's.
+            if (s.far) return;
             if (world.hasComponent<Health>(e) && world.getComponent<Health>(e).current <= 0.0f) return;
             mGrid.insert(e, entityCenter(t), SpatialGrid::Survivor);
         });

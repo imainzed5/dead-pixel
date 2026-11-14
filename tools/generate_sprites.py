@@ -19,9 +19,10 @@ from PIL import Image, ImageDraw
 ATLAS_W = 1024
 ATLAS_H = 1024
 # The whole sheet; the characters fill the block to the right of the atlas.
-# Phase 4 doubled its height for the kinds of the dead (the lower half).
+# Phase 4 doubled its height for the kinds of the dead (the lower half);
+# phase 8 adds a band below for the survivors' three outfits.
 SHEET_W = 4096
-SHEET_H = 4096
+SHEET_H = 5632
 
 # Tile sizes
 ISO_TILE_W = 64
@@ -304,6 +305,33 @@ def add_armin_sprites(img, sprites):
             y = ARMIN_BLOCK_Y + (slot // cols) * ENTITY_SIZE
             if y + ENTITY_SIZE > SHEET_H:
                 raise RuntimeError("arm-in block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
+
+
+# Phase 8: the survivors' three outfits, in a band under the old sheet.
+SURVIVOR_BLOCK_Y = 4096
+
+
+def add_survivor_sprites(img, sprites):
+    import charrig
+
+    slot = 0
+    cols = SHEET_W // ENTITY_SIZE
+    for name, frames in charrig.survivor_frames():
+        if slot % cols + len(frames) > cols:
+            slot += cols - slot % cols
+        rects = []
+        for frame in frames:
+            x = (slot % cols) * ENTITY_SIZE
+            y = SURVIVOR_BLOCK_Y + (slot // cols) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("survivor block is full")
             img.alpha_composite(frame, (x, y))
             rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
             slot += 1
@@ -781,6 +809,7 @@ def generate_atlas():
     add_base_props(img, sprites)
     add_phase6_sprites(img, sprites)
     add_phase7_sprites(img, sprites)
+    add_survivor_sprites(img, sprites)
 
     return img, sprites
 

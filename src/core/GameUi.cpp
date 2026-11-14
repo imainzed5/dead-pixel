@@ -1,5 +1,6 @@
 // HUD snapshot and the menu and overlay panels (inventory, crafting, pause, title...).
 #include "core/GameShared.h"
+#include "world/BuildingKinds.h"
 #include "world/WeatherRules.h"
 #include "world/CombatRules.h"
 
@@ -19,9 +20,10 @@ void Game::buildHudState()
     }
 
     hud.timeSeconds = mHudClock;
-    if (mShowCrafting || mShowInventory || mContainerOpen)
+    if (mShowCrafting || mShowInventory || mContainerOpen || mTalk.open)
     {
-        hud.dockedWidth = dockedPanelWidth(mShowCrafting || mContainerOpen, mWindowWidth);
+        const bool wide = mShowCrafting || mContainerOpen || (mTalk.open && mTalk.view == TalkState::View::Trade);
+        hud.dockedWidth = dockedPanelWidth(wide, mWindowWidth);
     }
 
     if (mWorld.hasComponent<Health>(mPlayerEntity))
@@ -404,8 +406,26 @@ void Game::renderNotebookOverlay()
             if (key == zombiekinds::unknownRuleKey(rule)) ruleLines.push_back(zombiekinds::unknownRuleLine(rule));
         }
     }
+    // The people met, this life or written down by an earlier one (phase 8):
+    // the living first, the last seen first.
+    constexpr std::size_t kMaxPeople = 5;
+    std::vector<const SurvivorRecord*> people;
+    for (const SurvivorRecord& r : mSurvivors)
+    {
+        if (r.met && !r.retired) people.push_back(&r);
+    }
+    std::stable_sort(people.begin(), people.end(), [&](const SurvivorRecord* a, const SurvivorRecord* b)
+    {
+        if (a->alive != b->alive) return a->alive;
+        if (a->metRun != b->metRun) return a->metRun > b->metRun;
+        return a->lastSeenDay > b->lastSeenDay;
+    });
+    const std::size_t peopleRows = people.empty() ? 0 : std::min(people.size(), kMaxPeople);
     const float contentH = 22.0f + bodyLine + 2.0f + 30.0f +
                            18.0f + static_cast<float>(leadRows) * bodyLine + (leads.size() > kMaxLeads ? 16.0f : 0.0f) + 14.0f +
+                           (peopleRows > 0 ? 18.0f + static_cast<float>(peopleRows) * bodyLine +
+                                                 (people.size() > kMaxPeople ? 16.0f : 0.0f) + 14.0f
+                                           : 0.0f) +
                            18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) + 14.0f +
                            18.0f + static_cast<float>(knownLines.size() + ruleLines.size()) * bodyLine +
                            60.0f;
@@ -474,6 +494,62 @@ void Game::renderNotebookOverlay()
         y += 16.0f;
     }
     y += 14.0f;
+
+    // Who is out there: the living you have met, and how things stand.
+    if (peopleRows > 0)
+    {
+        heading(y, "WHO IS OUT THERE");
+        y += 18.0f;
+        const LayoutData& layout = mMapGenerator.layoutData();
+        for (std::size_t i = 0; i < peopleRows; ++i)
+        {
+            const SurvivorRecord& r = *people[i];
+            std::string where = "home not known";
+            if (r.homeKnown && r.homeX >= 0)
+            {
+                const glm::vec2 home((static_cast<float>(r.homeX) + 0.5f) * tileSize, (static_cast<float>(r.homeY) + 0.5f) * tileSize);
+                std::string kind = "a house";
+                if (r.homeBuilding > 0 && r.homeBuilding <= static_cast<int>(layout.buildings.size()))
+                {
+                    std::string name = buildingkinds::name(buildingkinds::kindOf(layout.buildings[static_cast<std::size_t>(r.homeBuilding - 1)]));
+                    for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    kind = "the " + name;
+                }
+                const int metres = legacy::metresBetween(here, home, tileSize);
+                where = metres < 3 ? kind + ", right here"
+                                   : kind + ", " + std::to_string(metres) + " m " + legacy::screenDirection(here, home);
+            }
+            const survivorrules::Personality p{r.aggression, r.cooperation, r.competence};
+            const char* standing = survivorrules::standingWord(r.trust, survivorrules::attitude(p, 0.0f, r.trust, r.angryDay == mCurrentDay));
+            std::string line;
+            glm::vec4 color = ink;
+            if (!r.alive)
+            {
+                line = r.name + " - dead.";
+                color = dimInk;
+            }
+            else if (r.metRun != run)
+            {
+                line = "Someone wrote: " + r.name + ", " + where + ". " + standing;
+                color = dimInk;
+            }
+            else
+            {
+                line = r.name + " - " + where + ". " + standing + " Seen day " + std::to_string(r.lastSeenDay) + ".";
+            }
+            mSpriteBatch.draw(glm::vec2(left, y + 5.0f), glm::vec2(8.0f, 8.0f), uiUv,
+                              r.alive ? glm::vec4(0.62f, 0.86f, 0.64f, 1.0f) : glm::vec4(0.40f, 0.40f, 0.38f, 1.0f));
+            mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y), fit(line, kBody), color, kBody);
+            y += bodyLine;
+        }
+        if (people.size() > kMaxPeople)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y),
+                           "and " + std::to_string(people.size() - kMaxPeople) + " more", dimInk, 1.0f);
+            y += 16.0f;
+        }
+        y += 14.0f;
+    }
 
     // Who came before, newest first.
     heading(y, "WHO CAME BEFORE");

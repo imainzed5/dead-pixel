@@ -70,8 +70,10 @@ done, what is next, and known issues.
   - packs left behind, and retired survivors;
   - a notebook, a town map, and world memory that carries from one life to
     the next.
-- **Extras:** survivors (NPCs), vehicles, fire, and tone presets that change
-  the rules.
+- **Other people:** a dozen survivors with homes, stores, needs and tempers
+  of their own; they scavenge, board up, run from the dead, trade, come
+  along, rob you, and go on living between your lives.
+- **Extras:** vehicles, fire, and tone presets that change the rules.
 
 ## Controls
 
@@ -273,6 +275,25 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   (at most N burning), `expect gutted|notgutted` (the building at the mark
   or underfoot), `expect walkable|solid` (the mark or the tile underfoot),
   `expect collector MAX` (water in the nearest rain collector).
+- **Survivors (phase 8):** `survivor DX DY [open|wary|hostile]
+  [low|empty|hungry|planks|bandages|armed|gun] [trust N]` (someone living in
+  the building there, the script's focus from then on), `survivor house
+  [doors2] [...]` (in the nearest free house; `doors2`: the nearest free
+  building with two doors, one of them one they would board), `survivor crowd N`, `survivor dead N [KIND]` (idle
+  dead 2 to 4 tiles round them), `survivor fill ITEM NAME [COUNT]` (into the
+  container they will go to next, kept for them), `survivors` (everyone:
+  state, trust, stock, home), `goto survivor [NAME]`, `goto open N` (open
+  ground about N tiles off), `set trust N`, `set shunger N`, `talk` (the talk
+  panel, as E) and `talk N|WORD` (a choice), `trade offer|ask ITEM NAME
+  [COUNT]`, `trade agree`, `advance DAYS [apply]` (the days between lives,
+  dry or for real), `waitfor SECONDS survivor CONDITION` (the script waits
+  until it holds; `waitfor SECONDS held` until the dead hold the player),
+  `survivors gone` (nobody living in town this run, for scripts about the
+  player and the dead alone). Checks: `expect survivor STATE|alive|dead|buried|home|
+  away|shut|boarded [door]|searched|companion`, `expect survivor stock ITEM
+  NAME COUNT|trust above|below N|near N|farther N|kills N`, `expect talk
+  open|closed|trade`, `expect card TEXT` (`$survivor` is the focus's name),
+  `expect advance same|loots N`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;

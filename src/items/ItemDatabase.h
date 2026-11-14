@@ -82,6 +82,8 @@ struct ItemDef
     std::string treats;
     // Phase 6: where it is useful, for the pack's detail line ("Fits: ...").
     std::string fits;
+    // Phase 8: what it is worth to a survivor in a trade (a can is 10).
+    float value = 1.0f;
     float carryBonus = 0.0f; // kg added to the carry limit while carried (one counts)
     WeaponOverrides weapon;
     ThrowDef throwDef;

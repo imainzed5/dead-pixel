@@ -13,6 +13,8 @@
 
 #include "dev/Autoplayer.h"
 #include "dev/LaunchOptions.h"
+#include "ecs/Types.h"
+#include "world/SurvivorRules.h"
 
 class Game;
 
@@ -50,6 +52,22 @@ class Game;
 //   expect maxhp VALUE            the player's maximum health
 //   expect weather same           the condition is the one `weather mark` saw
 //   expect container ITEM NAME COUNT   the open container holds at least COUNT
+//   survivor DX DY [open|wary|hostile] [low|empty|hungry|planks|bandages|armed|gun] [trust N]
+//                                 a survivor DX, DY tiles off, living in the building there
+//   goto survivor [NAME]          beside the survivor (the last made, or by name)
+//   goto open N                   open ground outdoors about N tiles away
+//   set trust N                   that survivor's trust in you
+//   survivors                     print everyone: state, trust, stock, home
+//   talk | talk N|WORD            open the talk panel with them / pick a choice
+//   trade offer|ask ITEM NAME [COUNT] | trade agree   in the trade panel
+//   advance DAYS [apply]          the days between lives (dry run, or for real)
+//   survivor house [doors2] [...]  in the nearest free house (doors2: any building, two doors, one to board)
+//   survivor dead N [KIND] | survivor fill ITEM NAME [COUNT] | survivor crowd N
+//   expect survivor STATE|alive|dead|buried|home|away|shut|boarded [door]|searched|companion
+//   expect survivor stock ITEM NAME COUNT | trust above|below N | near N | farther N | kills N
+//   waitfor SECONDS survivor CONDITION | waitfor SECONDS held   hold the script until it holds (FAIL after SECONDS)
+//   survivors gone                nobody living in town this run (the player and the dead alone)
+//   expect talk open|closed|trade, expect card TEXT, expect advance same|loots N
 //   log TEXT                      print a line
 //   quit                          end the run
 class DevHarness
@@ -88,6 +106,14 @@ private:
     };
 
     void execute(Game& game, const Command& command);
+    // DevHarnessSurvivors.cpp: true when the command was one of the survivors'.
+    bool survivorCommand(Game& game, const Command& command);
+    Entity survivorFocus(Game& game, const std::string& name);
+    // A survivor condition (home, flee, stock ITEM N, ...): true when it holds; `what` says what was seen.
+    bool survivorCondition(Game& game, const std::vector<std::string>& condition, std::string& what);
+    // `waitfor SECONDS survivor CONDITION`: the script waits until it holds.
+    void startWaitFor(Game& game, const Command& command);
+    bool waitingFor(Game& game);
     void fail(const Command& command, const std::string& message);
     bool capture(Game& game, const std::string& name);
     void writeMetricsRow(Game& game);
@@ -117,6 +143,13 @@ private:
     double mFridgeHour = 0.0;
     int mFridgeItem = -1;
     glm::ivec2 mFridgeTile{-1, -1};
+    // Survivors (phase 8): the one the last `survivor` made (or `goto
+    // survivor` found), and the fingerprints `advance` printed.
+    int mSurvivorFocus = -1;
+    Command mWaitFor;
+    std::uint64_t mWaitForLeft = 0;
+    std::vector<std::uint64_t> mAdvancePrints;
+    survivorrules::BetweenLivesResult mLastAdvance;
     std::uint64_t mNoiseAtLastRow = 0;
     double mClockAtLastRow = -1.0;
     int mMetricsInterval = 0;

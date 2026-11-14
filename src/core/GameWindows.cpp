@@ -517,6 +517,8 @@ bool Game::buildingLit(int building) const
             lit = mTileMap.getBuildingId(tile.x, tile.y) == building;
         });
     if (lit) return true;
+    // Someone's lamp in the evening (phase 8).
+    if (std::find(mLitHomes.begin(), mLitHomes.end(), building) != mLitHomes.end()) return true;
     // A floor lamp switched on while the power is on (phase 6).
     if (!mLitLamps.empty() && powerOn())
     {
@@ -541,7 +543,7 @@ void Game::updateWindows(float dtSeconds)
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
 
     // A blow aimed at a window in reach breaks the glass (loudly).
-    if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT) && !mShowCrafting && !mContainerOpen && !mShowInventory &&
+    if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT) && !mShowCrafting && !mContainerOpen && !mTalk.open && !mShowInventory &&
         !mBuildWheelOpen && mBuildChoice < 0 && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         const glm::vec2 here = playerWorldCenter();

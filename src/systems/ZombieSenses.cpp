@@ -57,8 +57,9 @@ void ZombieAISystem::see(const Ctx& c, One& z)
         }
     }
 
-    // The other living: no crouching or lights to read, just the dark.
-    const float range = ai.visionRangeTiles * extra * (c.night ? senses::kDarkScale : 1.0f) * t.visibility;
+    // The other living: no crouching or lights to read, just the dark. They
+    // have lived this long by keeping out of sight: seen at 0.6 of the range.
+    const float range = ai.visionRangeTiles * extra * (c.night ? senses::kDarkScale : 1.0f) * t.visibility * 0.6f;
     float best = range + 1.0f;
     mGrid.query(z.center, range * c.tileSize, SpatialGrid::Survivor,
                 [&](const SpatialGrid::Item& item)

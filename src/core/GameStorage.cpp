@@ -24,6 +24,11 @@ std::string Game::containerName(Entity container) const
 {
     std::string name = "Container";
     if (mWorld.hasComponent<Corpse>(container)) return "Body";
+    if (mWorld.hasComponent<SurvivorAI>(container))
+    {
+        const SurvivorAI& ai = mWorld.getComponent<SurvivorAI>(container);
+        return ai.alive ? ai.name + "'s pack" : ai.name;
+    }
     if (mWorld.hasComponent<Interactable>(container))
     {
         std::string thing = searchedThing(mWorld.getComponent<Interactable>(container).prompt);
@@ -47,6 +52,7 @@ void Game::recordContainer(Entity container)
     // Only furniture is remembered by its tile: a crate keeps its things in
     // the structures file, a pile on the floor lasts this life.
     if (mWorld.hasComponent<Structure>(container) || mWorld.hasComponent<Corpse>(container) ||
+        mWorld.hasComponent<SurvivorAI>(container) ||
         (mWorld.hasComponent<Interactable>(container) && mWorld.getComponent<Interactable>(container).prompt == "Search the pile"))
     {
         return;
@@ -110,7 +116,8 @@ void Game::openContainer(Entity container)
     ++mContainersOpened;
     noteContainerSearched(container, false);
     // Scavenging: the first look through each (phase 5).
-    if (std::find(mXpSearched.begin(), mXpSearched.end(), container) == mXpSearched.end())
+    const bool companionPack = mWorld.hasComponent<SurvivorAI>(container) && mWorld.getComponent<SurvivorAI>(container).alive;
+    if (!companionPack && std::find(mXpSearched.begin(), mXpSearched.end(), container) == mXpSearched.end())
     {
         mXpSearched.push_back(container);
         awardXp(Skill::Scavenging, skillrules::kXpSearch);
@@ -156,6 +163,7 @@ int Game::containerMove(bool fromPack, int row, bool wholeStack)
     if (!fromPack)
     {
         mRunStats.itemsLooted += moved;
+        noteTakenFrom(mOpenContainerEntity); // someone's cupboard
     }
     noteContainerSearched(mOpenContainerEntity, !fromPack);
     recordContainer(mOpenContainerEntity);

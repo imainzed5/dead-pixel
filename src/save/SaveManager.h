@@ -33,6 +33,9 @@ struct GraveRecord
     std::vector<std::string> positiveTraits;
     std::vector<std::string> negativeTraits;
     std::vector<std::pair<int, int>> skills;
+    // Phase 8: a companion who died at your side ("Travelled with <name>").
+    // Not a life of the bloodline: not counted among those who came before.
+    std::string travelledWith;
 };
 
 struct RetirementRecord
@@ -363,6 +366,36 @@ struct SurvivorRecord
     float cooperation = 0.5f;
     float competence = 0.5f;
     int homeDistrictId = 0;
+    // Version 4 (phase 8): who they are to the town and to you. Older files
+    // load with no home (one is found for them), empty stock and trust 0.
+    int id = 0;
+    int role = 0;           // survivorrules::Role
+    int partner = -1;       // the other half of a pair (id)
+    int group = 0;          // 1 the ones at the garage, 2 the society
+    int outfit = 0;
+    bool stayer = false;    // keeps the house while the other goes out
+    bool retired = false;   // an earlier character of the bloodline
+    int homeBuilding = 0;   // index + 1; 0 none yet
+    int homeX = -1;         // a floor tile of home
+    int homeY = -1;
+    float trust = 0.0f;     // -100..100, toward the current character
+    float sleepDebt = 0.0f;
+    float health = 60.0f;
+    int wounds = 0;
+    bool companion = false; // travelling with the current character
+    bool buried = false;    // dead with a grave, not a body
+    int helloDay = -1;      // the day "Say hello" last counted
+    int lastSeenDay = 0;    // the day last seen; 0 never
+    bool met = false;       // in the notebook (kept across lives: someone wrote it down)
+    int metRun = 0;         // the run that last met them (an earlier one: "Someone wrote:")
+    bool homeKnown = false;
+    bool avoiding = false;  // robbed you and keeps away
+    int angryDay = -1;
+    bool warnedHome = false;
+    float ignoredHours = 0.0f;
+    int outDay = -1;
+    std::vector<std::string> told; // leads already told
+    std::vector<ContainerItemRecord> stock;
 };
 
 struct RunCheckpoint
@@ -431,7 +464,9 @@ public:
     // 1: the first revival saves. 2: container records replace looted
     // positions; known molotov recipes use the Empty Bottle. Version 1 slots
     // are migrated on load and their old files kept as *.v1.backup.
-    static constexpr int kCurrentSaveVersion = 3;
+    // 4: survivors with homes, stock and trust (phase 8); version 3
+    // survivors are kept and given homes on load.
+    static constexpr int kCurrentSaveVersion = 4;
 
     bool loadOrCreateSlot(const std::string& slotName);
     bool resetCurrentSlotWorld(bool keepPresentationSettings = true);
@@ -517,6 +552,9 @@ public:
     void updateGrave(std::size_t index, const GraveRecord& record);
     bool flushLegacy() const { return writeLegacy(); }
     bool recordRetirement(const RetirementRecord& record);
+    // A grave that is not a life of the bloodline (a companion, a survivor
+    // buried by their own). Does not advance the run.
+    bool addGrave(const GraveRecord& record);
     bool addCharacterHistoryRecord(const CharacterHistoryRecord& record);
     bool saveStructures(const std::vector<StructureRecord>& structures);
 

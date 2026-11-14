@@ -225,112 +225,6 @@ void Game::setupScene()
         placeDormantCrawlers(kindRng);
     }
 
-    // --- NPC Survivors ---
-    {
-        static const char* kSurvivorNames[] = {
-            "Alex", "Jordan", "Casey", "Morgan", "Riley",
-            "Sam", "Quinn", "Avery", "Blake", "Cameron"
-        };
-        constexpr int kNameCount = 10;
-
-        // Load persisted survivors or spawn fresh ones
-        auto savedSurvivors = mSaveManager.loadSurvivors();
-        if (!savedSurvivors.empty())
-        {
-            for (const auto& sr : savedSurvivors)
-            {
-                if (!sr.alive) continue;
-                Entity npc = mWorld.createEntity();
-                Transform nt{}; nt.x = sr.x; nt.y = sr.y;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_none_idle_se"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
-                Animation na{}; na.currentAnim = "player_none_idle_se"; na.frameDuration = 0.2f;
-                SurvivorAI sai{};
-                sai.name = sr.name;
-                sai.spawnDay = sr.spawnDay;
-                sai.hunger = sr.hunger;
-                sai.thirst = sr.thirst;
-                sai.personality.aggression = sr.aggression;
-                sai.personality.cooperation = sr.cooperation;
-                sai.personality.competence = sr.competence;
-                sai.homeDistrictId = sr.homeDistrictId;
-                mWorld.addComponent<Transform>(npc, nt);
-                mWorld.addComponent<Sprite>(npc, ns);
-                mWorld.addComponent<Animation>(npc, na);
-                mWorld.addComponent<Velocity>(npc, Velocity{});
-                mWorld.addComponent<SurvivorAI>(npc, sai);
-                mWorld.addComponent<Health>(npc, Health{60.0f, 60.0f});
-            }
-        }
-        else
-        {
-            // Spawn 2-5 fresh survivors in non-wilderness districts
-            std::uniform_int_distribution<int> npcCountDist(2, 5);
-            const int npcCount = npcCountDist(runRng);
-
-            const auto& layout = mMapGenerator.layoutData();
-            std::vector<int> validDistricts;
-            for (const auto& dd : layout.districts)
-            {
-                if (dd.type != static_cast<int>(DistrictType::Wilderness))
-                    validDistricts.push_back(dd.id);
-            }
-
-            for (int i = 0; i < npcCount; ++i)
-            {
-                int districtId = 0;
-                float spawnX = 200.0f;
-                float spawnY = 200.0f;
-
-                if (!validDistricts.empty())
-                {
-                    districtId = validDistricts[runRng() % validDistricts.size()];
-                    for (const auto& dd : layout.districts)
-                    {
-                        if (dd.id == districtId)
-                        {
-                            std::uniform_int_distribution<int> xDist(dd.minX + 1, std::max(dd.minX + 1, dd.maxX - 1));
-                            std::uniform_int_distribution<int> yDist(dd.minY + 1, std::max(dd.minY + 1, dd.maxY - 1));
-                            int tx = xDist(runRng);
-                            int ty = yDist(runRng);
-                            // Find non-solid tile nearby
-                            for (int attempts = 0; attempts < 10; ++attempts)
-                            {
-                                if (!mTileMap.isSolid(tx, ty)) break;
-                                tx = xDist(runRng);
-                                ty = yDist(runRng);
-                            }
-                            spawnX = static_cast<float>(tx * mTileMap.tileWidth());
-                            spawnY = static_cast<float>(ty * mTileMap.tileHeight());
-                            break;
-                        }
-                    }
-                }
-
-                Entity npc = mWorld.createEntity();
-                Transform nt{}; nt.x = spawnX; nt.y = spawnY;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_none_idle_se"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
-                Animation na{}; na.currentAnim = "player_none_idle_se"; na.frameDuration = 0.2f;
-
-                SurvivorAI sai{};
-                sai.name = kSurvivorNames[(runRng() % kNameCount)];
-                sai.spawnDay = mCurrentDay;
-                sai.homeDistrictId = districtId;
-
-                std::uniform_real_distribution<float> traitDist(0.0f, 1.0f);
-                sai.personality.aggression = traitDist(runRng);
-                sai.personality.cooperation = traitDist(runRng);
-                sai.personality.competence = traitDist(runRng);
-
-                mWorld.addComponent<Transform>(npc, nt);
-                mWorld.addComponent<Sprite>(npc, ns);
-                mWorld.addComponent<Animation>(npc, na);
-                mWorld.addComponent<Velocity>(npc, Velocity{});
-                mWorld.addComponent<SurvivorAI>(npc, sai);
-                mWorld.addComponent<Health>(npc, Health{60.0f, 60.0f});
-            }
-        }
-    }
-
     // Apply bloodline trait selected from persistent legacy history.
     if (mWorld.hasComponent<Traits>(mPlayerEntity))
     {
@@ -1025,6 +919,8 @@ void Game::setupScene()
     refreshFurnitureLayer();
     setupHome();
     setupScavenging();
+    // The town's people (phase 8), from the survivors file.
+    setupSurvivors();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(

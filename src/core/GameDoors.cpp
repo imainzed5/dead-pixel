@@ -117,20 +117,7 @@ void Game::updateDoors(float dtSeconds)
         }
     }
     mDoorBlows.clear();
-
-    // Survivors open doors as they come to them (and leave them open).
-    mWorld.forEach<SurvivorAI, Transform>(
-        [&](Entity, SurvivorAI&, Transform& t)
-        {
-            const glm::vec2 centre(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f);
-            const Doors::Door* door = mDoors.nearest(mTileMap, centre, tileSize * 0.8f);
-            if (door != nullptr && mTileMap.doorState(door->tile.x, door->tile.y) == DoorState::Closed &&
-                mDoors.boards(door->tile) == 0 && !doorLocked(door->tile))
-            {
-                rattleAlarm(door->tile);
-                mDoors.open(mTileMap, door->tile);
-            }
-        });
+    // Survivors open and shut doors themselves (GameSurvivors.cpp).
 }
 
 const Doors::Door* Game::doorInReach(const ProximityPrompt& entityPrompt) const

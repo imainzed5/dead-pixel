@@ -50,7 +50,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         {
             if (companyNearby) return;
             if (!ai.alive || sh.current <= 0.0f) return;
-            if (ai.attitude == SurvivorAttitude::Hostile) return;
+            if (ai.attitude == survivorrules::Attitude::Hostile) return;
             const glm::vec2 sc(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
             if (glm::dot(sc - playerCenter, sc - playerCenter) < kSocialRecoveryRange * kSocialRecoveryRange)
             {
