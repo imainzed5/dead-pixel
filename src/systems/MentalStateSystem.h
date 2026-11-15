@@ -5,6 +5,16 @@
 
 class TileMap;
 
+// What the game knows that the mind reacts to (phase 5), set each tick.
+struct MindInputs
+{
+    float panicGainScale = 1.0f;     // Steady, Nervous
+    float companyScale = 1.0f;       // Loner: company helps half as much
+    bool crouchedStillHidden = false; // recovery x2
+    bool hordeNear = false;          // a horde within 15 tiles: +0.8/s
+    bool darkIndoorsHeard = false;   // dark inside, no light, one of the dead heard near: +1/s to 40
+};
+
 // Panic (short-term fear) and depression (long-term despair).
 //
 // Panic comes from threats the character can actually see: zombies in line of
@@ -23,6 +33,10 @@ public:
     // the character is treated as outdoors.
     void update(World& world, NoiseModel& noiseModel, Entity playerEntity, float dtSeconds,
                 double gameHours = 12.0, int currentDay = 1, const TileMap* tileMap = nullptr);
+    void setInputs(const MindInputs& inputs) { mInputs = inputs; }
+    // Game seconds per real second (phase 13's day length): depression runs
+    // on game time, panic on real time.
+    void setGameScale(float scale) { mGameScale = scale; }
 
     // Returns true if the player should be force-retired this frame
     [[nodiscard]] bool shouldForceRetire() const { return mForceRetire; }
@@ -62,7 +76,10 @@ public:
 
     // M5: Hardened trait: early depression builds slower
     static constexpr float kHardenedDepressionFactor = 0.7f;
+    static constexpr float kHardenedBelow = 60.0f;
 
 private:
     bool mForceRetire = false;
+    MindInputs mInputs;
+    float mGameScale = 1.0f;
 };

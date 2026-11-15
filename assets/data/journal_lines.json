@@ -1,0 +1,213 @@
+{
+  "_about": "Journal entries (phase 10). One is chosen per event by the world's seed and the day. {a} and {b} are names or places, {n} a number, {nw} the number as a word, {Nw} the same capitalised, {day} the day. Rank: when a day has more than three entries, the lowest ranked go. Short, plain, past tense.",
+  "kinds": {
+    "start": {
+      "rank": 2,
+      "lines": [
+        "Found this notebook in a drawer. I am going to write down what happens.",
+        "Started this today. Somebody should know what it was like.",
+        "I am writing this so I do not lose track of the days.",
+        "Day one, as far as I can tell. The street is quiet."
+      ]
+    },
+    "first_night": {
+      "rank": 5,
+      "lines": [
+        "Got through the first night. Something tried the door around three.",
+        "The first night is over. I sat with my back to the wall until it was light.",
+        "Morning. They walked past the window twice in the night and did not stop.",
+        "First night done. I did not sleep much."
+      ]
+    },
+    "power_out": {
+      "rank": 4,
+      "lines": [
+        "The lights went. It is very dark.",
+        "The power is gone. The fridge went quiet in the afternoon.",
+        "The whole street went dark at once. No power now."
+      ]
+    },
+    "taps_dry": {
+      "rank": 4,
+      "lines": [
+        "The taps ran dry today. Every bottle counts now.",
+        "Nothing from the taps this morning. Just a cough of air.",
+        "The water stopped. I should have filled more."
+      ]
+    },
+    "first_kill": {
+      "rank": 6,
+      "lines": [
+        "I killed one today. It was wearing a wedding ring.",
+        "I killed one of them. It took longer than I thought it would.",
+        "The first one went down in the street. I had to sit down after.",
+        "Killed one today. It had been somebody's neighbour."
+      ]
+    },
+    "bitten": {
+      "rank": 8,
+      "lines": [
+        "Bitten on the {a}. Cleaned it. We will see.",
+        "One of them got my {a}. I washed it and wrapped it.",
+        "A bite on the {a}. Not deep. I keep looking at it."
+      ]
+    },
+    "wounded": {
+      "rank": 5,
+      "lines": [
+        "A {b} on the {a}. Cleaned it as best I could.",
+        "Hurt my {a} today. A {b}. It will slow me down.",
+        "Got a {b} on the {a}. Wrapped it and kept going."
+      ]
+    },
+    "boarded": {
+      "rank": 4,
+      "lines": [
+        "Nailed boards across the {a}. Now I will hear them coming.",
+        "Boarded up the {a} today. It held when I leaned on it.",
+        "The {a} is boarded. The room is darker for it."
+      ]
+    },
+    "base_built": {
+      "rank": 4,
+      "lines": [
+        "Finished the {a} today. The place feels more like mine.",
+        "Built a {a}. My hands are sore.",
+        "The {a} is done. I stood and looked at it for a while."
+      ]
+    },
+    "survivor_met": {
+      "rank": 5,
+      "lines": [
+        "Met {a}. They would not come outside. We talked through the window.",
+        "Met {a} today. Neither of us trusted the other, but we talked.",
+        "Someone else is alive. {a}. I nearly cried.",
+        "Met {a}. They asked if I had seen anyone else."
+      ]
+    },
+    "survivor_traded": {
+      "rank": 3,
+      "lines": [
+        "Traded with {a}. I think I got the worse of it.",
+        "{a} traded with me. Neither of us said much.",
+        "Traded with {a} through the door."
+      ]
+    },
+    "survivor_lost": {
+      "rank": 7,
+      "lines": [
+        "{a} is dead. I keep thinking about it.",
+        "Lost {a} today.",
+        "{a} did not make it. I covered them with a sheet."
+      ]
+    },
+    "horde_passed": {
+      "rank": 6,
+      "lines": [
+        "They went through in the night. I counted until I could not.",
+        "A crowd of them came down the street last night. I held my breath until it passed.",
+        "The crowd passed in the night. In the morning the street was full of their tracks."
+      ]
+    },
+    "clue_learned": {
+      "rank": 5,
+      "lines": [
+        "There is a gate. Of course there is a gate.",
+        "Learned something about the way out today. I wrote it on the back page.",
+        "There is a way out. I read the note three times.",
+        "Somebody knew how to get out. I am trying to follow what they knew."
+      ]
+    },
+    "grave_found": {
+      "rank": 6,
+      "lines": [
+        "Found {a}'s grave. I stood there a while.",
+        "Found {a}'s grave. Day {n}, it said.",
+        "{a}'s grave. Someone was here before me and did not make it.",
+        "Found {a}'s grave today. I did not know what to say, so I said nothing."
+      ]
+    },
+    "laid_to_rest": {
+      "rank": 7,
+      "lines": [
+        "Found {a} walking. I did what they would have wanted.",
+        "Put {a} down today. It was the right thing.",
+        "I laid {a} to rest. It did not feel like winning."
+      ]
+    },
+    "stone_set": {
+      "rank": 6,
+      "lines": [
+        "Set {a}'s stone with the others. Said the name out loud.",
+        "Carried {a}'s marker across town. It is in the cemetery now, in a row.",
+        "{a} has a stone now. Nobody else was going to do it.",
+        "Put {a}'s marker in the ground by the old stones. I did not stay long."
+      ]
+    },
+    "days": {
+      "rank": 5,
+      "lines": [
+        "{Nw} days. I have stopped counting cans and started counting days.",
+        "{Nw} days. I did not think I would see this many.",
+        "Day {n}. Still here."
+      ]
+    },
+    "season_turned": {
+      "rank": 3,
+      "lines": [
+        "It is {a} now. The air changed overnight.",
+        "{A} came in today. I could smell it.",
+        "The season turned. It is {a}."
+      ]
+    },
+    "low_point": {
+      "rank": 5,
+      "lines": [
+        "I sat on the stairs all afternoon.",
+        "I did not get up today until it was dark.",
+        "Nothing seemed worth doing today.",
+        "I could not stop shaking. I do not know why."
+      ]
+    },
+    "end_sudden": {
+      "rank": 9,
+      "lines": [
+        "The writing stops here.",
+        "The writing stops in the middle of a line.",
+        "The last line is not finished."
+      ]
+    },
+    "end_slow": {
+      "rank": 9,
+      "lines": [
+        "I am very tired. I will write more tomorrow.",
+        "I could not get up today. I will try again in the morning.",
+        "My writing is getting worse. I will rest now."
+      ]
+    },
+    "end_retired": {
+      "rank": 9,
+      "lines": [
+        "I am not going on. I will stay here.",
+        "That is enough. I am going to sit down now.",
+        "I cannot do it any more. Whatever comes, it comes here."
+      ]
+    },
+    "end_stayed": {
+      "rank": 9,
+      "lines": [
+        "I am staying. The house is warm enough and the door holds.",
+        "This is home now. I will not go any further.",
+        "I am going to stay here for good."
+      ]
+    },
+    "end_escaped": {
+      "rank": 9,
+      "lines": [
+        "The gate opened. I went out.",
+        "Outside the wall now. I did not look back.",
+        "I am leaving by the gate. The road goes on past the trees."
+      ]
+    }
+  }
+}

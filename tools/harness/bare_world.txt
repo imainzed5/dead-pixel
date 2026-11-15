@@ -1,0 +1,25 @@
+# The world with no interface drawn: backdrops for UI mockups (tools/ui_mockup.py).
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/bare_world.txt --hidden --world-seed 1234 --shots shots/bare_world
+
+newrun
+god on
+ui off
+hours 12
+weather clear
+zoom 1.5
+waits 1
+shot 01_home_day
+teleport 64 62
+waits 0.4
+shot 02_street_day
+zombie 3 1
+zombie 4 -1
+waits 1.2
+shot 03_street_dead
+weather rain
+hours 21
+waits 5
+shot 04_street_dusk_rain
+expect alive
+quit

@@ -63,12 +63,12 @@ void Camera::clampToBounds(const glm::vec2& worldSize)
 glm::vec2 Camera::worldToScreen(const glm::vec2& worldPosition) const
 {
     const glm::vec2 iso = worldToIso(worldPosition);
-    return (iso - mPosition) * mZoom + mViewportSize * 0.5f;
+    return (iso - mPosition) * mZoom + mViewportSize * 0.5f + mShake;
 }
 
 glm::vec2 Camera::screenToWorld(const glm::vec2& screenPosition) const
 {
-    const glm::vec2 iso = (screenPosition - mViewportSize * 0.5f) / mZoom + mPosition;
+    const glm::vec2 iso = (screenPosition - mShake - mViewportSize * 0.5f) / mZoom + mPosition;
     return isoToWorld(iso);
 }
 

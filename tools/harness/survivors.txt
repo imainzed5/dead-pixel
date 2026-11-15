@@ -1,0 +1,78 @@
+# Survivors (phase 8): the other people in town live by their own needs.
+# One with little in the house goes out to a cupboard, searches it, comes
+# home with the food (the cupboard is remembered as emptied) and eats when
+# hungry; one caught out by three of the dead runs home and shuts the door;
+# one with planks boards a door. Then the days between lives, twice the
+# same for one seed, then for real.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/survivors.txt --hidden --world-seed 1234 --shots shots/survivors
+
+newrun
+god on
+hours 9
+waits 1
+# The town's dead out of the way: only the ones the script puts down.
+slay 200
+survivors
+
+# Low stock: out to the cupboard they would choose (a few cans put in it).
+# Trust 30: the player may walk into the house to look without a fight.
+survivor house open low trust 30
+survivor fill Canned Food 3
+waits 3
+expect survivor scavenge
+goto survivor
+waits 0.5
+shot 01_going_out
+waitfor 90 survivor searched
+expect survivor stock Canned Food 4
+waitfor 90 survivor home
+waits 1
+expect survivor stock Canned Food 4
+goto survivor
+waits 0.5
+shot 02_home_with_it
+
+# Hungry now: they eat from what they keep.
+set shunger 30
+waitfor 10 survivor hunger above 45
+expect survivor stock Canned Food 3
+survivors
+
+# Caught out: three of the dead close by; they run home and shut the door.
+survivor house open low trust 30
+survivor fill Canned Food 1
+waitfor 30 survivor away
+waits 2
+goto survivor
+survivor dead 3
+waitfor 3 survivor flee
+waits 0.3
+shot 03_running_home
+waitfor 40 survivor home
+waitfor 10 survivor shut
+waits 5
+expect survivor home
+expect survivor shut
+goto survivor
+waits 0.5
+shot 04_shut_in
+slay 40
+
+# Planks and nails: a door boarded (they keep the other to come and go).
+# Few houses have two doors; on this seed the nearest free one is a warehouse.
+survivor house open planks doors2 trust 30
+goto survivor
+waitfor 60 survivor boarded door
+waits 0.5
+shot 05_boarded
+survivors
+
+# Between lives: ten days, twice the same; then for real.
+advance 10
+advance 10
+expect advance same
+advance 10 apply
+expect advance loots 1
+survivors
+quit

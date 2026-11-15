@@ -1,7 +1,14 @@
 // Builds the world for a run: map, entities, loot, survivors and legacy traces.
 #include "core/GameShared.h"
+#include "world/Storage.h"
 
 using namespace gameshared;
+
+namespace
+{
+// Burned grass grows back two lives after the fire (phase 10; was three).
+constexpr int kGrassRegrowLives = aging::kGrassRegrowLives;
+} // namespace
 
 void Game::spawnScorchMark(int tileX, int tileY)
 {
@@ -20,32 +27,6 @@ void Game::spawnScorchMark(int tileX, int tileY)
     mWorld.addComponent<Sprite>(scorch, s);
 }
 
-void Game::spawnFireTile(const FireTileRecord& record, float spreadPhase)
-{
-    Entity fireEntity = mWorld.createEntity();
-
-    Transform t{};
-    t.x = static_cast<float>(record.tileX * mTileMap.tileWidth());
-    t.y = static_cast<float>(record.tileY * mTileMap.tileHeight());
-
-    Sprite s{};
-    s.textureId = mSpriteSheet.textureId();
-    s.uvRect = mSpriteSheet.uvRect("env_campfire_lit");
-    const float intensity = std::clamp(record.intensity, 0.0f, 2.0f);
-    s.color = glm::vec4(1.0f, 0.45f + intensity * 0.20f, 0.18f, 0.55f + intensity * 0.18f);
-    s.layer = 6;
-
-    Fire fire{};
-    fire.intensity = intensity;
-    fire.lifeRemaining = std::max(2.0f, record.lifeRemaining);
-    fire.spreadTimer = std::fmod(spreadPhase, 1.0f);
-    fire.noiseTimer = 0.0f;
-
-    mWorld.addComponent<Transform>(fireEntity, t);
-    mWorld.addComponent<Sprite>(fireEntity, s);
-    mWorld.addComponent<Fire>(fireEntity, fire);
-}
-
 void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
 {
     for (const auto& [x, y] : cp.openDoors)
@@ -57,34 +38,37 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
         for (const Doors::Door& door : mDoors.all())
             mDoors.setBoards(mTileMap, door.tile, 0.0f);
         for (const BoardedDoorRecord& record : cp.boardedDoors)
-            mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp);
+            mDoors.setBoards(mTileMap, glm::ivec2(record.x, record.y), record.boardHp, record.toughness);
     }
+
+    if (cp.windowsSaved) restoreWindows(cp.windows);
+    if (cp.structuresSaved) restoreStructures(cp.structures);
+    restoreScavenging(cp.scavenge);
 
     // Scars from earlier runs are already on the ground; add this run's.
     for (const auto& [x, y] : cp.burnedTiles)
     {
-        if (!mTileMap.inBounds(x, y) || hasTilePair(mBurnedTiles, x, y))
+        if (!mTileMap.inBounds(x, y) || tileBurned(x, y))
         {
             continue;
         }
-        addUniqueTilePair(mBurnedTiles, x, y);
+        markTileBurned(x, y);
         spawnScorchMark(x, y);
+        mSceneryView.burnTree(glm::ivec2(x, y));
+    }
+    countBuildingFloors();
+    for (int b = 1; b < static_cast<int>(mBuildingGutted.size()); ++b)
+    {
+        if (mStructureView.gutted(b)) mBuildingGutted[static_cast<std::size_t>(b)] = 1;
     }
 
     // Fires burning at the checkpoint replace the ones world memory relit.
-    std::vector<Entity> oldFires;
-    mWorld.forEach<Fire>([&](Entity e, Fire&) { oldFires.push_back(e); });
-    for (Entity e : oldFires)
+    mFireSystem.clear();
+    for (const FireTileRecord& record : cp.fires)
     {
-        mWorld.destroyEntity(e);
-    }
-    for (std::size_t i = 0; i < cp.fires.size(); ++i)
-    {
-        const FireTileRecord& record = cp.fires[i];
-        if (mTileMap.inBounds(record.tileX, record.tileY) && !mTileMap.blocksSight(record.tileX, record.tileY))
-        {
-            spawnFireTile(record, static_cast<float>(i) * 0.37f);
-        }
+        if (!mTileMap.inBounds(record.tileX, record.tileY)) continue;
+        mFireSystem.restore(glm::ivec2(record.tileX, record.tileY), std::min(1.0f, record.lifeRemaining),
+                            std::min(1.0f, record.intensity), record.byPlayer);
     }
 
     // The dead stand where they stood; the ones you put down stay down.
@@ -107,13 +91,57 @@ void Game::restoreTownFromCheckpoint(const RunCheckpoint& cp)
             params.health = record.maxHealth;
             params.baseMoveSpeed = record.baseMoveSpeed;
             params.spawnDay = record.spawnDay;
+            params.kind = static_cast<ZombieKind>(std::clamp(record.kind, 0, kZombieKindCount - 1));
+            params.dormant = record.dormant;
             const Entity zombie = EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
             mWorld.getComponent<Health>(zombie).current = record.health;
+            mWorld.getComponent<ZombieAI>(zombie).follower = record.follower;
+            if (record.follower) mFollowerChosen = true;
+            // The Sergeant and the dead with him (phase 9).
+            mWorld.getComponent<ZombieAI>(zombie).gateRole = record.gateRole;
+            if (record.gateRole == 1 && mWorld.hasComponent<Sprite>(zombie))
+            {
+                mWorld.getComponent<Sprite>(zombie).color = glm::vec4(0.70f, 0.76f, 0.98f, 1.0f);
+            }
         }
     }
     for (const CorpseRecord& record : cp.corpses)
     {
-        spawnCorpse(glm::vec2(record.x, record.y), record.flipX, glm::vec4(1.0f));
+        const Entity body = spawnCorpse(glm::vec2(record.x, record.y), record.look, record.dir, glm::vec4(1.0f),
+                                        glm::vec2(0.0f), true,
+                                        static_cast<ZombieKind>(std::clamp(record.kind, 0, kZombieKindCount - 1)));
+        if (record.searched)
+        {
+            // Its pockets as they were left.
+            if (body != kInvalidEntity)
+            {
+                Corpse& corpse = mWorld.getComponent<Corpse>(body);
+                corpse.searched = true;
+                Inventory pockets{};
+                pockets.maxSlots = 6;
+                for (const auto& [id, count] : record.items)
+                {
+                    InventorySystem::addItem(pockets, mItemDatabase, id, count);
+                }
+                mWorld.addComponent<Inventory>(body, pockets);
+            }
+        }
+    }
+    {
+        std::vector<bloodtrail::Marker> markers;
+        for (const BloodMarkerRecord& b : cp.blood)
+        {
+            bloodtrail::Marker m;
+            m.world = glm::vec2(b.x, b.y);
+            m.strength = b.strength;
+            m.age = b.age;
+            m.life = b.life;
+            m.place = static_cast<bloodtrail::Place>(std::clamp(b.place, 0, 2));
+            m.pool = b.pool;
+            m.seq = b.seq;
+            markers.push_back(m);
+        }
+        mBloodTrail.restore(markers);
     }
 }
 
@@ -130,13 +158,13 @@ void Game::setupScene()
 
     Sprite playerSprite{};
     playerSprite.textureId = sheetTex;
-    playerSprite.uvRect = mSpriteSheet.uvRect("player_idle_front");
+    playerSprite.uvRect = mSpriteSheet.uvRect("player_none_idle_se");
     playerSprite.color = glm::vec4(1.0f);
     playerSprite.layer = 10;
     playerSprite.drawSize = SpriteSizes::kHumanoid;
 
     Animation playerAnim{};
-    playerAnim.currentAnim = "player_idle_front";
+    playerAnim.currentAnim = "player_none_idle_se";
     playerAnim.frameDuration = 0.15f;
 
     mWorld.addComponent<Transform>(mPlayerEntity, playerTransform);
@@ -157,199 +185,81 @@ void Game::setupScene()
         mWorld.addComponent<Inventory>(mPlayerEntity, playerInv);
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
-        int startBandages = 2;
-        int startFood = 3;
-        int startWater = 2;
-        switch (saveThreatModeFromIndex(mTitleModeIndex))
+        // What the character carries. The rest of their things are at home
+        // (see placeHomeKit).
+        int startBandages = 1;
+        int startFood = 1;
+        int startWater = 1;
+        if (saveThreatModeFromIndex(mTitleModeIndex) == SaveThreatMode::Stalker)
         {
-        case SaveThreatMode::Stalker:
-            startBandages = 3;
-            startFood = 4;
-            startWater = 3;
-            break;
-        case SaveThreatMode::OverwhelmingSwarm:
-        case SaveThreatMode::Hybrid:
-            startBandages = 1;
+            startBandages = 2;
             startFood = 2;
-            startWater = 1;
-            break;
-        default:
-            break;
+            startWater = 2;
         }
 
-        InventorySystem::addItem(inv, mItemDatabase, 5, 1);  // knife
-        InventorySystem::addItem(inv, mItemDatabase, 4, startBandages);
-        InventorySystem::addItem(inv, mItemDatabase, 0, startFood);
-        InventorySystem::addItem(inv, mItemDatabase, 3, startWater);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.knife, 1);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.bandage, startBandages);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.cannedFood, startFood);
+        InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, startWater);
     }
     equipStartingWeapon(-1); // the knife, in hand from the start
     mWorld.addComponent<MentalState>(mPlayerEntity, MentalState{});
     mWorld.addComponent<Wounds>(mPlayerEntity, Wounds{});
 
-    // Assign traits from seed
+    // Traits: the seed's quick pick until the character screen (or a
+    // checkpoint) says otherwise. Health, carry limit and skills follow.
+    mWorld.addComponent<Traits>(mPlayerEntity, Traits{});
+    mWorld.addComponent<Skills>(mPlayerEntity, Skills{});
+    // Phase 10: what the line has earned, and what runs in the family. A
+    // Fresh Start world has no line.
     {
-        const std::uint32_t traitSeed = mSaveManager.currentRunSeed() ^ 0xDEADBEEFu;
-        Traits traits{};
-        traits.positive = static_cast<PositiveTrait>(1 + (traitSeed % 3));         // 1-3
-        traits.negative = static_cast<NegativeTrait>(1 + ((traitSeed / 3) % 3));   // 1-3
-        mWorld.addComponent<Traits>(mPlayerEntity, traits);
+        const legacy::LegacyState state = legacyState();
+        mSkillEchoes = livingWorld() ? legacy::skillEchoes(state) : std::array<int, kSkillCount>{};
+        mWorld.getComponent<Traits>(mPlayerEntity).bloodlines =
+            livingWorld() ? legacy::bloodlineFor(state) : std::vector<BloodlineTrait>{};
+    }
+    applyCharacter(traitrules::quickStart(mSaveManager.currentRunSeed()), true);
 
-        // Apply trait effects
-        if (traits.positive == PositiveTrait::Tough)
+    // The districts as the world remembers them (phase 4), before the
+    // dead are placed: infection sets the mix.
+    mDistrictInfectionSystem.initialize(mMapGenerator.layoutData(), mTileMap.tileWidth(), mTileMap.tileHeight());
+    resetDead();
+    loadDistrictMemory(true);
+
+    // --- Zombies --- (the kind from the mode's shares and the district)
+    {
+        std::mt19937 kindRng(mSaveManager.currentRunSeed() ^ 0x0DEADu);
+        for (const auto& tile : mSpawnData.zombieSpawns)
         {
-            Health& h = mWorld.getComponent<Health>(mPlayerEntity);
-            h.maximum += 20.0f;
-            h.current = h.maximum;
+            if (mTileMap.isSolid(tile.x, tile.y)) continue;
+            const glm::vec2 topLeft(static_cast<float>(tile.x * mTileMap.tileWidth()),
+                                    static_cast<float>(tile.y * mTileMap.tileHeight()));
+            EntityFactory::spawnZombie(mWorld, mSpriteSheet, zombieParams(rollKind(kindRng, tile), topLeft, kindRng));
         }
-        // Quick and LightSleeper are applied dynamically in movement/sleep systems
+        placeDormantCrawlers(kindRng);
     }
 
-    // --- Zombies ---
-    std::uniform_real_distribution<float> hpDist(30.0f, 70.0f);
-    std::uniform_real_distribution<float> speedMul(0.8f, 1.2f);
-
-    for (const auto& tile : mSpawnData.zombieSpawns)
-    {
-        if (mTileMap.isSolid(tile.x, tile.y)) continue;
-
-        EntityFactory::ZombieParams params;
-        params.topLeftWorld = glm::vec2(static_cast<float>(tile.x * mTileMap.tileWidth()),
-                                        static_cast<float>(tile.y * mTileMap.tileHeight()));
-        params.health = hpDist(runRng) * tone.zombieHealthScale;
-        params.baseMoveSpeed = 112.0f * speedMul(runRng);
-        params.spawnDay = mCurrentDay;
-        EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
-    }
-
-    // --- NPC Survivors ---
-    {
-        static const char* kSurvivorNames[] = {
-            "Alex", "Jordan", "Casey", "Morgan", "Riley",
-            "Sam", "Quinn", "Avery", "Blake", "Cameron"
-        };
-        constexpr int kNameCount = 10;
-
-        // Load persisted survivors or spawn fresh ones
-        auto savedSurvivors = mSaveManager.loadSurvivors();
-        if (!savedSurvivors.empty())
-        {
-            for (const auto& sr : savedSurvivors)
-            {
-                if (!sr.alive) continue;
-                Entity npc = mWorld.createEntity();
-                Transform nt{}; nt.x = sr.x; nt.y = sr.y;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle_front"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
-                Animation na{}; na.currentAnim = "player_idle_front"; na.frameDuration = 0.2f;
-                SurvivorAI sai{};
-                sai.name = sr.name;
-                sai.spawnDay = sr.spawnDay;
-                sai.hunger = sr.hunger;
-                sai.thirst = sr.thirst;
-                sai.personality.aggression = sr.aggression;
-                sai.personality.cooperation = sr.cooperation;
-                sai.personality.competence = sr.competence;
-                sai.homeDistrictId = sr.homeDistrictId;
-                mWorld.addComponent<Transform>(npc, nt);
-                mWorld.addComponent<Sprite>(npc, ns);
-                mWorld.addComponent<Animation>(npc, na);
-                mWorld.addComponent<Velocity>(npc, Velocity{});
-                mWorld.addComponent<SurvivorAI>(npc, sai);
-                mWorld.addComponent<Health>(npc, Health{60.0f, 60.0f});
-            }
-        }
-        else
-        {
-            // Spawn 2-5 fresh survivors in non-wilderness districts
-            std::uniform_int_distribution<int> npcCountDist(2, 5);
-            const int npcCount = npcCountDist(runRng);
-
-            const auto& layout = mMapGenerator.layoutData();
-            std::vector<int> validDistricts;
-            for (const auto& dd : layout.districts)
-            {
-                if (dd.type != static_cast<int>(DistrictType::Wilderness))
-                    validDistricts.push_back(dd.id);
-            }
-
-            for (int i = 0; i < npcCount; ++i)
-            {
-                int districtId = 0;
-                float spawnX = 200.0f;
-                float spawnY = 200.0f;
-
-                if (!validDistricts.empty())
-                {
-                    districtId = validDistricts[runRng() % validDistricts.size()];
-                    for (const auto& dd : layout.districts)
-                    {
-                        if (dd.id == districtId)
-                        {
-                            std::uniform_int_distribution<int> xDist(dd.minX + 1, std::max(dd.minX + 1, dd.maxX - 1));
-                            std::uniform_int_distribution<int> yDist(dd.minY + 1, std::max(dd.minY + 1, dd.maxY - 1));
-                            int tx = xDist(runRng);
-                            int ty = yDist(runRng);
-                            // Find non-solid tile nearby
-                            for (int attempts = 0; attempts < 10; ++attempts)
-                            {
-                                if (!mTileMap.isSolid(tx, ty)) break;
-                                tx = xDist(runRng);
-                                ty = yDist(runRng);
-                            }
-                            spawnX = static_cast<float>(tx * mTileMap.tileWidth());
-                            spawnY = static_cast<float>(ty * mTileMap.tileHeight());
-                            break;
-                        }
-                    }
-                }
-
-                Entity npc = mWorld.createEntity();
-                Transform nt{}; nt.x = spawnX; nt.y = spawnY;
-                Sprite ns{}; ns.textureId = sheetTex; ns.uvRect = mSpriteSheet.uvRect("player_idle_front"); ns.color = glm::vec4(0.7f, 0.85f, 1.0f, 1.0f); ns.layer = 9; ns.drawSize = SpriteSizes::kHumanoid;
-                Animation na{}; na.currentAnim = "player_idle_front"; na.frameDuration = 0.2f;
-
-                SurvivorAI sai{};
-                sai.name = kSurvivorNames[(runRng() % kNameCount)];
-                sai.spawnDay = mCurrentDay;
-                sai.homeDistrictId = districtId;
-
-                std::uniform_real_distribution<float> traitDist(0.0f, 1.0f);
-                sai.personality.aggression = traitDist(runRng);
-                sai.personality.cooperation = traitDist(runRng);
-                sai.personality.competence = traitDist(runRng);
-
-                mWorld.addComponent<Transform>(npc, nt);
-                mWorld.addComponent<Sprite>(npc, ns);
-                mWorld.addComponent<Animation>(npc, na);
-                mWorld.addComponent<Velocity>(npc, Velocity{});
-                mWorld.addComponent<SurvivorAI>(npc, sai);
-                mWorld.addComponent<Health>(npc, Health{60.0f, 60.0f});
-            }
-        }
-    }
-
-    // Apply bloodline trait selected from persistent legacy history.
+    // The bloodline's gifts (the traits were earned above, before the skills).
     if (mWorld.hasComponent<Traits>(mPlayerEntity))
     {
-        Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        traits.bloodline = mSaveManager.selectBloodlineForNewRun();
-
-        if (traits.bloodline == BloodlineTrait::Scavenger && mWorld.hasComponent<Inventory>(mPlayerEntity))
+        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        if (traits.has(BloodlineTrait::Scavenger) && mWorld.hasComponent<Inventory>(mPlayerEntity))
         {
             Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-            InventorySystem::addItem(inv, mItemDatabase, 0, 1);
-            InventorySystem::addItem(inv, mItemDatabase, 3, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.cannedFood, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, 1);
         }
-
-        if (traits.bloodline == BloodlineTrait::Vigilant && mWorld.hasComponent<MentalState>(mPlayerEntity))
+        if (traits.has(BloodlineTrait::Vigilant) && mWorld.hasComponent<MentalState>(mPlayerEntity))
         {
             MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
-            mental.panicDecayPerSecond += 0.5f;
+            mental.panicDecayPerSecond *= legacy::kVigilantPanicDecay;
         }
     }
 
-    // Initialize district infection system
-    mDistrictInfectionSystem.initialize(mMapGenerator.layoutData());
-    mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(saveThreatModeFromIndex(mTitleModeIndex)));
+    mThreatDirector.reset(mSaveManager.currentRunSeed(), threatDirectorTuning(modeRules()));
+    // Weather and combat rolls follow the run seed too, so a seed replays.
+    mWeatherSystem.reset(mSaveManager.currentRunSeed() ^ 0x5EA7u);
+    mCombatSystem.reseed(mSaveManager.currentRunSeed() ^ 0xC0B7u);
     mFlashlightOn = false;
     mHudDistrictId = -1;
     mDistrictToastTimer = 0.0f;
@@ -568,160 +478,67 @@ void Game::setupScene()
     // --- Burned tile marks restored from world memory ---
     {
         mBurnedTiles.clear();
+        mBurnedLookup.clear();
+        // Grass burned three lives ago or more has grown back (phase 7).
+        std::unordered_map<std::int64_t, int> burnedIn;
+        for (const WorldMemoryEventRecord& event : mSaveManager.worldMemoryEvents())
+        {
+            if (event.type != WorldMemoryEventType::BurnedTile) continue;
+            int& run = burnedIn[FireSystem::key(glm::ivec2(event.tileX, event.tileY))];
+            run = std::max(run, event.runIndex);
+        }
+        int regrown = 0;
         for (const auto& [tx, ty] : mSaveManager.burnedTiles())
         {
             if (tx < 0 || tx >= mTileMap.width() || ty < 0 || ty >= mTileMap.height())
             {
                 continue;
             }
+            const auto when = burnedIn.find(FireSystem::key(glm::ivec2(tx, ty)));
+            const int base = ((std::max(1, mTileMap.groundGid(tx, ty)) - 1) % TileGid::kPerRow) + 1;
+            if (TileGid::isGrass(base) && when != burnedIn.end() &&
+                mSaveManager.runNumber() - when->second >= kGrassRegrowLives)
+            {
+                ++regrown;
+                continue;
+            }
 
-            addUniqueTilePair(mBurnedTiles, tx, ty);
+            markTileBurned(tx, ty);
             spawnScorchMark(tx, ty);
         }
+        if (regrown > 0) std::cout << "[Fire] " << regrown << " burned tiles grew back\n";
         mBurnedTilesAtRunStart = mBurnedTiles.size();
+
+        // Houses gutted in earlier lives stay gutted.
+        countBuildingFloors();
+        for (const auto& [gx, gy] : mSaveManager.guttedBuildings())
+        {
+            if (!mTileMap.inBounds(gx, gy)) continue;
+            gutBuilding(mTileMap.getBuildingId(gx, gy), false);
+        }
     }
 
     // --- Active fire tiles restored from world memory ---
     {
+        mFireSystem.clear();
         for (const FireTileRecord& fireRecord : mSaveManager.fireTiles())
         {
-            if (fireRecord.tileX < 0 || fireRecord.tileX >= mTileMap.width() ||
-                fireRecord.tileY < 0 || fireRecord.tileY >= mTileMap.height())
-            {
-                continue;
-            }
-
-            if (mTileMap.blocksSight(fireRecord.tileX, fireRecord.tileY))
-            {
-                continue;
-            }
-            spawnFireTile(fireRecord, static_cast<float>(runRng() % 1000) * 0.001f);
+            if (!mTileMap.inBounds(fireRecord.tileX, fireRecord.tileY)) continue;
+            (void)runRng(); // the draw the old fire entities took, so later spawns stay where they were
+            mFireSystem.restore(glm::ivec2(fireRecord.tileX, fireRecord.tileY), std::min(1.0f, fireRecord.lifeRemaining),
+                                std::min(1.0f, fireRecord.intensity), false);
         }
     }
 
-    // --- Sedan vehicles (M8 narrow slice) ---
-    {
-        auto spawnSedan = [&](int tileX, int tileY, float condition, float fuel, float maxFuel,
-                              const std::vector<std::pair<int, int>>& items)
-        {
-            if (tileX < 0 || tileX >= mTileMap.width() || tileY < 0 || tileY >= mTileMap.height())
-            {
-                return;
-            }
-            if (mTileMap.isSolid(tileX, tileY))
-            {
-                return;
-            }
-
-            Entity vehicleEntity = mWorld.createEntity();
-
-            Transform t{};
-            t.x = static_cast<float>(tileX * mTileMap.tileWidth());
-            t.y = static_cast<float>(tileY * mTileMap.tileHeight());
-
-            Sprite s{};
-            s.textureId = sheetTex;
-            s.uvRect = mSpriteSheet.uvRect("env_cabinet");
-            const float wearTint = std::clamp(condition / 100.0f, 0.0f, 1.0f);
-            s.color = glm::vec4(0.33f + wearTint * 0.20f, 0.36f + wearTint * 0.17f, 0.40f + wearTint * 0.18f, 1.0f);
-            s.layer = 5;
-
-            Interactable inter{};
-            inter.type = InteractableType::Container;
-            inter.prompt = "Open trunk";
-
-            Inventory trunk{};
-            for (const auto& [itemId, count] : items)
-            {
-                if (itemId >= 0 && count > 0)
-                {
-                    InventorySystem::addItem(trunk, mItemDatabase, itemId, count);
-                }
-            }
-
-            Vehicle vehicle{};
-            vehicle.condition = std::clamp(condition, 0.0f, 100.0f);
-            vehicle.maxFuel = std::max(1.0f, maxFuel);
-            vehicle.fuel = std::clamp(fuel, 0.0f, vehicle.maxFuel);
-            vehicle.engineOn = false;
-            vehicle.playerInside = false;
-
-            mWorld.addComponent<Transform>(vehicleEntity, t);
-            mWorld.addComponent<Sprite>(vehicleEntity, s);
-            mWorld.addComponent<Interactable>(vehicleEntity, inter);
-            mWorld.addComponent<Inventory>(vehicleEntity, trunk);
-            mWorld.addComponent<Vehicle>(vehicleEntity, vehicle);
-        };
-
-        const auto& persistedVehicles = mSaveManager.vehicles();
-        if (!persistedVehicles.empty())
-        {
-            for (const auto& record : persistedVehicles)
-            {
-                const int tileX = static_cast<int>(std::floor(record.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
-                const int tileY = static_cast<int>(std::floor(record.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
-
-                // Mild between-run wear to communicate world persistence pressure.
-                const float carryCondition = std::max(0.0f, record.condition - 4.0f);
-                spawnSedan(tileX, tileY, carryCondition, record.fuel, record.maxFuel, record.items);
-            }
-        }
-        else
-        {
-            std::uniform_real_distribution<float> fuelDist(8.0f, 24.0f);
-            std::uniform_real_distribution<float> conditionDist(45.0f, 95.0f);
-            std::uniform_int_distribution<int> trunkRoll(0, 100);
-
-            for (const auto& tile : mSpawnData.vehicleSpawns)
-            {
-                std::vector<std::pair<int, int>> trunkItems;
-                if (trunkRoll(runRng) < 45) trunkItems.emplace_back(12, 1); // fuel can
-                if (trunkRoll(runRng) < 40) trunkItems.emplace_back(3, 1);  // water bottle
-                if (trunkRoll(runRng) < 30) trunkItems.emplace_back(4, 1);  // bandage
-
-                spawnSedan(
-                    tile.x,
-                    tile.y,
-                    conditionDist(runRng),
-                    fuelDist(runRng),
-                    30.0f,
-                    trunkItems);
-            }
-        }
-    }
+    // --- Vehicles: sedans, pickups and bicycles (GameVehicles.cpp) ---
+    spawnVehicles(runRng, tone.suppliesScale);
 
     // --- Furniture: containers to search, beds to sleep in ---
     {
         std::mt19937 lootRng(mSaveManager.currentRunSeed() ^ 0xF00Du);
-        std::uniform_real_distribution<float> roll(0.0f, 1.0f);
-        // Most cupboards are already bare; tone scales how many are not.
-        const float stocked = std::clamp(0.45f * tone.suppliesScale, 0.0f, 0.9f);
-
-        const auto lootTable = [](FurnitureLoot loot) -> std::vector<int>
-        {
-            switch (loot)
-            {
-            case FurnitureLoot::Fridge: return {0, 1, 2, 3};
-            case FurnitureLoot::Kitchen: return {0, 3, 19, 5, 2};
-            case FurnitureLoot::Bathroom: return {4, 16, 15};
-            case FurnitureLoot::Bedroom: return {20, 23, 18, 16, 19};
-            case FurnitureLoot::Living: return {23, 19, 18};
-            case FurnitureLoot::Store: return {0, 3, 2, 4, 16, 19};
-            case FurnitureLoot::Checkout: return {23, 19, 18, 16};
-            case FurnitureLoot::Storage: return {9, 10, 11, 12, 13};
-            case FurnitureLoot::Workshop: return {17, 10, 11, 9, 7, 8};
-            case FurnitureLoot::None: break;
-            }
-            return {};
-        };
-
-        const auto& lootedPos = mSaveManager.lootedPositions();
-        const auto isLooted = [&](int tx, int ty)
-        {
-            return std::any_of(lootedPos.begin(), lootedPos.end(),
-                               [&](const std::pair<int, int>& p) { return p.first == tx && p.second == ty; });
-        };
-
+        const std::vector<storage::RareFind> rare = storage::rareFinds(
+            mFurniture, glm::vec2(static_cast<float>(mTileMap.width()) * 0.5f, static_cast<float>(mTileMap.height()) * 0.5f),
+            static_cast<std::uint32_t>(mSaveManager.worldSeed()));
         for (const FurniturePiece& piece : mFurniture)
         {
             const FurnitureInfo& def = furniture::info(piece.kind);
@@ -736,28 +553,38 @@ void Game::setupScene()
 
             Interactable inter{};
             inter.prompt = def.prompt;
-            if (piece.kind == FurnitureKind::Bed)
+            if (piece.kind == FurnitureKind::Bed || piece.kind == FurnitureKind::Cot)
             {
                 inter.type = InteractableType::SleepSpot;
                 inter.sleepHours = 8.0f;
-                inter.sleepQuality = 0.95f;
+                inter.sleepQuality = piece.kind == FurnitureKind::Cot ? 0.7f : 0.95f;
                 mWorld.addComponent<Interactable>(entity, inter);
                 continue;
             }
             inter.type = InteractableType::Container;
             mWorld.addComponent<Interactable>(entity, inter);
-            mWorld.addComponent<Inventory>(entity, Inventory{});
+            mWorld.addComponent<Inventory>(entity, storage::emptyContainer(piece.kind));
 
-            // Picked over in an earlier life: still empty.
-            if (isLooted(piece.tile.x, piece.tile.y)) continue;
-            const std::vector<int> table = lootTable(def.loot);
-            if (table.empty()) continue;
+            // What the world remembers of it (taken from, filled by the player)
+            // stands; otherwise it is rolled fresh from its loot class.
             Inventory& inv = mWorld.getComponent<Inventory>(entity);
-            for (int stack = 0; stack < 2; ++stack)
+            if (const ContainerRecord* record = mSaveManager.containerRecord(piece.tile.x, piece.tile.y))
             {
-                if (roll(lootRng) > (stack == 0 ? stocked : 0.25f)) break;
-                const int itemId = table[lootRng() % table.size()];
-                InventorySystem::addItem(inv, mItemDatabase, itemId, (lootRng() % 4) == 0 ? 2 : 1);
+                storage::fillFromRecord(inv, *record, mItemDatabase);
+                continue;
+            }
+            std::vector<std::pair<int, int>> stacks;
+            // What it holds follows from the building it stands in (phase 6).
+            mLoot.roll(furniture::lootClass(piece), lootRng, tone.suppliesScale, stacks);
+            for (const auto& [itemId, count] : stacks)
+            {
+                InventorySystem::addItem(inv, mItemDatabase, itemId, count);
+            }
+            for (const storage::RareFind& find : rare)
+            {
+                if (find.tile != piece.tile) continue;
+                InventorySystem::addItemWithCondition(inv, mItemDatabase, mItemDatabase.idOf(find.item), find.count, 1.0f,
+                                                      find.loaded);
             }
         }
     }
@@ -772,7 +599,6 @@ void Game::setupScene()
 
         // Unsearched furniture containers, so a cache can go into the
         // nearest one in its building.
-        const auto& lootedPos = mSaveManager.lootedPositions();
         struct Stash
         {
             Entity entity;
@@ -787,9 +613,7 @@ void Game::setupScene()
                 if (inter.type != InteractableType::Container) return;
                 const glm::ivec2 tile(static_cast<int>(t.x) / mTileMap.tileWidth(), static_cast<int>(t.y) / mTileMap.tileHeight());
                 if (!mTileMap.hasFurniture(tile.x, tile.y)) return;
-                const bool looted = std::any_of(lootedPos.begin(), lootedPos.end(), [&](const std::pair<int, int>& p)
-                                                { return p.first == tile.x && p.second == tile.y; });
-                if (looted) return;
+                if (mSaveManager.containerRecord(tile.x, tile.y) != nullptr) return;
                 const auto piece = std::find_if(mFurniture.begin(), mFurniture.end(),
                                                 [&](const FurniturePiece& p) { return p.tile == tile; });
                 const FurnitureLoot loot = piece != mFurniture.end() ? furniture::info(piece->kind).loot : FurnitureLoot::None;
@@ -855,19 +679,19 @@ void Game::setupScene()
         {
             if (mTileMap.isSolid(tile.x, tile.y)) continue;
             Inventory& inv = cacheAt(tile, true, "env_shelf", glm::vec4(0.85f, 0.9f, 0.95f, 1.0f), "Raid med cache");
-            InventorySystem::addItem(inv, mItemDatabase, 22, 1);
-            InventorySystem::addItem(inv, mItemDatabase, 4, extraBandageDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 15, extraAntibioticDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.firstAidKit, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.bandage, extraBandageDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.antibiotics, extraAntibioticDist(runRng));
         }
 
         for (const auto& tile : mSpawnData.supplyCacheSpawns)
         {
             if (mTileMap.isSolid(tile.x, tile.y)) continue;
             Inventory& inv = cacheAt(tile, false, "env_crate", glm::vec4(0.95f, 0.85f, 0.65f, 1.0f), "Raid supply cache");
-            InventorySystem::addItem(inv, mItemDatabase, 0, foodQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 3, waterQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 9, materialQtyDist(runRng));
-            InventorySystem::addItem(inv, mItemDatabase, 11, 1);
+            InventorySystem::addItem(inv, mItemDatabase, mItems.cannedFood, foodQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.waterBottle, waterQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.woodPlanks, materialQtyDist(runRng));
+            InventorySystem::addItem(inv, mItemDatabase, mItems.rope, 1);
         }
         std::cout << "[World] caches: " << usedStashes.size() << " in furniture, " << props << " stand-alone\n";
     }
@@ -1010,46 +834,23 @@ void Game::setupScene()
         }
     }
 
-    // Restore persisted structures (degraded between runs)
-    for (const StructureRecord& rec : mSaveManager.structures())
-    {
-        const int recipeIdx = rec.type;
-        if (recipeIdx < 0 || recipeIdx >= BuildSystem::kRecipeCount) continue;
-        const auto& recipe = BuildSystem::kRecipes[recipeIdx];
-
-        Entity structEntity = mWorld.createEntity();
-        Transform t{}; t.x = rec.x; t.y = rec.y;
-        Sprite s{}; s.textureId = sheetTex; s.uvRect = mSpriteSheet.uvRect(recipe.sprite); s.color = glm::vec4(1.0f); s.layer = 4;
-        Structure structure{}; structure.type = recipe.type; structure.maxHp = recipe.hp;
-        structure.hp = recipe.hp * rec.hpRatio;
-        structure.condition = static_cast<StructureCondition>(rec.condition);
-        mWorld.addComponent<Transform>(structEntity, t);
-        mWorld.addComponent<Sprite>(structEntity, s);
-        mWorld.addComponent<Structure>(structEntity, structure);
-
-        // Restore Supply Cache inventory
-        if (recipe.type == StructureType::SupplyCache && !rec.items.empty())
-        {
-            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Loot cache";
-            mWorld.addComponent<Interactable>(structEntity, inter);
-            Inventory inv{};
-            for (const auto& [itemId, count] : rec.items)
-            {
-                InventorySystem::addItem(inv, mItemDatabase, itemId, count);
-            }
-            mWorld.addComponent<Inventory>(structEntity, inv);
-        }
-        // Rain Collector gets container but no items (regenerates fresh)
-        else if (recipe.type == StructureType::RainCollector)
-        {
-            Interactable inter{}; inter.type = InteractableType::Container; inter.prompt = "Collect water";
-            mWorld.addComponent<Interactable>(structEntity, inter);
-            mWorld.addComponent<Inventory>(structEntity, Inventory{});
-        }
-    }
+    // What earlier lives built and set down (worn at each run's end).
+    restoreStructures(mSaveManager.structures());
 
     spawnLegacy();
     resetDoors();
+    resetWindows();
+    for (FurniturePiece& piece : mFurniture) piece.damage = 0.0f;
+    refreshFurnitureLayer();
+    setupHome();
+    setupScavenging();
+    // The town's people (phase 8), from the survivors file.
+    setupSurvivors();
+    // The way out (phase 9): the gate shut or open, the readables.
+    setupGate();
+    // The cemetery's fence and old stones; the bones of earlier lives' dead (phase 10).
+    setupCemetery();
+    if (livingWorld()) spawnBones();
 
     const Transform& playerTransformRef = mWorld.getComponent<Transform>(mPlayerEntity);
     const glm::vec2 playerCenter(

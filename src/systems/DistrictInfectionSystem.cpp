@@ -7,10 +7,13 @@
 #include "components/Transform.h"
 #include "components/ZombieAI.h"
 
-void DistrictInfectionSystem::initialize(const LayoutData& layout)
+void DistrictInfectionSystem::initialize(const LayoutData& layout, int tileWidth, int tileHeight)
 {
     mDistricts.clear();
+    mWalkableArea.clear();
     mLastUpdateDay = -1;
+    mTileWidth = std::max(1, tileWidth);
+    mTileHeight = std::max(1, tileHeight);
 
     for (const auto& dd : layout.districts)
     {
@@ -20,6 +23,23 @@ void DistrictInfectionSystem::initialize(const LayoutData& layout)
         di.overwhelmed = false;
         mDistricts.push_back(di);
     }
+
+    // A district's size is the ground you can walk on in it, not its bounding box.
+    mWalkableArea.assign(mDistricts.size(), 0.0f);
+    for (std::size_t tile = 0; tile < layout.district.size(); ++tile)
+    {
+        if (tile < layout.collision.size() && layout.collision[tile] != 0) continue;
+        const int id = layout.district[tile];
+        for (std::size_t d = 0; d < mDistricts.size(); ++d)
+        {
+            if (mDistricts[d].districtId == id)
+            {
+                mWalkableArea[d] += 1.0f;
+                break;
+            }
+        }
+    }
+    for (float& area : mWalkableArea) area = std::max(1.0f, area);
 }
 
 void DistrictInfectionSystem::dailyUpdate(World& world, const LayoutData& layout, int currentDay)
@@ -31,15 +51,8 @@ void DistrictInfectionSystem::dailyUpdate(World& world, const LayoutData& layout
 
     // Count living zombies per district
     std::vector<int> zombieCounts(mDistricts.size(), 0);
-    std::vector<float> districtArea(mDistricts.size(), 1.0f);
-
-    for (std::size_t i = 0; i < layout.districts.size() && i < mDistricts.size(); ++i)
-    {
-        const auto& dd = layout.districts[i];
-        const float w = static_cast<float>(dd.maxX - dd.minX + 1);
-        const float h = static_cast<float>(dd.maxY - dd.minY + 1);
-        districtArea[i] = std::max(1.0f, w * h);
-    }
+    std::vector<float> districtArea = mWalkableArea;
+    districtArea.resize(mDistricts.size(), 1.0f);
 
     world.forEach<ZombieAI, Transform, Health>(
         [&](Entity, ZombieAI&, Transform& t, Health& h)
@@ -47,8 +60,9 @@ void DistrictInfectionSystem::dailyUpdate(World& world, const LayoutData& layout
             if (h.current <= 0.0f) return;
 
             // Find which district this zombie is in
-            const int tileX = static_cast<int>(t.x / 32.0f);
-            const int tileY = static_cast<int>(t.y / 32.0f);
+            const int tileX = static_cast<int>(t.x) / mTileWidth;
+            const int tileY = static_cast<int>(t.y) / mTileHeight;
+            if (tileX < 0 || tileY < 0 || tileX >= layout.width) return;
             const int idx = tileY * layout.width + tileX;
 
             if (idx >= 0 && idx < static_cast<int>(layout.district.size()))
@@ -123,4 +137,15 @@ bool DistrictInfectionSystem::isOverwhelmed(int districtId) const
             return di.overwhelmed;
     }
     return false;
+}
+
+void DistrictInfectionSystem::setInfection(int districtId, float infection)
+{
+    for (auto& di : mDistricts)
+    {
+        if (di.districtId != districtId) continue;
+        di.infection = std::clamp(infection, 0.0f, 100.0f);
+        di.overwhelmed = di.infection >= kOverwhelmedThreshold;
+        return;
+    }
 }

@@ -1,0 +1,27 @@
+{
+  "leads": [
+    "They sealed the town. One gate still opens: the service gate, {side} side.",
+    "The service gate is on the {side} side, where the road meets the wall.",
+    "Gate motor: fuse blown, generator seized, tank dry.",
+    "Sgt. {sergeant} has the gate key. He walks {street}.",
+    "Gate fuses are kept at the hardware store, in the stock room cabinet.",
+    "It can be freed with tools and patience."
+  ],
+  "readables": {
+    "fridge_note": "Radio says they sealed the town. The service gate on the {side} side still opens. We go tonight.",
+    "wall_map": "A town map. The service gate on the {side} side is circled in red.",
+    "duty_board": "Gate detail. Key held by Sgt. {sergeant}. Off post since day 3.",
+    "log_book": "Motor dead. Fuse blown, generator seized, tank dry. Sgt. {sergeant} took the key when he went to find his kid. {street}.",
+    "order_book": "Gate fuses, two. Stock room, locked cabinet.",
+    "garage_note": "Gate fuse went back to the hardware store. Stock room.",
+    "manual": "Seized generator: work the flywheel loose with tools, an hour at a time. It can be freed with tools and patience."
+  },
+  "broadcast": [
+    "This is a recorded message for the town.",
+    "The town is under quarantine. Stay away from the wall.",
+    "One gate still opens: the service gate, {side} side."
+  ],
+  "sergeants": ["Hale", "Moran", "Pike", "Doyle", "Kerr", "Novak", "Brandt", "Quinn", "Whitlock", "Ames", "Rourke", "Ferris"],
+  "streets": ["Mill Street", "Station Road", "Chapel Lane", "Orchard Street", "Canal Road", "Market Street", "Elm Row",
+              "Foundry Lane", "Bridge Street", "Church Road"]
+}

@@ -1,13 +1,27 @@
 // World rendering: ground, entities, lighting, minimap, world map and text passes.
 #include "core/GameShared.h"
+#include "world/BuildingKinds.h"
+#include "world/CombatRules.h"
+#include "world/WeatherRules.h"
+
+#include <cctype>
 
 using namespace gameshared;
 
 void Game::render()
 {
-    glViewport(0, 0, mWindowWidth, mWindowHeight);
+    // The world in the window's pixels; the interface in its own units
+    // (phase 13's interface size), scaled up by its projection.
+    glViewport(0, 0, mPixelWidth, mPixelHeight);
     glClearColor(0.08f, 0.11f, 0.14f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
+
+    // Screen shake: trauma squared, so small knocks barely show.
+    {
+        const float amount = mShakeTrauma * mShakeTrauma * 7.0f * mShakeScale; // the setting (phase 13)
+        mCamera.setShake(glm::vec2(std::sin(mShakeClock * 71.0f) * amount,
+                                   std::cos(mShakeClock * 53.0f) * amount));
+    }
 
     mShader.use();
     mShader.setMat4("uProjection", mProjection);
@@ -15,6 +29,10 @@ void Game::render()
     setupLightingUniforms();
     buildHudState();
     const glm::vec2 viewport(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
+    const glm::vec2 pixels(static_cast<float>(mPixelWidth), static_cast<float>(mPixelHeight));
+    // The mood pass (phase 12): the world goes to a texture first when the
+    // character's state shows on screen; the HUD is drawn after, crisp.
+    const bool moodPass = beginPostFx();
 
     // Pass 1: Map tiles (tileset texture)
     mSpriteBatch.begin();
@@ -29,39 +47,77 @@ void Game::render()
     mStaticSprites.clear();
     mStructureView.collect(mCamera, playerTile(), mStructureSprites, mStaticSprites, &mTileMap);
     mFurnitureView.collect(mCamera, mStructureView, playerTile(), mSpriteSheet, mStaticSprites);
+    mSceneryView.collect(mCamera, playerTile(), mSpriteSheet, mStaticSprites);
+    collectFireSprites();
+    collectGateSprites(); // the way out (phase 9)
     RenderExtras extras;
     extras.statics = &mStaticSprites;
     extras.isHiddenAt = [this](int tileX, int tileY) { return mStructureView.isHiddenAt(tileX, tileY); };
+    // Fog hides the dead beyond 6 tiles (phase 7).
+    if (weatherrules::deadDrawTiles(mWeatherState.condition) > 0.0f)
+    {
+        extras.hideDead = [this](const glm::vec2& world) { return !deadDrawnAt(world); };
+    }
+    // Marks on the ground (dried blood) lie under everything that stands.
+    const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
+    mSceneryView.drawFlat(mSpriteBatch, mCamera, mSpriteSheet);
+    drawBloodTrail();
+    drawFootprints();
+    drawFuelShimmer();
+    mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv, true);
+
     mRenderSystem.render(mWorld, mSpriteBatch, mCamera, mInterpolationAlpha, &extras);
 
+    // Cloud shadows slide over the town by day.
+    const glm::vec4 cloudUv = mSpriteSheet.uvRect("fx_cloud");
+    mAtmosphere.renderCloudShadows(mSpriteBatch, mCamera, cloudUv, 1.0f - nightFactor());
+
     // Particles (rendered in world space, affected by lighting)
-    const glm::vec4 solidWhiteUv = mSpriteSheet.uvRect("solid_white");
     mParticleSystem.render(mSpriteBatch, mCamera, solidWhiteUv);
 
-    // Build mode ghost preview
-    if (mBuildSystem.isBuildMode())
+    // Smoke filling a burning building you stand in (phase 7).
     {
-        const int recipeIdx = mBuildSystem.selectedRecipe();
-        if (recipeIdx >= 0 && recipeIdx < BuildSystem::kRecipeCount)
+        const glm::ivec2 here = playerTile();
+        const int building = mTileMap.inBounds(here.x, here.y) ? mTileMap.getBuildingId(here.x, here.y) : 0;
+        const int burning = burningIn(building);
+        if (burning > 0)
         {
-            const auto& recipe = BuildSystem::kRecipes[recipeIdx];
-            const glm::vec4 ghostUv = mSpriteSheet.uvRect(recipe.sprite);
-            const glm::vec2 ghostWorld = mBuildSystem.ghostPosition() + glm::vec2(kSpriteSize * 0.5f);
-            const glm::vec2 ghostScreen = mCamera.worldToScreen(ghostWorld);
-            const glm::vec4 ghostColor = mBuildSystem.ghostValid()
-                ? glm::vec4(0.2f, 0.9f, 0.3f, 0.55f)
-                : glm::vec4(0.9f, 0.2f, 0.2f, 0.55f);
-            const float ghostSize = 32.0f * mCamera.zoom();
-            mSpriteBatch.draw(
-                glm::vec2(ghostScreen.x - ghostSize * 0.5f, ghostScreen.y - ghostSize * 0.5f),
-                glm::vec2(ghostSize, ghostSize), ghostUv, ghostColor);
+            const float haze = std::min(0.45f, 0.06f * static_cast<float>(burning));
+            mSpriteBatch.draw(glm::vec2(0.0f), pixels, solidWhiteUv, glm::vec4(0.36f, 0.35f, 0.34f, haze));
         }
+    }
+
+    // Fog and rain, in front of the world.
+    {
+        const glm::vec2 centre = playerWorldCenter();
+        mAtmosphere.renderFog(mSpriteBatch, mCamera, cloudUv, solidWhiteUv);
+        mAtmosphere.renderRain(mSpriteBatch, mCamera, solidWhiteUv, mTileMap.isIndoorsAtWorld(centre.x, centre.y));
+    }
+
+    // Long shadows, wet drops, flies, motes, curtains, the town clock (phase 12).
+    renderMoodWorld();
+
+    // The station chosen on the build wheel, where it would stand.
+    if (mBuildChoice >= 0 && !mBuildWheelOpen && mBaseAction.kind == BaseAction::Kind::None)
+    {
+        const StationRecipe& recipe = BuildSystem::kRecipes[static_cast<std::size_t>(mBuildChoice)];
+        const glm::vec4 ghostUv = mSpriteSheet.uvRect(structureInfo(recipe.type).sprite);
+        const glm::vec2 ghostWorld((static_cast<float>(mBuildGhostTile.x) + 0.5f) * 32.0f,
+                                   (static_cast<float>(mBuildGhostTile.y) + 0.5f) * 32.0f);
+        const glm::vec2 ghostScreen = mCamera.worldToScreen(ghostWorld);
+        const glm::vec4 ghostColor = mBuildGhostValid ? glm::vec4(0.75f, 1.0f, 0.75f, 0.6f)
+                                                      : glm::vec4(1.0f, 0.55f, 0.45f, 0.5f);
+        const float zoom = mCamera.zoom();
+        const float size = 80.0f * zoom;
+        mSpriteBatch.draw(glm::vec2(ghostScreen.x - size * 0.5f, ghostScreen.y - size + 16.0f * zoom),
+                          glm::vec2(size, size), ghostUv, ghostColor);
     }
 
     mSpriteBatch.end();
 
     mSpriteSheet.bindTexture(GL_TEXTURE0);
     mSpriteBatch.flush();
+    if (moodPass) endPostFx();
 
     // UI: unlit and zoom-independent, drawn in two layers (HUD, then panels
     // and menus). Each layer draws its shapes with the sprite sheet, then its
@@ -72,6 +128,8 @@ void Game::render()
     mShader.setFloat("uSaturation", 1.0f);
     mShader.setInt("uLightCount", 0);
     mShader.setInt("uSpotEnabled", 0);
+    mShader.setInt("uFogEnabled", 0);
+    mShader.setMat4("uProjection", buildProjection(mWindowWidth, mWindowHeight)); // interface units
 
     const auto uiLayer = [&](const auto& drawShapes, const auto& drawText)
     {
@@ -90,19 +148,30 @@ void Game::render()
         mSpriteBatch.flush();
     };
 
+    if (mHideUi)
+    {
+        return;
+    }
+
     uiLayer(
         [&]
         {
+            renderScavengeMarks();
+            renderBodyEffects();
             renderTitleScreen();
+            renderCharacterCreation();
             mHud.drawShapes(mSpriteBatch, mSpriteSheet, mFont, mHudState, viewport);
             renderMinimapOverlay();
             renderAttackArcOverlay();
+            renderFightingOverlay();
             renderNoiseDebugOverlay();
             renderLegacyCardShapes();
+            renderBaseActionBar();
         },
         [&]
         {
             renderLegacyText();
+            renderSurvivorSay();
             mHud.drawText(mSpriteBatch, mFont, mHudState, viewport);
         });
 
@@ -116,10 +185,7 @@ void Game::render()
             renderCraftingOverlay();
             renderInventoryPanel();
             renderContainerOverlay();
-            if (!mShowCrafting)
-            {
-                renderControlsPanel();
-            }
+            renderTalkPanel();
         },
         [&]
         {
@@ -127,19 +193,28 @@ void Game::render()
             {
                 renderTextOverlays();
             }
-            renderInventoryOverlay();
-            renderBuildModeOverlay();
-            if (!mShowCrafting)
-            {
-                renderControlsOverlay();
-            }
+            renderBuildWheel();
         });
+
+    // Over everything: the Controls panel and the settings screen (phase 13).
+    if (mShowControls || mShowSettings)
+    {
+        uiLayer(
+            [&]
+            {
+                if (!mShowCrafting) renderControlsPanel();
+                renderSettingsShapes();
+            },
+            [] {});
+    }
 }
 
 void Game::renderMinimapOverlay()
 {
     if (mRunState != RunState::Playing ||
         mShowWorldMap ||
+        mShowInventory ||
+        mShowCrafting || mContainerOpen || mTalk.open || // a docked panel covers this corner
         mPlayerEntity == kInvalidEntity ||
         !mWorld.hasComponent<Transform>(mPlayerEntity))
     {
@@ -150,15 +225,17 @@ void Game::renderMinimapOverlay()
 
     const float mapWidth = 220.0f;
     const float mapHeight = 140.0f;
-    const float margin = 16.0f;
+    const float margin = Hud::kEdge;
     const float mapX = static_cast<float>(mWindowWidth) - mapWidth - margin;
     const float mapY = static_cast<float>(mWindowHeight) - mapHeight - margin;
 
-    mSpriteBatch.draw(glm::vec2(mapX, mapY), glm::vec2(mapWidth, mapHeight), uiUv, glm::vec4(0.02f, 0.03f, 0.05f, 0.78f));
-    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY - 1.0f), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.65f));
-    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY + mapHeight), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.45f));
-    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY), glm::vec2(1.0f, mapHeight), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.45f));
-    mSpriteBatch.draw(glm::vec2(mapX + mapWidth, mapY), glm::vec2(1.0f, mapHeight), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.65f));
+    mSpriteBatch.draw(glm::vec2(mapX, mapY), glm::vec2(mapWidth, mapHeight), uiUv, glm::vec4(0.04f, 0.047f, 0.055f, 0.60f));
+    // A faint edge, like the rest of the HUD: nothing boxed in hard.
+    const glm::vec4 mapEdge(0.96f, 0.95f, 0.93f, 0.22f);
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY - 1.0f), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, mapEdge);
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY + mapHeight), glm::vec2(mapWidth + 2.0f, 1.0f), uiUv, mapEdge);
+    mSpriteBatch.draw(glm::vec2(mapX - 1.0f, mapY), glm::vec2(1.0f, mapHeight), uiUv, mapEdge);
+    mSpriteBatch.draw(glm::vec2(mapX + mapWidth, mapY), glm::vec2(1.0f, mapHeight), uiUv, mapEdge);
 
     const int tileW = std::max(1, mTileMap.tileWidth());
     const int tileH = std::max(1, mTileMap.tileHeight());
@@ -290,6 +367,12 @@ void Game::renderMinimapOverlay()
             a.a + (b.a - a.a) * w);
     };
 
+    // Fog (phase 7): the minimap shows nothing beyond 6 tiles.
+    const float fogTiles = weatherrules::minimapTiles(mWeatherState.condition);
+    const float fogReach = fogTiles * static_cast<float>(tileW);
+    const auto fogged = [&](const glm::vec2& world)
+    { return fogTiles > 0.0f && glm::length(world - playerCenter) > fogReach; };
+
     const int sampleStep = (safeZoom >= 2.2f) ? 1 : (safeZoom >= 1.15f ? 2 : 3);
     for (int py = 0; py < static_cast<int>(mapHeight); py += sampleStep)
     {
@@ -355,6 +438,7 @@ void Game::renderMinimapOverlay()
                     color = blendColor(color, glm::vec4(0.07f, 0.08f, 0.11f, 0.88f), 0.52f);
                 }
             }
+            if (fogged(sampleWorld)) color = glm::vec4(0.42f, 0.44f, 0.46f, 0.80f);
 
             const float drawW = std::min(static_cast<float>(sampleStep) + 0.5f, mapWidth - static_cast<float>(px));
             const float drawH = std::min(static_cast<float>(sampleStep) + 0.5f, mapHeight - static_cast<float>(py));
@@ -389,15 +473,30 @@ void Game::renderMinimapOverlay()
         const glm::vec2 worldCenter(
             (static_cast<float>(tx) + 0.5f) * static_cast<float>(tileW),
             (static_cast<float>(ty) + 0.5f) * static_cast<float>(tileH));
+        if (fogged(worldCenter)) continue;
         drawIsoPoint(worldCenter, glm::vec4(0.38f, 0.22f, 0.16f, 0.72f), 2.0f);
     }
-
-    if (mCampaignObjective.active)
+    // Smoke over whatever burns (phase 7): seen from anywhere but fog.
+    for (const glm::vec2& smoke : fireLights())
     {
-        const glm::vec2 objectiveCenter(
-            (static_cast<float>(mCampaignObjective.tileX) + 0.5f) * static_cast<float>(tileW),
-            (static_cast<float>(mCampaignObjective.tileY) + 0.5f) * static_cast<float>(tileH));
-        drawIsoPoint(objectiveCenter, glm::vec4(0.94f, 0.80f, 0.30f, 0.95f), 4.0f);
+        if (fogged(smoke)) continue;
+        drawIsoPoint(smoke, glm::vec4(0.62f, 0.62f, 0.64f, 0.90f), 4.0f);
+        drawIsoPoint(smoke + glm::vec2(-10.0f, -10.0f), glm::vec4(0.95f, 0.50f, 0.20f, 0.95f), 2.0f);
+    }
+
+    // The way out, once known (phase 9).
+    for (const WayOutMark& mark : wayOutMarks())
+    {
+        drawIsoPoint(mark.world, glm::vec4(0.94f, 0.80f, 0.30f, 0.95f), 4.0f);
+    }
+
+    // A dot that is not there (phase 5): it vanishes again.
+    for (const FalseSign& sign : mHallucinations.signs())
+    {
+        if (sign.kind == FalseSign::Kind::MinimapDot && sign.alpha > 0.01f)
+        {
+            drawIsoPoint(sign.world, glm::vec4(0.86f, 0.30f, 0.24f, 0.9f * sign.alpha), 3.0f);
+        }
     }
 
     drawIsoPoint(playerCenter, glm::vec4(0.98f, 0.96f, 0.78f, 1.0f), 4.0f);
@@ -455,8 +554,9 @@ void Game::renderWorldMapOverlay()
     {
         if (district.districtId >= 0)
         {
+            // Shaded by ruin level (phase 4), the same steps the streets show.
             riskByDistrict[static_cast<std::size_t>(district.districtId)] =
-                district.overwhelmed ? 1.0f : std::clamp(district.infection / 100.0f, 0.0f, 1.0f);
+                static_cast<float>(ruinLevel(district.districtId)) / 3.0f;
         }
     }
     std::vector<std::uint8_t> burned(static_cast<std::size_t>(tilesW * tilesH), 0u);
@@ -466,6 +566,16 @@ void Game::renderWorldMapOverlay()
         {
             burned[static_cast<std::size_t>(ty * tilesW + tx)] = 1u;
         }
+    }
+
+    // What is left to find (phase 6): building floors darken in four steps
+    // as a district's cupboards are opened, in this life or earlier ones.
+    std::vector<int> stockStep(static_cast<std::size_t>(maxDistrictId + 1), -1);
+    for (std::size_t d = 0; d < stockStep.size(); ++d)
+    {
+        const float stock = districtStock(static_cast<int>(d));
+        if (stock < 0.0f) continue;
+        stockStep[d] = stock > 0.75f ? 0 : stock > 0.5f ? 1 : stock > 0.25f ? 2 : 3;
     }
 
     // Each tile is a 2:1 brick centred on its iso centre; bricks tile the
@@ -495,6 +605,12 @@ void Game::renderWorldMapOverlay()
                       : base == TileGid::kWood   ? glm::vec3(0.52f, 0.44f, 0.34f)
                       : base == TileGid::kMetal  ? glm::vec3(0.40f, 0.42f, 0.44f)
                                                  : glm::vec3(0.50f, 0.48f, 0.43f);
+                const int district = mTileMap.getDistrictId(tx, ty);
+                if (district >= 0 && district < static_cast<int>(stockStep.size()) && stockStep[static_cast<std::size_t>(district)] > 0)
+                {
+                    color = glm::mix(color, glm::vec3(0.21f, 0.20f, 0.19f),
+                                     0.2f * static_cast<float>(stockStep[static_cast<std::size_t>(district)]));
+                }
             }
             else
             {
@@ -510,7 +626,9 @@ void Game::renderWorldMapOverlay()
                 }
             }
 
-            const int districtId = mTileMap.getDistrictId(tx, ty);
+            // The streets shade with the district nearest them, as their ruin does.
+            const std::size_t tileIndex = static_cast<std::size_t>(ty * tilesW + tx);
+            const int districtId = tileIndex < mRuinDistrictOf.size() ? mRuinDistrictOf[tileIndex] : mTileMap.getDistrictId(tx, ty);
             if (districtId > 0 && districtId < static_cast<int>(riskByDistrict.size()))
             {
                 const float risk = riskByDistrict[static_cast<std::size_t>(districtId)];
@@ -519,6 +637,11 @@ void Game::renderWorldMapOverlay()
             if (burned[static_cast<std::size_t>(ty * tilesW + tx)] != 0u)
             {
                 color = glm::mix(color, glm::vec3(0.10f, 0.07f, 0.06f), 0.75f);
+            }
+            // A gutted house (phase 7): black from wall to wall.
+            if (inBuilding && buildingGutted(mTileMap.getBuildingId(tx, ty)))
+            {
+                color = glm::mix(color, glm::vec3(0.06f, 0.05f, 0.05f), 0.8f);
             }
 
             const glm::vec2 centre = toMap(glm::vec2((static_cast<float>(tx) + 0.5f) * tileW,
@@ -557,19 +680,38 @@ void Game::renderWorldMapOverlay()
         mSpriteBatch.draw(at - glm::vec2(size * 0.5f), glm::vec2(size), uiUv, color);
     };
 
-    // Only districts worth worrying about get a label.
+    // Only districts worth worrying about get a label: a word, not a number.
     for (const auto& district : mMapGenerator.layoutData().districts)
     {
-        const float infection = mDistrictInfectionSystem.getInfection(district.id);
-        const bool overrun = mDistrictInfectionSystem.isOverwhelmed(district.id);
-        if (!overrun && infection < 35.0f) continue;
+        const int level = ruinLevel(district.id);
+        if (level < 1) continue;
         const glm::vec2 centre = toMap(glm::vec2(
             (static_cast<float>(district.minX + district.maxX + 1) * 0.5f) * tileW,
             (static_cast<float>(district.minY + district.maxY + 1) * 0.5f) * tileH));
-        const std::string text = overrun ? "OVERRUN" : std::to_string(static_cast<int>(std::round(infection))) + "% infected";
+        std::string text = ruinWord(level);
+        text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
         const glm::vec2 size = mFont.measureText(text, 1.0f);
         mFont.drawText(mSpriteBatch, centre - size * 0.5f + glm::vec2(1.0f), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.8f), 1.0f);
         mFont.drawText(mSpriteBatch, centre - size * 0.5f, text, glm::vec4(1.0f, 0.70f, 0.62f, 0.95f), 1.0f);
+    }
+
+    // Shops you have seen, in this life or an earlier one: their sign.
+    {
+        const LayoutData& layout = mMapGenerator.layoutData();
+        for (const int building : mSaveManager.scavengeMemory().seenBuildings)
+        {
+            if (building <= 0 || building > static_cast<int>(layout.buildings.size())) continue;
+            const LayoutData::BuildingRect& b = layout.buildings[static_cast<std::size_t>(building - 1)];
+            const char* sign = buildingkinds::signSprite(buildingkinds::signOf(buildingkinds::kindOf(b)));
+            if (sign == nullptr || sign[0] == '\0') continue;
+            const glm::vec4 uv = mSpriteSheet.uvRect(std::string("map_") + (sign + 5));
+            if (uv.z <= 0.0f) continue;
+            const glm::vec2 at = glm::round(toMap(glm::vec2((static_cast<float>(b.x) + static_cast<float>(b.w) * 0.5f) * tileW,
+                                                            (static_cast<float>(b.y) + static_cast<float>(b.h) * 0.5f) * tileH)));
+            constexpr float kPict = 16.0f;
+            mSpriteBatch.draw(at - glm::vec2(kPict * 0.5f) + glm::vec2(1.0f), glm::vec2(kPict), uv, glm::vec4(0.0f, 0.0f, 0.0f, 0.7f));
+            mSpriteBatch.draw(at - glm::vec2(kPict * 0.5f), glm::vec2(kPict), uv, glm::vec4(1.0f));
+        }
     }
 
     const glm::vec4 risenColor = legacyLeadColor(legacy::LeadKind::Risen);
@@ -584,24 +726,86 @@ void Game::renderWorldMapOverlay()
     marker(you, youColor, 8.0f);
     label(you + glm::vec2(8.0f, -5.0f), "You", youColor, 1.0f);
 
-    if (mCampaignObjective.active && !mCampaignObjective.completed)
+    // The way out, as far as this character knows it (phase 9).
+    const std::vector<WayOutMark> wayOut = wayOutMarks();
+    for (const WayOutMark& mark : wayOut)
     {
-        const glm::vec2 at = toMap(glm::vec2((static_cast<float>(mCampaignObjective.tileX) + 0.5f) * tileW,
-                                             (static_cast<float>(mCampaignObjective.tileY) + 0.5f) * tileH));
+        const glm::vec2 at = toMap(mark.world);
         marker(at, objectiveColor, 8.0f);
-        label(at + glm::vec2(8.0f, -5.0f), "Objective", objectiveColor, 1.0f);
+        label(at + glm::vec2(8.0f, -5.0f), mark.label, objectiveColor, 1.0f);
     }
 
+    // Homes you know of (phase 8): a small house, and who lives there.
+    const glm::vec4 homeColor(0.62f, 0.86f, 0.64f, 1.0f);
+    const auto houseMark = [&](const glm::vec2& at, const glm::vec4& color)
+    {
+        const glm::vec2 c = glm::round(at);
+        const glm::vec4 ink(0.0f, 0.0f, 0.0f, 0.9f);
+        // Outline, then the walls and a stepped roof.
+        mSpriteBatch.draw(c + glm::vec2(-5.0f, -1.0f), glm::vec2(10.0f, 7.0f), uiUv, ink);
+        mSpriteBatch.draw(c + glm::vec2(-6.0f, -4.0f), glm::vec2(12.0f, 4.0f), uiUv, ink);
+        mSpriteBatch.draw(c + glm::vec2(-3.0f, -7.0f), glm::vec2(6.0f, 4.0f), uiUv, ink);
+        mSpriteBatch.draw(c + glm::vec2(-4.0f, 0.0f), glm::vec2(8.0f, 5.0f), uiUv, color);
+        mSpriteBatch.draw(c + glm::vec2(-5.0f, -3.0f), glm::vec2(10.0f, 2.0f), uiUv, color);
+        mSpriteBatch.draw(c + glm::vec2(-2.0f, -6.0f), glm::vec2(4.0f, 3.0f), uiUv, color);
+        mSpriteBatch.draw(c + glm::vec2(-1.0f, 2.0f), glm::vec2(2.0f, 3.0f), uiUv, ink);
+    };
+    bool anyHome = false;
+    for (const SurvivorRecord& r : mSurvivors)
+    {
+        if (!r.alive || !r.homeKnown || r.companion || r.homeX < 0) continue;
+        const glm::vec2 at = toMap(glm::vec2((static_cast<float>(r.homeX) + 0.5f) * tileW, (static_cast<float>(r.homeY) + 0.5f) * tileH));
+        houseMark(at, homeColor);
+        label(at + glm::vec2(8.0f, -5.0f), r.name, homeColor, 1.0f);
+        anyHome = true;
+    }
+
+    // A Gravedigger knows where the risen are from twenty tiles (phase 10).
+    const Traits* bloodline = playerTraits();
+    const bool digger = bloodline != nullptr && bloodline->has(BloodlineTrait::Gravedigger);
+    const glm::vec2 here = playerWorldCenter();
     for (const legacy::Lead& lead : currentLegacyLeads())
     {
         const glm::vec4 color = legacyLeadColor(lead.kind);
         const glm::vec2 at = toMap(lead.world);
+        if (lead.buried) continue; // drawn with the cemetery
+        if (digger && lead.kind == legacy::LeadKind::Risen &&
+            glm::length(lead.world - here) <= legacy::kGravediggerMarkTiles * static_cast<float>(tileW))
+        {
+            const glm::vec2 c = glm::round(at);
+            for (const glm::vec4& r : {glm::vec4(-8.0f, -8.0f, 16.0f, 1.0f), glm::vec4(-8.0f, 7.0f, 16.0f, 1.0f),
+                                       glm::vec4(-8.0f, -8.0f, 1.0f, 16.0f), glm::vec4(7.0f, -8.0f, 1.0f, 16.0f)})
+            {
+                mSpriteBatch.draw(c + glm::vec2(r.x, r.y), glm::vec2(r.z, r.w), uiUv, color);
+            }
+        }
         marker(at, color, lead.kind == legacy::LeadKind::Grave ? 5.0f : 6.0f);
         label(at + glm::vec2(7.0f, -5.0f), lead.name, color, 1.0f);
     }
+    // The cemetery, from the first stone set in it (phase 10).
+    {
+        const LayoutData::CemeterySite& yard = mMapGenerator.layoutData().cemetery;
+        const bool any = std::any_of(mLegacyGraves.begin(), mLegacyGraves.end(), [](const GraveRecord& g) { return g.buried; });
+        if (yard.placed && any)
+        {
+            const glm::vec2 a = glm::round(toMap(glm::vec2(static_cast<float>(yard.fenceMin.x) * tileW, static_cast<float>(yard.fenceMin.y) * tileH)));
+            const glm::vec2 b = glm::round(toMap(glm::vec2(static_cast<float>(yard.fenceMax.x + 1) * tileW,
+                                                           static_cast<float>(yard.fenceMax.y + 1) * tileH)));
+            const glm::vec4 stone(0.82f, 0.82f, 0.78f, 1.0f);
+            mSpriteBatch.draw(a, b - a, uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.55f));
+            mSpriteBatch.draw(a, glm::vec2(b.x - a.x, 1.0f), uiUv, stone);
+            mSpriteBatch.draw(glm::vec2(a.x, b.y - 1.0f), glm::vec2(b.x - a.x, 1.0f), uiUv, stone);
+            mSpriteBatch.draw(a, glm::vec2(1.0f, b.y - a.y), uiUv, stone);
+            mSpriteBatch.draw(glm::vec2(b.x - 1.0f, a.y), glm::vec2(1.0f, b.y - a.y), uiUv, stone);
+            const glm::vec2 c = glm::round((a + b) * 0.5f);
+            mSpriteBatch.draw(c + glm::vec2(-1.0f, -4.0f), glm::vec2(2.0f, 8.0f), uiUv, stone);
+            mSpriteBatch.draw(c + glm::vec2(-3.0f, -2.0f), glm::vec2(6.0f, 2.0f), uiUv, stone);
+            label(glm::vec2(b.x + 4.0f, a.y), "Cemetery", stone, 1.0f);
+        }
+    }
 
     // Header.
-    mFont.drawText(mSpriteBatch, glm::vec2(pad, 14.0f), "TOWN MAP", glm::vec4(0.95f, 0.86f, 0.60f, 1.0f), 2.0f);
+    mFont.drawText(mSpriteBatch, glm::vec2(pad, 14.0f), "TOWN MAP", kPanelInk, 2.0f);
     const std::string sub = "Day " + std::to_string(mCurrentDay) + "  -  Run " + std::to_string(mSaveManager.runNumber());
     mFont.drawText(mSpriteBatch, glm::vec2(pad + 150.0f, 21.0f), sub, glm::vec4(0.74f, 0.74f, 0.70f, 0.96f), 1.0f);
     const std::string closeHint = "M to close";
@@ -621,22 +825,28 @@ void Game::renderWorldMapOverlay()
     };
     const LegendEntry legend[] = {
         {youColor, "You"},
-        {objectiveColor, "Objective"},
+        {objectiveColor, "The way out"},
         {risenColor, "Risen - put them down"},
         {packColor, "Grave with a pack"},
         {graveColor, "Grave"},
         {survivorColor, "Retired survivor"},
         {glm::vec4(0.62f, 0.16f, 0.14f, 1.0f), "Infected district"},
         {glm::vec4(0.10f, 0.07f, 0.06f, 1.0f), "Burned"},
+        {glm::vec4(0.30f, 0.28f, 0.26f, 1.0f), "Picked over"},
     };
     float lx = pad;
     const float ly = h - footerH + 22.0f;
     for (const LegendEntry& entry : legend)
     {
-        if (entry.text == std::string("Objective") && !mCampaignObjective.active) continue;
+        if (entry.text == std::string("The way out") && wayOut.empty()) continue;
         marker(glm::vec2(lx + 4.0f, ly + 4.0f), entry.color, 7.0f);
         mFont.drawText(mSpriteBatch, glm::vec2(lx + 13.0f, ly), entry.text, glm::vec4(0.80f, 0.80f, 0.74f, 0.95f), 1.0f);
         lx += 13.0f + mFont.measureText(entry.text, 1.0f).x + 22.0f;
+    }
+    if (anyHome)
+    {
+        houseMark(glm::vec2(lx + 4.0f, ly + 4.0f), homeColor);
+        mFont.drawText(mSpriteBatch, glm::vec2(lx + 13.0f, ly), "Someone lives here", glm::vec4(0.80f, 0.80f, 0.74f, 0.95f), 1.0f);
     }
 }
 
@@ -651,7 +861,9 @@ void Game::setupLightingUniforms()
     // Ambient: daylight to a dark, cold night. Lights carry the night.
     const ToneTuning tone = toneTuning(saveTonePresetFromIndex(mTitleToneIndex));
     const float night = nightFactor();
-    const float ambientLevel = 1.0f - night * tone.nightDarkness;
+    // Under cloud the night is darker still (phase 7).
+    const float ambientLevel = (1.0f - night * tone.nightDarkness) *
+                               (1.0f - night * (1.0f - weatherrules::nightDarkScale(mWeatherState.condition)));
     const glm::vec3 dayColor(1.0f, 1.0f, 1.0f);
     const glm::vec3 duskColor(1.0f, 0.78f, 0.62f);
     const glm::vec3 nightColor(0.55f, 0.62f, 0.95f);
@@ -663,9 +875,34 @@ void Game::setupLightingUniforms()
         ambientColor = glm::mix(nightColor, dayColor, 1.0f - night); // cool dawn, no orange
     }
 
-    mShader.setFloat("uAmbientLight", ambientLevel);
+    // Weather: cloud takes the edge off the daylight and cools it, and
+    // lightning throws the whole scene white for an instant.
+    const float skyDim = mAtmosphere.skyDim();
+    const float flash = mAtmosphere.flash();
+    ambientColor = glm::mix(ambientColor, glm::vec3(0.80f, 0.86f, 0.96f), std::min(1.0f, skyDim * 1.6f));
+    ambientColor = glm::mix(ambientColor, glm::vec3(0.92f, 0.95f, 1.0f), flash);
+    const float weatherLevel = std::min(1.0f, ambientLevel * (1.0f - skyDim) + flash * 0.9f);
+
+    mShader.setFloat("uAmbientLight", weatherLevel);
     mShader.setVec3("uAmbientColor", ambientColor);
-    mShader.setFloat("uSaturation", tone.saturation);
+    mShader.setFloat("uSaturation", tone.saturation * (1.0f - skyDim * 0.5f));
+
+    // The player's sight (phase 7): a distance fog round the player outdoors,
+    // from where the weather starts to hide things to where nothing is left.
+    {
+        const weatherrules::ViewFade fade = weatherrules::playerViewFade(mWeatherState.condition);
+        const glm::vec2 centre = playerWorldCenter();
+        const bool indoors = mTileMap.isIndoorsAtWorld(centre.x, centre.y);
+        const float groundPx = 1.41421356f * mCamera.zoom() * static_cast<float>(mTileMap.tileWidth());
+        const bool on = fade.endTiles > 0.0f && !indoors && mPlayerEntity != kInvalidEntity;
+        mShader.setInt("uFogEnabled", on ? 1 : 0);
+        mShader.setVec2("uFogCentre", mCamera.worldToScreen(centre));
+        mShader.setFloat("uFogStart", fade.startTiles * groundPx);
+        mShader.setFloat("uFogEnd", std::max(fade.startTiles + 0.5f, fade.endTiles) * groundPx);
+        const glm::vec3 fogDay(0.66f, 0.70f, 0.74f);
+        const glm::vec3 fogNight(0.07f, 0.08f, 0.11f);
+        mShader.setVec3("uFogColor", glm::mix(fogDay, fogNight, night));
+    }
 
     // A world radius in pixels becomes this many screen pixels on the
     // (un-squashed) iso ground at the current zoom.
@@ -714,18 +951,90 @@ void Game::setupLightingUniforms()
     mWorld.forEach<Structure, Transform>(
         [&](Entity, Structure& structure, Transform& transform)
         {
-            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
+            if (structure.type != StructureType::Campfire || !structure.lit || structure.hp <= 0.0f) return;
             addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
                      glm::vec3(1.0f, 0.62f, 0.28f) * flicker, 5.0f);
         });
-    mWorld.forEach<Fire, Transform>(
-        [&](Entity, Fire& fire, Transform& transform)
+    // Candles and can lanterns.
+    mWorld.forEach<Structure, Transform>(
+        [&](Entity, Structure& structure, Transform& transform)
         {
-            if (fire.intensity <= 0.05f) return;
-            const float strength = std::clamp(0.55f + fire.intensity * 0.35f, 0.0f, 1.2f) * flicker;
+            if (structure.type != StructureType::Light || !structure.lit || structure.hp <= 0.0f) return;
             addLight(glm::vec2(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f),
-                     glm::vec3(1.0f, 0.55f, 0.22f) * strength, 3.0f + fire.intensity * 1.5f);
+                     glm::vec3(1.0f, 0.74f, 0.42f) * flicker, structure.lantern ? 2.0f : 2.5f);
         });
+    // Burning tiles: one light per 3x3 block, at most 8 (phase 7).
+    for (const glm::vec2& at : fireLights())
+    {
+        addLight(at, glm::vec3(1.0f, 0.55f, 0.22f) * 1.1f * flicker, 4.5f);
+    }
+
+    // A shot lights up whoever fired it.
+    if (mMuzzleFlash > 0.0f)
+    {
+        addLight(mMuzzleWorld, glm::vec3(1.0f, 0.86f, 0.55f) * (0.5f + 0.5f * (1.0f - night)), 3.5f);
+    }
+
+    // A burning flare: a hard red light that gutters.
+    for (const Lure& lure : mLures)
+    {
+        if (!lure.flare || lure.delay > 0.0f) continue;
+        const float flicker = 0.85f + 0.15f * std::sin(mHudClock * 23.0f + lure.position.x * 0.1f);
+        addLight(lure.position, glm::vec3(1.0f, 0.28f, 0.22f) * flicker, combatrules::kFlareLightTiles);
+    }
+
+    // Floor lamps switched on, while the power lasts (phase 6).
+    const bool power = powerOn();
+    if (power)
+    {
+        const float tw = static_cast<float>(std::max(1, mTileMap.tileWidth()));
+        const float th = static_cast<float>(std::max(1, mTileMap.tileHeight()));
+        const glm::vec2 view = mCamera.screenToWorld(mCamera.viewportSize() * 0.5f);
+        for (const glm::ivec2& lamp : mLitLamps)
+        {
+            const glm::vec2 at((static_cast<float>(lamp.x) + 0.5f) * tw, (static_cast<float>(lamp.y) + 0.5f) * th);
+            if (glm::length(at - view) > 16.0f * tw) continue;
+            addLight(at, glm::vec3(1.0f, 0.86f, 0.58f) * (0.25f + 0.65f * night), 4.0f);
+        }
+    }
+
+    // Street lamps: some still burn, and some of those are on their way out.
+    // When the town's power fails, none do.
+    if (night > 0.05f && power)
+    {
+        std::vector<glm::vec2> lamps;
+        const glm::vec2 centre = mCamera.screenToWorld(mCamera.viewportSize() * 0.5f);
+        mSceneryView.lampsNear(centre, 16.0f * tilePx, lamps);
+        std::sort(lamps.begin(), lamps.end(), [&](const glm::vec2& a, const glm::vec2& b)
+        {
+            return glm::dot(a - centre, a - centre) < glm::dot(b - centre, b - centre);
+        });
+        int lit = 0;
+        const float clock = static_cast<float>(SDL_GetTicks()) * 0.001f;
+        for (const glm::vec2& lamp : lamps)
+        {
+            const int state = SceneryView::lampState(lamp);
+            if (state == 0)
+            {
+                continue; // dead
+            }
+            const auto h = static_cast<std::uint32_t>(lamp.x * 7.0f + lamp.y * 13.0f);
+            float strength = 0.85f;
+            if (state == 2)
+            {
+                // Failing: it stutters, and now and then goes out for a moment.
+                const float buzz = std::sin(clock * 31.0f + static_cast<float>(h % 97u));
+                const float fade = std::sin(clock * 0.9f + static_cast<float>(h % 13u));
+                strength *= fade < -0.7f ? 0.1f : (buzz > 0.2f ? 1.0f : 0.55f);
+            }
+            // The lamp hangs out over the road from the top of its post.
+            addLight(lamp + glm::vec2(9.0f, -9.0f), glm::vec3(1.0f, 0.80f, 0.48f) * (strength * night), 4.5f);
+            if (++lit >= 6)
+            {
+                break;
+            }
+        }
+    }
 
     mShader.setInt("uLightCount", lightCount);
     if (lightCount > 0)
@@ -733,6 +1042,25 @@ void Game::setupLightingUniforms()
         mShader.setVec2Array("uLightPositions[0]", lightPositions, lightCount);
         mShader.setVec3Array("uLightColors[0]", lightColors, lightCount);
         mShader.setFloatArray("uLightRadii[0]", lightRadii, lightCount);
+    }
+
+    // A car's headlights (phase 11): one wide beam from its nose.
+    const Vehicle* car = mActiveVehicleEntity != kInvalidEntity && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity)
+                             ? &mWorld.getComponent<Vehicle>(mActiveVehicleEntity)
+                             : nullptr;
+    if (playerAlive && car != nullptr && car->headlights)
+    {
+        const glm::vec2 worldDir = vehiclerules::forward(car->heading);
+        const glm::vec2 nose = vehicleCentre(mActiveVehicleEntity) + worldDir * (vehiclerules::info(car->kind).length * 0.5f);
+        glm::vec2 groundDir(worldDir.x - worldDir.y, worldDir.x + worldDir.y);
+        groundDir = glm::length(groundDir) > 0.0001f ? glm::normalize(groundDir) : glm::vec2(1.0f, 0.0f);
+        mShader.setInt("uSpotEnabled", 1);
+        mShader.setVec2("uSpotPosition", mCamera.worldToScreen(nose));
+        mShader.setVec2("uSpotDirection", groundDir);
+        mShader.setFloat("uSpotCosHalfAngle", std::cos(glm::radians(32.0f)));
+        mShader.setFloat("uSpotRange", 9.0f * tilePx * groundScale);
+        mShader.setVec3("uSpotColor", glm::vec3(1.0f, 0.96f, 0.85f) * (0.2f + 0.85f * night));
+        return;
     }
 
     // Flashlight beam along the facing direction.
@@ -770,8 +1098,8 @@ void Game::renderTextOverlays()
                 return a.infection > b.infection;
             });
 
-        const float debugX = Hud::kMargin + Hud::kVitalsWidth + 16.0f;
-        float debugY = Hud::kMargin;
+        const float debugX = Hud::kEdge;
+        float debugY = Hud::kEdge + 28.0f;
         mFont.drawText(
             mSpriteBatch,
             glm::vec2(debugX, debugY),
@@ -815,15 +1143,16 @@ void Game::renderTextOverlays()
     // Pause overlay text
     if (mRunState == RunState::Paused)
     {
-        const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight);
+        const std::vector<std::string> options = pauseOptions();
+        const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight, static_cast<int>(options.size()));
         const float centerX = layout.panelPos.x + layout.panelSize.x * 0.5f;
 
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.titleY), "PAUSED",
-                        glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 3.0f, TextAlign::Center);
+                        kPanelInk, 3.0f, TextAlign::Center);
 
         // Who you are and how the run is going.
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.nameY), mCurrentCharacterName,
-                        glm::vec4(0.94f, 0.88f, 0.70f, 1.0f), 2.0f, TextAlign::Center);
+                        kPanelAmber, 2.0f, TextAlign::Center);
         const std::string runLine = std::string(kTitleGameModeNames[static_cast<std::size_t>(
                 wrapIndex(mTitleGameModeIndex, static_cast<int>(kTitleGameModeNames.size())))])
             + " run  |  Threat: "
@@ -831,12 +1160,12 @@ void Game::renderTextOverlays()
             + "  |  Tone: "
             + kTitleToneNames[static_cast<std::size_t>(wrapIndex(mTitleToneIndex, static_cast<int>(kTitleToneNames.size())))];
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.runLineY), runLine,
-                        glm::vec4(0.66f, 0.72f, 0.80f, 0.95f), 1.0f, TextAlign::Center);
+                        kPanelDim, 1.0f, TextAlign::Center);
         const std::string statsLine = "Day " + std::to_string(mCurrentDay)
             + "  |  Kills " + std::to_string(mRunStats.kills)
             + "  |  Items looted " + std::to_string(mRunStats.itemsLooted);
         mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.statsLineY), statsLine,
-                        glm::vec4(0.66f, 0.72f, 0.80f, 0.95f), 1.0f, TextAlign::Center);
+                        kPanelDim, 1.0f, TextAlign::Center);
         if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
         {
             const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
@@ -846,23 +1175,27 @@ void Game::renderTextOverlays()
                 if (!traitLine.empty()) traitLine += "  |  ";
                 traitLine += part;
             };
-            if (traits.positive != PositiveTrait::None) append(traits.positiveName());
-            if (traits.negative != NegativeTrait::None) append(traits.negativeName());
-            if (traits.bloodline != BloodlineTrait::None) append(std::string("Bloodline: ") + traits.bloodlineName());
+            for (PositiveTrait trait : traits.positives) append(traitName(trait));
+            for (NegativeTrait trait : traits.negatives) append(traitName(trait));
+            if (!traits.bloodlines.empty()) append(std::string("Bloodline: ") + traits.bloodlineNames());
             mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.traitsLineY), traitLine,
-                            glm::vec4(0.62f, 0.82f, 0.58f, 0.95f), 1.0f, TextAlign::Center);
+                            kPanelGood, 1.0f, TextAlign::Center);
         }
 
-        static const char* options[] = {"Resume", "Save", "Back to Menu", "Restart", "Quit"};
-        for (int i = 0; i < PauseLayout::kOptionCount; ++i)
+        for (int i = 0; i < static_cast<int>(options.size()); ++i)
         {
             const bool selected = (i == mPauseSelection);
-            const glm::vec4 color = selected
-                ? glm::vec4(1.0f, 1.0f, 0.7f, 1.0f)
-                : glm::vec4(0.6f, 0.6f, 0.6f, 0.8f);
+            const glm::vec4 color = selected ? kPanelOnInk : kPanelInk;
             mFont.drawText(mSpriteBatch,
                 glm::vec2(centerX, layout.optionsY + static_cast<float>(i) * PauseLayout::kOptionH + 5.0f),
-                options[i], color, kTextScale, TextAlign::Center);
+                options[static_cast<std::size_t>(i)], color, kTextScale, TextAlign::Center);
+        }
+        // Why staying is not offered yet, under the options.
+        if (options.size() > 6 && !mStayWhy.empty())
+        {
+            mFont.drawText(mSpriteBatch,
+                glm::vec2(centerX, layout.optionsY + static_cast<float>(options.size()) * PauseLayout::kOptionH + 4.0f),
+                mStayWhy, kPanelDim, 1.0f, TextAlign::Center);
         }
     }
 }
@@ -888,6 +1221,7 @@ void Game::renderMap()
     const float scaledTileW = kIsoTileW * zoom;
     const float scaledTileH = kIsoTileH * zoom;
     const float margin = scaledTileW;
+    const float snowCover = std::clamp(mWeatherState.snowCover, 0.0f, 1.0f);
 
     // Render tiles back-to-front by sum of (col + row)
     for (int sum = 0; sum < mapW + mapH - 1; ++sum)
@@ -905,11 +1239,18 @@ void Game::renderMap()
                 continue;
             }
 
+            // A thin wall stands on the ground of whatever is beside it.
+            if (const int under = mStructureView.groundUnder(col, row); under > 0)
+            {
+                gid = under;
+            }
+
             // Pick one of the tileset's variants from the tile position.
+            const int base = gid;
+            std::uint32_t h = static_cast<std::uint32_t>(col) * 73856093u ^ static_cast<std::uint32_t>(row) * 19349663u;
+            h ^= h >> 13;
             if (gid >= 1 && gid <= TileGid::kPerRow)
             {
-                std::uint32_t h = static_cast<std::uint32_t>(col) * 73856093u ^ static_cast<std::uint32_t>(row) * 19349663u;
-                h ^= h >> 13;
                 gid += TileGid::kPerRow * static_cast<int>(h % static_cast<std::uint32_t>(TileGid::kVariants));
             }
 
@@ -936,13 +1277,95 @@ void Game::renderMap()
             }
 
             // Tileset diamonds tile exactly; one extra screen pixel hides
-            // rounding gaps at fractional zoom levels.
+            // rounding gaps at fractional zoom levels. Burned ground is
+            // charred dark (phase 7).
             mSpriteBatch.draw(
                 glm::vec2(std::round(screenCenter.x - scaledTileW * 0.5f),
                           std::round(screenCenter.y - scaledTileH * 0.5f)),
                 glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f),
                 uvRect,
-                glm::vec4(1.0f));
+                tileBurned(col, row) ? glm::vec4(0.46f, 0.41f, 0.38f, 1.0f) : glm::vec4(1.0f));
+
+            // Edge overlays: grass creeping over its neighbours, the banks
+            // of ponds, and the shadow at the foot of a wall.
+            const auto overlay = [&](int overlayGid)
+            {
+                glm::vec4 overlayUv;
+                if (mTileMap.gidToUvRect(overlayGid, overlayUv))
+                {
+                    mSpriteBatch.draw(
+                        glm::vec2(std::round(screenCenter.x - scaledTileW * 0.5f),
+                                  std::round(screenCenter.y - scaledTileH * 0.5f)),
+                        glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f), overlayUv, glm::vec4(1.0f));
+                }
+            };
+            constexpr int kEdges[4][2] = {{-1, 0}, {0, -1}, {1, 0}, {0, 1}};
+            const bool walled = mTileMap.blocksSight(col, row);
+            const bool indoors = mTileMap.isIndoors(col, row);
+            for (int edge = 0; edge < 4; ++edge)
+            {
+                const int nx = col + kEdges[edge][0];
+                const int ny = row + kEdges[edge][1];
+                if (!mTileMap.inBounds(nx, ny))
+                {
+                    continue;
+                }
+                const int next = mTileMap.groundGid(nx, ny);
+                const int variant = static_cast<int>((h >> (4 + edge * 2)) % static_cast<std::uint32_t>(TileGid::kEdgeVariants));
+                if (base == TileGid::kWater)
+                {
+                    if (next != TileGid::kWater)
+                    {
+                        overlay(TileGid::shoreGid(edge, variant));
+                    }
+                }
+                else if (!walled && !indoors && !TileGid::isGrass(base) && TileGid::isGrass(next) &&
+                         !mTileMap.blocksSight(nx, ny) && !mTileMap.isIndoors(nx, ny))
+                {
+                    overlay(TileGid::fringeGid(edge, variant));
+                }
+            }
+            if (base != TileGid::kWater)
+            {
+                if (mStructureView.wallAtEdge(col, row, 0))
+                {
+                    overlay(TileGid::shadowInsetGid(0));
+                }
+                else if (mStructureView.wallAtEdge(col - 1, row, 2))
+                {
+                    overlay(TileGid::shadowGid(0, false));
+                }
+                if (mStructureView.wallAtEdge(col, row, 1))
+                {
+                    overlay(TileGid::shadowInsetGid(1));
+                }
+                else if (mStructureView.wallAtEdge(col, row - 1, 3))
+                {
+                    overlay(TileGid::shadowGid(1, true));
+                }
+            }
+
+            // Winter (phase 7): ice on the ponds, snow lying on open ground.
+            const auto overlayTinted = [&](int overlayGid, const glm::vec4& color)
+            {
+                glm::vec4 overlayUv;
+                if (mTileMap.gidToUvRect(overlayGid, overlayUv))
+                {
+                    mSpriteBatch.draw(
+                        glm::vec2(std::round(screenCenter.x - scaledTileW * 0.5f),
+                                  std::round(screenCenter.y - scaledTileH * 0.5f)),
+                        glm::vec2(scaledTileW + 1.0f, scaledTileH + 1.0f), overlayUv, color);
+                }
+            };
+            if (base == TileGid::kWater && mTileMap.waterFrozen())
+            {
+                overlayTinted(TileGid::iceGid(), glm::vec4(1.0f));
+            }
+            else if (snowCover > 0.01f && !walled && !indoors && base != TileGid::kWater)
+            {
+                const int variant = static_cast<int>((h >> 3) % static_cast<std::uint32_t>(TileGid::kSnowVariants));
+                overlayTinted(TileGid::snowGid(variant), glm::vec4(1.0f, 1.0f, 1.0f, snowCover));
+            }
         }
     }
 }
@@ -961,7 +1384,8 @@ void Game::renderAttackArcOverlay()
     const Facing& facing = mWorld.getComponent<Facing>(mPlayerEntity);
     const Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
 
-    if (combat.phase != AttackPhase::Windup)
+    // A shove draws its own white sweep (renderFightingOverlay).
+    if (combat.phase != AttackPhase::Windup || combat.shoving)
     {
         return;
     }
@@ -998,9 +1422,9 @@ void Game::renderAttackArcOverlay()
 
         const glm::vec2 direction(std::cos(angle), std::sin(angle));
         const glm::vec2 arcPointWorld = playerCenter + direction * rangePixels;
-        const glm::vec2 arcPointScreen = mCamera.worldToScreen(arcPointWorld);
+        const glm::vec2 arcPointScreen = uiAt(arcPointWorld);
 
-        const float dotSize = 10.0f * mCamera.zoom();
+        const float dotSize = 10.0f * uiZoom();
         mSpriteBatch.draw(
             arcPointScreen - glm::vec2(dotSize * 0.5f, dotSize * 0.5f),
             glm::vec2(dotSize, dotSize),
@@ -1071,10 +1495,10 @@ void Game::renderNoiseDebugOverlay()
                 const glm::vec2 worldCenter(
                     static_cast<float>(tileX * tileWidth) + static_cast<float>(tileWidth) * 0.5f,
                     static_cast<float>(tileY * tileHeight) + static_cast<float>(tileHeight) * 0.5f);
-                const glm::vec2 screenCenter = mCamera.worldToScreen(worldCenter);
+                const glm::vec2 screenCenter = uiAt(worldCenter);
 
-                const float scaledW = static_cast<float>(tileWidth) * mCamera.zoom();
-                const float scaledH = static_cast<float>(tileHeight) * mCamera.zoom();
+                const float scaledW = static_cast<float>(tileWidth) * uiZoom();
+                const float scaledH = static_cast<float>(tileHeight) * uiZoom();
 
                 if (screenCenter.x + scaledW * 0.5f < 0.0f ||
                     screenCenter.y + scaledH * 0.5f < 0.0f ||

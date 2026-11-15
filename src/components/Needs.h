@@ -30,7 +30,28 @@ struct Needs
     // Degrees of ambient warmth added by worn clothing. Recomputed each tick
     // from the inventory, not saved.
     float clothingInsulation = 0.0f;
+    // Phase 7, recomputed each tick from the pack, not saved.
+    bool raincoat = false;
+    bool winterCoat = false;
+    // Phase 7: time out in the rain (real seconds = game minutes), then
+    // game hours of being wet, and smoke breathed. Not saved.
+    float wetExposure = 0.0f;
+    float wetHours = 0.0f;
+    float smokeSeconds = 0.0f;
 
     // Illness (0 = healthy, 100 = severe)
     float illness = 0.0f;
+
+    // Phase 5: what was taken, and when (absolute game hours, day * 24 + hour).
+    float coffeeHours = 0.0f;         // game hours a coffee still hides tiredness
+    float coffeeJitterHours = 0.0f;   // two coffees too close: the shakes
+    double lastCoffeeHour = -1000.0;
+    double lastSedativeHour = -1000.0;   // Painkillers or Spirits: spoils a night
+    double lastPainkillerHour = -1000.0; // stitches hurt less within 2 h
+    float restedHours = 0.0f;         // after a full night: "Rested"
+
+    // Phase 6: dirty water or bad food (hunger and thirst drain x1.5), and
+    // the warmth of a hot meal (+5 degrees). Game hours left.
+    float badStomachHours = 0.0f;
+    float hotMealHours = 0.0f;
 };

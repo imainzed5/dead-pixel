@@ -4,7 +4,12 @@
 // Everything here was file-local to Game.cpp before the split.
 
 #include "core/Game.h"
+#include "core/Tuning.h"
 
+#include "legacy/Cemetery.h"
+#include "legacy/Journal.h"
+#include "legacy/LegacyRules.h"
+#include "legacy/WorldAging.h"
 #include "map/TileIds.h"
 #include "systems/ToneTuning.h"
 
@@ -27,6 +32,7 @@
 #include "components/Sleeping.h"
 #include "components/Wounds.h"
 #include "components/Traits.h"
+#include "components/Skills.h"
 #include "components/Sprite.h"
 #include "components/Stamina.h"
 #include "components/Structure.h"
@@ -37,6 +43,13 @@
 #include "components/SurvivorAI.h"
 #include "dev/DevHarness.h"
 #include "world/EntityFactory.h"
+#include "world/MindRules.h"
+#include "world/SkillRules.h"
+#include "world/SleepRules.h"
+#include "world/TraitRules.h"
+#include "world/WoundRules.h"
+#include "world/VehicleRules.h"
+#include "systems/VehicleSystem.h"
 
 #include <algorithm>
 #include <array>
@@ -62,11 +75,8 @@ constexpr float kMaxFrameStepSeconds = 0.25f;
 constexpr double kFixedTimeStepSeconds = 1.0 / 60.0;
 constexpr double kGameHoursPerRealSecond = 1.0 / 60.0;
 constexpr double kDeathRestartDelaySeconds = 3.0;
-constexpr float kVehicleInteractRangePixels = 64.0f;
-constexpr float kVehicleCollisionRangePixels = 26.0f;
-constexpr float kVehicleFuelPerSecond = 0.28f;
-constexpr float kVehicleRefuelAmount = 12.0f;
-constexpr float kVehicleBaseSpeed = 248.0f;
+// Phase 11: how close to a vehicle's body the player must stand to use it.
+constexpr float kVehicleReachPixels = 30.0f;
 constexpr float kMinimapZoomMin = 0.70f;
 constexpr float kMinimapZoomMax = 4.20f;
 constexpr float kMinimapZoomStep = 0.20f;
@@ -84,13 +94,13 @@ constexpr std::array<const char*, 3> kTitleSaveLabels = {
 };
 
 constexpr std::array<const char*, 2> kTitleGameModeNames = {
-    "CAMPAIGN",
+    "THE WAY OUT",
     "ENDLESS"
 };
 
 constexpr std::array<const char*, 2> kTitleGameModeDescriptions = {
-    "Objective-driven run with an infection deadline",
-    "No win condition; survive and shape world history"
+    "Find out why nobody has left.",
+    "No way out to look for. Survive and shape the town."
 };
 
 constexpr std::array<const char*, 6> kTitleModeNames = {
@@ -103,12 +113,12 @@ constexpr std::array<const char*, 6> kTitleModeNames = {
 };
 
 constexpr std::array<const char*, 6> kTitleModeDescriptions = {
-    "Huge populations; pressure through volume",
-    "Fewer but persistent hunters",
-    "Threat escalates as days pass",
-    "Human hostility dominates district danger",
-    "Unstable behavior patterns and uncertainty",
-    "Swarm pressure plus late-game mutation"
+    "Many, weak, endless; hordes early and often",
+    "Few, relentless; one follows you every night",
+    "Shamblers at first; worse kinds every day",
+    "Fewer, slower dead; people are the danger",
+    "Two hidden rules a run; learn them to live",
+    "Swarm to day 7, then it starts to mutate"
 };
 
 constexpr std::array<const char*, 3> kTitleToneNames = {
@@ -118,7 +128,7 @@ constexpr std::array<const char*, 3> kTitleToneNames = {
 };
 
 constexpr std::array<const char*, 3> kTitleToneDescriptions = {
-    "Scarce supplies, tougher dead, darker nights, drained colour",
+    "Scarce supplies, tougher dead; a festering bite turns you",
     "The intended balance: dark, scarce, but fair",
     "More dead but weaker, more weapons, quicker breath"
 };
@@ -142,17 +152,20 @@ constexpr std::array<const char*, 16> kBriefingLines = {
     "Leave one exit clear before you open a door."
 };
 
-constexpr std::array<const char*, 10> kTitleMenuItems = {
-    "Continue Run",
-    "Start New Run",
-    "Start New World",
-    "Save Slot",
-    "Game Mode",
-    "Threat",
-    "Tone",
+// The title (phase 13); the slot is chosen with Left/Right.
+constexpr std::array<const char*, 8> kTitleMenuItems = {
+    "Continue",
+    "New Life",
+    "New World",
+    "The Town",
+    "Settings",
     "Controls",
     "Credits",
     "Quit"
+};
+// New World asks, on one screen (phase 13).
+constexpr std::array<const char*, 7> kNewWorldRows = {
+    "Mode", "Threat", "Tone", "World", "Day length", "Seed", "Make this town"
 };
 
 inline int wrapIndex(int value, int count)
@@ -178,6 +191,7 @@ inline glm::vec4 legacyLeadColor(legacy::LeadKind kind)
     case legacy::LeadKind::Risen: return glm::vec4(0.94f, 0.34f, 0.28f, 1.0f);
     case legacy::LeadKind::Pack: return glm::vec4(0.96f, 0.72f, 0.30f, 1.0f);
     case legacy::LeadKind::Survivor: return glm::vec4(0.50f, 0.71f, 0.96f, 1.0f);
+    case legacy::LeadKind::Base: return glm::vec4(0.62f, 0.86f, 0.56f, 1.0f);
     case legacy::LeadKind::Grave: break;
     }
     return glm::vec4(0.71f, 0.71f, 0.73f, 1.0f);
@@ -227,22 +241,6 @@ inline glm::ivec2 worldToTile(const TileMap& tileMap, const glm::vec2& world)
     return glm::ivec2(
         static_cast<int>(std::floor(world.x / static_cast<float>(tw))),
         static_cast<int>(std::floor(world.y / static_cast<float>(th))));
-}
-
-inline const char* vehicleConditionLabel(float condition)
-{
-    if (condition >= 70.0f) return "GOOD";
-    if (condition >= 40.0f) return "WORN";
-    if (condition >= 10.0f) return "DAMAGED";
-    return "BROKEN";
-}
-
-inline float vehicleSpeedFromCondition(float condition)
-{
-    if (condition >= 70.0f) return kVehicleBaseSpeed;
-    if (condition >= 40.0f) return kVehicleBaseSpeed * 0.86f;
-    if (condition >= 10.0f) return kVehicleBaseSpeed * 0.72f;
-    return 0.0f;
 }
 
 inline float fireBaseFlammability(SurfaceType surface)
@@ -335,112 +333,97 @@ inline int indexFromSaveTonePreset(SaveTonePreset preset)
     }
 }
 
-struct ThreatBehaviorTuning
-{
-    float speedScale = 1.0f;
-    float visionScale = 1.0f;
-};
-
-inline ThreatDirectorSystem::Tuning threatDirectorTuning(SaveThreatMode mode)
+// The threat director's pressure from the threat mode (zombies.json "modes").
+inline ThreatDirectorSystem::Tuning threatDirectorTuning(const zombiekinds::ModeRules& rules)
 {
     ThreatDirectorSystem::Tuning tuning{};
-    switch (mode)
-    {
-    case SaveThreatMode::OverwhelmingSwarm: tuning.migrationScale = 1.3f; tuning.populationScale = 1.45f; break;
-    case SaveThreatMode::Stalker:           tuning.migrationScale = 1.6f; tuning.populationScale = 0.7f;  break;
-    case SaveThreatMode::MutatingThreat:    tuning.migrationScale = 1.0f; tuning.populationScale = 1.15f; break;
-    case SaveThreatMode::InfectedSociety:   tuning.migrationScale = 0.8f; tuning.populationScale = 0.9f;  break;
-    case SaveThreatMode::Unknown:           tuning.migrationScale = 1.1f; tuning.populationScale = 1.1f;  break;
-    case SaveThreatMode::Hybrid:            tuning.migrationScale = 1.25f; tuning.populationScale = 1.3f; break;
-    }
+    tuning.migrationScale = rules.migration;
+    // zombie.population.scale (phase 14) scales every mode alike, as at the start.
+    tuning.populationScale = rules.population * ::Tuning::get("zombie.population.scale", 1.0f);
     return tuning;
 }
 
-inline ThreatBehaviorTuning computeThreatBehaviorTuning(
-    SaveThreatMode mode,
-    int currentDay,
-    Entity zombieEntity,
-    std::uint64_t runSeed)
+// The interface's colours: off-white on near-black, amber for what needs
+// attention, nothing edged in gold.
+inline const glm::vec4 kPanelBack(0.04f, 0.047f, 0.055f, 0.90f);
+inline const glm::vec4 kPanelInk(0.96f, 0.95f, 0.93f, 1.0f);
+inline const glm::vec4 kPanelDim(0.66f, 0.65f, 0.61f, 1.0f);
+inline const glm::vec4 kPanelAmber(0.94f, 0.71f, 0.30f, 1.0f);
+inline const glm::vec4 kPanelGood(0.62f, 0.86f, 0.60f, 1.0f);
+inline const glm::vec4 kPanelBad(1.0f, 0.54f, 0.44f, 1.0f);
+inline const glm::vec4 kPanelRule(0.96f, 0.95f, 0.93f, 0.22f);
+inline const glm::vec4 kPanelTrack(0.96f, 0.95f, 0.93f, 0.20f);
+inline const glm::vec4 kPanelOnInk(0.05f, 0.06f, 0.07f, 1.0f); // text on a selected (inverted) row
+
+// How wide the panel docked to the right edge is: the pack, or the wider
+// crafting panel. The world stays visible to its left.
+inline float dockedPanelWidth(bool crafting, int windowWidth)
 {
-    ThreatBehaviorTuning tuning{};
-
-    switch (mode)
-    {
-    case SaveThreatMode::OverwhelmingSwarm:
-        tuning.speedScale = 0.94f;
-        tuning.visionScale = 0.96f;
-        break;
-
-    case SaveThreatMode::Stalker:
-        tuning.speedScale = 1.18f;
-        tuning.visionScale = 1.30f;
-        break;
-
-    case SaveThreatMode::MutatingThreat:
-    {
-        const float dayFactor = std::clamp((static_cast<float>(currentDay) - 1.0f) / 30.0f, 0.0f, 1.0f);
-        tuning.speedScale = 1.0f + dayFactor * 0.42f;
-        tuning.visionScale = 1.0f + dayFactor * 0.24f;
-        break;
-    }
-
-    case SaveThreatMode::InfectedSociety:
-        tuning.speedScale = 0.82f;
-        tuning.visionScale = 0.84f;
-        break;
-
-    case SaveThreatMode::Unknown:
-    {
-        const int seedA = static_cast<int>(runSeed & 0x7FFFFFFFu);
-        const int seedB = static_cast<int>((runSeed >> 17) & 0x7FFFFFFFu);
-        const float jitterA = deterministic01(static_cast<int>(zombieEntity), currentDay, seedA);
-        const float jitterB = deterministic01(currentDay, static_cast<int>(zombieEntity), seedB);
-        tuning.speedScale = 0.74f + jitterA * 0.78f;
-        tuning.visionScale = 0.78f + jitterB * 0.56f;
-        break;
-    }
-
-    case SaveThreatMode::Hybrid:
-    {
-        const float dayFactor = std::clamp((static_cast<float>(currentDay) - 1.0f) / 40.0f, 0.0f, 1.0f);
-        tuning.speedScale = 1.05f + dayFactor * 0.28f;
-        tuning.visionScale = 1.04f + dayFactor * 0.20f;
-        break;
-    }
-    }
-
-    return tuning;
+    return std::min(crafting ? 700.0f : 540.0f, std::max(320.0f, static_cast<float>(windowWidth) - 220.0f));
 }
 
-// Inventory grid geometry shared by input hit-testing and both render passes.
-// Slots 1-8 (the first two rows) are the hotbar.
+// Pack geometry shared by input hit-testing and drawing. The panel is docked
+// to the right edge. Slots 8-19 are what is carried, in two rows of six;
+// slots 0-7 are the belt (keys 1-8), in one row under them.
 struct InventoryLayout
 {
     glm::vec2 panelPos{0.0f};
     glm::vec2 panelSize{0.0f};
-    glm::vec2 gridPos{0.0f};
+    glm::vec2 gridPos{0.0f}; // top-left of the first carried row
     float titleY = 0.0f;
-    float weightY = 0.0f;
+    float carriedLabelY = 0.0f;
+    float beltLabelY = 0.0f;
     float detailY = 0.0f;
     float footerY = 0.0f;
-    static constexpr int kColumns = 4;
-    static constexpr int kRows = 5;
-    static constexpr float kSlot = 48.0f;
+    static constexpr int kBeltSlots = 8;
+    static constexpr int kCarriedColumns = 6;
+    static constexpr int kVisualRows = 3; // two carried rows, then the belt
+    static constexpr float kSlot = 52.0f;
     static constexpr float kGap = 6.0f;
+    static constexpr float kPadding = 28.0f;
+    static constexpr float kBeltOffset = 2.0f * (kSlot + kGap) + 32.0f; // belt row, below the carried rows
+
+    // Which row a slot is drawn in, top to bottom, and where along it.
+    [[nodiscard]] static int visualRow(int index) { return index < kBeltSlots ? 2 : (index - kBeltSlots) / kCarriedColumns; }
+    [[nodiscard]] static int visualColumn(int index)
+    {
+        return index < kBeltSlots ? index : (index - kBeltSlots) % kCarriedColumns;
+    }
+    [[nodiscard]] static int rowLength(int row) { return row == 2 ? kBeltSlots : kCarriedColumns; }
+    [[nodiscard]] static int slotIn(int row, int column)
+    {
+        return row == 2 ? column : kBeltSlots + row * kCarriedColumns + column;
+    }
+
+    // The slot one step from `index`: left/right wrap along the row, up/down
+    // go to the slot directly above or below (the rows differ in length).
+    [[nodiscard]] static int neighbour(int index, int dx, int dy)
+    {
+        int row = visualRow(index);
+        int column = visualColumn(index);
+        if (dx != 0)
+        {
+            const int length = rowLength(row);
+            column = (column + dx % length + length) % length;
+        }
+        if (dy != 0)
+        {
+            row = (row + dy % kVisualRows + kVisualRows) % kVisualRows;
+            column = std::min(column, rowLength(row) - 1);
+        }
+        return slotIn(row, column);
+    }
 
     [[nodiscard]] glm::vec2 slotPos(int index) const
     {
-        const int column = index % kColumns;
-        const int row = index / kColumns;
-        // A little extra space separates the hotbar rows from the backpack.
-        const float hotbarGap = row >= 2 ? 10.0f : 0.0f;
-        return gridPos + glm::vec2(static_cast<float>(column) * (kSlot + kGap),
-                                   static_cast<float>(row) * (kSlot + kGap) + hotbarGap);
+        const float x = static_cast<float>(visualColumn(index)) * (kSlot + kGap);
+        const int row = visualRow(index);
+        return gridPos + glm::vec2(x, row == 2 ? kBeltOffset : static_cast<float>(row) * (kSlot + kGap));
     }
 
     [[nodiscard]] int slotAt(const glm::vec2& point) const
     {
-        for (int i = 0; i < kColumns * kRows; ++i)
+        for (int i = 0; i < kBeltSlots + 2 * kCarriedColumns; ++i)
         {
             const glm::vec2 pos = slotPos(i);
             if (point.x >= pos.x && point.x < pos.x + kSlot && point.y >= pos.y && point.y < pos.y + kSlot)
@@ -455,18 +438,14 @@ struct InventoryLayout
 inline InventoryLayout computeInventoryLayout(int windowWidth, int windowHeight)
 {
     InventoryLayout layout;
-    const float gridW = InventoryLayout::kColumns * InventoryLayout::kSlot + (InventoryLayout::kColumns - 1) * InventoryLayout::kGap;
-    const float gridH = InventoryLayout::kRows * InventoryLayout::kSlot + (InventoryLayout::kRows - 1) * InventoryLayout::kGap + 10.0f;
-    layout.panelSize = glm::vec2(340.0f, 20.0f + 26.0f + 22.0f + 12.0f + gridH + 14.0f + 44.0f + 18.0f + 12.0f);
-    layout.panelPos = glm::vec2(
-        std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
-        std::round(std::max(96.0f, (static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f - 40.0f)));
-    layout.titleY = layout.panelPos.y + 20.0f;
-    layout.weightY = layout.titleY + 26.0f;
-    layout.gridPos = glm::vec2(std::round(layout.panelPos.x + (layout.panelSize.x - gridW) * 0.5f),
-                               layout.weightY + 22.0f + 12.0f);
-    layout.detailY = layout.gridPos.y + gridH + 14.0f;
-    layout.footerY = layout.detailY + 44.0f;
+    layout.panelSize = glm::vec2(dockedPanelWidth(false, windowWidth), static_cast<float>(windowHeight));
+    layout.panelPos = glm::vec2(static_cast<float>(windowWidth) - layout.panelSize.x, 0.0f);
+    layout.titleY = 22.0f;
+    layout.carriedLabelY = 80.0f;
+    layout.gridPos = glm::vec2(layout.panelPos.x + InventoryLayout::kPadding, layout.carriedLabelY + 16.0f);
+    layout.beltLabelY = layout.gridPos.y + InventoryLayout::kBeltOffset - 16.0f;
+    layout.detailY = layout.gridPos.y + InventoryLayout::kBeltOffset + InventoryLayout::kSlot + 34.0f;
+    layout.footerY = static_cast<float>(windowHeight) - 36.0f;
     return layout;
 }
 
@@ -491,64 +470,6 @@ inline std::string itemEffectSummary(const ItemDef& item)
     return summary;
 }
 
-struct ControlBinding
-{
-    const char* key;
-    const char* action;
-};
-
-constexpr std::array<ControlBinding, 25> kControlBindings = {{
-    {"WASD", "Move"},
-    {"Shift", "Run"},
-    {"C", "Crouch"},
-    {"Mouse", "Aim"},
-    {"LClick", "Attack"},
-    {"RClick", "Grab"},
-    {"E", "Interact"},
-    {"R", "Board up door"},
-    {"F", "Use item"},
-    {"Q", "Flashlight"},
-    {"1-8", "Hotbar slot"},
-    {"Tab", "Inventory"},
-    {"Arrows", "Inventory cursor"},
-    {"Enter", "Swap to hotbar"},
-    {"N", "Crafting"},
-    {"B", "Build"},
-    {"L", "Fire action"},
-    {"V", "Enter/exit car"},
-    {"Shift+V", "Refuel car"},
-    {"M", "World map"},
-    {"J", "Notebook"},
-    {"+/-", "Minimap zoom"},
-    {"Esc", "Pause"},
-    {"F2", "Controls"},
-    {"F3", "Infection debug"},
-}};
-
-struct ControlsLayout
-{
-    glm::vec2 panelPos{0.0f};
-    glm::vec2 panelSize{0.0f};
-    float rowsY = 0.0f;
-    float columnWidth = 0.0f;
-    static constexpr float kRowH = 22.0f;
-    static constexpr float kKeyColumn = 108.0f;
-    static constexpr std::size_t kRowsPerColumn = 13;
-};
-
-inline ControlsLayout computeControlsLayout(int windowWidth, int windowHeight)
-{
-    ControlsLayout layout;
-    layout.columnWidth = 320.0f;
-    layout.panelSize = glm::vec2(layout.columnWidth * 2.0f + 48.0f,
-                                 64.0f + ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) + 20.0f);
-    layout.panelPos = glm::vec2(
-        std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
-        std::round((static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f));
-    layout.rowsY = layout.panelPos.y + 64.0f;
-    return layout;
-}
-
 // Pause menu geometry shared by the panel pass and the text pass.
 struct PauseLayout
 {
@@ -561,13 +482,13 @@ struct PauseLayout
     float traitsLineY = 0.0f;
     float optionsY = 0.0f;
     static constexpr float kOptionH = 30.0f;
-    static constexpr int kOptionCount = 5;
 };
 
-inline PauseLayout computePauseLayout(int windowWidth, int windowHeight)
+// Six options, or seven with "Stay here for good" (phase 10, 13).
+inline PauseLayout computePauseLayout(int windowWidth, int windowHeight, int options = 6)
 {
     PauseLayout layout;
-    layout.panelSize = glm::vec2(440.0f, 312.0f);
+    layout.panelSize = glm::vec2(440.0f, 162.0f + static_cast<float>(options) * PauseLayout::kOptionH + (options > 6 ? 20.0f : 0.0f));
     layout.panelPos = glm::vec2(
         std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
         std::round((static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f));
@@ -787,6 +708,9 @@ inline glm::mat4 buildProjection(int width, int height)
         1.0f);
 }
 
+// "wardrobe", "TV stand" (GameBase.cpp).
+[[nodiscard]] const char* pieceNameOf(FurnitureKind kind);
+
 inline int surfaceNoiseModifier(SurfaceType surface)
 {
     switch (surface)
@@ -844,43 +768,9 @@ inline bool hasInfectedWound(const Wounds& wounds)
         });
 }
 
-inline int treatWorstWounds(Wounds& wounds, int treatCount)
-{
-    int treated = 0;
-    while (treated < treatCount && !wounds.active.empty())
-    {
-        int bestIdx = 0;
-        for (int i = 1; i < static_cast<int>(wounds.active.size()); ++i)
-        {
-            const Wound& current = wounds.active[i];
-            const Wound& best = wounds.active[bestIdx];
-
-            if (current.type == WoundType::Bite && best.type != WoundType::Bite)
-            {
-                bestIdx = i;
-            }
-            else if (current.infected && !best.infected)
-            {
-                bestIdx = i;
-            }
-            else if (current.severity > best.severity)
-            {
-                bestIdx = i;
-            }
-        }
-
-        wounds.active.erase(wounds.active.begin() + bestIdx);
-        ++treated;
-    }
-
-    return treated;
-}
-
 inline void syncHealthWithWounds(Health& health, const Wounds& wounds)
 {
-    constexpr float kMaxHpPenaltyPerWound = 5.0f;
-    const float penalty = static_cast<float>(wounds.active.size()) * kMaxHpPenaltyPerWound;
-    health.maximum = std::max(20.0f, 100.0f - penalty);
+    health.maximum = woundrules::maxHealth(health.baseMaximum, wounds.active);
     health.current = std::min(health.current, health.maximum);
 }
 
@@ -980,22 +870,6 @@ inline const char* districtTypeLabel(int districtType)
     }
 }
 
-inline const char* weatherConditionLabel(WeatherCondition condition)
-{
-    switch (condition)
-    {
-    case WeatherCondition::Clear: return "Clear";
-    case WeatherCondition::Cloudy: return "Cloudy";
-    case WeatherCondition::Rain: return "Rain";
-    case WeatherCondition::HeavyRain: return "Heavy rain";
-    case WeatherCondition::Thunderstorm: return "Storm";
-    case WeatherCondition::Fog: return "Fog";
-    case WeatherCondition::Blizzard: return "Blizzard";
-    case WeatherCondition::Heatwave: return "Heatwave";
-    }
-    return "Clear";
-}
-
 // What a "Search fridge" prompt searches ("fridge"); "" for other prompts.
 inline std::string searchedThing(const std::string& prompt)
 {
@@ -1003,18 +877,47 @@ inline std::string searchedThing(const std::string& prompt)
     return prompt.rfind(prefix, 0) == 0 ? prompt.substr(prefix.size()) : std::string{};
 }
 
-// A weapon item's stats: its category's, improved by the item's own scales.
-inline WeaponStats weaponStatsForItem(const ItemDef& item)
+// A weapon item's stats: its class defaults, then the item's own scales,
+// then its `weapon` overrides from items.json (these win).
+inline WeaponStats weaponStatsForItem(const ItemDef& item, const ItemDatabase* db = nullptr)
 {
     WeaponStats stats = makeWeaponStats(static_cast<WeaponCategory>(std::max(0, item.weaponCategory)));
     stats.damage *= item.weaponDamageScale;
     stats.rangePixels *= item.weaponRangeScale;
     stats.maxDurability = std::max(1, static_cast<int>(std::round(static_cast<float>(stats.maxDurability) * item.weaponDurabilityScale)));
-    stats.durability = stats.maxDurability;
     stats.causesBleeding = stats.causesBleeding || item.weaponCausesBleeding;
+
+    const WeaponOverrides& o = item.weapon;
+    if (o.arc >= 0.0f) stats.arcDegrees = o.arc;
+    if (o.range >= 0.0f) stats.rangePixels = o.range;
+    if (o.damage >= 0.0f) stats.damage = o.damage;
+    if (o.stamina >= 0.0f) stats.staminaCost = o.stamina;
+    if (o.knockback >= 0.0f) stats.knockbackPixels = o.knockback;
+    if (o.durability > 0) stats.maxDurability = o.durability;
+    if (o.windup >= 0.0f) stats.windupSeconds = o.windup;
+    if (o.recovery >= 0.0f) stats.recoverySeconds = o.recovery;
+    if (o.magazine >= 0) stats.magazine = o.magazine;
+    if (o.pellets > 0) stats.pellets = o.pellets;
+    if (o.noise >= 0) stats.noiseTier = o.noise;
+    stats.canStick = o.stick;
+    stats.knocksDown = o.knockdown;
+    stats.reach = o.reach;
+    if (db != nullptr && !o.ammo.empty())
+    {
+        stats.ammoItemId = db->idOf(o.ammo);
+    }
+    if (stats.category == WeaponCategory::Ranged)
+    {
+        stats.ammo = 0; // what is loaded comes from the slot
+    }
+    stats.durability = stats.maxDurability;
     stats.itemId = item.id;
     return stats;
 }
+
+// The Make panel's tabs: ALL, TOOLS, MED, FOOD (phase 6: what a fire cooks).
+constexpr int kCraftingCategories = 4;
+constexpr int kCraftingFoodTab = 3;
 
 inline const char* craftingCategoryLabel(int category)
 {
@@ -1022,6 +925,7 @@ inline const char* craftingCategoryLabel(int category)
     {
     case 1: return "TOOLS";
     case 2: return "MED";
+    case 3: return "FOOD";
     default: return "ALL";
     }
 }
@@ -1076,7 +980,7 @@ inline std::vector<std::size_t> buildVisibleRecipeList(
         }
 
         const bool hasA = InventorySystem::countItem(inventory, recipe.inputA) > 0;
-        const bool hasB = InventorySystem::countItem(inventory, recipe.inputB) > 0;
+        const bool hasB = recipe.inputB >= 0 && InventorySystem::countItem(inventory, recipe.inputB) > 0;
         if (hasA || hasB)
         {
             visible.push_back(i);
@@ -1086,43 +990,102 @@ inline std::vector<std::size_t> buildVisibleRecipeList(
     return visible;
 }
 
-inline bool hasNearbyWorkbench(World& world, Entity playerEntity)
+// A recipe's station in reach: a workbench, or a fire, within 3 tiles. A
+// kitchen stove is a fire while the power is on (phase 6).
+inline bool craftStationNearby(CraftStation station, const std::vector<FurniturePiece>& furniturePieces, World& world,
+                               const TileMap& tileMap, const glm::ivec2& playerTile, bool stoveWorks = false,
+                               bool fireNear = false)
 {
-    if (playerEntity == kInvalidEntity || !world.hasComponent<Transform>(playerEntity))
+    constexpr float kStationReachTiles = 3.0f;
+    switch (station)
     {
-        return false;
-    }
-
-    const Transform& playerTransform = world.getComponent<Transform>(playerEntity);
-    const glm::vec2 playerCenter(playerTransform.x + kSpriteSize * 0.5f, playerTransform.y + kSpriteSize * 0.5f);
-    constexpr float kWorkbenchRange = 96.0f;
-
-    bool found = false;
-    world.forEach<Structure, Transform>(
-        [&](Entity, Structure& structure, Transform& st)
-        {
-            if (found) return;
-            if (structure.type != StructureType::SupplyCache) return;
-            const glm::vec2 center(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
-            if (glm::distance(playerCenter, center) <= kWorkbenchRange)
+    case CraftStation::None:
+        return true;
+    case CraftStation::Workbench:
+    {
+        if (furniture::kindWithin(furniturePieces, FurnitureKind::Workbench, playerTile, kStationReachTiles)) return true;
+        // A workbench someone built.
+        bool built = false;
+        const float tileW = static_cast<float>(std::max(1, tileMap.tileWidth()));
+        world.forEach<Structure, Transform>(
+            [&](Entity, Structure& s, Transform& t)
             {
-                found = true;
-            }
-        });
-
-    return found;
+                if (built || s.type != StructureType::Workbench || s.hp <= 0.0f) return;
+                const glm::vec2 d = glm::vec2(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f) / tileW -
+                                    (glm::vec2(playerTile) + glm::vec2(0.5f));
+                built = glm::dot(d, d) <= kStationReachTiles * kStationReachTiles;
+            });
+        return built;
+    }
+    case CraftStation::Fire:
+    {
+        if (stoveWorks && furniture::kindWithin(furniturePieces, FurnitureKind::Stove, playerTile, kStationReachTiles)) return true;
+        bool found = false;
+        const float tileW = static_cast<float>(std::max(1, tileMap.tileWidth()));
+        // A campfire burning.
+        world.forEach<Structure, Transform>(
+            [&](Entity, Structure& s, Transform& t)
+            {
+                if (found || s.type != StructureType::Campfire || !s.lit || s.hp <= 0.0f) return;
+                const glm::vec2 d = glm::vec2(t.x + kSpriteSize * 0.5f, t.y + kSpriteSize * 0.5f) / tileW -
+                                    (glm::vec2(playerTile) + glm::vec2(0.5f));
+                found = glm::dot(d, d) <= kStationReachTiles * kStationReachTiles;
+            });
+        // A burning tile within reach (phase 7: the fire grid).
+        return found || fireNear;
+    }
+    }
+    return false;
 }
 
-inline bool hasCraftTools(const Inventory& inv, const CraftingRecipe& recipe)
+inline const char* craftStationName(CraftStation station)
 {
-    for (int toolId : recipe.requiredTools)
+    switch (station)
     {
-        if (InventorySystem::countItem(inv, toolId) <= 0)
+    case CraftStation::Workbench: return "Workbench";
+    case CraftStation::Fire: return "A fire";
+    case CraftStation::None: break;
+    }
+    return "";
+}
+
+// The best condition (0..1) of an item in the pack that meets the tool, or -1.
+inline float craftToolCondition(const Inventory& inv, const ItemDatabase& db, const CraftTool& tool)
+{
+    float condition = -1.0f;
+    for (const auto& slot : inv.slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+        bool meets = slot.itemId == tool.itemId;
+        if (!meets && !tool.tag.empty())
+        {
+            const ItemDef* def = db.find(slot.itemId);
+            meets = def != nullptr && def->hasTag(tool.tag);
+        }
+        if (meets) condition = std::max(condition, slot.condition);
+    }
+    return condition;
+}
+
+inline bool hasCraftTools(const Inventory& inv, const ItemDatabase& db, const CraftingRecipe& recipe)
+{
+    for (const CraftTool& tool : recipe.tools)
+    {
+        if (craftToolCondition(inv, db, tool) < 0.0f)
         {
             return false;
         }
     }
     return true;
+}
+
+// How many of `itemId` one craft of the recipe uses (0 if it is not an input).
+inline int craftInputNeed(const CraftingRecipe& recipe, int itemId)
+{
+    int need = 0;
+    if (recipe.inputA == itemId) need += recipe.countA;
+    if (recipe.inputB >= 0 && recipe.inputB == itemId) need += recipe.countB;
+    return need;
 }
 
 inline bool hasCraftIngredients(const Inventory& inv, const CraftingRecipe& recipe, int count)
@@ -1131,10 +1094,14 @@ inline bool hasCraftIngredients(const Inventory& inv, const CraftingRecipe& reci
     {
         return true;
     }
-
-    const int needA = count;
-    const int needB = count;
-    return InventorySystem::countItem(inv, recipe.inputA) >= needA &&
-           InventorySystem::countItem(inv, recipe.inputB) >= needB;
+    for (int itemId : {recipe.inputA, recipe.inputB})
+    {
+        if (itemId < 0) continue;
+        if (InventorySystem::countItem(inv, itemId) < craftInputNeed(recipe, itemId) * count)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 } // namespace gameshared

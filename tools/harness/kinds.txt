@@ -1,0 +1,75 @@
+# The kinds of the dead (phase 4): one of each, side by side, then what
+# makes each one different: the Runner's sprint, the Brute that a knife does
+# not move, the Screamer that calls the street, the Crawler lying in wait.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/kinds.txt --hidden --world-seed 1234 --shots shots/kinds
+
+mode stalker
+newrun
+god on
+waits 1
+hours 12
+slay 80
+lamp
+waits 0.3
+zoom 3
+# Aim east (down-right on screen).
+mouse 760 420
+
+# Five silhouettes at default zoom: Shambler, Runner, Brute, Crawler, Screamer.
+zombie -4 3 shambler still
+zombie -2 3 runner still
+zombie 0 3 brute still
+zombie 2 3 crawler still
+zombie 4 3 screamer still
+waits 0.1
+shot kinds_lineup
+zoom 2
+waits 0.1
+shot kinds_lineup_default_zoom
+zoom 3
+slay 10
+waits 0.5
+
+# The Runner: its head snaps up, then it covers 10 tiles in under 4 s.
+zombie 10 0 runner
+waits 1.2
+shot runner_sprint
+waits 2.6
+expect kind runner near 1.5
+slay 12
+waits 0.5
+
+# The Brute: a knife does not move it.
+zombie 1 0 brute still close
+waits 0.1
+click left
+waits 0.25
+expect kind brute unmoved 3
+shot brute_unmoved
+slay 6
+waits 0.5
+
+# The Screamer: its scream brings a wanderer from 20 tiles off.
+zombie outside 20 shambler still
+expect kind shambler calm 22
+zombie 0 4 screamer
+waits 1.5
+shot screamer_screams
+waits 1.5
+expect kind shambler coming 22
+slay 30
+waits 0.5
+
+# The Crawler: lying still until you come within 2 tiles.
+zombie -2 -2 crawler dormant
+waits 2
+expect kind crawler dormant 6
+shot crawler_dormant
+hold W 30
+waits 1.2
+expect kind crawler awake 6
+shot crawler_awake
+slay 10
+waits 0.5
+quit

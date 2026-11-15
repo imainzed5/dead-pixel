@@ -1,0 +1,71 @@
+# Trade (phase 8): the talk panel and the trade panel, at 1280x720. A
+# survivor who is well wants more than one can for two bandages; hungry,
+# the same can is worth twice as much to them, they take it and trust you
+# more for it. Then the notebook's page of people and the map's homes.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/trade.txt --hidden --world-seed 1234 --shots shots/trade
+
+newrun
+god on
+hours 10
+waits 1
+slay 200
+give Canned Food 2
+
+# Someone open, in the house next door, with bandages to spare.
+survivor house open bandages trust 20
+goto survivor
+waits 1
+talk
+waits 0.3
+expect talk open
+shot 01_talk_panel
+talk hello
+expect survivor trust above 22
+waits 0.3
+shot 02_said_hello
+
+# Well fed: a can is worth 10 to them, two bandages 16. They want more.
+set shunger 90
+talk trade
+expect talk trade
+trade offer Canned Food 1
+trade ask Bandage 2
+waits 0.3
+shot 03_trade_panel
+trade agree
+expect talk trade
+expect survivor stock Bandage 3
+expect survivor trust below 24
+
+# Hungry: food counts twice. Fair, and they take it.
+set shunger 30
+trade offer Canned Food 1
+trade ask Bandage 2
+waits 0.3
+shot 04_trade_hungry
+trade agree
+expect survivor stock Bandage 1
+expect survivor trust above 27
+expect pack Bandage 2
+waits 0.3
+shot 05_traded
+
+# Tab back to the talk view, Tab again to close.
+tap TAB
+waits 0.2
+expect talk open
+tap TAB
+waits 0.2
+expect talk closed
+
+# The notebook lists who you met; the map marks the homes you know.
+tap J
+waits 0.3
+shot 06_notebook
+tap J
+tap M
+waits 0.3
+shot 07_map
+tap M
+quit

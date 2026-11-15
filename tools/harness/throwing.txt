@@ -1,0 +1,91 @@
+# Throwing (phase 3, G): the aim arc while G is held, a rock that draws the
+# dead to where it lands, a wound alarm clock that holds them while it rings,
+# a flare that burns at night, a molotov that sets the ground alight, a
+# bottle that breaks.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/throwing.txt --hidden --world-seed 1234 --shots shots/throwing
+
+newrun
+god on
+waits 1
+zoom 1.5
+# Open grass beside the first house, so nothing is in the way of a throw.
+teleport 62 66
+waits 0.3
+give Rock 3
+give Alarm Clock
+give Flare
+give Molotov
+give Empty Bottle
+
+# Hold G to aim: the arc shows where it will land.
+select Rock
+mouse 820 480
+key G down
+waits 0.3
+shot aim
+key G up
+waits 1.2
+shot rock_landed
+
+# A rock thrown 8 tiles: two wandering near there turn to the spot, not to
+# the player.
+zombie 10 1 idle
+zombie 10 -1 idle
+waits 0.3
+throw 8 0 Rock
+waits 1.2
+expect landed 8 0
+expect lured 2
+waits 1.5
+shot rock_lure
+slay 14
+waits 0.5
+
+# An alarm clock: wound (F), thrown, and after its time it rings; it holds
+# three of the dead where it lies for its twenty seconds while the player is
+# far off (out of their sight: by day the dead see 8 tiles).
+select Alarm Clock
+tap F
+waits 0.3
+throw -6 0 Alarm Clock
+waits 1
+expect landed -6 0
+zombie -9 3 idle
+zombie -9 -3 idle
+zombie -11 0 idle
+teleport 76 66
+waits 8
+expect lured 3
+waits 20
+expect lured 3
+teleport 62 66
+waits 0.1
+shot clock_held
+slay 40
+waits 0.5
+
+# A flare at night: a red light that burns and draws the eye.
+hours 22
+waits 0.5
+throw 3 -2 Flare
+waits 1.5
+shot flare_night
+hours 9
+slay 40
+# Calm again after the dead came close: panic makes the feet drift.
+set panic 0
+waits 0.5
+
+# A molotov sets the ground where it lands alight; a bottle just breaks.
+throw 4 2 Molotov
+waits 1
+expect burning 4 2
+shot molotov
+throw 1 4 Empty Bottle
+waits 1
+expect landed 1 4
+shot bottle
+waits 1
+expect alive
+quit

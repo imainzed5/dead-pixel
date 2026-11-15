@@ -15,12 +15,16 @@ struct DistrictInfection
 class DistrictInfectionSystem
 {
 public:
-    void initialize(const LayoutData& layout);
+    // `tileWidth`/`tileHeight`: world pixels per tile, to place zombies.
+    void initialize(const LayoutData& layout, int tileWidth = 32, int tileHeight = 32);
     void dailyUpdate(World& world, const LayoutData& layout, int currentDay);
 
     [[nodiscard]] float getInfection(int districtId) const;
     [[nodiscard]] bool isOverwhelmed(int districtId) const;
     [[nodiscard]] const std::vector<DistrictInfection>& districts() const { return mDistricts; }
+    // Set a district's infection (0..100), e.g. from what the world remembers
+    // or a kill or a horde passing (phase 4).
+    void setInfection(int districtId, float infection);
 
 private:
     static constexpr float kOverwhelmedThreshold = 75.0f;
@@ -29,5 +33,8 @@ private:
     static constexpr float kZombieDensityWeight = 5.0f;    // infection gain per zombie density unit
 
     std::vector<DistrictInfection> mDistricts;
+    std::vector<float> mWalkableArea; // walkable tiles per district, from initialize
+    int mTileWidth = 32;
+    int mTileHeight = 32;
     int mLastUpdateDay = -1;
 };

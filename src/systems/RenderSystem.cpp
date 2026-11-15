@@ -25,6 +25,7 @@ struct DrawCommand
     int layer = 0;
     float size = 32.0f;
     bool flipX = false;
+    float sink = 0.0f;
 };
 }
 
@@ -46,6 +47,11 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
             const float lerpX = transform.prevX + (transform.x - transform.prevX) * alpha;
             const float lerpY = transform.prevY + (transform.y - transform.prevY) * alpha;
 
+            if (extras != nullptr && extras->hideDead && world.hasComponent<ZombieAI>(entity) &&
+                extras->hideDead(glm::vec2(lerpX + kSpriteSize * 0.5f, lerpY + kSpriteSize * 0.5f)))
+            {
+                return;
+            }
             if (filterHidden)
             {
                 const int tileX = static_cast<int>(std::floor((lerpX + kSpriteSize * 0.5f) / kSpriteSize));
@@ -64,7 +70,8 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
                     sprite.color,
                     sprite.layer,
                     sprite.drawSize,
-                    sprite.flipX});
+                    sprite.flipX,
+                    sprite.sink});
         });
 
     // Draw order: flat decals first (by layer, then depth); then everything
@@ -137,7 +144,7 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
         const DrawCommand& command = drawCommands[static_cast<std::size_t>(item.index)];
         const float scaledSize = command.size * zoom;
         glm::vec4 uvRect = command.uvRect;
-        const glm::vec4 color = command.color;
+        glm::vec4 color = command.color;
         if (command.flipX)
         {
             uvRect.x = command.uvRect.x + command.uvRect.z;
@@ -155,13 +162,26 @@ void RenderSystem::render(World& world, SpriteBatch& spriteBatch, const Camera& 
             world.hasComponent<SurvivorAI>(command.entity) ||
             world.hasComponent<Corpse>(command.entity);
 
+        // A zombie that has just been hit is drawn bright for a moment.
+        if (world.hasComponent<ZombieAI>(command.entity))
+        {
+            const float flash = world.getComponent<ZombieAI>(command.entity).hitFlash;
+            if (flash > 0.0f)
+            {
+                const float k = 1.0f + 0.8f * std::min(1.0f, flash / ZombieBlow::kFlashSeconds);
+                color.r *= k;
+                color.g *= k;
+                color.b *= k;
+            }
+        }
+
         const float visualYOffset = isHumanoid ? (kHumanoidFootPadding * scaledSize) : 0.0f;
 
         // Draw sprite centered on its iso screen position with optional humanoid
         // foot-pivot correction so visual feet sit on the physical world anchor.
         const glm::vec2 drawPos(
             screenCenter.x - scaledSize * 0.5f,
-            screenCenter.y - scaledSize + visualYOffset);
+            screenCenter.y - scaledSize + visualYOffset + command.sink * zoom);
 
         // Frustum cull in draw-rect space so offsets are correctly respected.
         if (drawPos.x + scaledSize < 0.0f ||

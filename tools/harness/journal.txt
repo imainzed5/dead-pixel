@@ -1,0 +1,79 @@
+# Journal (phase 10): a scripted life with a notebook - the first kill,
+# boards on a door, a bite, the first night, death on day 3 - writes six to
+# nine entries. The next life reads them at the grave.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/journal.txt --hidden --world-seed 1234 --shots shots/journal
+
+survivors gone
+newrun
+god on
+waits 1
+give Notebook
+waits 0.5
+# The first kill.
+zombie 2 0
+waits 0.3
+slay 4
+waits 0.5
+# Boards across the door.
+goto door
+waits 0.3
+give Hammer
+give Wood Planks 3
+give Nails 6
+tap R
+waits 4.5
+# Bitten.
+wound bite larm
+waits 0.3
+# Through the first night.
+day 2
+hours 7
+waits 0.5
+day 3
+hours 9
+waits 0.5
+journal
+expect journal 5 8
+tap J
+tap Left
+waits 0.3
+shot 01_journal_tab
+tap J
+kill Bled out
+waits 0.5
+journal last
+expect journal last 6 9
+
+# The next life finds the grave and reads it.
+newrun
+god on
+waits 1
+goto grave
+waits 0.3
+expect prompt E: Read
+tap E
+waits 0.4
+expect reader open
+shot 02_reader_at_grave
+tap Down
+waits 0.2
+tap J
+waits 0.2
+expect reader closed
+# The notebook's "Before you" page: Enter reads it again.
+tap J
+waits 0.1
+tap Left
+waits 0.1
+tap Left
+waits 0.1
+tap Left
+waits 0.2
+shot 03_before_you
+tap Return
+waits 0.3
+expect reader open
+shot 04_reader_from_notebook
+tap J
+quit

@@ -1,4 +1,5 @@
 #include "world/Doors.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,13 +24,18 @@ void Doors::reset(TileMap& map, const LayoutData& layout)
     }
 }
 
+float Doors::boardHpEach()
+{
+    return Tuning::get("doors.board.hp", kBoardHp);
+}
+
 int Doors::boardsFor(float boardHp)
 {
     if (boardHp <= 0.0f)
     {
         return 0;
     }
-    return std::clamp(static_cast<int>(std::ceil(boardHp / kBoardHp - 0.001f)), 1, kMaxBoards);
+    return std::clamp(static_cast<int>(std::ceil(boardHp / boardHpEach() - 0.001f)), 1, kMaxBoards);
 }
 
 DoorState Doors::toggle(TileMap& map, const glm::ivec2& tile)
@@ -86,7 +92,7 @@ Doors::Blow Doors::batter(TileMap& map, const glm::ivec2& tile, float damage)
     if (door->boardHp > 0.0f)
     {
         const int before = boardsFor(door->boardHp);
-        door->boardHp = std::max(0.0f, door->boardHp - damage);
+        door->boardHp = std::max(0.0f, door->boardHp - damage / std::max(0.1f, door->boardToughness));
         const int after = boardsFor(door->boardHp);
         map.setDoorBoards(tile.x, tile.y, after);
         if (after < before)
@@ -116,15 +122,18 @@ Doors::Blow Doors::batter(TileMap& map, const glm::ivec2& tile, float damage)
     return Blow::Thud;
 }
 
-bool Doors::addBoard(TileMap& map, const glm::ivec2& tile)
+bool Doors::addBoard(TileMap& map, const glm::ivec2& tile, float toughness)
 {
     Door* door = findMutable(tile);
     if (door == nullptr || map.doorState(tile.x, tile.y) != DoorState::Closed || boardsFor(door->boardHp) >= kMaxBoards)
     {
         return false;
     }
+    // The boards hold as well as the average of how each was nailed.
+    const float before = static_cast<float>(boardsFor(door->boardHp));
+    door->boardToughness = (door->boardToughness * before + toughness) / (before + 1.0f);
     // A fresh board on top; a split one underneath still counts for what is left of it.
-    door->boardHp = std::min(door->boardHp + kBoardHp, kBoardHp * static_cast<float>(kMaxBoards));
+    door->boardHp = std::min(door->boardHp + boardHpEach(), boardHpEach() * static_cast<float>(kMaxBoards));
     map.setDoorBoards(tile.x, tile.y, boardsFor(door->boardHp));
     return true;
 }
@@ -136,19 +145,21 @@ bool Doors::removeBoard(TileMap& map, const glm::ivec2& tile)
     {
         return false;
     }
-    door->boardHp = kBoardHp * static_cast<float>(boardsFor(door->boardHp) - 1);
+    door->boardHp = boardHpEach() * static_cast<float>(boardsFor(door->boardHp) - 1);
+    if (door->boardHp <= 0.0f) door->boardToughness = 1.0f;
     map.setDoorBoards(tile.x, tile.y, boardsFor(door->boardHp));
     return true;
 }
 
-void Doors::setBoards(TileMap& map, const glm::ivec2& tile, float boardHp)
+void Doors::setBoards(TileMap& map, const glm::ivec2& tile, float boardHp, float toughness)
 {
     Door* door = findMutable(tile);
     if (door == nullptr || map.doorState(tile.x, tile.y) != DoorState::Closed)
     {
         return;
     }
-    door->boardHp = std::clamp(boardHp, 0.0f, kBoardHp * static_cast<float>(kMaxBoards));
+    door->boardHp = std::clamp(boardHp, 0.0f, boardHpEach() * static_cast<float>(kMaxBoards));
+    door->boardToughness = door->boardHp > 0.0f ? std::max(0.1f, toughness) : 1.0f;
     map.setDoorBoards(tile.x, tile.y, boardsFor(door->boardHp));
 }
 

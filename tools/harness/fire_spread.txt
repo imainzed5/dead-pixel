@@ -1,0 +1,84 @@
+# Fire on a grid (phase 7): a molotov on grass in a heatwave with the wind
+# blowing east burns further east than west in five game minutes; heavy rain
+# has the same fire out within forty; a wooden house lit inside is gutted,
+# and stays gutted after the life ends and the next begins (charred rafters);
+# 300 of the dead and a 60-tile fire stay within the phase 4 tick budget.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/fire_spread.txt --hidden --world-seed 1234 --shots shots/fire_spread
+
+newrun
+god on
+trait plain
+waits 1
+slay 200
+goto wild
+weather heatwave
+wind 1 0
+hours 12
+zoom 1.0
+waits 0.5
+weatherinfo
+
+# Thrown four tiles north: three tiles of grass alight across the throw.
+ignite 0 -4 molotov
+fires
+waits 5
+fires
+expect spread east
+shot 01_heatwave_wind_east
+
+# Heavy rain: out within forty game minutes.
+weather heavyrain
+waits 40.5
+fires
+expect fires 0
+shot 02_rain_put_it_out
+slay 200
+
+# A wooden house lit inside: gutted when 40 % of its floor has burned. Seen
+# from four tiles out, so its roof shows (the rafters).
+weather clear
+wind 0 0
+goto kind house inside
+waits 0.3
+mark
+ignite 0 0 6
+waits 0.5
+shot 03_house_alight
+waits 150
+fires
+expect gutted
+goto kind house 4
+waits 0.5
+zoom 1.0
+waits 0.3
+shot 04_gutted_rafters
+slay 200
+
+# The next life finds it as it was.
+kill fire test
+waits 6
+newrun
+waits 1
+slay 200
+goto mark
+waits 0.5
+expect gutted
+goto kind house 4
+waits 0.5
+zoom 1.0
+waits 0.3
+shot 05_gutted_next_life
+
+# 300 of the dead and 60 tiles burning: the phase 4 budget (Release).
+goto wild
+waits 0.3
+weather clear
+ignite 0 6 60
+perf 300
+waits 2
+fires
+shot 06_perf_fire
+waits 9
+expect perf 4 12
+quit

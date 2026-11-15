@@ -1,10 +1,15 @@
 #include "systems/WeatherSystem.h"
+#include "world/WeatherRules.h"
 
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 
 namespace
 {
+// One real second is one game minute (core/GameShared.h).
+constexpr float kGameHoursPerRealSecond = 1.0f / 60.0f;
+
 float baseTemperature(Season season)
 {
     switch (season)
@@ -27,16 +32,188 @@ Season nextSeason(Season s)
     return static_cast<Season>((static_cast<int>(s) + 1) % 4);
 }
 
-// Deterministic pseudo-random from seed
-int pseudoRandom(int seed)
+// A float in [0, 1), the same on every compiler.
+float unit(std::mt19937& rng)
 {
-    seed = (seed ^ 61) ^ (seed >> 16);
-    seed = seed + (seed << 3);
-    seed = seed ^ (seed >> 4);
-    seed = seed * 0x27d4eb2d;
-    seed = seed ^ (seed >> 15);
-    return seed & 0x7FFFFFFF;
+    return static_cast<float>(rng() >> 8) * (1.0f / 16777216.0f);
 }
+}
+
+void WeatherSystem::reset(std::uint32_t seed)
+{
+    mRng.seed(seed);
+    mHoursLeft = 0.0f;
+    // Which way the wind blows is the run's; it turns slowly over the day.
+    mWindBase = static_cast<float>(seed % 628u) * 0.01f;
+    mWindHeld = false;
+    mAirHeld = std::numeric_limits<float>::quiet_NaN();
+}
+
+void WeatherSystem::holdWind(WeatherState& weather, float x, float y)
+{
+    const float length = std::sqrt(x * x + y * y);
+    mWindHeld = length > 0.0001f;
+    if (!mWindHeld) return;
+    mHeldWindX = x / length;
+    mHeldWindY = y / length;
+    mHeldWindStrength = std::min(1.0f, length);
+    weather.windX = mHeldWindX;
+    weather.windY = mHeldWindY;
+    weather.windStrength = mHeldWindStrength;
+}
+
+void WeatherSystem::refreshNext(WeatherState& weather) const
+{
+    std::mt19937 rng = mRng;
+    weather.nextCondition = weatherrules::inSeason(rollCondition(weather.season, rng), weather.season);
+    weather.hoursToChange = mHoursLeft;
+}
+
+WeatherCondition WeatherSystem::rollCondition(Season season, std::mt19937& rng)
+{
+    const int roll = static_cast<int>(unit(rng) * 100.0f);
+    switch (season)
+    {
+    case Season::Spring:
+        if (roll < 30) return WeatherCondition::Clear;
+        if (roll < 55) return WeatherCondition::Cloudy;
+        if (roll < 80) return WeatherCondition::Rain;
+        if (roll < 90) return WeatherCondition::Fog;
+        return WeatherCondition::Thunderstorm;
+    case Season::Summer:
+        if (roll < 45) return WeatherCondition::Clear;
+        if (roll < 65) return WeatherCondition::Cloudy;
+        if (roll < 80) return WeatherCondition::Heatwave;
+        if (roll < 90) return WeatherCondition::Rain;
+        return WeatherCondition::Thunderstorm;
+    case Season::Autumn:
+        if (roll < 20) return WeatherCondition::Clear;
+        if (roll < 45) return WeatherCondition::Cloudy;
+        if (roll < 70) return WeatherCondition::Rain;
+        if (roll < 85) return WeatherCondition::HeavyRain;
+        if (roll < 95) return WeatherCondition::Fog;
+        return WeatherCondition::Thunderstorm;
+    case Season::Winter:
+        if (roll < 25) return WeatherCondition::Clear;
+        if (roll < 50) return WeatherCondition::Cloudy;
+        if (roll < 70) return WeatherCondition::Fog;
+        if (roll < 85) return WeatherCondition::Rain;
+        return WeatherCondition::Blizzard;
+    }
+    return WeatherCondition::Clear;
+}
+
+float WeatherSystem::rollHours(std::mt19937& rng)
+{
+    return 2.0f + unit(rng) * 4.0f;
+}
+
+std::string WeatherSystem::rngState() const
+{
+    std::ostringstream out;
+    out << mRng;
+    return out.str();
+}
+
+bool WeatherSystem::restore(WeatherState& weather, WeatherCondition condition, float hoursLeft,
+                            const std::string& rngState)
+{
+    std::mt19937 rng;
+    std::istringstream in(rngState);
+    in >> rng;
+    if (in.fail())
+    {
+        return false;
+    }
+    mRng = rng;
+    mHoursLeft = hoursLeft;
+    weather.condition = condition;
+    weather.conditionDuration = hoursLeft;
+    refreshNext(weather);
+    return true;
+}
+
+std::vector<ForecastStep> WeatherSystem::forecast(const WeatherState& weather, float hours) const
+{
+    std::vector<ForecastStep> steps;
+    steps.push_back(ForecastStep{0.0f, weather.condition});
+    std::mt19937 rng = mRng;
+    float at = std::max(0.0f, mHoursLeft);
+    while (at < hours)
+    {
+        const WeatherCondition next = weatherrules::inSeason(rollCondition(weather.season, rng), weather.season);
+        steps.push_back(ForecastStep{at, next});
+        at += rollHours(rng);
+    }
+    return steps;
+}
+
+namespace
+{
+bool wet(WeatherCondition c)
+{
+    return c == WeatherCondition::Rain || c == WeatherCondition::HeavyRain || c == WeatherCondition::Thunderstorm ||
+           c == WeatherCondition::Blizzard || c == WeatherCondition::Snow;
+}
+
+const char* wetName(WeatherCondition c)
+{
+    switch (c)
+    {
+    case WeatherCondition::HeavyRain: return "Heavy rain";
+    case WeatherCondition::Thunderstorm: return "Storms";
+    case WeatherCondition::Blizzard: return "A blizzard";
+    case WeatherCondition::Snow: return "Snow";
+    default: return "Rain";
+    }
+}
+
+const char* partOfDay(double hour)
+{
+    const double h = std::fmod(std::fmod(hour, 24.0) + 24.0, 24.0);
+    if (h >= 5.0 && h < 11.0) return "morning";
+    if (h >= 11.0 && h < 17.0) return "afternoon";
+    if (h >= 17.0 && h < 21.0) return "evening";
+    return "nightfall";
+}
+} // namespace
+
+std::string WeatherSystem::forecastLine(const std::vector<ForecastStep>& steps, double hourOfDay)
+{
+    std::string line;
+    const bool wetNow = !steps.empty() && wet(steps.front().condition);
+    if (wetNow)
+    {
+        line = std::string(wetName(steps.front().condition)) + " all day.";
+        for (const ForecastStep& step : steps)
+        {
+            if (step.startsIn > 0.0f && !wet(step.condition))
+            {
+                line = std::string("Dry by ") + partOfDay(hourOfDay + step.startsIn) + ".";
+                break;
+            }
+        }
+    }
+    else
+    {
+        line = "Dry for now.";
+        for (const ForecastStep& step : steps)
+        {
+            if (step.startsIn > 0.0f && wet(step.condition))
+            {
+                line = std::string(wetName(step.condition)) + " by " + partOfDay(hourOfDay + step.startsIn) + ".";
+                break;
+            }
+            if (step.startsIn > 0.0f && step.condition == WeatherCondition::Fog)
+            {
+                line = std::string("Fog by ") + partOfDay(hourOfDay + step.startsIn) + ".";
+                break;
+            }
+        }
+    }
+    const double h = std::fmod(hourOfDay, 24.0);
+    line += h >= 10.0 && h < 22.0 ? " Colder tonight." : " Warmer by midday.";
+    return line;
 }
 
 void WeatherSystem::update(WeatherState& weather, float dtSeconds, double gameHours, int currentDay)
@@ -63,96 +240,49 @@ void WeatherSystem::update(WeatherState& weather, float dtSeconds, double gameHo
     // Day/night temperature swing: warmest at 14:00, coldest at 04:00
     const float hourOffset = static_cast<float>(gameHours) - 14.0f;
     const float dayNightFactor = std::cos(hourOffset * 3.14159f / 12.0f);
-    weather.temperature = base + dayNightFactor * kDayNightSwing;
+    weather.airTemperature = base + dayNightFactor * kDayNightSwing;
+    if (!std::isnan(mAirHeld)) weather.airTemperature = mAirHeld;
 
-    // --- Weather condition state machine ---
-    mConditionTimer -= dtSeconds;
-    if (mConditionTimer <= 0.0f)
+    // --- Weather condition state machine (counted in game hours) ---
+    const float hoursPassed = dtSeconds * kGameHoursPerRealSecond;
+    mHoursLeft -= hoursPassed;
+    if (mHoursLeft <= 0.0f)
     {
-        // Pick new condition based on season and pseudo-random
-        const int seed = currentDay * 7919 + static_cast<int>(gameHours * 100.0);
-        const int roll = pseudoRandom(seed) % 100;
-
-        switch (weather.season)
-        {
-        case Season::Spring:
-            if (roll < 30) weather.condition = WeatherCondition::Clear;
-            else if (roll < 55) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 80) weather.condition = WeatherCondition::Rain;
-            else if (roll < 90) weather.condition = WeatherCondition::Fog;
-            else weather.condition = WeatherCondition::Thunderstorm;
-            break;
-        case Season::Summer:
-            if (roll < 45) weather.condition = WeatherCondition::Clear;
-            else if (roll < 65) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 80) weather.condition = WeatherCondition::Heatwave;
-            else if (roll < 90) weather.condition = WeatherCondition::Rain;
-            else weather.condition = WeatherCondition::Thunderstorm;
-            break;
-        case Season::Autumn:
-            if (roll < 20) weather.condition = WeatherCondition::Clear;
-            else if (roll < 45) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 70) weather.condition = WeatherCondition::Rain;
-            else if (roll < 85) weather.condition = WeatherCondition::HeavyRain;
-            else if (roll < 95) weather.condition = WeatherCondition::Fog;
-            else weather.condition = WeatherCondition::Thunderstorm;
-            break;
-        case Season::Winter:
-            if (roll < 25) weather.condition = WeatherCondition::Clear;
-            else if (roll < 50) weather.condition = WeatherCondition::Cloudy;
-            else if (roll < 70) weather.condition = WeatherCondition::Fog;
-            else if (roll < 85) weather.condition = WeatherCondition::Rain;
-            else weather.condition = WeatherCondition::Blizzard;
-            break;
-        }
-
-        // Duration: 2-6 game hours
-        mConditionTimer = static_cast<float>(2.0f + (pseudoRandom(seed + 1) % 40) * 0.1f);
-        weather.conditionDuration = mConditionTimer;
+        weather.condition = weatherrules::inSeason(rollCondition(weather.season, mRng), weather.season);
+        mHoursLeft = rollHours(mRng);
+        weather.conditionDuration = mHoursLeft;
+        refreshNext(weather);
     }
+    weather.hoursToChange = mHoursLeft;
 
-    // --- Apply condition effects ---
-    weather.windStrength = 0.0f;
-    weather.rainIntensity = 0.0f;
-    weather.visibilityMultiplier = 1.0f;
-
+    // --- What the condition does (world/WeatherRules) ---
+    weather.temperature = weather.airTemperature + weatherrules::bodyShift(weather.condition);
+    weather.visibilityMultiplier = weatherrules::deadSightScale(weather.condition);
+    weather.snowCover = weatherrules::stepSnowCover(weather.snowCover, weather.condition, weather.airTemperature, hoursPassed);
     switch (weather.condition)
     {
-    case WeatherCondition::Clear:
-        break;
-    case WeatherCondition::Cloudy:
-        weather.windStrength = 0.2f;
-        break;
-    case WeatherCondition::Rain:
-        weather.rainIntensity = 0.4f;
-        weather.windStrength = 0.3f;
-        weather.temperature -= kRainTempDrop;
-        break;
-    case WeatherCondition::HeavyRain:
-        weather.rainIntensity = 0.8f;
-        weather.windStrength = 0.5f;
-        weather.visibilityMultiplier = 0.7f;
-        weather.temperature -= kRainTempDrop * 1.5f;
-        break;
-    case WeatherCondition::Thunderstorm:
-        weather.rainIntensity = 1.0f;
-        weather.windStrength = 0.8f;
-        weather.visibilityMultiplier = kStormVisibility;
-        weather.temperature -= kRainTempDrop * 2.0f;
-        break;
-    case WeatherCondition::Fog:
-        weather.visibilityMultiplier = kFogVisibility;
-        weather.windStrength = 0.05f;
-        break;
-    case WeatherCondition::Blizzard:
-        weather.rainIntensity = 0.9f; // snow treated as rain intensity
-        weather.windStrength = 0.9f;
-        weather.visibilityMultiplier = 0.3f;
-        weather.temperature -= 8.0f;
-        break;
-    case WeatherCondition::Heatwave:
-        weather.temperature += 8.0f;
-        weather.windStrength = 0.1f;
-        break;
+    case WeatherCondition::Clear: weather.rainIntensity = 0.0f; weather.windStrength = 0.0f; break;
+    case WeatherCondition::Cloudy: weather.rainIntensity = 0.0f; weather.windStrength = 0.2f; break;
+    case WeatherCondition::Rain: weather.rainIntensity = 0.4f; weather.windStrength = 0.3f; break;
+    case WeatherCondition::HeavyRain: weather.rainIntensity = 0.8f; weather.windStrength = 0.5f; break;
+    case WeatherCondition::Thunderstorm: weather.rainIntensity = 1.0f; weather.windStrength = 0.8f; break;
+    case WeatherCondition::Fog: weather.rainIntensity = 0.0f; weather.windStrength = 0.05f; break;
+    case WeatherCondition::Blizzard: weather.rainIntensity = 0.9f; weather.windStrength = 0.9f; break;
+    case WeatherCondition::Heatwave: weather.rainIntensity = 0.0f; weather.windStrength = 0.1f; break;
+    case WeatherCondition::Snow: weather.rainIntensity = 0.45f; weather.windStrength = 0.25f; break;
+    }
+
+    // The wind's way: the run's, turning slowly over the day, unless held.
+    if (mWindHeld)
+    {
+        weather.windX = mHeldWindX;
+        weather.windY = mHeldWindY;
+        weather.windStrength = mHeldWindStrength;
+    }
+    else
+    {
+        const float angle = mWindBase + 0.6f * std::sin(static_cast<float>(gameHours) * 0.26f + static_cast<float>(currentDay));
+        weather.windX = std::cos(angle);
+        weather.windY = std::sin(angle);
     }
 }

@@ -29,7 +29,40 @@ bool inBounds(const TileMap& tileMap, const glm::ivec2& p)
 }
 }
 
-std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::ivec2& start, const glm::ivec2& goal)
+float Pathfinder::stepCost(const TileMap& tileMap, const glm::ivec2& tile, Mover mover)
+{
+    if (!tileMap.inBounds(tile.x, tile.y))
+    {
+        return -1.0f;
+    }
+    // A closed door blocks like a wall but can be opened or broken, so a
+    // route through it costs extra instead of being ruled out.
+    if (tileMap.isClosedDoor(tile.x, tile.y))
+    {
+        return kClosedDoorCost + kBoardCost * static_cast<float>(tileMap.doorBoards(tile.x, tile.y));
+    }
+    if (!tileMap.isSolid(tile.x, tile.y))
+    {
+        return 1.0f;
+    }
+    if (mover == Mover::Living)
+    {
+        return -1.0f;
+    }
+    if (tileMap.hasWindow(tile.x, tile.y))
+    {
+        if (tileMap.windowOpen(tile.x, tile.y)) return kOpenWindowCost;
+        return kWindowCost + kBoardCost * static_cast<float>(tileMap.windowBoards(tile.x, tile.y));
+    }
+    if (tileMap.doorwayBlocked(tile.x, tile.y))
+    {
+        return kBlockedDoorwayCost;
+    }
+    return -1.0f;
+}
+
+std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::ivec2& start, const glm::ivec2& goal,
+                                             Mover mover)
 {
     std::vector<glm::ivec2> path;
 
@@ -38,8 +71,9 @@ std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::
         return path;
     }
 
-    // A closed door can be the goal: it is reached by battering it.
-    if (tileMap.isSolid(goal.x, goal.y) && !tileMap.isClosedDoor(goal.x, goal.y))
+    // A closed door (or a window, or a blocked doorway) can be the goal: it
+    // is reached by battering it.
+    if (stepCost(tileMap, goal, mover) < 0.0f)
     {
         return path;
     }
@@ -112,10 +146,8 @@ std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::
             {
                 continue;
             }
-            // A closed door blocks like a wall but can be opened or broken,
-            // so a route through it costs extra instead of being ruled out.
-            const bool closedDoor = tileMap.isClosedDoor(nextPos.x, nextPos.y);
-            if (tileMap.isSolid(nextPos.x, nextPos.y) && !closedDoor)
+            const float stepCost = Pathfinder::stepCost(tileMap, nextPos, mover);
+            if (stepCost < 0.0f)
             {
                 continue;
             }
@@ -126,7 +158,6 @@ std::vector<glm::ivec2> Pathfinder::findPath(const TileMap& tileMap, const glm::
                 continue;
             }
 
-            const float stepCost = closedDoor ? kClosedDoorCost : 1.0f;
             const float tentativeG = gScore[static_cast<std::size_t>(current.index)] + stepCost;
             if (tentativeG < gScore[static_cast<std::size_t>(nextIndex)])
             {

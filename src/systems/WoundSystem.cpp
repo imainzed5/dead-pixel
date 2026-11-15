@@ -1,87 +1,139 @@
 #include "systems/WoundSystem.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "components/Bleeding.h"
 #include "components/Health.h"
 #include "components/Needs.h"
 #include "components/Wounds.h"
+#include "world/WoundRules.h"
 
 namespace
 {
-// Untreated wounds close on their own after this many real seconds
-// (60 s = 1 game hour). Bites take longest, long enough to fester.
-constexpr float kBruiseHealSeconds = 2.0f * 60.0f;
-constexpr float kCutHealSeconds = 6.0f * 60.0f;
-constexpr float kBiteHealSeconds = 18.0f * 60.0f;
-constexpr float kBiteInfectionHours = 3.0f;    // game-hours until a dirty bite becomes infected
-// Infection: illness climbs ~3 per game hour until antibiotics cure it.
-constexpr float kInfectionIllnessPerSecond = 0.05f;
-
-float healSecondsFor(WoundType type)
-{
-    switch (type)
-    {
-    case WoundType::Bruise: return kBruiseHealSeconds;
-    case WoundType::Cut: return kCutHealSeconds;
-    case WoundType::Bite: return kBiteHealSeconds;
-    }
-    return kCutHealSeconds;
-}
-constexpr float kMaxHpPenaltyPerWound = 5.0f;
 constexpr float kStableRecoveryPerSecond = 0.02f;
+
+std::uint32_t hash(std::uint32_t x)
+{
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+} // namespace
+
+float WoundSystem::roll(std::uint32_t seed)
+{
+    ++mRolls;
+    return static_cast<float>(hash(seed ^ (mRolls * 0x9E3779B9u)) >> 8) / static_cast<float>(1u << 24);
 }
 
-void WoundSystem::update(World& world, Entity playerEntity, float dtSeconds, double /*gameHours*/)
+void WoundSystem::update(World& world, Entity playerEntity, float dtSeconds, double /*gameHours*/,
+                         const WoundContext& context)
 {
+    mTurnedToDeath = false;
+    mDressingsDirtied = 0;
+    mNewlyInfected = 0;
+    mNewlyTurning = 0;
     if (playerEntity == kInvalidEntity || !world.hasComponent<Wounds>(playerEntity))
     {
         return;
     }
 
     Wounds& wounds = world.getComponent<Wounds>(playerEntity);
-
-    const float gameHoursThisTick = dtSeconds / 60.0f; // rough: 1 real-sec ~ 1 game-min
+    const float hours = dtSeconds / 60.0f; // 1 real second is 1 game minute
+    const float healRate = woundrules::healRate(context.bedRest, context.medicineLevel, context.healTimeScale);
 
     for (auto it = wounds.active.begin(); it != wounds.active.end();)
     {
         Wound& w = *it;
 
-        // Heal timer ticks down
-        w.healTimer += dtSeconds;
-        if (w.healTimer >= healSecondsFor(w.type) && !w.infected)
+        // Healing.
+        w.healTimer += dtSeconds * healRate;
+        const float healHours = woundrules::healHours(w);
+        if (healHours > 0.0f && w.healTimer >= healHours * 60.0f)
         {
             it = wounds.active.erase(it);
             continue;
         }
 
-        // Bite infection progress
-        if (w.type == WoundType::Bite && w.contaminated && !w.infected)
+        // An old dressing goes dirty.
+        if (w.dressed)
         {
-            w.infectionTimer += gameHoursThisTick;
-            if (w.infectionTimer >= kBiteInfectionHours)
+            w.dressingHours += hours;
+            if (w.dressingHours >= woundrules::kDressingDirtyHours)
             {
-                w.infected = true;
+                w.dressed = false;
+                w.contaminated = true;
+                w.dressingHours = 0.0f;
+                ++mDressingsDirtied;
             }
         }
 
-        // Infected wounds cause illness
-        if (w.infected && world.hasComponent<Needs>(playerEntity))
+        // Infection: a dirty bite festers; an open deep or dirty cut may take it.
+        if (woundrules::festers(w))
         {
-            Needs& needs = world.getComponent<Needs>(playerEntity);
-            needs.illness = std::min(100.0f, needs.illness + kInfectionIllnessPerSecond * dtSeconds);
+            w.infectionTimer += hours;
+            if (w.infectionTimer >= woundrules::kBiteInfectionHours)
+            {
+                w.infected = true;
+                ++mNewlyInfected;
+            }
+        }
+        else if (woundrules::mayInfect(w))
+        {
+            const float chance = 1.0f - std::pow(1.0f - woundrules::kOpenCutInfectionPerHour, hours);
+            if (roll(context.seed) < chance)
+            {
+                w.infected = true;
+                ++mNewlyInfected;
+            }
+        }
+
+        if (w.infected)
+        {
+            if (world.hasComponent<Needs>(playerEntity))
+            {
+                Needs& needs = world.getComponent<Needs>(playerEntity);
+                needs.illness = std::min(100.0f, needs.illness + woundrules::kInfectionIllnessPerSecond * dtSeconds);
+            }
+            // Hopeless: a bite infected and untreated a whole day turns.
+            if (context.hopeless && w.type == WoundType::Bite && !w.turning)
+            {
+                w.infectedHours += hours;
+                if (w.infectedHours >= woundrules::kTurningAfterHours)
+                {
+                    w.turning = true;
+                    w.turningHours = 0.0f;
+                    w.turnDeathHours = woundrules::turnDeathHours(roll(context.seed));
+                    ++mNewlyTurning;
+                }
+            }
+        }
+        if (w.turning)
+        {
+            w.turningHours += hours;
+            if (w.turningHours >= w.turnDeathHours) mTurnedToDeath = true;
         }
 
         ++it;
     }
 
-    // Apply max HP penalty for untreated wounds
     if (world.hasComponent<Health>(playerEntity))
     {
         Health& health = world.getComponent<Health>(playerEntity);
-        const float penalty = static_cast<float>(wounds.active.size()) * kMaxHpPenaltyPerWound;
-        health.maximum = std::max(20.0f, 100.0f - penalty);
+        health.maximum = woundrules::maxHealth(health.baseMaximum, wounds.active);
         health.current = std::min(health.current, health.maximum);
+
+        // A deep torso or head wound, not yet stitched, bleeds slowly.
+        const woundrules::BodyEffects fx = woundrules::effects(wounds.active);
+        if (fx.slowBleedPerHour > 0.0f)
+        {
+            health.current = std::max(0.0f, health.current - fx.slowBleedPerHour * hours);
+        }
 
         if (world.hasComponent<Needs>(playerEntity) && !world.hasComponent<Bleeding>(playerEntity))
         {
@@ -89,17 +141,13 @@ void WoundSystem::update(World& world, Entity playerEntity, float dtSeconds, dou
             const bool stable = needs.hunger > 55.0f &&
                                 needs.thirst > 55.0f &&
                                 needs.illness < 20.0f &&
-                                std::none_of(
-                                    wounds.active.begin(),
-                                    wounds.active.end(),
-                                    [](const Wound& wound)
-                                    {
-                                        return wound.infected;
-                                    });
+                                std::none_of(wounds.active.begin(), wounds.active.end(),
+                                             [](const Wound& wound) { return wound.infected; });
 
             if (stable && health.current < health.maximum)
             {
-                health.current = std::min(health.maximum, health.current + kStableRecoveryPerSecond * dtSeconds);
+                health.current = std::min(health.maximum, health.current +
+                                          Tuning::get("health.recovery.perSecond", kStableRecoveryPerSecond) * dtSeconds);
             }
         }
     }

@@ -1,0 +1,34 @@
+# District ruin (phase 4): the district's ruin level from its infection shows
+# on the street (litter, smears on walls, bodies), as a word on the HUD
+# ("quiet", "uneasy", "turning", "overrun") and as shading on the town map;
+# and a bleeding player leaves drops of blood on the ground.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/ruin.txt --hidden --world-seed 1234 --shots shots/ruin
+
+newrun
+god on
+waits 1
+zoom 1.5
+slay 60
+infection 10
+waits 0.5
+shot ruin_quiet
+infection 30 all
+infection 80
+waits 0.5
+shot ruin_overrun
+tap M
+waits 0.3
+shot ruin_map
+tap M
+waits 0.3
+zoom 2.5
+goto pavement
+waits 0.3
+set bleeding 30
+hold D 240
+waits 4.5
+waits 0.5
+expect trail 3
+shot blood_drops
+quit

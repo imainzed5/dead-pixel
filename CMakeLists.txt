@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(dead_pixel_survival VERSION 0.1.0 LANGUAGES CXX)
+project(dead_pixel_survival VERSION 0.13.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DEAD_PIXEL_BUILD_TESTS "Build the unit test runner" ON)
+# tools/package.py turns this on: dev keys hidden, saves in the user's folder.
+option(DEAD_PIXEL_PACKAGED "Build the packaged (player) game" OFF)
 
 find_package(SDL2 REQUIRED CONFIG)
 find_package(SDL2_mixer REQUIRED CONFIG)
@@ -38,12 +40,39 @@ add_library(dead_pixel_core STATIC
     src/core/GameMenus.cpp
     src/core/GameVehicles.cpp
     src/core/GameFire.cpp
+    src/core/GameWeather.cpp
+    src/core/GameFighting.cpp
     src/core/GameInventory.cpp
     src/core/GameLegacy.cpp
     src/core/GameDoors.cpp
     src/core/GameFurniture.cpp
+    src/core/GameBase.cpp
+    src/core/GameWindows.cpp
+    src/core/GameSettings.cpp
+    src/core/GameTitle.cpp
+    src/core/GameAims.cpp
+    src/core/GameTeach.cpp
+    src/core/GameFirstDays.cpp
+    src/core/GameContent.cpp
+    src/core/GameStorage.cpp
+    src/core/GameDead.cpp
+    src/core/GameBody.cpp
+    src/core/GameCharacter.cpp
+    src/core/GameScavenge.cpp
+    src/core/GamePower.cpp
+    src/core/GameSurvivors.cpp
+    src/core/GameGate.cpp
+    src/core/GameClues.cpp
+    src/core/GameJournal.cpp
+    src/core/GameCemetery.cpp
+    src/core/GameSound.cpp
+    src/core/GameMood.cpp
+    src/core/Tuning.cpp
     src/core/Input.cpp
+    src/core/Bindings.cpp
+    src/core/Settings.cpp
     src/ai/Pathfinder.cpp
+    src/ai/FlowField.cpp
     src/ecs/EntityManager.cpp
     src/ecs/World.cpp
     src/map/TileMap.cpp
@@ -53,12 +82,16 @@ add_library(dead_pixel_core STATIC
     src/save/SaveManager.cpp
     src/systems/InputSystem.cpp
     src/systems/CombatSystem.cpp
+    src/systems/ThrownSystem.cpp
     src/systems/CollisionSystem.cpp
     src/systems/InteractionSystem.cpp
     src/systems/MovementSystem.cpp
     src/systems/NeedsSystem.cpp
     src/systems/BleedingSystem.cpp
     src/systems/ZombieAISystem.cpp
+    src/systems/ZombieSenses.cpp
+    src/systems/ZombieMove.cpp
+    src/systems/ZombieAttack.cpp
     src/systems/RenderSystem.cpp
     src/systems/InventorySystem.cpp
     src/systems/MentalStateSystem.cpp
@@ -66,15 +99,45 @@ add_library(dead_pixel_core STATIC
     src/systems/ProjectileSystem.cpp
     src/systems/WoundSystem.cpp
     src/systems/BuildSystem.cpp
-    src/systems/SurvivorAISystem.cpp
-    src/systems/SurvivorInteractionSystem.cpp
+    src/systems/SurvivorBrain.cpp
     src/systems/WeatherSystem.cpp
+    src/systems/FireSystem.cpp
     src/systems/DistrictInfectionSystem.cpp
     src/systems/ThreatDirectorSystem.cpp
     src/world/EntityFactory.cpp
     src/world/Doors.cpp
     src/world/Furniture.cpp
+    src/world/FurnitureUse.cpp
+    src/world/Windows.cpp
+    src/world/Storage.cpp
+    src/world/CombatRules.cpp
+    src/world/ZombieKinds.cpp
+    src/world/Senses.cpp
+    src/world/BloodTrail.cpp
+    src/world/Horde.cpp
+    src/world/Scenery.cpp
+    src/systems/Atmosphere.cpp
+    src/world/FirstDays.cpp
+    src/world/Aims.cpp
+    src/world/TraitRules.cpp
+    src/world/SkillRules.cpp
+    src/world/WoundRules.cpp
+    src/world/SleepRules.cpp
+    src/world/MindRules.cpp
+    src/world/BuildingKinds.cpp
+    src/world/Power.cpp
+    src/world/Forage.cpp
+    src/world/Garden.cpp
+    src/world/WeatherRules.cpp
+    src/world/SurvivorRules.cpp
+    src/world/Gate.cpp
+    src/world/Clues.cpp
+    src/world/VehicleRules.cpp
+    src/world/MoodRules.cpp
+    src/systems/VehicleSystem.cpp
+    src/systems/HallucinationSystem.cpp
     src/items/ItemDatabase.cpp
+    src/items/LootTables.cpp
     src/rendering/Camera.cpp
     src/rendering/Shader.cpp
     src/rendering/Texture.cpp
@@ -83,16 +146,35 @@ add_library(dead_pixel_core STATIC
     src/rendering/SpriteSheet.cpp
     src/rendering/StructureView.cpp
     src/rendering/FurnitureView.cpp
+    src/rendering/SceneryView.cpp
+    src/rendering/PostFx.cpp
     src/legacy/LegacyRules.cpp
+    src/legacy/Journal.cpp
+    src/legacy/WorldAging.cpp
+    src/legacy/Cemetery.cpp
     src/ui/Hud.cpp
     src/systems/AnimationSystem.cpp
     src/systems/ParticleSystem.cpp
     src/audio/AudioManager.cpp
+    src/audio/AudioRules.cpp
+    src/audio/SoundTable.cpp
+    src/audio/Ambience.cpp
     src/dev/DevHarness.cpp
+    src/dev/DevHarnessSound.cpp
+    src/dev/DevHarnessRunFlow.cpp
+    src/dev/DevHarnessSurvivors.cpp
+    src/dev/DevHarnessGate.cpp
+    src/dev/DevHarnessLegacy.cpp
+    src/dev/DevHarnessVehicles.cpp
     src/dev/LaunchOptions.cpp
+    src/dev/Autoplayer.cpp
 )
 
 target_include_directories(dead_pixel_core PUBLIC src)
+target_compile_definitions(dead_pixel_core PUBLIC DEAD_PIXEL_VERSION="${PROJECT_VERSION}")
+if(DEAD_PIXEL_PACKAGED)
+    target_compile_definitions(dead_pixel_core PUBLIC DEAD_PIXEL_PACKAGED)
+endif()
 target_include_directories(dead_pixel_core SYSTEM PUBLIC ${STB_INCLUDE_DIR})
 
 target_link_libraries(dead_pixel_core PUBLIC
@@ -106,6 +188,14 @@ target_link_libraries(dead_pixel_core PUBLIC
 dead_pixel_warnings(dead_pixel_core)
 
 add_executable(dead_pixel_survival src/main.cpp)
+
+# The exe's icon and version (phase 13): a resource script on Windows.
+if(WIN32)
+    enable_language(RC)
+    set(DEAD_PIXEL_ICON_PATH "${CMAKE_SOURCE_DIR}/assets/icons/dead_pixel.ico")
+    configure_file(src/dead_pixel.rc.in ${CMAKE_BINARY_DIR}/dead_pixel.rc @ONLY)
+    target_sources(dead_pixel_survival PRIVATE ${CMAKE_BINARY_DIR}/dead_pixel.rc)
+endif()
 
 if(TARGET SDL2::SDL2main)
     target_link_libraries(dead_pixel_survival PRIVATE SDL2::SDL2main)
@@ -135,6 +225,41 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_tone.cpp
         tests/test_doors.cpp
         tests/test_furniture.cpp
+        tests/test_firstdays.cpp
+        tests/test_feel.cpp
+        tests/test_scenery.cpp
+        tests/test_atmosphere.cpp
+        tests/test_content.cpp
+        tests/test_weather.cpp
+        tests/test_storage.cpp
+        tests/test_base.cpp
+        tests/test_windows.cpp
+        tests/test_combat_rules.cpp
+        tests/test_zombie_kinds.cpp
+        tests/test_senses.cpp
+        tests/test_bloodtrail.cpp
+        tests/test_horde.cpp
+        tests/test_skills.cpp
+        tests/test_wounds.cpp
+        tests/test_mind.cpp
+        tests/test_buildings.cpp
+        tests/test_power.cpp
+        tests/test_forage.cpp
+        tests/test_weather_rules.cpp
+        tests/test_fire.cpp
+        tests/test_survivor_rules.cpp
+        tests/test_gate.cpp
+        tests/test_clues.cpp
+        tests/test_journal.cpp
+        tests/test_aging.cpp
+        tests/test_bloodline.cpp
+        tests/test_vehicles.cpp
+        tests/test_sounds.cpp
+        tests/test_ambience.cpp
+        tests/test_mood.cpp
+        tests/test_bindings.cpp
+        tests/test_settings.cpp
+        tests/test_aims.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

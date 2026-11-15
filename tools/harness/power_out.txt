@@ -1,0 +1,52 @@
+# Power (phase 6): on day 5 near dusk the town's power fails. "The power is
+# out."; the street lamps go dark; a fridge stops keeping food (half speed
+# while it runs, full speed after); a floor lamp lights a room only while
+# there is power.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/power_out.txt --hidden --world-seed 1234 --shots shots/power_out
+
+newrun
+god on
+waits 1
+slay 300
+# The clock just short of this run's failure (day 5, near dusk give or
+# take 12 hours): it goes by itself.
+power soon
+expect power on
+waits 10
+expect power off
+expect message power is out
+# Day 5, after dark, by a street lamp: lit while the power is held on, dark
+# when it goes.
+hours 21
+lamp
+zoom 2
+power on
+waits 1.5
+shot 01_lamps_lit
+power auto
+waits 1.5
+expect power off
+shot 02_lamps_dark
+# A fridge: half speed while it runs (two game hours), full speed after.
+slay 300
+goto furniture fridge
+power on
+fridge mark
+waits 120
+expect fridgerate 0.35 0.65
+power off
+fridge mark
+waits 120
+expect fridgerate 0.85 1.15
+# A floor lamp, switched on: a lit room while the power is held on.
+goto furniture floorlamp
+power on
+tap E
+waits 1.5
+shot 03_floor_lamp_on
+power off
+waits 1.5
+shot 04_floor_lamp_dead
+expect alive
+quit

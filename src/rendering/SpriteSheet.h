@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <string>
@@ -11,6 +12,7 @@
 struct SpriteRegion
 {
     glm::vec4 uvRect{0.0f};  // x, y, w, h in UV space
+    glm::vec2 pixelSize{0.0f};
     std::vector<glm::vec4> frames;  // animation frames (UV rects), empty if single frame
 };
 
@@ -21,6 +23,8 @@ public:
 
     [[nodiscard]] const SpriteRegion* find(const std::string& name) const;
     [[nodiscard]] glm::vec4 uvRect(const std::string& name) const;
+    // Size of the sprite in atlas pixels (zero if there is no such sprite).
+    [[nodiscard]] glm::vec2 pixelSize(const std::string& name) const;
     [[nodiscard]] glm::vec4 frameUv(const std::string& name, int frame) const;
     [[nodiscard]] int frameCount(const std::string& name) const;
 

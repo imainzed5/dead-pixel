@@ -25,6 +25,10 @@ public:
     static constexpr float kFadedAlpha = 0.4f;
 
     void build(const std::vector<FurniturePiece>& pieces);
+    // A piece's second look: a searched container ajar, a floor lamp lit.
+    void setAlt(const glm::ivec2& tile, bool alt);
+    // Every piece with a second look: alt exactly where its tile is listed.
+    void setAlts(std::vector<glm::ivec2> tiles);
     void collect(const Camera& camera, const StructureView& structures, const glm::ivec2& playerTile,
                  const SpriteSheet& sheet, std::vector<StaticSprite>& out);
 
@@ -36,8 +40,11 @@ private:
     {
         glm::ivec2 tile{0};
         std::string sprite;
+        std::string altSprite;
         glm::vec4 uv{0.0f};
+        glm::vec4 altUv{0.0f};
         bool tall = false;
+        bool alt = false;
     };
     std::vector<Entry> mEntries;
     bool mUvReady = false; // the sprite sheet loads after the world

@@ -1,0 +1,86 @@
+# The way out's clues (phase 9): the first life of a world on the way out.
+# A survivor tells what they heard; the note in the start home's kitchen;
+# the gate seen from 15 tiles; the box read; the hut's log book; the
+# radio's looped voice; the notebook's second page (Right) and the town map.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/clues.txt --hidden --world-seed 1234 --shots shots/clues
+
+campaign on
+newrun
+god on
+hours 10
+waits 1
+survivors gone
+slay 200
+expect objective Find out why nobody has left
+expect readables 3
+clues
+
+# Someone met says what they heard (trust 10 or more).
+survivor house open trust 30
+goto survivor
+waits 0.5
+talk
+talk hello
+expect lead 1
+survivors gone
+
+# The note on the start home's fridge: read once a life.
+goto clue home
+waits 0.3
+expect prompt note on the fridge
+tap E
+waits 2.5
+expect message sealed the town
+shot 01_fridge_note
+expect objective Find the service gate
+
+# The radio, with a battery: three lines, then lead 1 (already known).
+give Radio
+give Battery
+use battery
+use radio
+waits 8
+expect message Radio:
+waits 42
+clues
+
+# The gate seen from inside 15 tiles: lead 2.
+goto gate
+waits 1
+expect lead 2
+shot 02_the_gate
+# The box: what it needs, and lead 3.
+expect prompt Needs: fuse
+tap E
+waits 0.5
+expect lead 3
+expect objective Find a gate fuse
+shot 03_gate_box
+
+# The hut's log book: the Sergeant (lead 4).
+goto clue log_book
+waits 0.3
+tap E
+waits 2.5
+expect lead 4
+expect message Sgt.
+shot 04_log_book
+
+# The notebook, then its second page.
+tap J
+waits 0.4
+shot 05_notebook
+tap Right
+waits 0.4
+shot 06_way_out_page
+tap J
+waits 0.2
+tap M
+waits 0.4
+shot 07_town_map
+tap M
+waits 0.2
+expect leads 4
+clues
+quit

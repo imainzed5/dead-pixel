@@ -1,0 +1,17 @@
+# Balance (phase 14): the bot with a bat against one Shambler on open
+# ground. tools/soak.py --script tools/harness/duel_one.txt --duel 1 reads
+# the odds over seeds (won: alive with the one dead; health lost).
+# The dead start two tiles off, heading for the bot: at three, a bot that
+# had not been seen walked into a house to search and they never met.
+newrun
+survivors gone
+goto open 8
+slay 40
+waits 0.1
+give Baseball Bat
+select Baseball Bat
+metrics 60
+zombie 2 0 shambler
+bot bold 1 30
+log duel over
+quit

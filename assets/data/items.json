@@ -2,146 +2,229 @@
   "items": [
     {
       "id": 0,
+      "key": "canned_food",
       "name": "Canned Food",
       "category": "food",
       "weight": 0.5,
+      "value": 10.0,
       "maxStack": 5,
       "sprite": "item_canned_food",
       "hungerRestore": 30.0,
       "thirstRestore": 0.0,
-      "spoilHours": 72.0
+      "spoilHours": 0.0,
+      "leaves": "tin_can"
     },
     {
       "id": 1,
+      "key": "apple",
       "name": "Apple",
       "category": "food",
       "weight": 0.2,
+      "value": 4.0,
       "maxStack": 8,
       "sprite": "item_apple",
       "hungerRestore": 18.0,
       "thirstRestore": 5.0,
-      "spoilHours": 24.0
+      "spoilHours": 72.0
     },
     {
       "id": 2,
+      "key": "bread",
       "name": "Bread",
       "category": "food",
       "weight": 0.3,
+      "value": 6.0,
       "maxStack": 5,
       "sprite": "item_bread",
       "hungerRestore": 25.0,
       "thirstRestore": 0.0,
-      "spoilHours": 36.0
+      "spoilHours": 48.0
     },
     {
       "id": 3,
+      "key": "water_bottle",
       "name": "Water Bottle",
       "category": "drink",
       "weight": 0.4,
+      "value": 8.0,
       "maxStack": 3,
       "sprite": "item_water_bottle",
       "hungerRestore": 0.0,
       "thirstRestore": 40.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "leaves": "empty_bottle",
+      "fits": "rice, tea"
     },
     {
       "id": 4,
+      "key": "bandage",
       "name": "Bandage",
       "category": "medical",
       "weight": 0.1,
+      "value": 8.0,
       "maxStack": 5,
       "sprite": "item_bandage",
       "woundTreatment": 1,
       "stopsBleeding": true,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "treats": "dress"
     },
     {
       "id": 5,
+      "key": "knife",
       "name": "Knife",
       "category": "weapon",
       "weight": 0.8,
+      "value": 12.0,
       "maxStack": 1,
       "sprite": "item_knife",
-      "weaponCategory": 1
+      "weaponCategory": 1,
+      "weapon": {
+        "arc": 60,
+        "range": 32,
+        "damage": 42,
+        "stamina": 12,
+        "knockback": 12,
+        "durability": 12,
+        "windup": 0.16,
+        "recovery": 0.24
+      }
     },
     {
       "id": 6,
+      "key": "baseball_bat",
       "name": "Baseball Bat",
       "category": "weapon",
       "weight": 1.5,
+      "value": 12.0,
       "maxStack": 1,
       "sprite": "item_bat",
-      "weaponCategory": 2
+      "weaponCategory": 2,
+      "weapon": {
+        "arc": 120,
+        "range": 48,
+        "damage": 32,
+        "stamina": 20,
+        "knockback": 48,
+        "durability": 14,
+        "windup": 0.22,
+        "recovery": 0.32
+      }
     },
     {
       "id": 7,
+      "key": "pipe",
       "name": "Pipe",
       "category": "weapon",
       "weight": 1.2,
+      "value": 8.0,
       "maxStack": 1,
       "sprite": "item_pipe",
-      "weaponCategory": 2
+      "weaponCategory": 2,
+      "weapon": {
+        "arc": 100,
+        "range": 46,
+        "damage": 30,
+        "stamina": 18,
+        "knockback": 44,
+        "durability": 16,
+        "windup": 0.22,
+        "recovery": 0.32
+      }
     },
     {
       "id": 8,
+      "key": "axe",
       "name": "Axe",
       "category": "weapon",
       "weight": 2.0,
+      "value": 20.0,
       "maxStack": 1,
       "sprite": "item_axe",
-      "weaponCategory": 1
+      "weaponCategory": 1,
+      "tags": [
+        "tool:hammer",
+        "tool:axe"
+      ],
+      "weapon": {
+        "arc": 80,
+        "range": 44,
+        "damage": 55,
+        "stamina": 22,
+        "knockback": 30,
+        "durability": 18,
+        "windup": 0.28,
+        "recovery": 0.4,
+        "stick": true
+      }
     },
     {
       "id": 9,
+      "key": "wood_planks",
       "name": "Wood Planks",
       "category": "material",
       "weight": 1.0,
+      "value": 3.0,
       "maxStack": 10,
       "sprite": "item_wood",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "fits": "boards, fires, stations"
     },
     {
       "id": 10,
+      "key": "scrap_metal",
       "name": "Scrap Metal",
       "category": "material",
       "weight": 1.5,
+      "value": 2.0,
       "maxStack": 8,
       "sprite": "item_scrap",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "fits": "repairs, rain collectors"
     },
     {
       "id": 11,
+      "key": "rope",
       "name": "Rope",
       "category": "material",
       "weight": 0.5,
+      "value": 4.0,
       "maxStack": 5,
       "sprite": "item_rope",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "fits": "spears, snares, bedrolls"
     },
     {
       "id": 12,
+      "key": "fuel_can",
       "name": "Fuel Can",
       "category": "material",
-      "weight": 2.0,
+      "weight": 8.0,
+      "value": 15.0,
       "maxStack": 3,
       "sprite": "item_fuel",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "fuel"
+      ]
     },
     {
       "id": 13,
+      "key": "glass_shards",
       "name": "Glass Shards",
       "category": "material",
       "weight": 0.3,
+      "value": 0.5,
       "maxStack": 10,
       "sprite": "item_glass",
       "hungerRestore": 0.0,
@@ -150,98 +233,146 @@
     },
     {
       "id": 14,
+      "key": "pistol_ammo",
       "name": "Pistol Ammo",
       "category": "material",
       "weight": 0.3,
+      "value": 4.0,
       "maxStack": 20,
       "sprite": "item_ammo",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "ammo:pistol"
+      ]
     },
     {
       "id": 15,
+      "key": "antibiotics",
       "name": "Antibiotics",
       "category": "medical",
       "weight": 0.1,
+      "value": 30.0,
       "maxStack": 3,
       "sprite": "item_antibiotics",
       "illnessRelief": 40.0,
       "curesInfection": true,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "treats": "cure"
     },
     {
       "id": 16,
+      "key": "painkillers",
       "name": "Painkillers",
       "category": "medical",
       "weight": 0.1,
+      "value": 10.0,
       "maxStack": 5,
       "sprite": "item_painkillers",
-      "panicRelief": 30.0,
+      "panicRelief": 15.0,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "sedative"
+      ]
     },
     {
       "id": 17,
+      "key": "hammer",
       "name": "Hammer",
       "category": "weapon",
       "weight": 1.8,
+      "value": 12.0,
       "maxStack": 1,
       "sprite": "item_hammer",
-      "weaponCategory": 2
+      "weaponCategory": 2,
+      "tags": [
+        "tool:hammer"
+      ],
+      "weapon": {
+        "arc": 70,
+        "range": 34,
+        "damage": 28,
+        "stamina": 14,
+        "knockback": 26,
+        "durability": 24,
+        "windup": 0.18,
+        "recovery": 0.28
+      }
     },
     {
       "id": 18,
+      "key": "flashlight",
       "name": "Flashlight",
       "category": "material",
       "weight": 0.4,
+      "value": 10.0,
       "maxStack": 1,
       "sprite": "item_flashlight",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "light"
+      ]
     },
     {
       "id": 19,
+      "key": "matches",
       "name": "Matches",
       "category": "material",
       "weight": 0.05,
+      "value": 3.0,
       "maxStack": 10,
       "sprite": "item_matches",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "fits": "fires, candles"
     },
     {
       "id": 20,
+      "key": "jacket",
       "name": "Jacket",
       "category": "material",
       "weight": 1.5,
+      "value": 8.0,
       "maxStack": 1,
       "sprite": "item_jacket",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "warm"
+      ],
+      "warmth": 5.0
     },
     {
       "id": 21,
-      "name": "Rat Meat",
+      "key": "rat_meat",
+      "name": "Raw Meat",
       "category": "food",
       "weight": 0.3,
+      "value": 4.0,
       "maxStack": 5,
       "sprite": "item_rat_meat",
-      "hungerRestore": 15.0,
+      "hungerRestore": 20.0,
       "thirstRestore": 0.0,
-      "spoilHours": 12.0
+      "spoilHours": 12.0,
+      "rawIllness": 20.0,
+      "fits": "cooking at a fire"
     },
     {
       "id": 22,
+      "key": "first_aid_kit",
       "name": "First Aid Kit",
       "category": "medical",
       "weight": 0.5,
+      "value": 25.0,
       "maxStack": 2,
       "sprite": "item_medkit",
       "healthRestore": 35.0,
@@ -250,13 +381,16 @@
       "stopsBleeding": true,
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "treats": "dress"
     },
     {
       "id": 23,
+      "key": "notebook",
       "name": "Notebook",
       "category": "material",
       "weight": 0.2,
+      "value": 1.0,
       "maxStack": 1,
       "sprite": "item_notebook",
       "hungerRestore": 0.0,
@@ -265,9 +399,11 @@
     },
     {
       "id": 24,
+      "key": "disinfected_bandage",
       "name": "Disinfected Bandage",
       "category": "medical",
       "weight": 0.1,
+      "value": 10.0,
       "maxStack": 5,
       "sprite": "item_bandage_clean",
       "woundTreatment": 2,
@@ -275,53 +411,939 @@
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
       "spoilHours": 0.0,
-      "curesInfection": true,
-      "illnessRelief": 10.0
+      "illnessRelief": 10.0,
+      "treats": "dress_clean"
     },
     {
       "id": 25,
+      "key": "soaked_rag",
       "name": "Soaked Rag",
       "category": "material",
       "weight": 0.1,
+      "value": 1.0,
       "maxStack": 5,
       "sprite": "item_rag",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "fuel"
+      ]
     },
     {
       "id": 26,
+      "key": "molotov",
       "name": "Molotov",
       "category": "material",
       "weight": 1.1,
+      "value": 8.0,
       "maxStack": 2,
       "sprite": "item_molotov",
       "hungerRestore": 0.0,
       "thirstRestore": 0.0,
-      "spoilHours": 0.0
+      "spoilHours": 0.0,
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 7,
+        "damage": 0,
+        "noiseTier": 5,
+        "noiseSeconds": 0.8,
+        "effect": "fire"
+      }
     },
     {
       "id": 27,
+      "key": "spiked_bat",
       "name": "Spiked Bat",
       "category": "weapon",
       "weight": 1.8,
+      "value": 15.0,
       "maxStack": 1,
       "sprite": "item_bat_spiked",
       "weaponCategory": 2,
-      "damageScale": 1.35,
-      "durabilityScale": 1.5,
-      "causesBleeding": true
+      "causesBleeding": true,
+      "weapon": {
+        "arc": 120,
+        "range": 48,
+        "damage": 43,
+        "stamina": 20,
+        "knockback": 48,
+        "durability": 21,
+        "windup": 0.22,
+        "recovery": 0.32
+      }
     },
     {
       "id": 28,
+      "key": "spear",
       "name": "Spear",
       "category": "weapon",
       "weight": 1.6,
+      "value": 10.0,
       "maxStack": 1,
       "sprite": "item_spear",
       "weaponCategory": 1,
-      "rangeScale": 1.6,
-      "damageScale": 0.85
+      "weapon": {
+        "arc": 30,
+        "range": 64,
+        "damage": 34,
+        "stamina": 14,
+        "knockback": 20,
+        "durability": 10,
+        "windup": 0.2,
+        "recovery": 0.34,
+        "reach": true,
+        "stick": true
+      }
+    },
+    {
+      "id": 29,
+      "key": "empty_bottle",
+      "name": "Empty Bottle",
+      "category": "material",
+      "weight": 0.05,
+      "value": 1.0,
+      "maxStack": 5,
+      "sprite": "item_empty_bottle",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 8,
+        "damage": 6,
+        "noiseTier": 4,
+        "noiseSeconds": 0.7,
+        "effect": "shatter"
+      },
+      "fits": "water from a collector, pond or toilet"
+    },
+    {
+      "id": 30,
+      "key": "nails",
+      "name": "Nails",
+      "category": "material",
+      "weight": 0.02,
+      "value": 0.5,
+      "maxStack": 50,
+      "sprite": "item_nails",
+      "fits": "boards, spike boards"
+    },
+    {
+      "id": 31,
+      "key": "crowbar",
+      "name": "Crowbar",
+      "category": "weapon",
+      "weight": 1.5,
+      "value": 14.0,
+      "maxStack": 1,
+      "sprite": "item_crowbar",
+      "weaponCategory": 2,
+      "tags": [
+        "tool:pry"
+      ],
+      "weapon": {
+        "arc": 90,
+        "range": 46,
+        "damage": 34,
+        "stamina": 20,
+        "knockback": 40,
+        "durability": 30,
+        "windup": 0.24,
+        "recovery": 0.34
+      }
+    },
+    {
+      "id": 32,
+      "key": "saw",
+      "name": "Saw",
+      "category": "material",
+      "weight": 0.8,
+      "value": 10.0,
+      "maxStack": 1,
+      "sprite": "item_saw",
+      "tags": [
+        "tool:saw"
+      ]
+    },
+    {
+      "id": 33,
+      "key": "tin_can",
+      "name": "Tin Can",
+      "category": "material",
+      "weight": 0.05,
+      "value": 0.5,
+      "maxStack": 10,
+      "sprite": "item_tin_can",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 8,
+        "damage": 6,
+        "noiseTier": 3,
+        "noiseSeconds": 0.5,
+        "effect": "none"
+      },
+      "fits": "can alarms, lanterns"
+    },
+    {
+      "id": 34,
+      "key": "wire",
+      "name": "Wire",
+      "category": "material",
+      "weight": 0.1,
+      "value": 1.0,
+      "maxStack": 10,
+      "sprite": "item_wire",
+      "fits": "can alarms, snares"
+    },
+    {
+      "id": 35,
+      "key": "rags",
+      "name": "Rags",
+      "category": "material",
+      "weight": 0.05,
+      "value": 1.0,
+      "maxStack": 10,
+      "sprite": "item_rags",
+      "fits": "dressings, bedrolls"
+    },
+    {
+      "id": 36,
+      "key": "candle",
+      "name": "Candle",
+      "category": "material",
+      "weight": 0.1,
+      "value": 2.0,
+      "maxStack": 5,
+      "sprite": "item_candle",
+      "tags": [
+        "placeable",
+        "light"
+      ]
+    },
+    {
+      "id": 37,
+      "key": "rock",
+      "name": "Rock",
+      "category": "material",
+      "weight": 0.3,
+      "value": 0.0,
+      "maxStack": 5,
+      "sprite": "item_rock",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 9,
+        "damage": 6,
+        "noiseTier": 3,
+        "noiseSeconds": 0.5,
+        "effect": "none"
+      }
+    },
+    {
+      "id": 38,
+      "key": "alarm_clock",
+      "name": "Alarm Clock",
+      "category": "material",
+      "weight": 0.3,
+      "value": 3.0,
+      "maxStack": 1,
+      "sprite": "item_alarm_clock",
+      "tags": [
+        "throwable"
+      ],
+      "throw": {
+        "range": 6,
+        "damage": 6,
+        "noiseTier": 4,
+        "noiseSeconds": 20,
+        "effect": "ring"
+      }
+    },
+    {
+      "id": 39,
+      "key": "flare",
+      "name": "Flare",
+      "category": "material",
+      "weight": 0.2,
+      "value": 6.0,
+      "maxStack": 3,
+      "sprite": "item_flare",
+      "tags": [
+        "throwable",
+        "light"
+      ],
+      "throw": {
+        "range": 8,
+        "damage": 0,
+        "noiseTier": 3,
+        "noiseSeconds": 90,
+        "effect": "flare"
+      }
+    },
+    {
+      "id": 40,
+      "key": "pistol",
+      "name": "Pistol",
+      "category": "weapon",
+      "weight": 0.9,
+      "value": 40.0,
+      "maxStack": 1,
+      "sprite": "item_pistol",
+      "weaponCategory": 3,
+      "weapon": {
+        "arc": 6,
+        "range": 384,
+        "damage": 55,
+        "stamina": 3,
+        "knockback": 10,
+        "durability": 200,
+        "windup": 0.1,
+        "recovery": 0.25,
+        "magazine": 8,
+        "ammo": "pistol_ammo",
+        "noise": 4
+      }
+    },
+    {
+      "id": 41,
+      "key": "shotgun",
+      "name": "Shotgun",
+      "category": "weapon",
+      "weight": 3.2,
+      "value": 50.0,
+      "maxStack": 1,
+      "sprite": "item_shotgun",
+      "weaponCategory": 3,
+      "weapon": {
+        "arc": 24,
+        "range": 224,
+        "damage": 30,
+        "stamina": 6,
+        "knockback": 40,
+        "durability": 120,
+        "windup": 0.18,
+        "recovery": 0.7,
+        "magazine": 2,
+        "ammo": "shotgun_shells",
+        "pellets": 5,
+        "noise": 5
+      }
+    },
+    {
+      "id": 42,
+      "key": "shotgun_shells",
+      "name": "Shotgun Shells",
+      "category": "material",
+      "weight": 0.05,
+      "value": 3.0,
+      "maxStack": 12,
+      "sprite": "item_shells",
+      "tags": [
+        "ammo:shotgun"
+      ]
+    },
+    {
+      "id": 43,
+      "key": "machete",
+      "name": "Machete",
+      "category": "weapon",
+      "weight": 0.9,
+      "value": 18.0,
+      "maxStack": 1,
+      "sprite": "item_machete",
+      "weaponCategory": 1,
+      "weapon": {
+        "arc": 80,
+        "range": 46,
+        "damage": 48,
+        "stamina": 16,
+        "knockback": 16,
+        "durability": 16,
+        "windup": 0.2,
+        "recovery": 0.3,
+        "stick": true
+      }
+    },
+    {
+      "id": 44,
+      "key": "sledgehammer",
+      "name": "Sledgehammer",
+      "category": "weapon",
+      "weight": 4.5,
+      "value": 16.0,
+      "maxStack": 1,
+      "sprite": "item_sledgehammer",
+      "weaponCategory": 2,
+      "weapon": {
+        "arc": 110,
+        "range": 52,
+        "damage": 70,
+        "stamina": 38,
+        "knockback": 80,
+        "durability": 20,
+        "windup": 0.42,
+        "recovery": 0.6,
+        "knockdown": true
+      }
+    },
+    {
+      "id": 45,
+      "key": "chair_leg",
+      "name": "Chair Leg",
+      "category": "weapon",
+      "weight": 0.6,
+      "value": 2.0,
+      "maxStack": 1,
+      "sprite": "item_chair_leg",
+      "weaponCategory": 0,
+      "weapon": {
+        "arc": 90,
+        "range": 44,
+        "damage": 20,
+        "stamina": 12,
+        "knockback": 22,
+        "durability": 8,
+        "windup": 0.18,
+        "recovery": 0.28
+      }
+    },
+    {
+      "id": 46,
+      "key": "frying_pan",
+      "name": "Frying Pan",
+      "category": "weapon",
+      "weight": 1.0,
+      "value": 4.0,
+      "maxStack": 1,
+      "sprite": "item_frying_pan",
+      "weaponCategory": 0,
+      "tags": [
+        "tool:pot"
+      ],
+      "weapon": {
+        "arc": 80,
+        "range": 40,
+        "damage": 24,
+        "stamina": 14,
+        "knockback": 30,
+        "durability": 14,
+        "windup": 0.2,
+        "recovery": 0.3,
+        "noise": 4
+      }
+    },
+    {
+      "id": 47,
+      "key": "splint",
+      "name": "Splint",
+      "category": "medical",
+      "weight": 0.3,
+      "value": 6.0,
+      "maxStack": 2,
+      "sprite": "item_splint",
+      "treats": "splint"
+    },
+    {
+      "id": 48,
+      "key": "suture_kit",
+      "name": "Suture Kit",
+      "category": "medical",
+      "weight": 0.1,
+      "value": 15.0,
+      "maxStack": 3,
+      "sprite": "item_suture_kit",
+      "treats": "stitch"
+    },
+    {
+      "id": 49,
+      "key": "needle_and_thread",
+      "name": "Needle and Thread",
+      "category": "material",
+      "weight": 0.05,
+      "value": 4.0,
+      "maxStack": 3,
+      "sprite": "item_needle_and_thread"
+    },
+    {
+      "id": 50,
+      "key": "spirits",
+      "name": "Bottle of Spirits",
+      "category": "drink",
+      "weight": 0.7,
+      "value": 8.0,
+      "maxStack": 2,
+      "sprite": "item_spirits",
+      "thirstRestore": 4.0,
+      "panicRelief": 20.0,
+      "treats": "disinfect",
+      "tags": [
+        "sedative",
+        "comfort"
+      ]
+    },
+    {
+      "id": 51,
+      "key": "coffee",
+      "name": "Coffee",
+      "category": "drink",
+      "weight": 0.2,
+      "value": 4.0,
+      "maxStack": 5,
+      "sprite": "item_coffee",
+      "thirstRestore": 8.0,
+      "sleepDebtMask": 4.0,
+      "spoilHours": 0.0
+    },
+    {
+      "id": 52,
+      "key": "book",
+      "name": "Book",
+      "category": "material",
+      "weight": 0.4,
+      "value": 6.0,
+      "maxStack": 3,
+      "sprite": "item_book",
+      "depressionRelief": 10.0,
+      "tags": [
+        "comfort",
+        "readable"
+      ]
+    },
+    {
+      "id": 53,
+      "key": "keepsake",
+      "name": "Keepsake",
+      "category": "material",
+      "weight": 0.1,
+      "value": 1.0,
+      "maxStack": 1,
+      "sprite": "item_keepsake",
+      "depressionRelief": 25.0,
+      "tags": [
+        "comfort"
+      ]
+    },
+    {
+      "id": 54,
+      "key": "herbal_tea",
+      "name": "Herbal Tea",
+      "category": "drink",
+      "weight": 0.4,
+      "value": 5.0,
+      "maxStack": 3,
+      "sprite": "item_herbal_tea",
+      "thirstRestore": 25.0,
+      "panicRelief": 12.0,
+      "depressionRelief": 4.0,
+      "leaves": "empty_bottle",
+      "tags": [
+        "comfort"
+      ]
+    },
+    {
+      "id": 55,
+      "key": "cooked_meat",
+      "name": "Cooked Meat",
+      "category": "food",
+      "weight": 0.3,
+      "value": 8.0,
+      "maxStack": 5,
+      "sprite": "item_cooked_meat",
+      "hungerRestore": 35.0,
+      "spoilHours": 24.0
+    },
+    {
+      "id": 56,
+      "key": "berries",
+      "name": "Berries",
+      "category": "food",
+      "weight": 0.1,
+      "value": 2.0,
+      "maxStack": 10,
+      "sprite": "item_berries",
+      "hungerRestore": 6.0,
+      "thirstRestore": 2.0,
+      "spoilHours": 24.0
+    },
+    {
+      "id": 57,
+      "key": "mushrooms",
+      "name": "Mushrooms",
+      "category": "food",
+      "weight": 0.1,
+      "value": 2.0,
+      "maxStack": 10,
+      "sprite": "item_mushrooms",
+      "hungerRestore": 8.0,
+      "spoilHours": 24.0
+    },
+    {
+      "id": 58,
+      "key": "herbs",
+      "name": "Herbs",
+      "category": "material",
+      "weight": 0.05,
+      "value": 2.0,
+      "maxStack": 10,
+      "sprite": "item_herbs",
+      "fits": "herbal tea"
+    },
+    {
+      "id": 59,
+      "key": "dirty_water",
+      "name": "Dirty Water",
+      "category": "drink",
+      "weight": 0.4,
+      "value": 2.0,
+      "maxStack": 3,
+      "sprite": "item_dirty_water",
+      "thirstRestore": 40.0,
+      "leaves": "empty_bottle",
+      "fits": "boiling in a pot, purification tablets"
+    },
+    {
+      "id": 60,
+      "key": "cooking_pot",
+      "name": "Cooking Pot",
+      "category": "material",
+      "weight": 1.2,
+      "value": 6.0,
+      "maxStack": 1,
+      "sprite": "item_cooking_pot",
+      "tags": [
+        "tool:pot"
+      ],
+      "fits": "boiling water, rice, stew, tea"
+    },
+    {
+      "id": 61,
+      "key": "rice",
+      "name": "Rice",
+      "category": "food",
+      "weight": 0.5,
+      "value": 8.0,
+      "maxStack": 5,
+      "sprite": "item_rice",
+      "hungerRestore": 0.0,
+      "spoilHours": 0.0,
+      "fits": "cooking with water in a pot"
+    },
+    {
+      "id": 62,
+      "key": "cooked_rice",
+      "name": "Cooked Rice",
+      "category": "food",
+      "weight": 0.5,
+      "value": 10.0,
+      "maxStack": 5,
+      "sprite": "item_cooked_rice",
+      "hungerRestore": 45.0,
+      "spoilHours": 24.0
+    },
+    {
+      "id": 63,
+      "key": "chips",
+      "name": "Chips",
+      "category": "food",
+      "weight": 0.1,
+      "value": 3.0,
+      "maxStack": 5,
+      "sprite": "item_chips",
+      "hungerRestore": 10.0,
+      "spoilHours": 0.0,
+      "depressionRelief": 2.0,
+      "tags": [
+        "comfort"
+      ]
+    },
+    {
+      "id": 64,
+      "key": "soda",
+      "name": "Soda",
+      "category": "drink",
+      "weight": 0.4,
+      "value": 5.0,
+      "maxStack": 5,
+      "sprite": "item_soda",
+      "thirstRestore": 20.0,
+      "depressionRelief": 2.0
+    },
+    {
+      "id": 65,
+      "key": "chocolate",
+      "name": "Chocolate",
+      "category": "food",
+      "weight": 0.1,
+      "value": 5.0,
+      "maxStack": 5,
+      "sprite": "item_chocolate",
+      "hungerRestore": 12.0,
+      "panicRelief": 6.0,
+      "spoilHours": 0.0,
+      "tags": [
+        "comfort"
+      ]
+    },
+    {
+      "id": 66,
+      "key": "battery",
+      "name": "Battery",
+      "category": "material",
+      "weight": 0.1,
+      "value": 4.0,
+      "maxStack": 6,
+      "sprite": "item_battery",
+      "fits": "flashlight, radio"
+    },
+    {
+      "id": 67,
+      "key": "radio",
+      "name": "Radio",
+      "category": "material",
+      "weight": 0.6,
+      "value": 15.0,
+      "maxStack": 1,
+      "sprite": "item_radio",
+      "tags": [
+        "radio"
+      ]
+    },
+    {
+      "id": 68,
+      "key": "backpack",
+      "name": "Backpack",
+      "category": "material",
+      "weight": 0.8,
+      "value": 20.0,
+      "maxStack": 1,
+      "sprite": "item_backpack",
+      "carryBonus": 10.0
+    },
+    {
+      "id": 69,
+      "key": "duct_tape",
+      "name": "Duct Tape",
+      "category": "material",
+      "weight": 0.2,
+      "value": 4.0,
+      "maxStack": 3,
+      "sprite": "item_duct_tape",
+      "fits": "mending weapons, a quiet window"
+    },
+    {
+      "id": 70,
+      "key": "snare",
+      "name": "Snare",
+      "category": "material",
+      "weight": 0.3,
+      "value": 5.0,
+      "maxStack": 3,
+      "sprite": "item_snare",
+      "tags": [
+        "placeable"
+      ],
+      "fits": "set on grass far from buildings"
+    },
+    {
+      "id": 71,
+      "key": "seed_packet",
+      "name": "Seed Packet",
+      "category": "material",
+      "weight": 0.05,
+      "value": 4.0,
+      "maxStack": 5,
+      "sprite": "item_seed_packet",
+      "fits": "a garden bed"
+    },
+    {
+      "id": 72,
+      "key": "vegetables",
+      "name": "Vegetables",
+      "category": "food",
+      "weight": 0.3,
+      "value": 4.0,
+      "maxStack": 8,
+      "sprite": "item_vegetables",
+      "hungerRestore": 15.0,
+      "thirstRestore": 3.0,
+      "spoilHours": 96.0,
+      "fits": "stew"
+    },
+    {
+      "id": 73,
+      "key": "winter_coat",
+      "name": "Winter Coat",
+      "category": "material",
+      "weight": 1.6,
+      "value": 15.0,
+      "maxStack": 1,
+      "sprite": "item_winter_coat",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0,
+      "tags": [
+        "warm"
+      ],
+      "warmth": 11.0
+    },
+    {
+      "id": 74,
+      "key": "raincoat",
+      "name": "Raincoat",
+      "category": "material",
+      "weight": 0.6,
+      "value": 8.0,
+      "maxStack": 1,
+      "sprite": "item_raincoat",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0,
+      "tags": [
+        "rain"
+      ]
+    },
+    {
+      "id": 75,
+      "key": "gate_key",
+      "name": "Gate Key",
+      "category": "material",
+      "weight": 0.05,
+      "value": 0.0,
+      "maxStack": 1,
+      "sprite": "item_gate_key",
+      "tags": [
+        "campaign"
+      ]
+    },
+    {
+      "id": 76,
+      "key": "gate_fuse",
+      "name": "Gate Fuse",
+      "category": "material",
+      "weight": 0.4,
+      "value": 0.0,
+      "maxStack": 1,
+      "sprite": "item_gate_fuse",
+      "tags": [
+        "campaign"
+      ]
+    },
+    {
+      "id": 77,
+      "key": "toolbox",
+      "name": "Toolbox",
+      "category": "material",
+      "weight": 3.0,
+      "value": 20.0,
+      "maxStack": 1,
+      "sprite": "item_toolbox",
+      "tags": [
+        "tool:hammer",
+        "tool:saw"
+      ]
+    },
+    {
+      "id": 78,
+      "key": "stew",
+      "name": "Stew",
+      "category": "food",
+      "weight": 0.6,
+      "value": 14.0,
+      "maxStack": 3,
+      "sprite": "item_stew",
+      "hungerRestore": 60.0,
+      "thirstRestore": 8.0,
+      "spoilHours": 24.0
+    },
+    {
+      "id": 79,
+      "key": "purification_tablets",
+      "name": "Purification Tablets",
+      "category": "medical",
+      "weight": 0.05,
+      "value": 8.0,
+      "maxStack": 10,
+      "sprite": "item_purification_tablets",
+      "fits": "dirty water"
+    },
+    {
+      "id": 81,
+      "key": "can_alarm",
+      "name": "Can Alarm",
+      "category": "material",
+      "weight": 0.3,
+      "value": 3.0,
+      "maxStack": 3,
+      "sprite": "item_can_alarm",
+      "tags": [
+        "placeable"
+      ]
+    },
+    {
+      "id": 82,
+      "key": "spike_board",
+      "name": "Spike Board",
+      "category": "material",
+      "weight": 1.2,
+      "value": 6.0,
+      "maxStack": 2,
+      "sprite": "item_spike_board",
+      "tags": [
+        "placeable"
+      ]
+    },
+    {
+      "id": 83,
+      "key": "can_lantern",
+      "name": "Can Lantern",
+      "category": "material",
+      "weight": 0.2,
+      "value": 4.0,
+      "maxStack": 2,
+      "sprite": "item_can_lantern",
+      "tags": [
+        "placeable",
+        "light"
+      ]
+    },
+    {
+      "id": 84,
+      "key": "glass_shiv",
+      "name": "Glass Shiv",
+      "category": "weapon",
+      "weight": 0.2,
+      "value": 2.0,
+      "maxStack": 1,
+      "sprite": "item_glass_shiv",
+      "weaponCategory": 1,
+      "weapon": {
+        "arc": 40,
+        "range": 28,
+        "damage": 26,
+        "stamina": 8,
+        "knockback": 6,
+        "durability": 4,
+        "windup": 0.12,
+        "recovery": 0.2
+      }
+    },
+    {
+      "id": 85,
+      "key": "marker",
+      "name": "Marker",
+      "category": "material",
+      "weight": 0.0,
+      "value": 0.0,
+      "maxStack": 1,
+      "sprite": "item_marker",
+      "hungerRestore": 0.0,
+      "thirstRestore": 0.0,
+      "spoilHours": 0.0
     }
   ]
 }

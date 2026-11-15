@@ -1,4 +1,6 @@
 #include "systems/NeedsSystem.h"
+#include "world/Forage.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,7 +13,16 @@
 #include "components/Needs.h"
 #include "components/Sleeping.h"
 #include "components/Stamina.h"
+#include "components/MentalState.h"
+#include "components/Skills.h"
 #include "components/Traits.h"
+#include "components/Wounds.h"
+#include "world/MindRules.h"
+#include "world/SkillRules.h"
+#include "world/SleepRules.h"
+#include "world/TraitRules.h"
+#include "world/WoundRules.h"
+#include "world/WeatherRules.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
 #include "map/TileMap.h"
@@ -23,14 +34,11 @@ constexpr float kSpriteSize = 32.0f;
 // Effective ambient below which the body starts losing heat, and how hard.
 constexpr float kComfortableAmbient = 15.0f;
 constexpr float kColdSlopePerDegree = 0.15f;
-constexpr float kHotAmbient = 30.0f;
 constexpr float kHotSlopePerDegree = 0.08f;
 
 // Shelter keeps out wind and rain and holds some heat.
 constexpr float kShelterBonus = 10.0f;
 constexpr float kHeatSourceBonus = 18.0f;
-constexpr float kRainChill = 4.0f;
-constexpr float kWindChill = 4.0f;
 
 constexpr float kWalkingHeat = 0.3f;
 constexpr float kRunningHeat = 0.8f;
@@ -40,12 +48,11 @@ constexpr float kStarvationDamage = 0.10f;  // ~16 game hours from full health
 constexpr float kDehydrationDamage = 0.20f; // ~8 game hours from full health
 constexpr float kHypothermiaDamage = 0.03f;
 constexpr float kSevereHypothermiaDamage = 0.12f;
-constexpr float kGravelyIllAbove = 80.0f;
 constexpr float kGraveIllnessDamage = 0.04f; // ~40 game hours to die of untreated infection
 } // namespace
 
-float NeedsSystem::effectiveAmbient(float outdoorTemperature, bool indoors, float rainIntensity,
-                                    float windStrength, bool nearHeat, float clothingInsulation)
+float NeedsSystem::effectiveAmbient(float outdoorTemperature, bool indoors, float weatherShift, bool nearHeat,
+                                    float clothingInsulation)
 {
     float ambient = outdoorTemperature;
     if (indoors)
@@ -54,14 +61,16 @@ float NeedsSystem::effectiveAmbient(float outdoorTemperature, bool indoors, floa
     }
     else
     {
-        ambient -= std::clamp(rainIntensity, 0.0f, 1.0f) * kRainChill;
-        ambient -= std::clamp(windStrength, 0.0f, 1.0f) * kWindChill;
+        ambient += weatherShift;
     }
     if (nearHeat)
     {
         ambient += kHeatSourceBonus;
     }
-    return ambient + clothingInsulation;
+    // Clothes hold warmth in; they do not make a hot day hotter (a coat in
+    // a heatwave is its own rule).
+    const float clothed = ambient + std::max(0.0f, clothingInsulation);
+    return std::max(ambient, std::min(clothed, kHotAmbient));
 }
 
 float NeedsSystem::targetBodyTemperature(float effectiveAmbientTemperature, float activityHeat)
@@ -93,6 +102,13 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
             }
 
             const bool sleeping = world.hasComponent<Sleeping>(entity);
+            const Traits* traits = world.hasComponent<Traits>(entity) ? &world.getComponent<Traits>(entity) : nullptr;
+            bool infected = false;
+            const Wounds* wounds = world.hasComponent<Wounds>(entity) ? &world.getComponent<Wounds>(entity) : nullptr;
+            if (wounds != nullptr)
+            {
+                for (const Wound& wound : wounds->active) infected = infected || wound.infected;
+            }
 
             // --- Movement state ---
             float hungerDecayMultiplier = 1.0f;
@@ -152,34 +168,87 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
                 }
             }
 
-            const float ambient = effectiveAmbient(environment.outdoorTemperature, indoors, environment.rainIntensity,
-                                                   environment.windStrength, nearHeat, needs.clothingInsulation);
+            // The weather outdoors (phase 7). Outdoorsy: the chill of rain
+            // bites half as much. In a heatwave, shade takes the sun away.
+            const float gameHoursPassed = dtSeconds / 60.0f;
+            bool shaded = false;
+            if (environment.heatwave && !indoors && world.hasComponent<Transform>(entity))
+            {
+                const Transform& transform = world.getComponent<Transform>(entity);
+                const glm::vec2 center(transform.x + kSpriteSize * 0.5f, transform.y + kSpriteSize * 0.5f);
+                for (const glm::vec2& trunk : environment.shade)
+                {
+                    if (glm::length(trunk - center) < kShadeRadius) shaded = true;
+                }
+            }
+            float shift = needs.raincoat ? environment.weatherShiftRaincoat : environment.weatherShift;
+            if (environment.rainy && shift < 0.0f && traits != nullptr) shift *= traitrules::rainChillScale(*traits);
+            if (shaded) shift = 0.0f;
+            // Wet (phase 7): 20 game minutes in the rain without a raincoat,
+            // then wet for an hour after shelter; a fire dries you quicker.
+            const bool inRain = environment.rainy && !indoors && !needs.raincoat;
+            if (inRain)
+            {
+                needs.wetExposure += dtSeconds;
+                if (needs.wetExposure >= weatherrules::kWetAfterSeconds) needs.wetHours = weatherrules::kWetHours;
+            }
+            else
+            {
+                needs.wetExposure = std::max(0.0f, needs.wetExposure - dtSeconds);
+                const float dry = nearHeat ? weatherrules::kFireDryPerHour : 1.0f;
+                needs.wetHours = std::max(0.0f, needs.wetHours - gameHoursPassed * dry);
+            }
+            // A hot meal warms you for a while (phase 6).
+            const float hotMeal = needs.hotMealHours > 0.0f ? food::kHotMealWarmth : 0.0f;
+            float ambient = effectiveAmbient(environment.outdoorTemperature, indoors, shift, nearHeat,
+                                             needs.clothingInsulation + hotMeal);
+            // A winter coat carried in a heatwave, out in it: +3.
+            if (environment.heatwave && !indoors && needs.winterCoat) ambient += weatherrules::kWinterCoatHeat;
             const float activityHeat = isRunning ? kRunningHeat : (isMoving ? kWalkingHeat : 0.0f);
-            const float targetTemp = targetBodyTemperature(ambient, activityHeat);
-            const float drift = std::clamp(kTemperatureDriftPerSecond * dtSeconds, 0.0f, 1.0f);
+            float targetTemp = targetBodyTemperature(ambient, activityHeat);
+            // Thin-Skinned: cold and heat bite 30 % harder.
+            if (traits != nullptr)
+            {
+                targetTemp = 37.0f + (targetTemp - 37.0f) * traitrules::temperatureBiteScale(*traits);
+            }
+            // An infected wound brings a fever.
+            if (infected) targetTemp += woundrules::feverDegrees(needs.illness);
+            // Cold comes on faster when wet, and in a blizzard.
+            float driftScale = 1.0f;
+            if (targetTemp < needs.bodyTemperature)
+            {
+                if (needs.wetHours > 0.0f) driftScale *= weatherrules::kWetColdDrift;
+                if (!indoors) driftScale *= environment.coldDrift;
+            }
+            const float drift = std::clamp(kTemperatureDriftPerSecond * driftScale * dtSeconds, 0.0f, 1.0f);
             needs.bodyTemperature += (targetTemp - needs.bodyTemperature) * drift;
 
             const bool overheated = needs.bodyTemperature > kOverheatedAbove;
             if (overheated)
             {
-                thirstDecayMultiplier *= 1.5f;
+                thirstDecayMultiplier *= weatherrules::kOverheatedThirst;
             }
+            // A heatwave by day: thirst x1.6 outdoors.
+            if (!indoors) thirstDecayMultiplier *= environment.thirstOutdoors;
 
             // Illness accelerates all decay
             const float illnessMultiplier = 1.0f + needs.illness * 0.01f;
+            // A bad stomach (phase 6): hunger and thirst drain faster.
+            if (needs.badStomachHours > 0.0f)
+            {
+                hungerDecayMultiplier *= food::kBadStomachDrain;
+                thirstDecayMultiplier *= food::kBadStomachDrain;
+                needs.badStomachHours = std::max(0.0f, needs.badStomachHours - gameHoursPassed);
+            }
+            needs.hotMealHours = std::max(0.0f, needs.hotMealHours - gameHoursPassed);
 
             // --- Hunger decay ---
-            float traitHungerMul = 1.0f;
-            if (world.hasComponent<Traits>(entity))
-            {
-                const Traits& traits = world.getComponent<Traits>(entity);
-                if (traits.negative == NegativeTrait::Hungry) traitHungerMul = 1.5f;
-            }
-            const float hungerDecay = needs.hungerDecayPerSecond * hungerDecayMultiplier * illnessMultiplier * traitHungerMul * dtSeconds;
+            const float traitHungerMul = traits != nullptr ? traitrules::hungerScale(*traits) : 1.0f;
+            const float hungerDecay = Tuning::get("needs.hunger.perSecond", needs.hungerDecayPerSecond) * hungerDecayMultiplier * illnessMultiplier * traitHungerMul * dtSeconds;
             needs.hunger = std::max(0.0f, needs.hunger - hungerDecay);
 
             // --- Thirst decay ---
-            const float thirstDecay = needs.thirstDecayPerSecond * thirstDecayMultiplier * illnessMultiplier * dtSeconds;
+            const float thirstDecay = Tuning::get("needs.thirst.perSecond", needs.thirstDecayPerSecond) * thirstDecayMultiplier * illnessMultiplier * dtSeconds;
             needs.thirst = std::max(0.0f, needs.thirst - thirstDecay);
 
             // --- Fatigue ---
@@ -203,7 +272,8 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
             // --- Sleep debt (grows while awake; sleeping recovers it in Game) ---
             if (!sleeping)
             {
-                needs.sleepDebt = std::min(needs.maxSleepDebt, needs.sleepDebt + needs.sleepDebtGainPerSecond * illnessMultiplier * dtSeconds);
+                const float owl = traits != nullptr ? traitrules::sleepDebtGainScale(*traits) : 1.0f;
+                needs.sleepDebt = std::min(needs.maxSleepDebt, needs.sleepDebt + Tuning::get("needs.sleepDebt.perSecond", needs.sleepDebtGainPerSecond) * illnessMultiplier * owl * dtSeconds);
             }
 
             // --- Illness: cold, starvation and dehydration wear the body down ---
@@ -215,7 +285,12 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
 
             if (illnessGain > 0.0f)
             {
-                needs.illness = std::min(100.0f, needs.illness + illnessGain * dtSeconds);
+                // Only an infected wound drives illness past 60 on its own.
+                const float ceiling = infected ? 100.0f : woundrules::kIllnessCeilingWithoutInfection;
+                if (needs.illness < ceiling)
+                {
+                    needs.illness = std::min(ceiling, needs.illness + illnessGain * dtSeconds);
+                }
             }
             else if (needs.illness > 0.0f && needs.bodyTemperature > 36.5f &&
                      needs.hunger > 40.0f && needs.thirst > 40.0f)
@@ -234,6 +309,12 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
                 }
 
                 float cap = stamina.baseMaximum;
+                // Fitness adds to the top; an undressed torso wound takes from it.
+                if (world.hasComponent<Skills>(entity))
+                {
+                    cap += skillrules::staminaBonus(world.getComponent<Skills>(entity).of(Skill::Fitness));
+                }
+                if (wounds != nullptr) cap -= woundrules::effects(wounds->active).maxStaminaPenalty;
 
                 if (needs.hunger < kStarvingBelow) cap *= 0.65f;
                 else if (needs.hunger < kHungryBelow) cap *= 0.85f;
@@ -246,10 +327,12 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
                     const float fatigueRatio = (needs.fatigue - 60.0f) / (needs.maxFatigue - 60.0f);
                     cap *= (1.0f - fatigueRatio * 0.5f);
                 }
-                if (needs.sleepDebt > 50.0f)
+                // Exhausted: -25 % (what coffee hides does not count).
+                cap *= sleeprules::staminaCapScale(sleeprules::band(sleeprules::shownDebt(needs.sleepDebt, needs.coffeeHours)));
+                // Worn down: -10 %.
+                if (world.hasComponent<MentalState>(entity))
                 {
-                    const float debtRatio = (needs.sleepDebt - 50.0f) / (needs.maxSleepDebt - 50.0f);
-                    cap *= (1.0f - debtRatio * 0.4f);
+                    cap *= mindrules::staminaCapScale(mindrules::depressionBand(world.getComponent<MentalState>(entity).depression));
                 }
 
                 if (needs.bodyTemperature < kHypothermicBelow) cap *= 0.7f;
@@ -275,6 +358,8 @@ void NeedsSystem::update(World& world, float dtSeconds, const NeedsEnvironment& 
                 if (needs.illness >= kGravelyIllAbove) damage += kGraveIllnessDamage;
                 if (needs.bodyTemperature < kSevereHypothermiaBelow) damage += kSevereHypothermiaDamage;
                 else if (needs.bodyTemperature < kHypothermicBelow) damage += kHypothermiaDamage;
+                // Heatstroke (phase 7).
+                if (needs.bodyTemperature > weatherrules::kHeatstrokeAbove) damage += weatherrules::kHeatstrokeDamagePerSecond;
                 if (damage > 0.0f)
                 {
                     health.current = std::max(0.0f, health.current - damage * dtSeconds);

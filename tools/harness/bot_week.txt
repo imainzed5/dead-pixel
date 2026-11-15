@@ -1,0 +1,9 @@
+# The bot plays a week. Soak and balance: tools/soak.py runs this for seeds 1
+# to 10, each in a fresh directory, and reads metrics.csv:
+#   dead_pixel_survival --script tools/harness/bot_week.txt --hidden --world-seed 1 --metrics metrics.csv
+# A bot that stands on one tile for 3 game hours while awake fails the run.
+newrun
+metrics 3600
+bot normal 7
+log bot week finished
+quit

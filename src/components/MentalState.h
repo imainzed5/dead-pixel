@@ -25,4 +25,16 @@ struct MentalState
 
     // Social recovery
     float socialRecoveryTimer = 0.0f; // cooldown for NPC proximity recovery
+
+    // Phase 5.
+    bool firstKillDone = false;       // the first kill of a run frightens
+    float hoursSinceKill = 0.0f;      // numbness fades a day after the last kill
+    float panicHighSeconds = 0.0f;    // panic 75+ this long: seeing things
+    float deepBreathTimer = 0.0f;     // C held still out of sight
+    float deepBreathCooldown = 0.0f;
+    float lostControlCooldown = 60.0f; // seconds since the last blind run
+    float lostControlTimer = 0.0f;    // running blind
+    bool keepsakeUsed = false;        // a keepsake lifts once per character
+    bool weekRelieved = false;        // "A week."
+    bool bloodlineGraveSeen = false;  // the first grave of their own line this run
 };

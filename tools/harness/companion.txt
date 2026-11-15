@@ -1,0 +1,77 @@
+# Companion (phase 8): at trust 40 a loner comes along. They follow, wait
+# where told, come when called, fight the dead beside you; killed by a
+# Brute, they get a grave where they fell, with their name on it, and the
+# next life's card lists it.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/companion.txt --hidden --world-seed 1234 --shots shots/companion
+
+newrun
+god on
+hours 10
+waits 1
+slay 200
+
+# A loner with nothing but their hands, trusting you enough.
+survivor house open trust 40
+goto survivor
+waits 1
+talk
+talk along
+expect survivor companion
+talk leave
+expect talk closed
+
+# They follow: out of their house to where you are.
+goto open 8
+waitfor 40 survivor near 4
+expect survivor follow
+expect survivor away
+shot 01_following
+
+# Told to wait, they stay where they are.
+goto survivor
+talk
+talk wait
+talk leave
+goto open 8
+waits 5
+expect survivor wait
+expect survivor farther 6
+shot 02_waiting
+
+# Called, they come.
+goto survivor
+talk
+talk come
+talk leave
+goto open 8
+waitfor 40 survivor near 4
+expect survivor follow
+
+# One of the dead comes at you: they fight it beside you.
+zombie outside 4
+waitfor 30 survivor kills 1
+expect survivor alive
+expect survivor near 6
+shot 03_fought
+
+# Left to wait, a Brute finds them: too much for them alone. A grave
+# where they fell.
+talk
+talk wait
+talk leave
+goto open 10
+survivor dead 1 brute
+waitfor 120 survivor buried
+waits 0.5
+shot 04_grave
+expect survivor dead
+
+# The next life: the card lists their grave.
+kill companion test
+waits 6
+newrun
+waits 1
+expect card $survivor's grave
+shot 05_next_life
+quit

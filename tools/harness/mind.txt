@@ -1,0 +1,101 @@
+# A mind that shows (phase 5): at sleep debt 90 the tired mind sees a figure
+# that is not there, and nothing in the town changes for it; panic 60 makes
+# boarding take 30 % longer, Carpentry makes it quicker; a book lowers
+# depression by 10, once.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/mind.txt --hidden --world-seed 1234 --shots shots/mind
+
+newrun
+# The player and the dead alone (survivors draw the dead and make noise).
+survivors gone
+god on
+trait plain
+tune threat.spawn.interval 100000
+tune night.callers.base 0
+waits 1
+zoom 2.5
+goto home
+waits 0.5
+slay 2000
+# Three of the dead nearby, standing where they are put, and nobody else
+# about. (Plain "dormant" only lies in wait for a Crawler: a Shambler
+# wanders, and since phase 11 one wanders to the home's door here.)
+zombie 0 10 dormant still
+zombie 8 8 dormant still
+zombie -8 8 dormant still
+waits 1
+
+# Debt 90: within two minutes a figure at the edge of sight. The dead keep
+# their number and no noise is made for it.
+set debt 90
+expect condition Exhausted
+set panic 0
+mark sim
+waits 60
+set panic 0
+waits 60
+expect signs 1
+expect sim
+shot 01_seeing_things
+set debt 0
+waits 1
+
+# Boarding, calm: four seconds a board.
+goto door
+waits 0.5
+give Hammer
+give Wood Planks 6
+give Nails 12
+set panic 0
+tap R
+waits 0.1
+expect action busy
+waits 3.7
+expect action busy
+waits 0.4
+expect action none
+expect door boarded 1
+
+# Panic 60 (Shaken): 30 % longer, 5.2 seconds.
+set panic 60
+tap R
+waits 0.1
+expect action busy
+waits 2
+set panic 60
+waits 2.2
+expect action busy
+shot 02_boarding_shaken
+set panic 60
+waits 1.1
+expect action none
+expect door boarded 2
+
+# Carpentry 3: quicker, about three seconds.
+set panic 0
+set skill carpentry 3
+tap R
+waits 0.1
+expect action busy
+waits 3.1
+expect action none
+expect door boarded 3
+
+# A book, indoors: twenty minutes' reading lowers depression by 10. The
+# same book a second time does nothing.
+goto home
+waits 0.5
+set depression 30
+give Book
+use Book
+waits 0.5
+expect action busy
+shot 03_reading
+waits 20
+expect action none
+expect mind depression below 21
+expect mind depression above 19
+use Book
+waits 21
+expect mind depression above 19
+quit

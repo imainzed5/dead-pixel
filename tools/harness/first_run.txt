@@ -1,0 +1,86 @@
+# First run (phase 13): teaching through play on a fresh world. The look
+# around step leads the first day's plan; the push and shove prompts each come
+# once, when they are needed, and never again once used; the second life gets
+# none of it.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/first_run.txt --hidden --world-seed 1234 --shots shots/first_run
+
+# Scripts run with teaching off; this one asks for it.
+teach on
+newrun
+god on
+waits 1
+expect step Look around open
+shot 01_look_around
+
+# Beside a couch: the push prompt, once. (A bottle on the floor here takes
+# the E first: picked up.)
+goto furniture couch
+waits 0.3
+tap E
+waits 0.5
+expect prompt Hold E: Push
+expect teach push
+expect seen push
+shot 02_push_prompt
+push any
+waits 0.2
+expect taught push
+expect teach none
+# Used: beside it again, nothing.
+goto furniture couch
+waits 1
+expect prompt Hold E: Push
+expect teach none
+
+# Ten tiles on foot and one press of E.
+goto open 6
+hold D 150
+waits 2.6
+hold S 150
+waits 2.6
+tap E
+waits 0.5
+expect step Look around done
+shot 03_looked_around
+# Whatever E started (a search of the grass) stops with a step.
+hold W 20
+waits 0.5
+
+# One of the dead close: the shove prompt, once.
+goto open 6
+waits 0.3
+zombie 2 0
+waits 0.3
+expect teach shove
+shot 04_shove_prompt
+shove
+waits 0.3
+expect taught shove
+expect teach none
+slay 10
+waits 0.5
+zombie 2 0
+waits 0.5
+expect teach none
+slay 10
+waits 0.5
+
+# The second life: no look around, no prompts.
+kill
+waits 1
+newrun
+god on
+waits 1
+expect nostep Look around
+goto furniture couch
+waits 1
+expect prompt Hold E: Push
+expect teach none
+goto open 6
+zombie 2 0
+waits 0.5
+expect teach none
+shot 05_second_life
+expect playing
+quit

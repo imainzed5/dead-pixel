@@ -1,4 +1,4 @@
-# Boards: a hammer and planks nail a closed door shut. Nobody opens it, the
+# Boards: a hammer, planks and nails nail a closed door shut. Nobody opens it, the
 # dead split the boards before they reach the door, and boards are remembered
 # by checkpoints and by the next life.
 # Run in a fresh directory:
@@ -12,20 +12,23 @@ waits 0.3
 zoom 3
 # No hammer yet: nothing happens.
 tap R
-waits 0.3
+waits 4.5
 doors
+expect door boarded 0
 give Hammer
 give Wood Planks 3
+give Nails 12
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 tap R
-waits 0.3
+waits 4.5
 # Nailed shut: E does not open it.
 tap E
 waits 0.3
 doors
+expect door boarded 3
 shot 01_boarded_inside
 goto door outside
 waits 0.3
@@ -37,12 +40,13 @@ waits 0.5
 resume
 waits 1
 doors
+expect door boarded 3
 # The dead come for you; the boards give way first.
 zombie 6 0
 zombie -6 0
 zombie 0 6
 zombie 0 -6
-waits 8
+waits 20
 doors
 shot 03_splintering
 kill boards test

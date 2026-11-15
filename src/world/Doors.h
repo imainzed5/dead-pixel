@@ -21,9 +21,12 @@ public:
     static constexpr float kZombieDamagePerSecond = 7.0f;
     // Seconds between audible bangs on one door, however many are at it.
     static constexpr float kBangInterval = 0.9f;
-    // Up to three boards, each soaking about as much as the door itself.
+    // Up to three boards. One zombie on its own gives up (after 90 s) having
+    // split about one; the two or three its banging draws in take the rest.
     static constexpr int kMaxBoards = 3;
-    static constexpr float kBoardHp = 90.0f;
+    static constexpr float kBoardHp = 450.0f; // default; tuned as doors.board.hp
+    // Health of one board (kBoardHp unless tuned).
+    [[nodiscard]] static float boardHpEach();
 
     struct Door
     {
@@ -31,6 +34,9 @@ public:
         float hp = kMaxHp;
         float sinceBang = kBangInterval;
         float boardHp = 0.0f; // all its boards together
+        // How well they were nailed (phase 5, Carpentry): blows on the boards
+        // are divided by this. 1 for an ordinary job.
+        float boardToughness = 1.0f;
     };
 
     enum class Blow
@@ -55,11 +61,12 @@ public:
     void setState(TileMap& map, const glm::ivec2& tile, DoorState state);
     Blow batter(TileMap& map, const glm::ivec2& tile, float damage);
     // Nail one more board across a closed door. False if it cannot take one.
-    bool addBoard(TileMap& map, const glm::ivec2& tile);
+    // `toughness`: how well this board is nailed (Carpentry; reinforced x1.5).
+    bool addBoard(TileMap& map, const glm::ivec2& tile, float toughness = 1.0f);
     // Pry the outermost board off. False if there is none.
     bool removeBoard(TileMap& map, const glm::ivec2& tile);
     // Restore saved boards on a closed door.
-    void setBoards(TileMap& map, const glm::ivec2& tile, float boardHp);
+    void setBoards(TileMap& map, const glm::ivec2& tile, float boardHp, float toughness = 1.0f);
     [[nodiscard]] int boards(const glm::ivec2& tile) const;
     void tick(float dtSeconds);
 

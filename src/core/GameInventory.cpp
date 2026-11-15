@@ -7,7 +7,7 @@ using namespace gameshared;
 void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
 {
     // Crafting panel toggle (N) and panel controls.
-    if (mInput.wasKeyPressed(SDL_SCANCODE_N) && mRunState == RunState::Playing && !drivingVehicle)
+    if (mInput.pressed(Action::Make) && mRunState == RunState::Playing && !drivingVehicle)
     {
         mShowCrafting = !mShowCrafting;
         if (mShowCrafting)
@@ -41,8 +41,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
         // Discovery trigger: holding both ingredients together reveals recipe entry.
-        const ItemDef* notebookItem = mItemDatabase.findByName("Notebook");
-        const bool hasNotebook = notebookItem != nullptr && InventorySystem::countItem(inv, notebookItem->id) > 0;
+        const bool hasNotebook = InventorySystem::countItem(inv, mItems.notebook) > 0;
 
         // With a notebook in hand, write down what this life already worked out.
         if (hasNotebook)
@@ -70,7 +69,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 continue;
             }
 
-            if (InventorySystem::countItem(inv, recipe.inputA) > 0 && InventorySystem::countItem(inv, recipe.inputB) > 0)
+            if (InventorySystem::countItem(inv, recipe.inputA) > 0 &&
+                (recipe.inputB < 0 || InventorySystem::countItem(inv, recipe.inputB) > 0))
             {
                 const auto normalized = CraftingSystem::normalizePair(recipe.inputA, recipe.inputB);
                 if (std::find(mSessionDiscoveredRecipes.begin(), mSessionDiscoveredRecipes.end(), normalized) == mSessionDiscoveredRecipes.end())
@@ -110,13 +110,13 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
         }
 
         bool craftActivateRequested =
-            mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
-            mInput.wasKeyPressed(SDL_SCANCODE_SPACE);
+            mInput.pressed(Action::UiConfirm) ||
+            mInput.pressed(Action::UiSpace);
         bool craftQueueAppendRequested = false;
 
         {
             const CraftingLayout layout = craftingLayout();
-            const glm::vec2 mouse(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+            const glm::vec2 mouse = uiMouse();
             const bool mouseMoved = mouse != mCraftingLastMouse;
             mCraftingLastMouse = mouse;
             const auto inside = [&](const glm::vec4& r)
@@ -124,9 +124,9 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 return mouse.x >= r.x && mouse.x < r.x + r.z && mouse.y >= r.y && mouse.y < r.y + r.w;
             };
 
-            if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            if (mInput.pressed(Action::UiClick))
             {
-                for (int i = 0; i < 3; ++i)
+                for (int i = 0; i < kCraftingCategories; ++i)
                 {
                     if (inside(layout.tabs[static_cast<std::size_t>(i)]) && i != mCraftingCategory)
                     {
@@ -151,12 +151,12 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                     {
                         mCraftingRecipeCursor = hovered;
                     }
-                    if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+                    if (mInput.pressed(Action::UiClick))
                     {
                         mCraftingRecipeCursor = hovered;
                         craftActivateRequested = true;
                     }
-                    if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT))
+                    if (mInput.pressed(Action::UiAltClick))
                     {
                         mCraftingRecipeCursor = hovered;
                         craftActivateRequested = true;
@@ -166,14 +166,14 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
             }
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        if (mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp))
         {
             if (!visible.empty())
             {
                 mCraftingRecipeCursor = (mCraftingRecipeCursor + static_cast<int>(visible.size()) - 1) % static_cast<int>(visible.size());
             }
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        if (mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown))
         {
             if (!visible.empty())
             {
@@ -181,27 +181,27 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
             }
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_A) || mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
+        if (mInput.pressed(Action::MoveLeft) || mInput.pressed(Action::UiLeft))
         {
-            mCraftingCategory = (mCraftingCategory + 2) % 3;
+            mCraftingCategory = (mCraftingCategory + kCraftingCategories - 1) % kCraftingCategories;
             mCraftingRecipeCursor = 0;
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_D) || mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
+        if (mInput.pressed(Action::MoveRight) || mInput.pressed(Action::UiRight))
         {
-            mCraftingCategory = (mCraftingCategory + 1) % 3;
+            mCraftingCategory = (mCraftingCategory + 1) % kCraftingCategories;
             mCraftingRecipeCursor = 0;
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_MINUS) || mInput.wasKeyPressed(SDL_SCANCODE_KP_MINUS))
+        if (mInput.pressed(Action::UiMinus))
         {
             mCraftingQuantity = std::max(1, mCraftingQuantity - 1);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_EQUALS) || mInput.wasKeyPressed(SDL_SCANCODE_KP_PLUS))
+        if (mInput.pressed(Action::UiPlus))
         {
             mCraftingQuantity = std::min(10, mCraftingQuantity + 1);
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_X) || mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE))
+        if (mInput.pressed(Action::Pry) || mInput.pressed(Action::UiErase))
         {
             if (!mCraftQueue.empty())
             {
@@ -227,19 +227,19 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 mInteractionMessage = "Recipe is still undiscovered.";
                 mInteractionMessageTimer = 2.0f;
             }
-            else if (recipe.requiresWorkbench && !hasNearbyWorkbench(mWorld, mPlayerEntity))
+            else if (!craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn(),
+                                        !mFireSystem.burningNear(playerTile(), 3).empty()))
             {
-                mInteractionMessage = "Need nearby workbench surface.";
+                mInteractionMessage = recipe.station == CraftStation::Workbench ? "Needs a workbench nearby." : "Needs a fire nearby.";
                 mInteractionMessageTimer = 2.5f;
             }
             else
             {
                 const bool queueAppend =
                     craftQueueAppendRequested ||
-                    mInput.isKeyDown(SDL_SCANCODE_LSHIFT) ||
-                    mInput.isKeyDown(SDL_SCANCODE_RSHIFT);
+                    mInput.down(Action::UiStack);
 
-                if (!hasCraftTools(inv, recipe))
+                if (!hasCraftTools(inv, mItemDatabase, recipe))
                 {
                     mInteractionMessage = "Missing required tools.";
                     mInteractionMessageTimer = 2.0f;
@@ -299,13 +299,14 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                     }
                 }
 
-                if (!interrupted && recipe.requiresWorkbench && !hasNearbyWorkbench(mWorld, mPlayerEntity))
+                if (!interrupted && !craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, playerTile(), powerOn(),
+                                        !mFireSystem.burningNear(playerTile(), 3).empty()))
                 {
                     interrupted = true;
-                    interruptReason = "Crafting interrupted: left workbench range.";
+                    interruptReason = "Crafting interrupted: walked away from it.";
                 }
 
-                if (!interrupted && !hasCraftTools(inv, recipe))
+                if (!interrupted && !hasCraftTools(inv, mItemDatabase, recipe))
                 {
                     interrupted = true;
                     interruptReason = "Crafting interrupted: required tool unavailable.";
@@ -326,16 +327,35 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 }
                 else
                 {
-                    const float craftDuration = std::max(0.25f, static_cast<float>(recipe.craftTimeSeconds));
+                    // Below the recipe's skill: twice as long (phase 5).
+                    const int skillHave = recipe.skill >= 0 ? skillLevel(static_cast<Skill>(recipe.skill)) : 0;
+                    const float gate = recipe.skill >= 0 ? skillrules::craftTimeScale(skillHave, recipe.skillLevel) : 1.0f;
+                    const float craftDuration = std::max(0.25f, static_cast<float>(recipe.craftTimeSeconds) * gate);
                     mActiveCraftProgressSeconds += dtSeconds;
 
                     if (mActiveCraftProgressSeconds >= craftDuration)
                     {
                         mActiveCraftProgressSeconds = 0.0f;
 
+                        // ... and it fails 40 % of the time: the inputs are kept, but food is spoiled.
+                        if (recipe.skill >= 0 && bodyRoll() < skillrules::craftFailChance(skillHave, recipe.skillLevel))
+                        {
+                            const auto spoil = [&](int itemId, int count)
+                            {
+                                const ItemDef* def = itemId >= 0 ? mItemDatabase.find(itemId) : nullptr;
+                                if (def != nullptr && def->category == ItemCategory::Food) InventorySystem::removeItem(inv, itemId, count);
+                            };
+                            spoil(recipe.inputA, recipe.countA);
+                            spoil(recipe.inputB, recipe.countB);
+                            --active.remaining;
+                            if (active.remaining <= 0) mCraftQueue.pop_front();
+                            mInteractionMessage = "It comes apart in your hands.";
+                            mInteractionMessageTimer = 2.5f;
+                            return;
+                        }
                         Inventory preview = inv;
-                        if (!InventorySystem::removeItem(preview, recipe.inputA, 1) ||
-                            !InventorySystem::removeItem(preview, recipe.inputB, 1))
+                        if (!InventorySystem::removeItem(preview, recipe.inputA, recipe.countA) ||
+                            (recipe.inputB >= 0 && !InventorySystem::removeItem(preview, recipe.inputB, recipe.countB)))
                         {
                             mCraftQueue.clear();
                             mInteractionMessage = "Crafting failed: ingredients changed.";
@@ -361,8 +381,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                                     mSessionDiscoveredRecipes.push_back(normalized);
                                 }
 
-                                const ItemDef* notebook = mItemDatabase.findByName("Notebook");
-                                const bool hasNotebook = notebook != nullptr && InventorySystem::countItem(inv, notebook->id) > 0;
+                                const bool hasNotebook = InventorySystem::countItem(inv, mItems.notebook) > 0;
                                 if (hasNotebook)
                                 {
                                     if (mSaveManager.addDiscoveredRecipe(recipe.inputA, recipe.inputB))
@@ -379,7 +398,11 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                                     mInteractionMessage += " Carry a notebook to preserve discoveries.";
                                 }
                                 mInteractionMessageTimer = 1.8f;
-                                mAudioManager.playSound(SoundId::WeaponHit, 0.35f);
+                                mAudioManager.play(SoundId::CraftDone);
+                                // Cooking at a fire: Living off the land.
+                                if (recipe.station == CraftStation::Fire) awardXp(Skill::LivingOffTheLand, skillrules::kXpCook);
+                                // Water made safe counts toward the water aim (phase 13).
+                                if (recipe.inputA == mItems.dirtyWater && recipe.outputItemId == mItems.waterBottle) ++mBoiledSinceAim;
 
                                 if (active.remaining <= 0)
                                 {
@@ -399,8 +422,15 @@ void Game::updateInventoryInput(bool drivingVehicle)
 {
     bool useInventoryCursorItemRequested = false;
 
+    // Talking to someone: the panel has the keys.
+    if (mTalk.open)
+    {
+        handleTalkInput();
+        return;
+    }
+
     // Inventory toggle (Tab)
-    if (mInput.wasKeyPressed(SDL_SCANCODE_TAB))
+    if (mInput.pressed(Action::Pack))
     {
         if (drivingVehicle)
         {
@@ -409,135 +439,82 @@ void Game::updateInventoryInput(bool drivingVehicle)
         }
         else if (mShowCrafting)
         {
-            // Keep inventory disabled while crafting panel is open.
+            // MAKE is the last tab: Tab closes it.
+            mShowCrafting = false;
+            if (!mCraftQueue.empty())
+            {
+                mCraftQueue.clear();
+                mActiveCraftProgressSeconds = 0.0f;
+                mInteractionMessage = "Crafting interrupted.";
+                mInteractionMessageTimer = 2.0f;
+            }
         }
-        else
-        {
-        if (mContainerOpen)
+        else if (mContainerOpen)
         {
             mContainerOpen = false;
             mOpenContainerEntity = kInvalidEntity;
         }
-        else
+        else if (!mShowInventory)
         {
-            mShowInventory = !mShowInventory;
-            if (mShowInventory && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+            // PACK.
+            mShowInventory = true;
+            mPackTab = 0;
+            mBodyChoosing = false;
+            if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
             {
                 const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
                 mInventoryCursor = inv.activeSlot;
             }
         }
-        }
-    }
-
-    // Container view input
-    if (mContainerOpen && mOpenContainerEntity != kInvalidEntity &&
-        mWorld.hasComponent<Inventory>(mOpenContainerEntity) &&
-        mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
-    {
-        Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
-        Inventory& playerInv = mWorld.getComponent<Inventory>(mPlayerEntity);
-
-        // Count filled slots for cursor bounds
-        int filledSlots = 0;
-        for (const auto& slot : containerInv.slots)
+        else if (mPackTab == 0)
         {
-            if (slot.itemId >= 0 && slot.count > 0) ++filledSlots;
-        }
-
-        if (filledSlots == 0)
-        {
-            std::string thing;
-            if (mWorld.hasComponent<Interactable>(mOpenContainerEntity))
-            {
-                thing = searchedThing(mWorld.getComponent<Interactable>(mOpenContainerEntity).prompt);
-            }
-            mContainerOpen = false;
-            mOpenContainerEntity = kInvalidEntity;
-            mInteractionMessage = thing.empty() ? "Container empty." : "The " + thing + " is empty.";
-            mInteractionMessageTimer = 2.0f;
+            // BODY (phase 5).
+            mPackTab = 1;
+            mBodyChoosing = false;
         }
         else
         {
-            if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+            // MAKE: the crafting panel.
+            mShowInventory = false;
+            mPackTab = 0;
+            mBodyChoosing = false;
+            mShowCrafting = true;
+            mCraftingRecipeCursor = 0;
+            mCraftingQuantity = 1;
+            mInteractionMessage.clear();
+            mInteractionMessageTimer = 0.0f;
+            if (mWorld.hasComponent<Velocity>(mPlayerEntity))
             {
-                mContainerCursor = (mContainerCursor + filledSlots - 1) % filledSlots;
-            }
-            if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
-            {
-                mContainerCursor = (mContainerCursor + 1) % filledSlots;
-            }
-            mContainerCursor = std::clamp(mContainerCursor, 0, filledSlots - 1);
-
-            // E or Enter: take selected item
-            if (mInput.wasKeyPressed(SDL_SCANCODE_E) || mInput.wasKeyPressed(SDL_SCANCODE_RETURN))
-            {
-                // Find the Nth filled slot
-                int idx = 0;
-                for (auto& slot : containerInv.slots)
-                {
-                    if (slot.itemId < 0 || slot.count <= 0) continue;
-                    if (idx == mContainerCursor)
-                    {
-                        auto result = InventorySystem::addItem(playerInv, mItemDatabase, slot.itemId, 1);
-                        if (result.added > 0)
-                        {
-                            const ItemDef* item = mItemDatabase.find(slot.itemId);
-                            std::string name = item ? item->name : "item";
-                            slot.count -= 1;
-                            if (slot.count <= 0)
-                            {
-                                slot.itemId = -1;
-                                slot.count = 0;
-                                slot.condition = 1.0f;
-                            }
-                            mInteractionMessage = "Took " + name + ".";
-                            mInteractionMessageTimer = 2.0f;
-                            mAudioManager.playSound(SoundId::WeaponHit, 0.3f);
-                            ++mRunStats.itemsLooted;
-
-                            // Track looted position for world memory
-                            if (mWorld.hasComponent<Transform>(mOpenContainerEntity))
-                            {
-                                const auto& ct = mWorld.getComponent<Transform>(mOpenContainerEntity);
-                                const int tx = static_cast<int>(ct.x) / mTileMap.tileWidth();
-                                const int ty = static_cast<int>(ct.y) / mTileMap.tileHeight();
-                                mSaveManager.addLootedPosition(tx, ty);
-                            }
-                        }
-                        else
-                        {
-                            mInteractionMessage = "Inventory full.";
-                            mInteractionMessageTimer = 2.0f;
-                        }
-                        break;
-                    }
-                    ++idx;
-                }
-            }
-
-            // Escape: close container
-            if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
-            {
-                mContainerOpen = false;
-                mOpenContainerEntity = kInvalidEntity;
+                Velocity& velocity = mWorld.getComponent<Velocity>(mPlayerEntity);
+                velocity.dx = 0.0f;
+                velocity.dy = 0.0f;
             }
         }
     }
 
+    // Container view input (GameStorage.cpp)
+    handleContainerInput();
+
+    // The BODY tab: wounds, and what helps them.
+    const bool bodyTab = mShowInventory && !mShowCrafting && mPackTab == 1;
+    if (bodyTab)
+    {
+        updateBodyTabInput();
+    }
+
     // Inventory cursor navigation (when inventory is open)
-    if (mShowInventory && !mShowCrafting && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    if (mShowInventory && !bodyTab && !mShowCrafting && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
         const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
-        const int hoveredSlot = layout.slotAt(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
+        const int hoveredSlot = layout.slotAt(uiMouse());
 
         if (hoveredSlot >= 0)
         {
             mInventoryCursor = hoveredSlot;
 
-            if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            if (mInput.pressed(Action::UiClick))
             {
                 const auto& hovered = inv.slots[static_cast<std::size_t>(mInventoryCursor)];
                 if (hovered.itemId >= 0 && hovered.count > 0)
@@ -546,7 +523,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
                 }
             }
 
-            if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT) && mInventoryCursor != inv.activeSlot)
+            if (mInput.pressed(Action::UiAltClick) && mInventoryCursor != inv.activeSlot)
             {
                 std::swap(inv.slots[static_cast<std::size_t>(mInventoryCursor)],
                           inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
@@ -555,27 +532,33 @@ void Game::updateInventoryInput(bool drivingVehicle)
             }
         }
 
-        // Grid navigation: W/S or Up/Down move a row, Left/Right move a slot.
-        constexpr int kRowStep = InventoryLayout::kColumns;
-        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        // Up/Down (or W/S) move between the rows, Left/Right along one.
+        mInventoryCursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
+        if (mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp))
         {
-            mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - kRowStep) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 0, -1);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        if (mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown))
         {
-            mInventoryCursor = (mInventoryCursor + kRowStep) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 0, 1);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
+        if (mInput.pressed(Action::UiLeft))
         {
-            mInventoryCursor = (mInventoryCursor + Inventory::kMaxSlots - 1) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, -1, 0);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
+        if (mInput.pressed(Action::UiRight))
         {
-            mInventoryCursor = (mInventoryCursor + 1) % Inventory::kMaxSlots;
+            mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 1, 0);
+        }
+
+        // Backspace: the cursor item onto the floor (Shift: the whole stack).
+        if (mInput.pressed(Action::Drop))
+        {
+            dropFromPack(mInventoryCursor, mInput.down(Action::UiStack));
         }
 
         // Enter key: swap cursor slot with active hotbar slot
-        if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) && mInventoryCursor != inv.activeSlot)
+        if (mInput.pressed(Action::UiConfirm) && mInventoryCursor != inv.activeSlot)
         {
             std::swap(inv.slots[static_cast<std::size_t>(mInventoryCursor)],
                       inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
@@ -585,56 +568,46 @@ void Game::updateInventoryInput(bool drivingVehicle)
     }
 
     // Hotbar selection (1-8 keys) when not in build mode
-    if (!mShowCrafting && !mBuildSystem.isBuildMode() && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    if (!mShowCrafting && !mBuildWheelOpen && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
         for (int key = 0; key < 8; ++key)
         {
-            if (mInput.wasKeyPressed(static_cast<SDL_Scancode>(SDL_SCANCODE_1 + key)))
+            if (mInput.pressed(static_cast<Action>(static_cast<int>(Action::Belt1) + key)))
             {
                 inv.activeSlot = key;
             }
         }
 
         // Use item (F key or inventory click): use cursor slot when inventory is open, otherwise active hotbar slot
-        if (mInput.wasKeyPressed(SDL_SCANCODE_F) || useInventoryCursorItemRequested)
+        if ((mInput.pressed(Action::UseItem) && !bodyTab) || useInventoryCursorItemRequested)
         {
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];
-            if (slot.itemId >= 0 && slot.count > 0)
+            // Alarms, spike boards and lights are set down, not used up.
+            if (placeMarker(useSlot) || placeSnare(useSlot) || placeItem(useSlot) || useFightingItem(useSlot) || useBatteryOrRadio(useSlot))
+            {
+                // Set down, wound, or poured on a fire.
+            }
+            else if (slot.itemId >= 0 && slot.count > 0)
             {
                 const ItemDef* item = mItemDatabase.find(slot.itemId);
+                const double nowHour = absoluteHour();
                 if (item)
                 {
-                    if (item->category == ItemCategory::Food && mWorld.hasComponent<Needs>(mPlayerEntity))
+                    // A medical item (or a bottle of Spirits) goes on the worst
+                    // wound it can help; a book is read, a keepsake held.
+                    if (!item->treats.empty() && treatWithItem(useSlot, -1))
                     {
-                        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-                        const float restore = item->hungerRestore * slot.condition;
-                        needs.hunger = std::min(needs.maxHunger, needs.hunger + restore);
-
-                        // Spoiled food causes illness
-                        if (slot.condition < 0.3f)
-                        {
-                            needs.illness = std::min(100.0f, needs.illness + (1.0f - slot.condition) * 20.0f);
-                            mInteractionMessage = "Ate spoiled " + item->name + "... feeling sick.";
-                        }
-                        else
-                        {
-                            mInteractionMessage = "Ate " + item->name + ".";
-                        }
-
-                        InventorySystem::removeItem(inv, slot.itemId, 1);
-                        mInteractionMessageTimer = 3.0f;
-                        mAudioManager.playSound(SoundId::FoodEat, 0.5f);
+                        // Treated (or begun: stitching and splints take a while).
                     }
-                    else if (item->category == ItemCategory::Drink && mWorld.hasComponent<Needs>(mPlayerEntity))
+                    else if (useComfortItem(useSlot))
                     {
-                        Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-                        needs.thirst = std::min(needs.maxThirst, needs.thirst + item->thirstRestore);
-                        InventorySystem::removeItem(inv, slot.itemId, 1);
-                        mInteractionMessage = "Drank " + item->name + ".";
-                        mInteractionMessageTimer = 3.0f;
-                        mAudioManager.playSound(SoundId::FoodEat, 0.4f);
+                        // Reading, or holding it.
+                    }
+                    else if (eatOrDrink(useSlot))
+                    {
+                        // Eaten or drunk (phase 6: fresh, stale or spoiled; raw; dirty).
                     }
                     else if (item->category == ItemCategory::Medical)
                     {
@@ -671,26 +644,19 @@ void Game::updateInventoryInput(bool drivingVehicle)
                             mental.panic = std::max(0.0f, mental.panic - item->panicRelief);
                             used = used || mental.panic < previousPanic;
                         }
+                        // Painkillers: stitches hurt less for a while, and sleep comes worse.
+                        if (item->hasTag("sedative") && mWorld.hasComponent<Needs>(mPlayerEntity))
+                        {
+                            Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
+                            needs.lastSedativeHour = nowHour;
+                            needs.lastPainkillerHour = nowHour;
+                            used = true;
+                        }
 
                         if (item->stopsBleeding && mWorld.hasComponent<Bleeding>(mPlayerEntity))
                         {
                             mWorld.removeComponent<Bleeding>(mPlayerEntity);
                             used = true;
-                        }
-
-                        if (item->woundTreatment > 0 && mWorld.hasComponent<Wounds>(mPlayerEntity))
-                        {
-                            Wounds& wounds = mWorld.getComponent<Wounds>(mPlayerEntity);
-                            const int treated = treatWorstWounds(wounds, item->woundTreatment);
-                            if (treated > 0)
-                            {
-                                used = true;
-                                if (mWorld.hasComponent<Health>(mPlayerEntity))
-                                {
-                                    Health& health = mWorld.getComponent<Health>(mPlayerEntity);
-                                    syncHealthWithWounds(health, wounds);
-                                }
-                            }
                         }
 
                         if (item->healthRestore > 0.0f && mWorld.hasComponent<Health>(mPlayerEntity))
@@ -742,7 +708,8 @@ void Game::equipWeaponFromSlot(int slotIndex)
     {
         return;
     }
-    WeaponStats stats = weaponStatsForItem(*item);
+    WeaponStats stats = weaponStatsForItem(*item, &mItemDatabase);
+    stats.ammo = std::clamp(slot.loaded, 0, std::max(0, stats.magazine));
     stats.durability = std::clamp(static_cast<int>(std::round(static_cast<float>(stats.maxDurability) * slot.condition)),
                                   0, stats.maxDurability);
     stats.condition = weaponConditionFor(stats.durability, stats.maxDurability);
@@ -798,6 +765,10 @@ void Game::syncEquippedWeapon()
         combat.weapon = makeWeaponStats(WeaponCategory::Unarmed);
         return;
     }
-    inv.slots[static_cast<std::size_t>(mEquippedWeaponSlot)].condition =
-        static_cast<float>(combat.weapon.durability) / static_cast<float>(std::max(1, combat.weapon.maxDurability));
+    InventorySlot& held = inv.slots[static_cast<std::size_t>(mEquippedWeaponSlot)];
+    held.condition = static_cast<float>(combat.weapon.durability) / static_cast<float>(std::max(1, combat.weapon.maxDurability));
+    if (combat.weapon.category == WeaponCategory::Ranged)
+    {
+        held.loaded = combat.weapon.ammo;
+    }
 }

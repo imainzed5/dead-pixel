@@ -1,0 +1,121 @@
+# How the dead sense you (phase 4): sight in the dark and crouching, noise
+# through the walls of a shut house, rain muffling footsteps, and a blood
+# trail that a zombie follows (and rain and a bandage that end it).
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/senses.txt --hidden --world-seed 1234 --shots shots/senses
+
+mode stalker
+newrun
+god on
+# No bad trait: a Clumsy player's steps are a tier louder.
+trait plain
+waits 1
+zoom 2.5
+slay 80
+
+# In the dark, crouched and still, 5 tiles in front of a Shambler: not seen
+# for 10 s. Running past it, it comes.
+hours 23
+lamp
+hold D 12
+# The steps die away before it is put there.
+waits 3
+zombie 0 -5 shambler still
+hold C 600
+waits 10
+expect kind shambler calm 7
+shot dark_crouched_unseen
+hold D 40
+hold LSHIFT 40
+waits 1.5
+expect kind shambler coming 15
+shot running_heard
+slay 20
+waits 0.5
+
+# A swing indoors (a Medium noise) with every door and window shut is not
+# heard 10 tiles outside; with the door open it is.
+hours 12
+goto home
+waits 0.3
+zombie outside 10 shambler still
+noise medium
+waits 2
+expect kind shambler calm 12
+goto door
+tap E
+waits 0.3
+goto home
+waits 0.3
+noise medium
+waits 2
+expect kind shambler coming 12
+shot heard_through_open_door
+slay 20
+waits 0.5
+
+# In heavy rain a walking player is not heard 5 tiles off; in clear weather
+# the same walk is. (At night, and it faces away: only its ears count. On
+# ordinary pavement: a road's hard ground makes steps a tier louder.)
+hours 23
+goto pavement
+waits 3
+weather heavyrain
+waits 0.5
+zombie 0 5 shambler still
+hold D 20
+waits 0.5
+hold A 20
+waits 0.5
+hold D 20
+waits 0.5
+hold A 20
+waits 1
+expect kind shambler calm 7
+shot rain_unheard
+weather clear
+hold D 20
+waits 0.5
+hold A 20
+waits 1
+expect kind shambler coming 7
+slay 20
+waits 0.5
+
+# Bleeding, the player walks 15 tiles and stops; a Shambler put where the
+# walk began follows the blood and arrives within 60 s.
+lamp
+waits 0.3
+mark
+set bleeding 60
+hold D 160
+waits 3
+set bleeding 0
+trail
+expect trail 6
+zombie mark shambler still
+waits 2
+shot trail_followed
+waits 58
+expect kind shambler near 3
+shot trail_arrived
+slay 30
+waits 0.5
+
+# With the bleeding stopped and the wounds dressed (a bandage) and rain,
+# the same walk leaves nothing, and the one at the start stays there.
+weather rain
+set wounds 0
+# The rain washes the last of the old trail away first.
+waits 11
+lamp
+waits 0.3
+mark
+hold D 160
+waits 3
+expect trail none
+zombie mark shambler still
+waits 60
+expect kind shambler far 6
+shot trail_none
+quit

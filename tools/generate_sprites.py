@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Isometric sprite generator for Dead Pixel Survival.
 Generates all game sprites as isometric pixel art using Pillow.
@@ -15,8 +15,14 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 # Atlas dimensions
+# The original atlas: tiles, items, structures and furniture are laid out in it.
 ATLAS_W = 1024
 ATLAS_H = 1024
+# The whole sheet; the characters fill the block to the right of the atlas.
+# Phase 4 doubled its height for the kinds of the dead (the lower half);
+# phase 8 adds a band below for the survivors' three outfits.
+SHEET_W = 4096
+SHEET_H = 5696   # phase 12 grew it by two rows for the mood idles (every older rect is where it was)
 
 # Tile sizes
 ISO_TILE_W = 64
@@ -222,528 +228,166 @@ def gen_tile_fence(img, ox, oy):
 
 # --- Character Generation ---
 #
-# Characters are 64x64 frames whose feet rest on row 49 (the renderer pins the
-# bottom of that row to the ground point). Each is drawn in two views, both
-# turned to the viewer's right: "front" faces down-right on screen and "back"
-# faces up-right. The game mirrors them for the two left-hand directions.
-#
-# Flat-shaded pixel art (highlight, base, shadow) with a dark outline, so the
-# figures read against any floor, and a soft shadow on the ground.
+# Characters come from the rig in charrig.py: one skeleton, posed and drawn
+# for five facings (the game mirrors three of them). They fill the block to
+# the right of the original 1024 px atlas, 64x64 per frame.
 
-CHAR_FEET = 49
-CHAR_OUTLINE = (30, 24, 26, 255)
-CHAR_SHADOW = (0, 0, 0, 72)
-BLOOD = ((150, 40, 34), (122, 28, 26), (86, 18, 18))
-
-PLAYER_PAL = {
-    "skin": ((232, 200, 168), (214, 178, 144), (178, 142, 112)),
-    "hair": ((96, 70, 50), (66, 48, 34), (44, 32, 24)),
-    "top": ((104, 124, 140), (80, 98, 114), (58, 72, 86)),
-    "legs": ((76, 86, 112), (58, 66, 90), (42, 48, 68)),
-    "shoes": ((74, 60, 48), (54, 42, 34), (36, 28, 22)),
-    "pack": ((140, 118, 80), (112, 94, 62), (84, 70, 46)),
-    "detail": (44, 54, 64),
-    "eye": (36, 30, 28),
-}
-
-ZOMBIE_PAL = {
-    "skin": ((156, 172, 130), (128, 148, 110), (96, 114, 86)),
-    "hair": ((70, 68, 58), (52, 50, 44), (38, 36, 32)),
-    "top": ((128, 114, 96), (104, 92, 80), (78, 68, 60)),
-    "legs": ((82, 80, 92), (66, 64, 76), (50, 48, 58)),
-    "shoes": ((66, 60, 54), (48, 44, 40), (34, 30, 28)),
-    "detail": (60, 52, 46),
-    "eye": (232, 220, 150),
-    "mouth": (52, 18, 22),
-}
+CHAR_BLOCK_X = 1024
+CHAR_BLOCK_COLS = (SHEET_W - CHAR_BLOCK_X) // ENTITY_SIZE
 
 
-class CharCanvas:
-    """A 64x64 RGBA frame with the few primitives the characters need."""
-
-    def __init__(self):
-        self.img = Image.new("RGBA", (ENTITY_SIZE, ENTITY_SIZE), (0, 0, 0, 0))
-        self.under = Image.new("RGBA", (ENTITY_SIZE, ENTITY_SIZE), (0, 0, 0, 0))
-
-    def set(self, x, y, c, layer=None):
-        target = self.img if layer is None else layer
-        x, y = int(round(x)), int(round(y))
-        if 0 <= x < ENTITY_SIZE and 0 <= y < ENTITY_SIZE:
-            target.putpixel((x, y), tuple(c[:3]) + ((c[3],) if len(c) > 3 else (255,)))
-
-    def opaque(self, x, y):
-        return 0 <= x < ENTITY_SIZE and 0 <= y < ENTITY_SIZE and self.img.getpixel((x, y))[3] > 0
-
-    def rect(self, x0, y0, x1, y1, c):
-        for y in range(int(y0), int(y1) + 1):
-            for x in range(int(x0), int(x1) + 1):
-                self.set(x, y, c)
-
-    def ellipse(self, x0, y0, x1, y1, c, layer=None):
-        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
-        rx, ry = (x1 - x0) / 2.0 + 0.5, (y1 - y0) / 2.0 + 0.5
-        for y in range(int(y0), int(y1) + 1):
-            for x in range(int(x0), int(x1) + 1):
-                if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0:
-                    self.set(x, y, c, layer)
-
-    def limb(self, x0, y0, x1, y1, c, width=2, outline=True, colors=None):
-        """A thick line from (x0, y0) to (x1, y1), outlined so it reads over the body.
-        colors, when given, is a function t -> colour along the limb."""
-        n = max(abs(x1 - x0), abs(y1 - y0), 1)
-        points = []
-        for i in range(n + 1):
-            t = i / n
-            points.append((round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t), t))
-        if outline:
-            for x, y, _ in points:
-                for dy in range(-1, width + 1):
-                    for dx in range(-1, width + 1):
-                        if (dx in (-1, width)) and (dy in (-1, width)):
-                            continue
-                        self.set(x + dx, y + dy, CHAR_OUTLINE)
-        for x, y, t in points:
-            col = colors(t) if colors else c
-            for dy in range(width):
-                for dx in range(width):
-                    self.set(x + dx, y + dy, col)
-
-    def finish(self):
-        """Outline the figure, lay it over its shadow and return the frame."""
-        src = self.img
-        out = self.under.copy()
-        outline = Image.new("RGBA", src.size, (0, 0, 0, 0))
-        for y in range(ENTITY_SIZE):
-            for x in range(ENTITY_SIZE):
-                if src.getpixel((x, y))[3]:
-                    continue
-                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                    if 0 <= nx < ENTITY_SIZE and 0 <= ny < ENTITY_SIZE and src.getpixel((nx, ny))[3]:
-                        outline.putpixel((x, y), CHAR_OUTLINE)
-                        break
-        out.alpha_composite(outline)
-        out.alpha_composite(src)
-        return out
-
-
-def _leg(cv, pal, x, hip_y, fdx, fdy, tone, toe, knee=0):
-    """A trouser leg from the hip down to its shoe. fdx/fdy move the foot
-    (positive fdy lowers it); toe is +1 when the toes point right, 0 for heels;
-    knee pushes the middle of the leg out to the right (a bent knee)."""
-    legs, shoes = pal["legs"], pal["shoes"]
-    shoe_top = CHAR_FEET + fdy - 2
-    span = max(1, shoe_top - hip_y)
-    for y in range(hip_y, shoe_top):
-        t = (y - hip_y) / span
-        xo = x + round(fdx * t + knee * (1.0 - abs(2.0 * t - 1.0)))
-        cv.rect(xo, y, xo + 3, y, legs[tone])
-        cv.set(xo, y, legs[max(0, tone - 1)] if tone == 1 else legs[tone])
-        cv.set(xo + 3, y, legs[2])
-    sx = x + fdx
-    cv.rect(sx, shoe_top, sx + 3, shoe_top + 2, shoes[1])
-    cv.rect(sx, shoe_top + 2, sx + 3 + (1 if toe > 0 else 0), shoe_top + 2, shoes[2])
-    if toe > 0:
-        cv.set(sx + 4, shoe_top + 1, shoes[1])
-    cv.set(sx, shoe_top, shoes[0])
-
-
-def _torso(cv, pal, view, top, ox, zombie, player_pack):
-    """Jacket or shirt from the shoulders (row top) to the belt (top + 13)."""
-    t = pal["top"]
-    mid = tuple((a + b) // 2 for a, b in zip(t[1], t[2]))
-    for i in range(14):
-        if i == 0:
-            x0, x1 = 28, 36
-        elif i == 1:
-            x0, x1 = 27, 37
-        elif i <= 8:
-            x0, x1 = 26, 38
-        else:
-            x0, x1 = 27, 37
-        y = top + i
-        for x in range(x0, x1 + 1):
-            if zombie and i == 13 and (x % 3 == 0):
-                continue  # a ragged hem
-            if x <= x0 + 1:
-                c = mid  # the flank turned away from the viewer
-            elif x == x1:
-                c = t[2]
-            elif i <= 1 and x < 32:
-                c = t[0]
-            else:
-                c = t[1]
-            cv.set(x + ox, y, c)
-        if not zombie and i == 13:
-            for x in range(x0 + 2, x1):
-                cv.set(x + ox, y, t[2])
-
-    if zombie:
-        skin, blood = pal["skin"], BLOOD
-        if view == "front":
-            for (x, y) in ((29, 7), (30, 7), (30, 8), (35, 3), (36, 4)):
-                cv.set(x + ox, top + y, skin[1])
-            cv.rect(31 + ox, top + 1, 34 + ox, top + 2, blood[1])
-            cv.set(33 + ox, top + 3, blood[2])
-            cv.rect(34 + ox, top + 3, 34 + ox, top + 6, blood[1])
-            cv.rect(28 + ox, top + 10, 30 + ox, top + 11, blood[2])
-        else:
-            for i in range(5):
-                cv.set(29 + i + ox, top + 4 + i, blood[1])
-                cv.set(30 + i + ox, top + 4 + i, blood[2])
-            cv.set(35 + ox, top + 10, skin[1])
-            cv.set(36 + ox, top + 10, skin[2])
-        return
-
-    d = pal["detail"]
-    if view == "front":
-        cv.set(31 + ox, top, pal["skin"][2])
-        cv.set(32 + ox, top, pal["skin"][2])
-        cv.rect(33 + ox, top, 33 + ox, top + 12, d)  # zip, turned toward the right
-        cv.set(30 + ox, top + 10, d)
-        cv.set(36 + ox, top + 10, d)
-        if player_pack:
-            p = pal["pack"]
-            cv.rect(29 + ox, top + 1, 29 + ox, top + 8, p[2])
-            cv.rect(36 + ox, top + 1, 36 + ox, top + 7, p[2])
-    elif player_pack:
-        p = pal["pack"]
-        cv.rect(28 + ox, top + 1, 37 + ox, top + 11, p[1])
-        cv.rect(28 + ox, top + 1, 37 + ox, top + 3, p[0])
-        cv.rect(28 + ox, top + 4, 37 + ox, top + 4, p[2])
-        cv.rect(37 + ox, top + 1, 37 + ox, top + 11, p[2])
-        cv.rect(28 + ox, top + 11, 37 + ox, top + 11, p[2])
-        cv.rect(30 + ox, top + 6, 35 + ox, top + 6, p[2])
-        cv.rect(30 + ox, top + 6, 30 + ox, top + 9, p[2])
-        cv.rect(35 + ox, top + 6, 35 + ox, top + 9, p[2])
-        cv.set(32 + ox, top + 4, d)
-        cv.set(33 + ox, top + 4, d)
-    else:
-        cv.rect(32 + ox, top + 2, 32 + ox, top + 12, t[2])
-
-
-def _head(cv, pal, view, hx, hy, zombie, mouth_open=False):
-    """A 9x10 head with its top-left at (hx, hy)."""
-    skin, hair = pal["skin"], pal["hair"]
-    cx, cy, rx, ry = hx + 4, hy + 4.5, 4.5, 5.0
-
-    def inside(x, y):
-        return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0
-
-    def put(x, y, c):
-        if inside(x, y):
-            cv.set(x, y, c)
-
-    for y in range(hy, hy + 10):
-        for x in range(hx, hx + 9):
-            if not inside(x, y):
-                continue
-            if zombie or view == "front":
-                c = skin[2] if x >= hx + 7 else skin[1]
-                if x <= hx + 3 and y <= hy + 3:
-                    c = skin[0]
-            else:
-                c = hair[2] if (x >= hx + 7 or y >= hy + 8) else hair[1]
-                if hx + 2 <= x <= hx + 4 and hy + 1 <= y <= hy + 2:
-                    c = hair[0]
-            cv.set(x, y, c)
-
-    if view == "front":
-        if zombie:
-            for (x, y) in ((2, 0), (3, 0), (4, 0), (5, 1), (1, 2), (1, 3), (2, 1)):
-                put(hx + x, hy + y, hair[1])
-            put(hx + 4, hy + 4, skin[2])
-            put(hx + 7, hy + 4, skin[2])
-            put(hx + 4, hy + 5, pal["eye"])
-            put(hx + 7, hy + 5, pal["eye"])
-            put(hx + 5, hy + 7, pal["mouth"])
-            put(hx + 6, hy + 7, pal["mouth"])
-            if mouth_open:
-                for (x, y) in ((5, 8), (6, 8), (7, 8), (6, 9)):
-                    put(hx + x, hy + y, pal["mouth"])
-            put(hx + 6, hy + 9, BLOOD[1])
-        else:
-            for y in range(hy, hy + 3):
-                for x in range(hx, hx + 9):
-                    put(x, y, hair[1] if y > hy else hair[0])
-            for x in range(hx, hx + 6):
-                put(x, hy + 3, hair[1])
-            for y in range(hy + 3, hy + 7):
-                for x in range(hx, hx + 3):
-                    put(x, y, hair[2] if x == hx else hair[1])
-            put(hx + 3, hy + 6, skin[2])  # ear
-            put(hx + 4, hy + 5, pal["eye"])
-            put(hx + 7, hy + 5, pal["eye"])
-            put(hx + 6, hy + 6, skin[2])  # nose
-            put(hx + 5, hy + 8, skin[2])
-            put(hx + 6, hy + 8, skin[2])
-    else:
-        if zombie:
-            for (x, y) in ((1, 1), (2, 1), (3, 1), (2, 2), (3, 2), (4, 2), (1, 3), (5, 4), (6, 4)):
-                put(hx + x, hy + y, hair[1])
-            put(hx + 6, hy + 2, BLOOD[1])
-            put(hx + 7, hy + 3, BLOOD[2])
-        else:
-            put(hx + 8, hy + 5, skin[2])  # the cheek turned away
-            put(hx + 8, hy + 6, skin[2])
-            put(hx + 7, hy + 5, skin[1])  # ear
-            for x in range(hx + 3, hx + 6):
-                put(x, hy + 9, skin[2])  # nape
-
-
-def _arm(cv, pal, shoulder, hand, zombie, tone=1):
-    """An arm from the shoulder to the hand, with the hand in skin."""
-    sx, sy = shoulder
-    hx, hy = hand
-    skin, top = pal["skin"], pal["top"]
-    if zombie:
-        cv.limb(sx, sy, hx, hy, None, colors=lambda t: top[tone] if t < 0.35 else skin[tone])
-    else:
-        cv.limb(sx, sy, hx, hy, None, colors=lambda t: top[tone] if t < 0.85 else skin[1])
-    cv.set(hx, hy + 1, skin[1])
-    cv.set(hx + 1, hy + 1, skin[2])
-
-
-def draw_character(pal, view, zombie=False, pose="idle", frame=0):
-    """One 64x64 character frame. view: "front" (faces down-right) or "back"
-    (faces up-right). pose: idle, walk, crouch, crouchwalk, attack, dead."""
-    cv = CharCanvas()
-    front = view == "front"
-
-    if pose == "dead":
-        _draw_dead(cv, pal, zombie)
-        return cv.finish()
-
-    cv.ellipse(23, 47, 41, 51, CHAR_SHADOW, layer=cv.under)
-
-    # Pose: feet offsets (dx, dy) for the near (left) and far (right) leg,
-    # body bob, forward lean, and hand offsets for the swinging arms.
-    near, far = (0, 0), (0, 0)
-    bob, lean = 0, 0
-    swing_near, swing_far = (0, 0), (0, 0)
-    hip_y = 36
-
-    crouched = pose in ("crouch", "crouchwalk")
-    knee = 0
-    if crouched:
-        hip_y = 40
-        bob, lean = 6, 2
-        knee = 3 if front else 1
-
-    if pose in ("walk", "crouchwalk"):
-        f = frame % 4
-        if zombie:
-            # A shamble: the right leg drags and the body sags on each step.
-            steps_front = [((1, 1), (0, -1), 0, 0), ((0, 0), (0, 0), 1, 1),
-                           ((0, -1), (1, 0), 0, 1), ((0, 0), (-1, 0), 1, 0)]
-            steps_back = [((1, -1), (0, 0), 0, 0), ((0, 0), (0, -1), 1, 1),
-                          ((0, 0), (1, -1), 0, 1), ((-1, 0), (0, 0), 1, 0)]
-            near, far, sag, tilt = (steps_front if front else steps_back)[f]
-            bob += sag
-            lean += tilt
-        else:
-            if front:
-                steps = [((1, 1), (-1, -2)), ((0, 0), (0, -1)), ((-1, -2), (1, 1)), ((0, -1), (0, 0))]
-            else:
-                steps = [((1, -2), (-1, 0)), ((0, 0), (0, -1)), ((-1, 0), (1, -2)), ((0, -1), (0, 0))]
-            near, far = steps[f]
-            if crouched:
-                near = (near[0], min(0, near[1]))
-                far = (far[0], min(0, far[1]))
-            if f in (1, 3):
-                bob -= 1
-            fwd = (2, -1) if front else (2, -2)
-            bwd = (-2, -1) if front else (-2, 0)
-            swing_near, swing_far = [(bwd, fwd), ((0, 0), (0, 0)), (fwd, bwd), ((0, 0), (0, 0))][f]
-    elif pose == "attack":
-        lean = 3 if zombie else 1
-        bob = 1 if zombie else 0
-        if not zombie:
-            near, far = ((1, 1), (-1, 0)) if front else ((1, -2), (-1, 0))
-
-    toe = 1 if front else 0
-    top = 23 + bob
-    head_x, head_y = 28 + lean, 13 + bob
-    if zombie:
-        head_x += 1
-        head_y += 2 if front else 1
-
-    # Shoulders and resting hands.
-    sh_near, sh_far = (24 + lean, top + 2), (39 + lean, top + 2)
-    hand_near = (24 + lean + swing_near[0], top + 10 + swing_near[1])
-    hand_far = (39 + lean + swing_far[0], top + 10 + swing_far[1])
-    if crouched:
-        hand_near = (hand_near[0] + 1, hand_near[1] - 1)
-        hand_far = (hand_far[0] + 1, hand_far[1] - 1)
-
-    # Arms reaching out ahead (zombies) or swinging (the player's attack).
-    reach_front = reach_back = None
-    if zombie:
-        bump = [0, 1, 1, 0][frame % 4] if pose == "walk" else 0
-        # Both arms held out ahead: toward the right in either view, the near
-        # one lower (front) or hidden behind the body (back).
-        out = 3 if pose == "attack" else 0
-        if front:
-            reach_front = (((28 + lean, top + 3), (41 + lean + out, top + 8 + bump)),
-                           ((37 + lean, top + 2), (46 + lean + out, top + 4 - bump)))
-        else:
-            reach_back = (((28 + lean, top + 3), (41 + lean + out, top + 1 + bump)),
-                          ((37 + lean, top + 2), (46 + lean + out, top - 1 - bump)))
-    elif pose == "attack":
-        if front:
-            hand_far = (45 + lean, top + 6)
-            hand_near = (27 + lean, top + 8)
-        else:
-            hand_far = (44 + lean, top - 4)
-
-    pack = not zombie
-
-    if front:
-        _leg(cv, pal, 33, hip_y, far[0], far[1], 2, toe, knee)
-        _leg(cv, pal, 28, hip_y, near[0], near[1], 1, toe, knee)
-        _torso(cv, pal, view, top, lean, zombie, pack)
-        _head(cv, pal, view, head_x, head_y, zombie, mouth_open=pose == "attack")
-        if reach_front:
-            (s1, h1), (s2, h2) = reach_front
-            _arm(cv, pal, s2, h2, zombie, tone=2)
-            _arm(cv, pal, s1, h1, zombie, tone=1)
-        else:
-            _arm(cv, pal, sh_far, hand_far, zombie, tone=2)
-            _arm(cv, pal, sh_near, hand_near, zombie, tone=1)
-    else:
-        if reach_back:
-            (s1, h1), _ = reach_back
-            _arm(cv, pal, s1, h1, zombie, tone=2)
-        _leg(cv, pal, 33, hip_y, far[0], far[1], 2, toe, knee)
-        _leg(cv, pal, 28, hip_y, near[0], near[1], 1, toe, knee)
-        _torso(cv, pal, view, top, lean, zombie, pack)
-        _head(cv, pal, view, head_x, head_y, zombie)
-        if reach_back:
-            _, (s2, h2) = reach_back
-            _arm(cv, pal, s2, h2, zombie, tone=1)
-        else:
-            _arm(cv, pal, sh_far, hand_far, zombie, tone=2)
-            _arm(cv, pal, sh_near, hand_near, zombie, tone=1)
-
-    return cv.finish()
-
-
-def _draw_dead(cv, pal, zombie):
-    """Lying on the back, head to the left, in a pool of blood."""
-    cv.ellipse(15, 44, 47, 52, BLOOD[2] + (210,), layer=cv.under)
-    cv.ellipse(19, 45, 40, 50, BLOOD[1] + (220,), layer=cv.under)
-    t, legs, shoes, skin, hair = pal["top"], pal["legs"], pal["shoes"], pal["skin"], pal["hair"]
-    # Far arm flung up and out.
-    cv.limb(27, 41, 31, 36, None, colors=lambda s: t[2] if s < 0.7 else skin[1])
-    # Legs, then shoes.
-    cv.rect(36, 41, 46, 43, legs[2])
-    cv.rect(36, 44, 46, 46, legs[1])
-    cv.rect(36, 44, 46, 44, legs[0])
-    cv.rect(47, 40, 49, 43, shoes[1])
-    cv.rect(47, 44, 49, 47, shoes[1])
-    # Torso.
-    cv.rect(22, 40, 36, 47, t[1])
-    cv.rect(22, 40, 36, 41, t[0])
-    cv.rect(22, 47, 36, 47, t[2])
-    if zombie:
-        cv.rect(27, 42, 31, 44, BLOOD[1])
-        cv.set(30, 45, BLOOD[2])
-    elif "pack" in pal:
-        cv.rect(23, 47, 33, 48, pal["pack"][2])
-    # Near arm along the body.
-    cv.limb(24, 47, 33, 47, None, colors=lambda s: t[2] if s < 0.7 else skin[1])
-    # Head.
-    cv.ellipse(13, 39, 21, 48, skin[1])
-    if zombie:
-        for (x, y) in ((14, 41), (15, 40), (14, 43), (16, 42)):
-            cv.set(x, y, hair[1])
-        cv.set(18, 45, pal["mouth"])
-        cv.set(19, 45, pal["mouth"])
-    else:
-        for y in range(39, 49):
-            for x in range(13, 16):
-                if cv.opaque(x, y):
-                    cv.set(x, y, hair[1])
-        cv.set(18, 42, pal["eye"])
-        cv.set(18, 45, pal["eye"])
-
-
-def _char_strip(img, atlas_sprites, name, row_y, slot, frames_drawn):
-    """Paste frames into consecutive 64 px slots and register them."""
-    frames = []
-    for i, frame in enumerate(frames_drawn):
-        x = (slot + i) * ENTITY_SIZE
-        img.alpha_composite(frame, (x, row_y))
-        frames.append({"x": x, "y": row_y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
-    entry = dict(frames[0])
-    if len(frames) > 1:
-        entry["frames"] = frames
-    atlas_sprites[name] = entry
-    return slot + len(frames_drawn)
-
-
-def gen_player_sprites(img, atlas_sprites, row_y, extra_row_y):
-    pal = PLAYER_PAL
-    slot = 0
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_walk_{view}", row_y, slot,
-                           [draw_character(pal, view, pose="walk", frame=f) for f in range(4)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_idle_{view}", row_y, slot, [draw_character(pal, view)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_crouch_{view}", row_y, slot,
-                           [draw_character(pal, view, pose="crouch")])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_attack_{view}", row_y, slot,
-                           [draw_character(pal, view, pose="attack")])
-    slot = _char_strip(img, atlas_sprites, "player_hurt", row_y, slot,
-                       [_tint_frame(draw_character(pal, "front"), (210, 40, 36), 0.45)])
-    slot = _char_strip(img, atlas_sprites, "player_dead", row_y, slot, [draw_character(pal, "front", pose="dead")])
+def add_character_sprites(img, sprites):
+    import charrig
 
     slot = 0
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"player_crouchwalk_{view}", extra_row_y, slot,
-                           [draw_character(pal, view, pose="crouchwalk", frame=f) for f in range(4)])
+    for name, frames in charrig.character_frames():
+        # Keep an animation on one row so its frames stay together.
+        if slot % CHAR_BLOCK_COLS + len(frames) > CHAR_BLOCK_COLS:
+            slot += CHAR_BLOCK_COLS - slot % CHAR_BLOCK_COLS
+        rects = []
+        for frame in frames:
+            x = CHAR_BLOCK_X + (slot % CHAR_BLOCK_COLS) * ENTITY_SIZE
+            y = (slot // CHAR_BLOCK_COLS) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("character block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
 
-    # The old one-view names, for anything still asking for them.
-    atlas_sprites["player_idle"] = dict(atlas_sprites["player_idle_front"])
-    atlas_sprites["player_crouch"] = dict(atlas_sprites["player_crouch_front"])
-    atlas_sprites["player_walk_right"] = dict(atlas_sprites["player_walk_front"])
-    atlas_sprites["player_walk_down"] = dict(atlas_sprites["player_walk_front"])
-    atlas_sprites["player_walk_up"] = dict(atlas_sprites["player_walk_back"])
+
+# The kinds of the dead (phase 4): Runner, Brute, Crawler, Screamer and the
+# Shambler's alert frame, in the lower half of the sheet, full width.
+KIND_BLOCK_Y = 2048
+KIND_BLOCK_COLS = SHEET_W // ENTITY_SIZE
 
 
-def gen_zombie_sprites(img, atlas_sprites, row_y):
-    pal = ZOMBIE_PAL
+def add_kind_sprites(img, sprites):
+    import charrig
+
     slot = 0
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"zombie_walk_{view}", row_y, slot,
-                           [draw_character(pal, view, zombie=True, pose="walk", frame=f) for f in range(4)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"zombie_idle_{view}", row_y, slot,
-                           [draw_character(pal, view, zombie=True)])
-    for view in ("front", "back"):
-        slot = _char_strip(img, atlas_sprites, f"zombie_attack_{view}", row_y, slot,
-                           [draw_character(pal, view, zombie=True, pose="attack")])
-    slot = _char_strip(img, atlas_sprites, "zombie_dead", row_y, slot,
-                       [draw_character(pal, "front", zombie=True, pose="dead")])
+    for name, frames in charrig.kind_frames():
+        if slot % KIND_BLOCK_COLS + len(frames) > KIND_BLOCK_COLS:
+            slot += KIND_BLOCK_COLS - slot % KIND_BLOCK_COLS
+        rects = []
+        for frame in frames:
+            x = (slot % KIND_BLOCK_COLS) * ENTITY_SIZE
+            y = KIND_BLOCK_Y + (slot // KIND_BLOCK_COLS) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("kind block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
 
-    atlas_sprites["zombie_idle"] = dict(atlas_sprites["zombie_idle_front"])
-    atlas_sprites["zombie_attack"] = dict(atlas_sprites["zombie_attack_front"])
-    atlas_sprites["zombie_walk_right"] = dict(atlas_sprites["zombie_walk_front"])
-    atlas_sprites["zombie_walk_down"] = dict(atlas_sprites["zombie_walk_front"])
-    atlas_sprites["zombie_walk_up"] = dict(atlas_sprites["zombie_walk_back"])
+
+# Phase 5: the player with a broken arm held in, below the kinds, full width.
+ARMIN_BLOCK_Y = 3456
 
 
-def _tint_frame(frame, colour, amount):
-    out = frame.copy()
-    tr, tg, tb = colour
-    for y in range(ENTITY_SIZE):
-        for x in range(ENTITY_SIZE):
-            r, g, b, a = out.getpixel((x, y))
-            if a == 255:
-                out.putpixel((x, y), (int(r + (tr - r) * amount), int(g + (tg - g) * amount),
-                                      int(b + (tb - b) * amount), a))
-    return out
+def add_armin_sprites(img, sprites):
+    import charrig
+
+    slot = 0
+    cols = SHEET_W // ENTITY_SIZE
+    for name, frames in charrig.armin_frames():
+        if slot % cols + len(frames) > cols:
+            slot += cols - slot % cols
+        rects = []
+        for frame in frames:
+            x = (slot % cols) * ENTITY_SIZE
+            y = ARMIN_BLOCK_Y + (slot // cols) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("arm-in block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
+
+
+# Phase 12: the player's idles by mood (low, cold, knee), at the foot of the
+# sheet: the free row at 5568 and one more below it.
+MOOD_BLOCK_Y = 5568
+
+
+def add_mood_sprites(img, sprites):
+    import charrig
+
+    slot = 0
+    cols = SHEET_W // ENTITY_SIZE
+    for name, frames in charrig.mood_frames():
+        if slot % cols + len(frames) > cols:
+            slot += cols - slot % cols
+        rects = []
+        for frame in frames:
+            x = (slot % cols) * ENTITY_SIZE
+            y = MOOD_BLOCK_Y + (slot // cols) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("mood block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
+
+
+# Phase 8: the survivors' three outfits, in a band under the old sheet.
+SURVIVOR_BLOCK_Y = 4096
+
+
+def add_survivor_sprites(img, sprites):
+    import charrig
+
+    slot = 0
+    cols = SHEET_W // ENTITY_SIZE
+    for name, frames in charrig.survivor_frames():
+        if slot % cols + len(frames) > cols:
+            slot += cols - slot % cols
+        rects = []
+        for frame in frames:
+            x = (slot % cols) * ENTITY_SIZE
+            y = SURVIVOR_BLOCK_Y + (slot // cols) * ENTITY_SIZE
+            if y + ENTITY_SIZE > SHEET_H:
+                raise RuntimeError("survivor block is full")
+            img.alpha_composite(frame, (x, y))
+            rects.append({"x": x, "y": y, "w": ENTITY_SIZE, "h": ENTITY_SIZE})
+            slot += 1
+        entry = dict(rects[0])
+        if len(rects) > 1:
+            entry["frames"] = rects
+        sprites[name] = entry
+
+
+SCENERY_X = 1024
+SCENERY_Y = 1344
+
+
+def add_scenery_sprites(img, sprites):
+    """Trees, bushes, street furniture and ground litter (scenery.py), packed
+    in rows under the characters."""
+    import scenery
+
+    x, y, row_h = SCENERY_X, SCENERY_Y, 0
+    for name, cell in scenery.scenery_sprites().items():
+        if x + cell.width + 2 > SHEET_W:
+            x, y, row_h = SCENERY_X, y + row_h + 2, 0
+        if y + cell.height > SHEET_H:
+            raise RuntimeError("scenery block is full")
+        img.alpha_composite(cell, (x, y))
+        sprites[name] = {"x": x, "y": y, "w": cell.width, "h": cell.height}
+        x += cell.width + 2
+        row_h = max(row_h, cell.height)
 
 
 # --- Item Generation ---
@@ -1068,7 +712,7 @@ def gen_solid(img, ox, oy, color):
 # --- Main Atlas Assembly ---
 
 def generate_atlas():
-    img = Image.new("RGBA", (ATLAS_W, ATLAS_H), (0, 0, 0, 0))
+    img = Image.new("RGBA", (SHEET_W, SHEET_H), (0, 0, 0, 0))
     sprites = {}
 
     # Row 0: Tiles (y=0, h=32, each 64x32)
@@ -1096,11 +740,8 @@ def generate_atlas():
         func(img, x, 0)
         sprites[name] = {"x": x, "y": 0, "w": ISO_TILE_W, "h": ISO_TILE_H}
 
-    # Row 1: Player (y=32, h=64); crouch-walk frames overflow to y=848
-    gen_player_sprites(img, sprites, 32, 848)
-
-    # Row 2: Zombies (y=96, h=64)
-    gen_zombie_sprites(img, sprites, 96)
+    # Rows 1-2 (y=32..159) held the old hand-placed characters; they now
+    # live in the character block (add_character_sprites).
 
     # Row 3: Items (y=160, h=32)
     items_row = [
@@ -1187,6 +828,20 @@ def generate_atlas():
     add_legacy_props(img, sprites)
     add_item_icons(img, sprites)
     add_furniture_sprites(img, sprites)
+    add_character_sprites(img, sprites)
+    add_kind_sprites(img, sprites)
+    add_armin_sprites(img, sprites)
+    add_mood_sprites(img, sprites)
+    add_scenery_sprites(img, sprites)
+    add_building_sprites(img, sprites)
+    add_window_sprites(img, sprites)
+    add_base_props(img, sprites)
+    add_phase6_sprites(img, sprites)
+    add_phase7_sprites(img, sprites)
+    add_phase9_sprites(img, sprites)
+    add_survivor_sprites(img, sprites)
+    add_phase10_sprites(img, sprites)
+    add_phase11_sprites(img, sprites)
 
     return img, sprites
 
@@ -1201,6 +856,8 @@ def generate_atlas():
 WALL_H = 56       # full wall height in pixels at zoom 1 (a little taller than a person)
 WALL_LOW_H = 8    # cut-away stub drawn when a wall would hide the player
 TILE_VARIANTS = 4 # rows of variants per ground tile in the tileset
+SLAB_T = 8
+OVERLAY_ROWS = 3  # fringe, shore, shadow: rows of edge overlays after the variants
 
 
 def diamond_span(y):
@@ -1254,98 +911,164 @@ def for_diamond(fn):
 # Each takes (img, ox, oy, rng) and paints one 64x32 diamond. Patterns are laid
 # out in tile-local world coordinates so they continue across tile borders.
 
-def tex_grass(img, ox, oy, rng, base=(64, 112, 48)):
+# Outdoor palette: moss rather than lawn green, and little per-pixel noise.
+# Texture comes from clumps, patches and marks, which read at game scale.
+GRASS = ((112, 130, 80), (86, 108, 66), (70, 92, 58), (58, 78, 52))  # tips, base, shade, deep
+
+
+def in_tile(px, py):
+    if not 0 <= py < 32:
+        return False
+    x0, x1 = diamond_span(py)
+    return x0 <= px <= x1
+
+
+def dput(img, ox, oy, px, py, rgb, a=255):
+    """Put a pixel if it falls inside the diamond."""
+    px, py = int(px), int(py)
+    if in_tile(px, py):
+        put(img, ox + px, oy + py, rgb, a)
+
+
+def patch(img, ox, oy, rng, cx, cy, rx, ry, rgb, ragged=0.3, jitter=3):
+    """A soft-edged blotch of colour, clipped to the diamond."""
+    for py in range(int(cy - ry), int(cy + ry) + 1):
+        for px in range(int(cx - rx), int(cx + rx) + 1):
+            d = ((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2
+            if d <= 1.0 and not (d > 0.55 and rng.random() < ragged):
+                dput(img, ox, oy, px, py, shade(rgb, rng.randint(-jitter, jitter)))
+
+
+def rand_point(rng, margin=1):
+    py = rng.randint(margin, 31 - margin)
+    x0, x1 = diamond_span(py)
+    return rng.randint(x0, x1), py
+
+
+def tex_grass(img, ox, oy, rng, base=GRASS[1], dark=GRASS[2]):
     def px_fn(px, py):
-        n = rng.randint(-10, 10)
-        put(img, ox + px, oy + py, shade(base, n))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-3, 3)))
     for_diamond(px_fn)
-    # Blades: short vertical strokes, lighter on top.
-    for _ in range(70):
-        py = rng.randint(2, 29)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        light = rng.random() < 0.55
-        col = shade(base, 22 if light else -18)
-        put(img, ox + px, oy + py, col)
-        if py > 0:
-            a0, a1 = diamond_span(py - 1)
-            if a0 <= px <= a1:
-                put(img, ox + px, oy + py - 1, shade(col, 10 if light else -6))
-    # A few flowers/weeds.
-    for _ in range(rng.randint(0, 2)):
-        py = rng.randint(4, 27)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0 + 2, x1 - 2) if x1 - x0 > 4 else x0
-        put(img, ox + px, oy + py, rng.choice([(196, 188, 92), (180, 150, 190), (210, 210, 200)]))
+    # Mottling: darker and lighter drifts.
+    for _ in range(5):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(4, 9), rng.randint(2, 4), dark, 0.45)
+    for _ in range(3):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 7), rng.randint(1, 3), mix(base, GRASS[0], 0.4), 0.5)
+    # Tufts: a dark root with a light tip above it.
+    for _ in range(13):
+        px, py = rand_point(rng, 2)
+        dput(img, ox, oy, px, py, GRASS[3])
+        dput(img, ox, oy, px + 1, py, dark)
+        dput(img, ox, oy, px, py - 1, GRASS[0])
+        if rng.random() < 0.4:
+            dput(img, ox, oy, px + 1, py - 2, GRASS[0])
+    if rng.random() < 0.3:
+        px, py = rand_point(rng, 4)
+        dput(img, ox, oy, px, py, rng.choice([(196, 186, 118), (176, 158, 186), (204, 200, 186)]))
 
 
 def tex_grass_dark(img, ox, oy, rng):
-    tex_grass(img, ox, oy, rng, base=(58, 104, 45))
+    tex_grass(img, ox, oy, rng, base=mix(GRASS[1], GRASS[2], 0.22), dark=mix(GRASS[2], GRASS[3], 0.4))
 
 
 def tex_dirt(img, ox, oy, rng):
-    base = (116, 88, 62)
+    base = (112, 94, 74)
     def px_fn(px, py):
-        put(img, ox + px, oy + py, shade(base, rng.randint(-9, 9)))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-3, 3)))
     for_diamond(px_fn)
-    for _ in range(26):
-        py = rng.randint(1, 30)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        put(img, ox + px, oy + py, shade(base, rng.choice([-24, -16, 14])))
+    for _ in range(4):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(4, 9), rng.randint(2, 4), (96, 80, 64), 0.45)
+    for _ in range(2):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 6), rng.randint(1, 3), (126, 108, 86), 0.5)
+    # Pebbles, each with a shadow under it.
+    for _ in range(7):
+        px, py = rand_point(rng, 2)
+        dput(img, ox, oy, px, py, (150, 140, 124))
+        dput(img, ox, oy, px, py + 1, (78, 64, 52))
+    if rng.random() < 0.5:
+        px, py = rand_point(rng, 3)
+        dput(img, ox, oy, px, py, GRASS[2])
+        dput(img, ox, oy, px, py - 1, GRASS[1])
 
 
 def tex_gravel(img, ox, oy, rng):
-    base = (122, 116, 104)
+    base = (122, 118, 110)
     def px_fn(px, py):
-        put(img, ox + px, oy + py, shade(base, rng.randint(-14, 14)))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-5, 5)))
     for_diamond(px_fn)
-    for _ in range(40):
-        py = rng.randint(1, 30)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        v = rng.randint(-34, 26)
-        put(img, ox + px, oy + py, shade(base, v))
+    for _ in range(46):
+        px, py = rand_point(rng)
+        light = rng.random() < 0.5
+        dput(img, ox, oy, px, py, (152, 148, 140) if light else (92, 88, 84))
+        if light:
+            dput(img, ox, oy, px, py + 1, (96, 92, 88))
 
 
 def tex_asphalt(img, ox, oy, rng):
-    base = (70, 72, 76)
+    base = (66, 68, 74)
     def px_fn(px, py):
-        put(img, ox + px, oy + py, shade(base, rng.randint(-6, 6)))
+        put(img, ox + px, oy + py, shade(base, rng.randint(-2, 2)))
     for_diamond(px_fn)
+    # Worn lighter where the wheels run, darker where oil has dripped.
+    for _ in range(2):
+        px, py = rand_point(rng)
+        patch(img, ox, oy, rng, px, py, rng.randint(6, 12), rng.randint(2, 4), (72, 74, 80), 0.5, 2)
+    if rng.random() < 0.3:
+        px, py = rand_point(rng, 4)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 5), 2, (54, 54, 60), 0.4, 2)
+    # Aggregate showing through.
     for _ in range(22):
-        py = rng.randint(1, 30)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0, x1)
-        put(img, ox + px, oy + py, shade(base, rng.choice([-12, 10, 16])))
-    # Occasional crack.
-    if rng.random() < 0.35:
-        py = rng.randint(6, 24)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0 + 4, max(x0 + 4, x1 - 10))
-        for step in range(rng.randint(5, 11)):
-            cx = px + step
-            cy = py + (step // 3) * rng.choice([-1, 0, 1])
-            if 0 <= cy < 32:
-                a0, a1 = diamond_span(cy)
-                if a0 <= cx <= a1:
-                    put(img, ox + cx, oy + cy, shade(base, -22))
+        px, py = rand_point(rng)
+        dput(img, ox, oy, px, py, (86, 88, 92) if rng.random() < 0.6 else (50, 52, 58))
+    # Cracks wander across the tile.
+    if rng.random() < 0.45:
+        px, py = rand_point(rng, 5)
+        x, y = float(px), float(py)
+        dx = rng.choice([-1.0, 1.0])
+        for _ in range(rng.randint(7, 16)):
+            dput(img, ox, oy, x, y, (40, 42, 46))
+            if rng.random() < 0.3:
+                dput(img, ox, oy, x, y - 1, (82, 84, 88))
+            x += dx
+            y += rng.choice([-0.5, 0.0, 0.5, 0.5])
 
 
 def tex_sidewalk(img, ox, oy, rng):
-    base = (152, 150, 142)
+    base = (148, 146, 140)
     slab = 16.0
+    tones = [[rng.randint(-6, 6) for _ in range(3)] for _ in range(3)]
     def px_fn(px, py):
         wx, wy = tile_world(px, py)
-        c = shade(base, rng.randint(-5, 5))
+        t = tones[min(2, int(wx // slab))][min(2, int(wy // slab))]
+        c = shade(base, t + rng.randint(-2, 2))
         fx = wx % slab
         fy = wy % slab
         if fx < 0.75 or fy < 0.75:
-            c = shade(base, -26)
-        elif fx < 1.5 or fy < 1.5:
-            c = shade(base, 8)
+            c = shade(base, -30)
+        elif fx < 1.6 or fy < 1.6:
+            c = shade(base, 10)
         put(img, ox + px, oy + py, c)
     for_diamond(px_fn)
+    # Stains, a crack, and weeds in the joints.
+    if rng.random() < 0.5:
+        px, py = rand_point(rng, 4)
+        patch(img, ox, oy, rng, px, py, rng.randint(3, 6), rng.randint(1, 3), (130, 128, 122), 0.5, 2)
+    if rng.random() < 0.35:
+        px, py = rand_point(rng, 5)
+        x, y = float(px), float(py)
+        for _ in range(rng.randint(5, 10)):
+            dput(img, ox, oy, x, y, (104, 102, 98))
+            x += 1.0
+            y += rng.choice([-0.5, 0.0, 0.5])
+    if rng.random() < 0.4:
+        px, py = rand_point(rng, 3)
+        dput(img, ox, oy, px, py, GRASS[2])
+        dput(img, ox, oy, px, py - 1, GRASS[1])
+        dput(img, ox, oy, px + 1, py, GRASS[3])
 
 
 def tex_concrete(img, ox, oy, rng):
@@ -1425,21 +1148,87 @@ def tex_metal_floor(img, ox, oy, rng):
 
 
 def tex_water(img, ox, oy, rng):
-    base = (40, 84, 128)
+    base = (50, 80, 96)
     phase = rng.uniform(0, 6.28)
     def px_fn(px, py):
         wx, wy = tile_world(px, py)
-        wave = math.sin((wx + wy) * 0.55 + phase) + 0.5 * math.sin(wx * 0.9 - phase)
-        c = shade(base, int(wave * 7) + rng.randint(-3, 3))
+        wave = math.sin((wx + wy) * 0.42 + phase) + 0.6 * math.sin(wx * 0.8 - wy * 0.3 - phase)
+        band = 6 if wave > 0.9 else (0 if wave > -0.6 else -7)
+        put(img, ox + px, oy + py, shade(base, band + rng.randint(-1, 1)))
+    for_diamond(px_fn)
+    for _ in range(2):
+        px, py = rand_point(rng, 3)
+        patch(img, ox, oy, rng, px, py, rng.randint(5, 9), rng.randint(2, 3), (40, 66, 84), 0.5, 1)
+    for _ in range(4):
+        px, py = rand_point(rng, 4)
+        for d in range(rng.randint(2, 4)):
+            dput(img, ox, oy, px + d, py, (128, 164, 172))
+
+
+# --- Ground overlays ---------------------------------------------------------
+# Drawn over a ground tile along one of its four edges, where it meets a
+# different neighbour. Edge 0 is the one shared with the tile at (x-1, y)
+# (up-left on screen), 1 with (x, y-1) (up-right), 2 with (x+1, y)
+# (down-right), 3 with (x, y+1) (down-left).
+
+def edge_coords(px, py, edge):
+    """(distance in from the edge, position along it) in tile-local world px."""
+    wx, wy = tile_world(px, py)
+    return ((wx, wy), (wy, wx), (32.0 - wx, wy), (32.0 - wy, wx))[edge]
+
+
+def ragged_profile(rng, lo, hi):
+    prof = [rng.uniform(lo, hi) for _ in range(36)]
+    return [(prof[max(0, i - 1)] + prof[i] * 2 + prof[min(35, i + 1)]) / 4.0 for i in range(36)]
+
+
+def overlay_fringe(img, ox, oy, rng, edge):
+    """Grass growing over the edge of whatever lies next to it."""
+    prof = ragged_profile(rng, 1.5, 6.5)
+    def px_fn(px, py):
+        d, along = edge_coords(px, py, edge)
+        w = prof[min(35, max(0, int(along)))]
+        if d >= w:
+            return
+        if d > w - 1.6:
+            if rng.random() < 0.35:
+                return
+            c = GRASS[0] if rng.random() < 0.5 else GRASS[2]
+        else:
+            c = shade(GRASS[1] if rng.random() < 0.7 else GRASS[2], rng.randint(-3, 3))
         put(img, ox + px, oy + py, c)
     for_diamond(px_fn)
-    for _ in range(6):
-        py = rng.randint(4, 27)
-        x0, x1 = diamond_span(py)
-        px = rng.randint(x0 + 2, max(x0 + 2, x1 - 4))
-        for d in range(rng.randint(2, 4)):
-            if px + d <= x1:
-                put(img, ox + px + d, oy + py, (120, 168, 200))
+
+
+def overlay_shore(img, ox, oy, rng, edge):
+    """The bank of a pond: wet earth, a line of foam, then shallows."""
+    prof = ragged_profile(rng, 1.0, 3.2)
+    def px_fn(px, py):
+        d, along = edge_coords(px, py, edge)
+        w = prof[min(35, max(0, int(along)))]
+        if d < w:
+            put(img, ox + px, oy + py, shade((92, 82, 66), rng.randint(-5, 5)))
+        elif d < w + 1.2:
+            if rng.random() < 0.75:
+                put(img, ox + px, oy + py, (156, 186, 190), 215)
+        elif d < w + 4.5:
+            put(img, ox + px, oy + py, (88, 124, 132), 120)
+    for_diamond(px_fn)
+
+
+def overlay_shadow(img, ox, oy, rng, edge, bands, inset=0.0):
+    """A wall's shadow on the ground beside it. bands: ((distance, alpha), ...).
+    inset: the shadow starts this far in, at the foot of a wall on this tile."""
+    def px_fn(px, py):
+        d, _ = edge_coords(px, py, edge)
+        d -= inset
+        if d < 0.0:
+            return
+        for dist, alpha in bands:
+            if d < dist:
+                put(img, ox + px, oy + py, (10, 12, 24), alpha)
+                return
+    for_diamond(px_fn)
 
 
 def tex_wall_base(img, ox, oy, rng):
@@ -1485,12 +1274,92 @@ def generate_tileset():
     The renderer picks a variant per tile from a hash of its position.
     """
     cols = 16
-    img = Image.new("RGBA", (cols * ISO_TILE_W, TILE_VARIANTS * ISO_TILE_H), (0, 0, 0, 0))
+    rows = TILE_VARIANTS + OVERLAY_ROWS
+    img = Image.new("RGBA", (cols * ISO_TILE_W, rows * ISO_TILE_H), (0, 0, 0, 0))
     for gid, fn in GROUND_TEXTURES.items():
         for v in range(TILE_VARIANTS):
             rng = random.Random(gid * 1009 + v * 7919)
             fn(img, (gid - 1) * ISO_TILE_W, v * ISO_TILE_H, rng)
+
+    # Overlay rows (see TileGid::kFringeRow and friends): column = edge * 4 +
+    # variant for the fringe and the shore; the shadow row holds one tile per
+    # edge, strong in columns 0-3 and faint in 4-7.
+    for edge in range(4):
+        for v in range(4):
+            col = edge * 4 + v
+            overlay_fringe(img, col * ISO_TILE_W, TILE_VARIANTS * ISO_TILE_H,
+                           random.Random(9001 + col), edge)
+            overlay_shore(img, col * ISO_TILE_W, (TILE_VARIANTS + 1) * ISO_TILE_H,
+                          random.Random(9101 + col), edge)
+        overlay_shadow(img, edge * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, edge,
+                       ((3.0, 112), (7.0, 78), (11.0, 46), (15.0, 22)))
+        overlay_shadow(img, (4 + edge) * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, edge,
+                       ((2.0, 70), (5.0, 40), (8.0, 18)))
+    # Columns 8 and 9: the same two shadows for a thin wall along that edge
+    # of the tile itself.
+    overlay_shadow(img, 8 * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, 0,
+                   ((3.0, 112), (7.0, 78), (11.0, 46), (15.0, 22)), SLAB_T)
+    overlay_shadow(img, 9 * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, None, 1,
+                   ((2.0, 70), (5.0, 40), (8.0, 18)), SLAB_T)
+    # Columns 10-13: snow lying on the ground, four variants; column 14: ice
+    # on a frozen pond (phase 7; TileGid::snowGid and iceGid).
+    for v in range(4):
+        overlay_snow(img, (10 + v) * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, random.Random(9301 + v))
+    overlay_ice(img, 14 * ISO_TILE_W, (TILE_VARIANTS + 2) * ISO_TILE_H, random.Random(9401))
     return img
+
+
+def overlay_snow(img, ox, oy, rng):
+    """Snow over the whole tile: drifts in world space, a few thin spots
+    where the ground shows through. The renderer fades it in by cover."""
+    base = (226, 232, 240)
+    holes = [(rng.uniform(4, 28), rng.uniform(4, 28), rng.uniform(1.5, 3.2)) for _ in range(3)]
+    phase = rng.uniform(0, 2 * math.pi)
+
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        # Soft drifts with a period of one tile, so the tiles meet unseen.
+        drift = (math.sin(2 * math.pi * wx / 32.0 + phase) * math.cos(2 * math.pi * wy / 32.0)) * 4
+        c = shade(base, drift + rng.randint(-2, 2))
+        a = 246
+        for hx, hy, hr in holes:
+            d = math.hypot(wx - hx, wy - hy) / hr
+            if d < 1.0:
+                a = min(a, int(120 + 126 * d))
+                c = shade(c, -14)
+        # Blue in the hollows, bright on the crests.
+        if drift < -3:
+            c = (c[0] - 10, c[1] - 4, c[2])
+        put(img, ox + px, oy + py, c, a)
+
+    for_diamond(px_fn)
+    for _ in range(6):
+        x, y = rand_point(rng, 2)
+        dput(img, ox, oy, x, y, (250, 252, 255), 255)
+
+
+def overlay_ice(img, ox, oy, rng):
+    """A frozen pond: pale blue-grey ice, frosted at the edge of each
+    tile, with white cracks."""
+    base = (176, 198, 212)
+
+    def px_fn(px, py):
+        wx, wy = tile_world(px, py)
+        edge = min(wx, wy, 32.0 - wx, 32.0 - wy)
+        c = shade(base, rng.randint(-3, 3) + int(math.sin(wx * 0.3 - wy * 0.5) * 4))
+        if edge < 2.0:
+            c = mix(c, (220, 230, 238), 0.5)
+        put(img, ox + px, oy + py, c, 236)
+
+    for_diamond(px_fn)
+    for _ in range(3):
+        x, y = rand_point(rng, 4)
+        angle = rng.uniform(0, math.pi)
+        for step in range(rng.randint(8, 16)):
+            angle += rng.uniform(-0.5, 0.5)
+            x += math.cos(angle) * 1.2
+            y += math.sin(angle) * 0.6
+            dput(img, ox, oy, x, y, (236, 244, 250), 230)
 
 
 # --- Structures ------------------------------------------------------------
@@ -1509,40 +1378,159 @@ ROOF_COLORS = {
 }
 
 
+def _h2(a, b):
+    """A small repeatable hash for wall detail: 0..255."""
+    v = (a * 374761393 + b * 668265263) & 0xFFFFFFFF
+    v = ((v ^ (v >> 13)) * 1274126177) & 0xFFFFFFFF
+    return (v >> 8) & 0xFF
+
+
 def face_color(material, left, u, h, height, rng):
     """Color of a wall face pixel. u runs along the face (0..31), h is the
     height above the ground (0 at the bottom)."""
     lc, rc, cap, accent = WALL_MATERIALS[material]
     c = lc if left else rc
-    c = shade(c, rng.randint(-3, 3))
+    c = shade(c, rng.randint(-2, 2))
+    tall = height >= 40
+    # Grime climbs a little way up from the ground, and the eaves shade the top.
+    grime = -int((12 - h) * 1.3) if tall and h < 12 else 0
+    eave = -9 if tall and height - 8 <= h < height - 2 else 0
     if material == "plaster":
-        # Horizontal siding boards with a dark baseboard and light top trim.
-        if h < 3:
+        # Siding boards on a concrete footing, with a light trim under the eaves.
+        if tall and h < 4:
+            foot = (126, 122, 114) if left else (98, 94, 90)
+            return shade(foot, 10 if h == 3 else -h * 3 + 2)
+        if h < 2:
             return shade(c, -34)
         if h >= height - 2:
             return shade(c, 16)
+        board = h // 7
         if h % 7 == 0:
-            return shade(c, -16)
+            return shade(c, -20 + grime)
         if h % 7 == 1:
-            return shade(c, 6)
-        return c
+            return shade(c, 7 + grime + eave)
+        # Where two boards butt together, and the odd weathered board.
+        if u == (board * 13 + 5) % 32:
+            return shade(c, -14 + grime)
+        tone = (_h2(board, 7) % 9) - 4
+        # Rain streaks running down from the trim.
+        if _h2(u, 3) % 13 == 0 and h > height - 10 - _h2(u, 5) % 22:
+            tone -= 7
+        return shade(c, tone + grime + eave)
     if material == "brick":
+        mortar = (148, 136, 120) if left else (112, 102, 92)
         course = h // 4
         if h < 2:
-            return shade(c, -30)
+            return shade(c, -34)
         if h % 4 == 0:
-            return accent if left else shade(accent, -26)
+            return shade(mortar, grime + eave)
         offset = 4 if course % 2 else 0
         if (u + offset) % 8 == 0:
-            return accent if left else shade(accent, -26)
-        return shade(c, (course * 7 % 5) - 2)
-    # metal: vertical corrugation
+            return shade(mortar, grime + eave)
+        brick = (u + offset) // 8
+        k = _h2(brick, course)
+        tone = (k % 15) - 7
+        if k % 23 == 0:
+            tone -= 16   # an over-fired brick
+        elif k % 19 == 0:
+            tone += 12
+        # The top edge of each brick catches a little light.
+        if h % 4 == 3:
+            tone += 5
+        return shade(c, tone + grime + eave)
+    # metal: corrugated sheet with rivets along the top and rust runs.
     if h < 2:
-        return shade(c, -30)
+        return shade(c, -32)
+    tone = 0
     if u % 4 == 0:
-        return shade(c, 16)
-    if u % 4 == 2:
-        return shade(c, -14)
+        tone = 16
+    elif u % 4 == 2:
+        tone = -14
+    if tall and h == height - 6 and u % 8 == 3:
+        return shade(c, 34)
+    if tall and h == height - 7 and u % 8 == 3:
+        return shade(c, -30)
+    if _h2(u // 2, 11) % 9 == 0:
+        run = 10 + _h2(u // 2, 13) % 30
+        start = height - 8 - _h2(u // 2, 17) % 12
+        if start - run < h <= start:
+            return mix(shade(c, tone), (126, 84, 58) if left else (98, 64, 46), 0.55)
+    return shade(c, tone + grime + eave)
+
+
+def window_color(material, left, u, h):
+    """A window in a wall face: frame, sill, curtains and glass (u 8..23, h 17..43)."""
+    frame = (214, 208, 194) if material != "metal" else (172, 178, 182)
+    if not left:
+        frame = shade(frame, -30)
+    if h == 19 and 8 <= u <= 23:
+        return shade(frame, 8)                      # the sill
+    if h == 18 and 8 <= u <= 23:
+        return shade(frame, -60)                    # and its shadow
+    if not (9 <= u <= 22 and 20 <= h <= 42):
+        return None
+    if u in (9, 22) or h in (20, 42) or u == 15 or h == 31:
+        return frame
+    glass = (62, 80, 96) if left else (48, 62, 76)
+    glass = shade(glass, -(h - 21) // 3 + 4)        # darker toward the top
+    if (u - h // 2) % 11 in (0, 1):
+        glass = shade(glass, 26)
+    if material != "metal" and (u <= 11 or u >= 20) and h >= 24:
+        cloth = (156, 138, 124) if left else (122, 108, 98)
+        return shade(cloth, -10 if (u + h // 5) % 2 else 4)   # curtains, drawn back
+    if material != "metal" and h >= 40:
+        return (146, 130, 118) if left else (114, 102, 94)     # the pelmet
+    return glass
+
+
+def window_state_color(material, left, u, h, state):
+    """A window in another state: "broken" (an empty frame with shards),
+    "curtain" (drawn shut), "board1"/"board2" (planks across a dark frame)."""
+    base = window_color(material, left, u, h)
+    if base is None:
+        return None
+    frame = (214, 208, 194) if material != "metal" else (172, 178, 182)
+    if not left:
+        frame = shade(frame, -30)
+    inner = 10 <= u <= 21 and 21 <= h <= 41
+    if state == "curtain":
+        if not inner:
+            return base
+        cloth = (150, 116, 98) if left else (118, 92, 80)
+        fold = (u * 3 + h // 7) % 5
+        return shade(cloth, (-14 if fold == 0 else 4 if fold == 2 else -4) + (h - 30) // 6)
+    # Broken or boarded: the glass is gone and the room behind is dark.
+    if inner:
+        dark = (24, 22, 26) if left else (18, 16, 20)
+        # Shards still stuck in the frame along its edges.
+        edge = min(u - 10, 21 - u, h - 21, 41 - h)
+        if edge <= 1 and (u * 7 + h * 3) % 5 < 3:
+            dark = (88, 112, 132) if left else (70, 90, 106)
+        elif u == 15 and (h * 5) % 7 < 3:
+            dark = frame  # what is left of the glazing bar
+        else:
+            dark = dark
+        if h == 31 and (u * 11) % 6 < 2:
+            dark = frame
+        c = dark
+    else:
+        c = base
+    if state in ("board1", "board2"):
+        planks = ((26, -0.10),) if state == "board1" else ((25, -0.10), (35, 0.12))
+        for centre, slope in planks:
+            mid = centre + round((u - 15.5) * slope)
+            if 7 <= u <= 24 and mid - 1 <= h <= mid + 2:
+                dh = h - mid
+                w = BOARD_WOOD
+                if dh == 2:
+                    w = shade(BOARD_WOOD, 22)
+                elif dh == -1:
+                    w = shade(BOARD_WOOD, -40)
+                elif (u * 5 + centre) % 7 == 0:
+                    w = shade(BOARD_WOOD, -16)
+                if u in (8, 23) and dh in (0, 1):
+                    w = (54, 50, 48) if dh == 0 else (150, 146, 140)
+                return w if left else shade(w, -18)
     return c
 
 
@@ -1645,15 +1633,10 @@ def make_block(material, height, feature=None, seed=0):
             alpha = 255
             if feature is not None and feature.endswith("_l" if left else "_r"):
                 if feature.startswith("window"):
-                    if 9 <= u <= 22 and 20 <= h <= 42 and height >= 40:
-                        if u in (9, 22) or h in (20, 42) or u == 15 or h == 31:
-                            c = (210, 204, 190) if material != "metal" else (170, 176, 180)
-                        else:
-                            glass = (58, 76, 92) if left else (46, 60, 74)
-                            # Simple reflection streak.
-                            if (u - h // 2) % 9 in (0, 1):
-                                glass = shade(glass, 30)
-                            c = glass
+                    if height >= 40:
+                        wc = window_color(material, left, u, h)
+                        if wc is not None:
+                            c = wc
                 elif feature.startswith("door"):
                     if 9 <= u <= 22 and h <= 44:
                         if u in (9, 22) or h == 44:
@@ -1690,12 +1673,18 @@ def make_roof(kind, seed=0):
             if kind == "residential":
                 # Shingle rows along world x, staggered tabs.
                 row = int(wy // 4)
+                tab = int(wx + (row % 2) * 3) // 6
+                k = _h2(tab + seed * 31, row)
                 if wy % 4 < 0.8:
-                    c = shade(base, -18)
+                    c = shade(base, -22)
                 elif (int(wx + (row % 2) * 3) % 6) == 0:
-                    c = shade(base, -10)
+                    c = shade(base, -12)
+                elif k % 17 == 0:
+                    c = shade(base, -16)                       # a slipped shingle
+                elif k % 29 == 0:
+                    c = mix(base, (86, 96, 66), 0.5)           # moss
                 else:
-                    c = shade(c, (row % 3) * 3 - 3)
+                    c = shade(c, (k % 11) - 5 + (4 if wy % 4 > 3.0 else 0))
             elif kind == "commercial":
                 if rng.random() < 0.08:
                     c = shade(base, rng.choice([-16, 14]))
@@ -1706,6 +1695,8 @@ def make_roof(kind, seed=0):
                     c = shade(base, 14)
                 elif int(wy) % 4 == 2:
                     c = shade(base, -12)
+                if _h2(int(wy) // 4 + seed, int(wx) // 3) % 13 == 0:
+                    c = mix(c, (122, 82, 58), 0.45)            # rust
             put(img, px, py, c)
     return img
 
@@ -1765,6 +1756,346 @@ def add_structure_sprites(img, sprites):
         img.paste(overlay, (x, y_boards), overlay)
         sprites["door_boardslow_%s" % face] = {"x": x, "y": y_boards, "w": ISO_TILE_W, "h": ISO_TILE_H + WALL_LOW_H}
         x += ISO_TILE_W
+
+
+# --- Thin walls and pitched roofs ---------------------------------------------
+# Buildings are put together from wall pieces a quarter of a tile thick and a
+# roof that rises from the eaves. Every piece is drawn centred on its tile; the
+# game slides it to the edge of the tile it belongs on (see StructureView).
+#
+# Piece coordinates are tile-local world pixels: x runs down-right on screen,
+# y down-left, z up. A piece along x shows its long face to the south (the
+# "left" face of the old blocks); one along y shows it to the east.
+
+# SLAB_T (wall thickness) is defined with the tileset constants.
+SLAB_LO = 16 - SLAB_T // 2    # a centred slab spans SLAB_LO..SLAB_HI across
+SLAB_HI = 16 + SLAB_T // 2
+DOOR_U0, DOOR_U1 = 10, 22     # the doorway along the wall
+DOOR_TOP = 45
+INTERIOR_WALL = ((200, 192, 174), (162, 155, 142))
+INTERIOR_CAP = (112, 106, 100)
+SKIRTING = (106, 80, 58)
+FINISHES = ("plaster", "brick", "metal", "interior")
+
+
+def finish_color(finish, left, u, h, height, rng):
+    """A wall face pixel: the outside materials, or painted plaster indoors."""
+    if finish != "interior":
+        return face_color(finish, left, u, h, height, rng)
+    c = INTERIOR_WALL[0] if left else INTERIOR_WALL[1]
+    c = shade(c, rng.randint(-1, 1))
+    if height < 40:
+        return shade(c, -24) if h < 1 else c
+    if h < 4:
+        return shade(SKIRTING, 10 if left else -12)
+    if h == 4:
+        return shade(SKIRTING, 30 if left else 6)
+    if h == 5:
+        return shade(c, -16)
+    if u % 8 == 3:
+        c = shade(c, -5)          # a faint stripe in the paper
+    if h >= height - 4:
+        c = shade(c, -9)          # dimmer up by the ceiling
+    return c
+
+
+def finish_frame(finish):
+    if finish == "brick":
+        return (92, 86, 80)
+    if finish == "interior":
+        return (226, 220, 206)
+    return shade(WALL_MATERIALS[finish][3], -10)
+
+
+def finish_cap(finish):
+    return INTERIOR_CAP if finish == "interior" else WALL_MATERIALS[finish][2]
+
+
+class WallPiece:
+    def __init__(self, height):
+        self.height = height
+        self.img = Image.new("RGBA", (ISO_TILE_W, ISO_TILE_H + height), (0, 0, 0, 0))
+
+    def box(self, x0, x1, y0, y1, z0, z1, south, east, top):
+        """A box seen from the usual corner. south(u, z) and east(v, z) give the
+        colours of the two faces the camera sees (None leaves a hole)."""
+        base = self.height
+        for sx in range(x0 * 2, x1 * 2):
+            for sy in range(y0 * 2, y1 * 2):
+                x, y = sx / 2.0, sy / 2.0
+                put(self.img, 32 + int(math.floor(x - y)), base + int(math.floor((x + y) / 2.0)) - z1, top)
+        for u in range(x0, x1):
+            for z in range(z0, z1):
+                c = south(u, z)
+                if c is not None:
+                    put(self.img, 32 + u - y1, base + (u + y1) // 2 - 1 - z, c)
+        for v in range(y0, y1):
+            for z in range(z0, z1):
+                c = east(v, z)
+                if c is not None:
+                    put(self.img, 32 + x1 - v - 1, base + (x1 + v) // 2 - 1 - z, c)
+
+
+def make_wall_piece(finish, along_x, kind, height, seed=0):
+    """One wall piece. kind: "full", "half", "post", "window", "door",
+    "doorclosed", "doorbroken"."""
+    rng = random.Random(seed)
+    piece = WallPiece(height)
+    material = "plaster" if finish == "interior" else finish
+    frame = finish_frame(finish)
+    cap = finish_cap(finish)
+
+    def face(left):
+        def fn(u, z):
+            if kind == "window" and left == along_x and height >= 40:
+                wc = window_color(material, left, u, z)
+                if wc is not None:
+                    return wc
+            if kind.startswith("window") and kind != "window" and left == along_x:
+                if height >= 40:
+                    wc = window_state_color(material, left, u, z, kind[len("window"):])
+                    if wc is not None:
+                        return wc
+                elif z >= height - 2 and 8 <= u <= 23:
+                    # The cut-away stub shows what the window holds.
+                    if kind == "windowbroken" and (u * 5) % 3 == 0:
+                        return (96, 122, 142) if left else (76, 98, 114)
+                    if kind.startswith("windowboard"):
+                        return BOARD_WOOD if left else shade(BOARD_WOOD, -18)
+            return finish_color(finish, left, u, z, height, rng)
+        return fn
+
+    def slab(a0, a1, z0=0, z1=None, south=None, east=None, top=None, b0=SLAB_LO, b1=SLAB_HI):
+        z1 = height if z1 is None else z1
+        south = south or face(True)
+        east = east or face(False)
+        top = top or cap
+        if along_x:
+            piece.box(a0, a1, b0, b1, z0, z1, south, east, top)
+        else:
+            piece.box(b0, b1, a0, a1, z0, z1, south, east, top)
+
+    if kind == "post":
+        slab(SLAB_LO, SLAB_HI)
+    elif kind == "half":
+        slab(8, 24)
+    elif kind == "full" or kind.startswith("window"):
+        slab(0, 32)
+    else:
+        top_of_door = min(DOOR_TOP, height)
+
+        def trimmed(left, edge):
+            # The long face of a pier, with the door frame down its inner edge.
+            def fn(u, z):
+                if left == along_x and u == edge and z < top_of_door:
+                    return frame if left else shade(frame, -18)
+                return finish_color(finish, left, u, z, height, rng)
+            return fn
+
+        def jamb(left):
+            return lambda u, z: (shade(frame, -26) if not left else shade(frame, -8)) if z < top_of_door else \
+                finish_color(finish, left, u, z, height, rng)
+
+        def leaf(left):
+            def fn(u, z):
+                if kind == "doorclosed":
+                    return door_panel(u, z, left)
+                return door_remains(u, z, left)
+            return fn
+
+        # Far pier, the door itself, the wall over the door, near pier.
+        if along_x:
+            slab(0, DOOR_U0, south=trimmed(True, DOOR_U0 - 1), east=jamb(False))
+        else:
+            slab(0, DOOR_U0, south=jamb(True), east=trimmed(False, DOOR_U0 - 1))
+        if kind in ("doorclosed", "doorbroken") and height >= 40:
+            blank = lambda u, z: None
+            slab(DOOR_U0, DOOR_U1, 0, top_of_door, south=leaf(True) if along_x else blank,
+                 east=blank if along_x else leaf(False), top=(0, 0, 0, 0) if False else shade(DOOR_WOOD, -30),
+                 b0=16, b1=18)
+        if height > DOOR_TOP:
+            def lintel(left):
+                def fn(u, z):
+                    if z == DOOR_TOP and left == along_x:
+                        return frame if left else shade(frame, -18)
+                    return finish_color(finish, left, u, z, height, rng)
+                return fn
+            slab(DOOR_U0, DOOR_U1, DOOR_TOP, height, south=lintel(True), east=lintel(False))
+        slab(DOOR_U1, 32, south=trimmed(True, DOOR_U1), east=trimmed(False, DOOR_U1))
+    return piece.img
+
+
+# Roofs. A hipped roof's height over a tile is the least of up to four planes,
+# one rising from each side of the building: a piece is named by which of
+# them shape it (bit 1 rises from the west edge, 2 east, 4 north, 8 south;
+# 0 is the flat deck in the middle of a big roof).
+ROOF_RISE = {"residential": 12, "commercial": 5, "industrial": 8}
+ROOF_FASCIA = 3
+ROOF_FACE_TONE = {"s": 12, "e": -10, "w": 2, "n": -20, "flat": 4}
+ROOF_TRIM = {"residential": (206, 198, 182), "commercial": (70, 70, 74), "industrial": (92, 98, 104)}
+
+
+def roof_texture(kind, face, d, along, ridge, salt):
+    base = ROOF_COLORS[kind]
+    tone = ROOF_FACE_TONE[face]
+    if ridge:
+        return shade(base, tone + (30 if kind != "commercial" else 16))
+    if kind == "residential":
+        row = int(d // 4)
+        step = int(along + (row % 2) * 3)
+        k = _h2(step // 6 + salt * 31, row)
+        if d % 4 < 1.0:
+            return shade(base, tone - 24)
+        if step % 6 == 0:
+            return shade(base, tone - 12)
+        if k % 17 == 0:
+            return shade(base, tone - 16)
+        if k % 29 == 0:
+            return shade(mix(base, (86, 96, 66), 0.5), tone)
+        return shade(base, tone + (k % 9) - 4 + (4 if d % 4 > 3.0 else 0))
+    if kind == "commercial":
+        k = _h2(int(along) + salt * 17, int(d))
+        c = shade(base, tone + (k % 7) - 3)
+        if k % 37 == 0:
+            c = shade(c, -14)
+        if along % 16 < 0.7 or d % 16 < 0.7:
+            c = shade(base, tone - 12)
+        return c
+    # industrial: corrugated sheet, the ribs running down the slope.
+    rib = int(along) % 4
+    c = shade(base, tone + (14 if rib == 0 else (-12 if rib == 2 else 0)))
+    if d % 16 < 0.8:
+        c = shade(base, tone - 18)      # where one sheet laps the next
+    if _h2(int(along) // 3 + salt, int(d) // 5) % 11 == 0:
+        c = mix(c, (122, 82, 58), 0.45)
+    return c
+
+
+def make_roof_piece(kind, mask):
+    rise = ROOF_RISE[kind]
+    img = Image.new("RGBA", (ISO_TILE_W, ISO_TILE_H + rise + ROOF_FASCIA), (0, 0, 0, 0))
+    planes = ((1, "w"), (2, "e"), (4, "n"), (8, "s"))
+
+    def surface(x, y):
+        vals = []
+        for bit, name in planes:
+            if mask & bit:
+                vals.append(({"w": x, "e": 32.0 - x, "n": y, "s": 32.0 - y}[name], name))
+        if not vals:
+            return 0.0, "flat", False
+        vals.sort()
+        ridge = len(vals) > 1 and vals[1][0] - vals[0][0] < 1.2
+        return vals[0][0], vals[0][1], ridge
+
+    best = {}
+    for sy in range(128):
+        for sx in range(128):
+            x, y = (sx + 0.5) / 4.0, (sy + 0.5) / 4.0
+            d, face, ridge = surface(x, y)
+            z = d * rise / 32.0
+            px = int(math.floor(32 + x - y))
+            py = int(math.floor(rise + (x + y) / 2.0 - z))
+            if best.get((px, py), -1.0) < x + y:
+                best[(px, py)] = x + y
+                along = y if face in ("w", "e") else x
+                if face == "flat":
+                    c = roof_texture(kind, "flat", y, x, False, mask)
+                else:
+                    c = roof_texture(kind, face, d, along, ridge, mask)
+                put(img, px, py, c)
+
+    # The eaves: a fascia board and its shadow under the two near edges. Inside
+    # a roof the next piece forward covers them.
+    trim = ROOF_TRIM[kind]
+    for i in range(128):
+        t = (i + 0.5) / 4.0
+        for (x, y, lit) in ((t, 31.9, True), (31.9, t, False)):
+            d, _, _ = surface(x, y)
+            px = int(math.floor(32 + x - y))
+            py = int(math.floor(rise + (x + y) / 2.0 - d * rise / 32.0))
+            for k in range(1, ROOF_FASCIA + 1):
+                if (px, py + k) in best or not 0 <= px < ISO_TILE_W:
+                    continue
+                if k < ROOF_FASCIA:
+                    put(img, px, py + k, shade(trim, (0 if lit else -34) - (k - 1) * 14))
+                else:
+                    put(img, px, py + k, (12, 12, 20), 110)
+    return img
+
+
+BUILDING_X = 1024
+BUILDING_Y = 1480
+WALL_KINDS = (("", "full"), ("_window", "window"), ("_door", "door"), ("_doorclosed", "doorclosed"),
+              ("_doorbroken", "doorbroken"))
+
+
+def add_building_sprites(img, sprites):
+    """Thin wall pieces (wallp_<finish>_<x|y>...) and roof pieces
+    (roofp_<kind>_<mask>), packed in rows under the scenery."""
+    cells = []
+    seed = 500
+    for finish in FINISHES:
+        for axis in ("x", "y"):
+            along_x = axis == "x"
+            base = "wallp_%s_%s" % (finish, axis)
+            for suffix, kind in WALL_KINDS:
+                cells.append((base + suffix, make_wall_piece(finish, along_x, kind, WALL_H, seed)))
+                seed += 1
+            cells.append((base + "_half", make_wall_piece(finish, along_x, "half", WALL_H, seed)))
+            cells.append((base + "_low", make_wall_piece(finish, along_x, "full", WALL_LOW_H, seed)))
+            cells.append((base + "_half_low", make_wall_piece(finish, along_x, "half", WALL_LOW_H, seed)))
+            cells.append((base + "_door_low", make_wall_piece(finish, along_x, "door", WALL_LOW_H, seed)))
+            seed += 1
+        cells.append(("wallp_%s_post" % finish, make_wall_piece(finish, True, "post", WALL_H, seed)))
+        cells.append(("wallp_%s_post_low" % finish, make_wall_piece(finish, True, "post", WALL_LOW_H, seed)))
+    for kind in ("residential", "commercial", "industrial"):
+        for mask in range(16):
+            cells.append(("roofp_%s_%d" % (kind, mask), make_roof_piece(kind, mask)))
+
+    cells.sort(key=lambda c: -c[1].height)
+    x, y, row_h = BUILDING_X, BUILDING_Y, 0
+    for name, cell in cells:
+        if x + cell.width > SHEET_W:
+            x, y, row_h = BUILDING_X, y + row_h, 0
+        if y + cell.height > SHEET_H:
+            raise RuntimeError("building block is full")
+        img.alpha_composite(cell, (x, y))
+        sprites[name] = {"x": x, "y": y, "w": cell.width, "h": cell.height}
+        x += cell.width
+        row_h = max(row_h, cell.height)
+
+
+# Windows in their other states (phase 2): broken, curtained, one and two
+# boards, with cut-away stubs that show broken glass or boards. Packed in a
+# block of their own under the building block, so the older pieces keep
+# their places in the atlas.
+WINDOW_X = 1024
+WINDOW_Y = 1700
+WINDOW_STATES = ("broken", "curtain", "board1", "board2")
+
+
+def add_window_sprites(img, sprites):
+    cells = []
+    seed = 900
+    for finish in FINISHES:
+        for axis in ("x", "y"):
+            along_x = axis == "x"
+            base = "wallp_%s_%s_window" % (finish, axis)
+            for state in WINDOW_STATES:
+                cells.append((base + "_" + state, make_wall_piece(finish, along_x, "window" + state, WALL_H, seed)))
+            cells.append((base + "_low_broken", make_wall_piece(finish, along_x, "windowbroken", WALL_LOW_H, seed)))
+            cells.append((base + "_low_board", make_wall_piece(finish, along_x, "windowboard1", WALL_LOW_H, seed)))
+            seed += 1
+    x, y, row_h = WINDOW_X, WINDOW_Y, 0
+    for name, cell in cells:
+        if x + cell.width > SHEET_W:
+            x, y, row_h = WINDOW_X, y + row_h, 0
+        if y + cell.height > SHEET_H:
+            raise RuntimeError("window block is full")
+        img.alpha_composite(cell, (x, y))
+        sprites[name] = {"x": x, "y": y, "w": cell.width, "h": cell.height}
+        x += cell.width
+        row_h = max(row_h, cell.height)
 
 
 # --- Legacy props ------------------------------------------------------------
@@ -2144,6 +2475,18 @@ def draw_item_icon(name):
         ic.rect(12, 15, 21, 20, (228, 234, 240))
         ic.rect(12, 17, 21, 18, (60, 120, 200))
         ic.light(30, -26)
+    elif name == "item_empty_bottle":
+        # The same bottle, clear plastic with nothing in it: a pale shell,
+        # a dark inside, a thin rim of water left at the bottom.
+        ic.rect(12, 10, 21, 27, (196, 214, 226))
+        ic.rect(13, 7, 20, 10, (196, 214, 226))
+        ic.rect(14, 5, 19, 7, (214, 226, 234))
+        ic.rect(14, 3, 19, 5, (44, 92, 172))
+        ic.rect(13, 11, 20, 26, (92, 104, 116))
+        ic.rect(13, 25, 20, 26, (112, 170, 226))
+        ic.rect(12, 15, 21, 20, (228, 234, 240))
+        ic.rect(12, 17, 21, 18, (60, 120, 200))
+        ic.light(30, -26)
         ic.line(13, 11, 13, 14, (196, 226, 248), 1)
     elif name == "item_bandage":
         icon_bandage_roll(ic, (234, 228, 216), (200, 50, 44))
@@ -2313,6 +2656,232 @@ def draw_item_icon(name):
         ic.light(34, -26)
         for t in (0.0, 1.5):
             ic.line(17 + t, 12 + t, 20 + t, 15 + t, (192, 160, 104), 1)
+    elif name == "item_nails":
+        steel = (172, 176, 184)
+        for x0, y0, x1, y1 in ((7, 22, 18, 9), (11, 25, 23, 13), (16, 26, 26, 17), (6, 15, 13, 26)):
+            ic.line(x0, y0, x1, y1, steel, 1)
+            ic.ellipse(x1 + 0.5, y1 + 0.5, 1.6, 1.6, shade(steel, 20))
+        ic.light(20, -24)
+    elif name == "item_crowbar":
+        iron = (74, 78, 92)
+        ic.line(8, 26, 22, 8, iron, 3)
+        ic.line(22, 8, 26, 6, iron, 2)
+        ic.line(26, 6, 27, 9, iron, 2)
+        ic.line(8, 26, 5, 25, iron, 2)
+        ic.light(34, -20)
+        ic.line(10, 23, 15, 17, (176, 52, 44), 2)       # a strip of red paint
+    elif name == "item_saw":
+        blade = (184, 188, 196)
+        ic.poly([(5, 21), (24, 9), (27, 13), (8, 26)], blade)
+        for i in range(7):
+            x = 7 + i * 2.8
+            y = 25.5 - i * 1.75
+            ic.set(int(x), int(y) + 1, shade(blade, -40))
+        ic.light(26, -30)
+        ic.rect(22, 6, 29, 14, (150, 96, 54))
+        ic.rect(24, 8, 27, 12, (60, 40, 26))
+    elif name == "item_tin_can":
+        tin = (176, 180, 186)
+        ic.rect(11, 10, 21, 26, tin)
+        ic.light(28, -28)
+        ic.ellipse(16, 10, 5.2, 2.0, shade(tin, 16))
+        ic.ellipse(16, 10, 3.8, 1.1, (64, 66, 72))
+        for y in (14, 18, 22):
+            ic.rect(11, y, 21, y + 1, shade(tin, -18))
+        ic.line(19, 9, 24, 5, shade(tin, 10), 1)           # the lid, bent back
+    elif name == "item_wire":
+        copper = (190, 118, 70)
+        for r in (7.5, 6.0, 4.5):
+            for i in range(28):
+                a = i / 28.0 * 6.2831853
+                ic.set(int(16 + math.cos(a) * r), int(17 + math.sin(a) * r * 0.8), copper if r != 6.0 else shade(copper, -24))
+        ic.line(22, 12, 27, 6, copper, 1)
+        ic.light(18, -18)
+    elif name == "item_rags":
+        cloth = (168, 150, 120)
+        ic.poly([(6, 18), (12, 12), (20, 14), (26, 10), (27, 18), (20, 24), (11, 25)], cloth)
+        ic.poly([(9, 19), (15, 16), (22, 18), (19, 22), (12, 23)], shade(cloth, -22))
+        ic.line(8, 21, 13, 18, (120, 70, 60), 1)
+        ic.light(20, -26)
+    elif name == "item_candle":
+        wax = (230, 222, 196)
+        ic.rect(13, 12, 19, 26, wax)
+        ic.light(18, -26)
+        ic.ellipse(16, 12, 3.2, 1.2, shade(wax, 10))
+        ic.line(16, 11, 16, 8, (40, 34, 30), 1)
+        ic.ellipse(16, 6, 1.8, 2.8, (246, 168, 60))
+        ic.ellipse(16, 6.5, 0.9, 1.4, (252, 232, 140))
+        ic.rect(11, 25, 21, 27, (120, 118, 120))
+    elif name == "item_can_alarm":
+        tin = (176, 180, 186)
+        ic.line(4, 6, 28, 8, (150, 120, 80), 1)              # the string
+        for cx, top in ((9, 9), (16, 12), (23, 9)):
+            ic.line(cx, 7, cx, top, (150, 120, 80), 1)
+            ic.rect(cx - 3, top, cx + 3, top + 9, tin)
+            ic.ellipse(cx, top + 9, 3.2, 1.2, shade(tin, -30))
+        ic.light(24, -26)
+    elif name == "item_spike_board":
+        wood = (150, 110, 68)
+        ic.poly([(4, 20), (20, 10), (28, 15), (12, 26)], wood)
+        ic.light(20, -26)
+        for i in range(4):
+            for j in range(2):
+                x = 9 + i * 4 + j * 3
+                y = 19 - i * 2.4 + j * 2.6
+                ic.line(x, y, x, y - 5, (196, 200, 206), 1)
+    elif name == "item_can_lantern":
+        tin = (170, 174, 180)
+        ic.rect(10, 9, 22, 26, tin)
+        ic.light(26, -28)
+        for x in (12, 15, 18):
+            for y in (13, 17, 21):
+                ic.set(x + 1, y, (252, 206, 110))
+        ic.line(10, 9, 16, 4, (90, 92, 98), 1)
+        ic.line(16, 4, 22, 9, (90, 92, 98), 1)
+    elif name == "item_rock":
+        stone = (132, 128, 120)
+        ic.poly([(8, 20), (11, 13), (18, 10), (24, 13), (25, 20), (20, 24), (12, 24)], stone)
+        ic.light(26, -30)
+        ic.line(14, 15, 17, 18, shade(stone, -26), 1)
+        ic.set(20, 15, shade(stone, 24))
+    elif name == "item_alarm_clock":
+        case = (196, 58, 48)
+        ic.ellipse(9, 8, 3.2, 3.2, (210, 190, 120))           # the bells
+        ic.ellipse(23, 8, 3.2, 3.2, (210, 190, 120))
+        ic.ellipse(16, 17, 9.0, 9.0, case)
+        ic.light(24, -30)
+        ic.ellipse(16, 17, 6.5, 6.5, (238, 234, 222))         # the face
+        ic.line(16, 17, 16, 12, (40, 36, 34), 1)
+        ic.line(16, 17, 19, 18, (40, 36, 34), 1)
+        ic.line(10, 25, 8, 28, case, 1)                        # feet
+        ic.line(22, 25, 24, 28, case, 1)
+    elif name == "item_flare":
+        ic.line(8, 25, 22, 9, (198, 44, 40), 4)
+        ic.light(24, -30)
+        ic.line(21, 10, 24, 7, (236, 228, 214), 4)             # the striker cap
+        ic.line(6, 27, 9, 24, (90, 30, 28), 3)
+        ic.line(13, 20, 17, 16, (236, 210, 120), 1)            # the label band
+    elif name == "item_pistol":
+        steel = (70, 74, 80)
+        ic.rect(6, 10, 26, 15, steel)                          # slide and barrel
+        ic.poly([(14, 15), (21, 15), (19, 26), (13, 26)], (58, 50, 46))  # grip
+        ic.light(28, -24)
+        ic.line(15, 15, 17, 19, steel, 1)                      # trigger guard
+        ic.line(17, 19, 20, 17, steel, 1)
+        ic.set(7, 9, steel)
+        ic.line(9, 11, 24, 11, shade(steel, 30), 1)
+    elif name == "item_shotgun":
+        wood = (128, 86, 50)
+        steel = (74, 78, 84)
+        ic.line(3, 26, 12, 19, wood, 4)                        # stock
+        ic.line(11, 19, 29, 5, steel, 3)                       # barrels
+        ic.line(13, 20, 20, 14, wood, 3)                       # fore-end
+        ic.light(28, -26)
+        ic.line(12, 17, 28, 4, shade(steel, 34), 1)
+    elif name == "item_shells":
+        for i, x in enumerate((9, 15, 21)):
+            ic.rect(x, 10 + (i % 2) * 2, x + 5, 22 + (i % 2) * 2, (196, 44, 40))
+            ic.rect(x, 22 + (i % 2) * 2, x + 5, 26 + (i % 2) * 2, (206, 168, 72))
+        ic.light(26, -28)
+    elif name == "item_machete":
+        ic.poly([(10, 21), (25, 6), (28, 6), (27, 10), (13, 24)], (186, 190, 196))
+        ic.light(30, -24)
+        ic.line(12, 23, 26, 8, (146, 150, 156), 1)
+        ic.line(4, 28, 10, 22, (52, 44, 40), 3)                # handle
+        ic.line(9, 20, 13, 24, (40, 36, 34), 1)
+    elif name == "item_sledgehammer":
+        ic.line(6, 27, 20, 11, (154, 110, 64), 2)              # long haft
+        ic.poly([(15, 7), (19, 3), (28, 12), (24, 16)], (92, 96, 102))  # the head, across the haft
+        ic.light(28, -30)
+        ic.line(19, 3, 28, 12, shade((92, 96, 102), 40), 1)
+    elif name == "item_chair_leg":
+        wood = (146, 98, 56)
+        ic.line(8, 25, 22, 9, wood, 3)
+        ic.ellipse(22.5, 8.5, 2.6, 2.6, wood)                  # the turned top
+        ic.ellipse(15, 17, 2.4, 2.4, wood)                     # a bead halfway
+        ic.light(26, -30)
+        ic.line(21, 6, 25, 4, (222, 196, 150), 1)              # where it broke off
+    elif name == "item_frying_pan":
+        iron = (58, 60, 64)
+        ic.ellipse(13, 15, 9.0, 8.0, iron)
+        ic.line(20, 20, 28, 27, (40, 40, 44), 3)               # handle
+        ic.light(26, -24)
+        ic.ellipse(13, 15, 6.5, 5.5, shade(iron, -14))
+        ic.ellipse(11, 13, 2.0, 1.4, shade(iron, 20))
+    elif name == "item_glass_shiv":
+        ic.poly([(14, 18), (22, 5), (24, 6), (19, 19)], (178, 214, 222))
+        ic.light(30, -20)
+        ic.line(22, 6, 18, 15, (232, 246, 250), 1)
+        ic.line(8, 26, 15, 18, (200, 188, 160), 4)             # rag wrapped round
+        ic.line(9, 23, 12, 26, shade((200, 188, 160), -30), 1)
+        ic.line(11, 21, 14, 24, shade((200, 188, 160), -30), 1)
+    # Phase 5: body and mind.
+    elif name == "item_splint":
+        wood = (182, 140, 86)
+        ic.rect(9, 5, 13, 28, wood)                            # two slats
+        ic.rect(19, 5, 23, 28, shade(wood, -12))
+        ic.light(26, -28)
+        cloth = (226, 218, 200)
+        for y in (9, 16, 23):                                  # bound with strips
+            ic.rect(7, y, 25, y + 3, cloth)
+            ic.line(7, y + 2, 25, y + 2, shade(cloth, -34), 1)
+    elif name == "item_suture_kit":
+        tin = (196, 200, 206)
+        ic.rect(6, 10, 26, 24, tin)
+        ic.light(24, -30)
+        ic.rect(8, 12, 24, 22, shade(tin, -26))
+        ic.rect(14, 13, 18, 21, (196, 52, 46))                 # the red cross
+        ic.rect(12, 15, 20, 19, (196, 52, 46))
+        ic.line(20, 6, 26, 9, (220, 224, 230), 1)              # a curved needle on top
+        ic.line(26, 9, 27, 12, (220, 224, 230), 1)
+    elif name == "item_needle_and_thread":
+        thread = (70, 92, 150)
+        ic.ellipse(13, 18, 6.5, 7.5, thread)                   # a spool of thread
+        ic.rect(6, 10, 20, 12, (186, 150, 100))
+        ic.rect(6, 24, 20, 26, (186, 150, 100))
+        ic.light(24, -26)
+        ic.line(10, 15, 16, 21, shade(thread, 30), 1)
+        ic.line(22, 26, 28, 5, (214, 218, 224), 1)             # the needle
+        ic.set(27, 7, (60, 60, 64))
+    elif name == "item_spirits":
+        glass = (150, 96, 46)
+        ic.rect(11, 12, 21, 28, glass)                         # a squat bottle
+        ic.rect(14, 5, 18, 12, glass)
+        ic.rect(13, 3, 19, 5, (60, 44, 34))                    # the cork
+        ic.light(30, -24)
+        ic.rect(12, 17, 20, 23, (226, 214, 180))               # the label
+        ic.line(13, 20, 19, 20, (120, 60, 40), 1)
+    elif name == "item_coffee":
+        tin = (88, 60, 44)
+        ic.rect(9, 8, 23, 27, tin)                             # a tin of ground coffee
+        ic.ellipse(16, 8, 7.2, 2.2, shade(tin, 26))
+        ic.light(24, -28)
+        ic.rect(9, 14, 23, 20, (214, 176, 96))
+        ic.ellipse(16, 17, 2.4, 1.6, (90, 56, 34))             # a bean on the band
+        ic.line(16, 16, 16, 18, (60, 38, 24), 1)
+    elif name == "item_book":
+        cover = (128, 46, 44)
+        ic.poly([(7, 8), (21, 5), (25, 24), (11, 27)], cover)
+        ic.light(26, -30)
+        ic.line(11, 27, 25, 24, (232, 222, 196), 2)            # the pages' edge
+        ic.line(7, 8, 11, 27, shade(cover, -40), 1)            # the spine
+        ic.line(12, 11, 20, 9, (214, 180, 96), 1)              # a title in gilt
+    elif name == "item_keepsake":
+        ic.ellipse(16, 19, 7.0, 7.0, (206, 170, 82))           # a locket
+        ic.light(30, -26)
+        ic.ellipse(16, 19, 4.6, 4.6, shade((206, 170, 82), -30))
+        ic.ellipse(15, 18, 1.6, 1.6, (236, 214, 150))
+        ic.line(16, 12, 12, 4, (190, 160, 90), 1)              # its chain
+        ic.line(16, 12, 20, 4, (190, 160, 90), 1)
+    elif name == "item_chocolate":
+        wrap = (120, 42, 52)
+        ic.rect(6, 11, 26, 23, wrap)                           # a bar, half unwrapped
+        ic.rect(17, 11, 26, 23, (98, 60, 40))
+        ic.light(24, -28)
+        for x in (20, 23):
+            ic.line(x, 11, x, 22, (72, 42, 28), 1)
+        ic.line(17, 16, 25, 16, (72, 42, 28), 1)
+        ic.rect(7, 14, 16, 18, (214, 186, 110))                # the band on the wrapper
     else:
         ic.rect(9, 9, 23, 23, (150, 150, 150))
     ic.grain(3)
@@ -2332,7 +2901,24 @@ ITEM_ICONS_NEW = [
     "item_antibiotics", "item_painkillers", "item_hammer", "item_flashlight",
     "item_matches", "item_jacket", "item_rat_meat", "item_notebook",
     "item_bandage_clean", "item_rag", "item_molotov", "item_bat_spiked",
-    "item_spear",
+    "item_spear", "item_empty_bottle",
+]
+# Phase 2: building and the home base, in the free rows of the left block.
+ITEM_ICONS_BASE = [
+    "item_nails", "item_crowbar", "item_saw", "item_tin_can", "item_wire",
+    "item_rags", "item_candle", "item_can_alarm", "item_spike_board", "item_can_lantern",
+]
+BASE_ICON_Y = 944
+# Phase 3: fighting, on the same row after the base icons.
+ITEM_ICONS_FIGHT = [
+    "item_rock", "item_alarm_clock", "item_flare", "item_pistol", "item_shotgun",
+    "item_shells", "item_machete", "item_sledgehammer", "item_chair_leg",
+    "item_frying_pan", "item_glass_shiv",
+]
+# Phase 5: body and mind, after the fighting icons.
+ITEM_ICONS_BODY = [
+    "item_splint", "item_suture_kit", "item_needle_and_thread", "item_spirits",
+    "item_coffee", "item_book", "item_keepsake", "item_chocolate",
 ]
 
 
@@ -2344,6 +2930,18 @@ def add_item_icons(img, sprites):
         x = 512 + i * ITEM_SIZE
         draw_item_icon(name).paste(img, x, 160)
         sprites[name] = {"x": x, "y": 160, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    for i, name in enumerate(ITEM_ICONS_BASE):
+        x = i * ITEM_SIZE
+        draw_item_icon(name).paste(img, x, BASE_ICON_Y)
+        sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    for i, name in enumerate(ITEM_ICONS_FIGHT):
+        x = (len(ITEM_ICONS_BASE) + i) * ITEM_SIZE
+        draw_item_icon(name).paste(img, x, BASE_ICON_Y)
+        sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    for i, name in enumerate(ITEM_ICONS_BODY):
+        x = (len(ITEM_ICONS_BASE) + len(ITEM_ICONS_FIGHT) + i) * ITEM_SIZE
+        draw_item_icon(name).paste(img, x, BASE_ICON_Y)
+        sprites[name] = {"x": x, "y": BASE_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
 
 
 # ---------------------------------------------------------------------------
@@ -2630,6 +3228,151 @@ FURNITURE = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Things the player builds and sets down (phase 2): drawn like furniture, in
+# 80x80 cells (the 64x80 piece centred), the floor diamond's centre 16 px
+# above the cell's bottom (Sprite::sink in the game).
+# ---------------------------------------------------------------------------
+
+PROP_CELL = 80
+PROP_Y = 984
+
+
+def prop_campfire(f, lit):
+    stone = (128, 124, 118)
+    for i in range(10):
+        a = i / 10.0 * 6.2831853
+        x, y = f.P(0.5 + math.cos(a) * 0.30, 0.5 + math.sin(a) * 0.30, 0)
+        f.ellipse_at((x, y - 2), 4, 3, shade(stone, (i % 3) * 8 - 8))
+    ash = (70, 64, 60)
+    cx, cy = f.P(0.5, 0.5, 0)
+    f.ellipse_at((cx, cy), 12, 6, ash)
+    wood = (120, 84, 52)
+    for (u0, v0, u1, v1) in ((0.30, 0.42, 0.70, 0.58), (0.42, 0.30, 0.58, 0.70), (0.34, 0.62, 0.66, 0.38)):
+        f.draw.line([f.P(u0, v0, 3), f.P(u1, v1, 6)], fill=wood + (255,), width=3)
+    if lit:
+        for r, h, col in ((9, 22, (226, 96, 30)), (6, 17, (246, 162, 48)), (3, 11, (252, 226, 120))):
+            f.draw.polygon([(cx - r, cy - 2), (cx, cy - h), (cx + r, cy - 2)], fill=col + (255,))
+
+
+def prop_bedroll(f):
+    cloth = (88, 112, 84)
+    f.box(0.18, 0.12, 0.82, 0.88, 0, 4, cloth)
+    f.box(0.22, 0.14, 0.40, 0.86, 4, 8, shade(cloth, 18))           # rolled end
+    f.box(0.60, 0.20, 0.80, 0.40, 4, 7, (210, 204, 190))             # a folded rag for a pillow
+
+
+def prop_crate(f):
+    wood = (166, 124, 74)
+    f.box(0.10, 0.10, 0.90, 0.90, 0, 26, wood)
+    for z in (8, 17):
+        f.draw.line([f.P(0.10, 0.90, z), f.P(0.90, 0.90, z)], fill=shade(wood, -38) + (255,))
+        f.draw.line([f.P(0.90, 0.10, z), f.P(0.90, 0.90, z)], fill=shade(wood, -54) + (255,))
+    f.draw.line([f.P(0.10, 0.90, 0), f.P(0.90, 0.90, 26)], fill=shade(wood, -30) + (255,))
+    f.box(0.06, 0.06, 0.94, 0.94, 26, 29, shade(wood, 10))           # the lid
+
+
+def prop_collector(f):
+    metal = (120, 128, 136)
+    gx, gy = f.P(0.5, 0.5, 0)
+    tx, ty = f.P(0.5, 0.5, 24)
+    rx, ry = 12, 6
+    f.draw.rectangle([gx - rx, ty, gx + rx, gy], fill=metal + (255,))
+    f.ellipse_at((gx, gy), rx, ry, metal)
+    f.draw.rectangle([gx + 5, ty, gx + rx, gy], fill=shade(metal, -26) + (255,))
+    for z in (6, 16):
+        f.draw.line([(gx - rx, gy - z), (gx + rx, gy - z)], fill=shade(metal, -34) + (255,))
+    f.ellipse_at((tx, ty), rx, ry, shade(metal, 18))
+    f.ellipse_at((tx, ty), rx - 3, ry - 2, (64, 96, 120))            # water
+    # A funnel of planks and tin over it.
+    f.draw.polygon([(tx - 18, ty - 10), (tx + 18, ty - 10), (tx + 6, ty - 2), (tx - 6, ty - 2)],
+                   fill=(176, 180, 186, 255))
+    f.draw.line([(tx - 18, ty - 10), (tx - 18, gy)], fill=(120, 86, 54, 255), width=2)
+    f.draw.line([(tx + 18, ty - 10), (tx + 18, gy)], fill=(120, 86, 54, 255), width=2)
+
+
+def prop_workbench(f):
+    wood = (156, 114, 70)
+    for u, v in ((0.12, 0.12), (0.80, 0.12), (0.12, 0.80), (0.80, 0.80)):
+        f.box(u, v, u + 0.08, v + 0.08, 0, 16, shade(wood, -26))
+    f.box(0.08, 0.08, 0.92, 0.92, 16, 21, wood)
+    f.box(0.20, 0.20, 0.80, 0.80, 6, 8, shade(wood, -14))            # the shelf
+    f.box(0.62, 0.14, 0.82, 0.30, 21, 26, (118, 122, 130))           # a vise
+    f.draw.line([f.P(0.30, 0.55, 22), f.P(0.55, 0.40, 22)], fill=(70, 72, 78, 255), width=2)   # a hammer
+
+
+def prop_canalarm(f):
+    string = (150, 120, 80)
+    tin = (180, 184, 190)
+    f.draw.line([f.P(0.5, 0.05, 30), f.P(0.5, 0.95, 30)], fill=string + (255,))
+    for v in (0.2, 0.5, 0.8):
+        x, y = f.P(0.5, v, 30)
+        f.draw.line([(x, y), (x, y + 6)], fill=string + (255,))
+        f.draw.rectangle([x - 3, y + 6, x + 3, y + 14], fill=tin + (255,))
+        f.draw.rectangle([x + 1, y + 6, x + 3, y + 14], fill=shade(tin, -30) + (255,))
+
+
+def prop_spikeboard(f):
+    wood = (146, 106, 64)
+    f.box(0.16, 0.16, 0.84, 0.84, 0, 3, wood)
+    for i in range(4):
+        for j in range(4):
+            u = 0.24 + i * 0.17
+            v = 0.24 + j * 0.17
+            x, y = f.P(u, v, 3)
+            f.draw.line([(x, y), (x, y - 6)], fill=(200, 204, 210, 255))
+
+
+def prop_candle(f, lit):
+    wax = (232, 224, 198)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.ellipse_at((gx, gy), 6, 3, (120, 118, 120))                    # a saucer
+    f.draw.rectangle([gx - 2, gy - 12, gx + 2, gy - 1], fill=wax + (255,))
+    f.draw.rectangle([gx + 1, gy - 12, gx + 2, gy - 1], fill=shade(wax, -26) + (255,))
+    if lit:
+        f.ellipse_at((gx, gy - 16), 2, 3, (246, 168, 60))
+        f.ellipse_at((gx, gy - 15), 1, 1, (252, 236, 150))
+
+
+def prop_lantern(f, lit):
+    tin = (168, 172, 178)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.draw.rectangle([gx - 6, gy - 16, gx + 6, gy], fill=tin + (255,))
+    f.draw.rectangle([gx + 2, gy - 16, gx + 6, gy], fill=shade(tin, -28) + (255,))
+    f.ellipse_at((gx, gy - 16), 6, 2, shade(tin, 16))
+    glow = (252, 206, 110) if lit else (60, 54, 50)
+    for dx in (-3, 0):
+        for dy in (-12, -7):
+            f.draw.point((gx + dx, gy + dy), fill=glow + (255,))
+    f.draw.arc([gx - 6, gy - 24, gx + 6, gy - 12], 180, 360, fill=(90, 92, 98, 255))
+
+
+PROPS_BASE = [
+    ("prop_campfire", lambda f: prop_campfire(f, False)),
+    ("prop_campfire_lit", lambda f: prop_campfire(f, True)),
+    ("prop_bedroll", prop_bedroll),
+    ("prop_crate", prop_crate),
+    ("prop_collector", prop_collector),
+    ("prop_workbench", prop_workbench),
+    ("prop_canalarm", prop_canalarm),
+    ("prop_spikeboard", prop_spikeboard),
+    ("prop_candle", lambda f: prop_candle(f, False)),
+    ("prop_candle_lit", lambda f: prop_candle(f, True)),
+    ("prop_lantern", lambda f: prop_lantern(f, False)),
+    ("prop_lantern_lit", lambda f: prop_lantern(f, True)),
+]
+
+
+def add_base_props(img, sprites):
+    for i, (name, painter) in enumerate(PROPS_BASE):
+        f = Furn(5000 + i)
+        painter(f)
+        piece = f.finish()
+        x = i * PROP_CELL
+        img.paste(piece, (x + (PROP_CELL - FURN_W) // 2, PROP_Y), piece)
+        sprites[name] = {"x": x, "y": PROP_Y, "w": PROP_CELL, "h": PROP_CELL}
+
+
 def add_furniture_sprites(img, sprites):
     """Furniture pieces from y=608 down, 16 to a row."""
     x, y = 0, 608
@@ -2645,6 +3388,1255 @@ def add_furniture_sprites(img, sprites):
             if x + FURN_W > ATLAS_W:
                 x = 0
                 y += FURN_H
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: scavenging. New furniture (cot, desk, filing cabinet, locker,
+# pallets, pharmacy shelf, tool rack, diner table, floor lamp), a searched
+# frame for every container piece (a door ajar, a drawer out, goods pulled
+# about), the signs over shop doors, garden beds, snares, the alarm box and
+# the new items. All in regions free before this phase:
+#   furniture and searched frames: y=1792 band, full sheet width
+#   props (80x80): x 0..1024 from y=1088; item icons and signs below them
+# ---------------------------------------------------------------------------
+
+P6_FURN_Y = 1792
+P6_PROP_Y = 1088
+P6_ICON_Y = 1168
+P6_SIGN_Y = 1200
+P6_SIGN_W = 32
+P6_SIGN_H = 24
+
+
+def furn_cot(f):
+    metal = (118, 124, 116)
+    canvas = (116, 132, 98)
+    for a in (0.12, 0.84):
+        for b in (0.22, 0.74):
+            f.cbox(a, b, a + 0.05, b + 0.05, 0, 9, shade(metal, -20))
+    f.cbox(0.08, 0.20, 0.92, 0.80, 9, 11, metal)
+    f.cbox(0.10, 0.22, 0.90, 0.78, 11, 13, canvas)
+    f.cbox(0.12, 0.28, 0.30, 0.72, 13, 16, (214, 210, 196))   # a folded blanket
+    f.fline(0.90, 0.22, 0.78, 12, 12, shade(canvas, -30))
+
+
+def furn_desk(f):
+    wood = (132, 96, 62)
+    f.cbox(0.06, 0.10, 0.52, 0.40, 0, 16, shade(wood, -6))    # drawers
+    for z in (5, 10):
+        f.fline(0.52, 0.12, 0.38, z, z, shade(wood, -40))
+    for z in (3, 8, 13):
+        f.fline(0.52, 0.24, 0.26, z, z, (210, 186, 120))
+    f.cbox(0.06, 0.84, 0.52, 0.90, 0, 16, shade(wood, -16))   # a leg
+    f.cbox(0.00, 0.08, 0.56, 0.92, 16, 19, wood)
+    f.cbox(0.16, 0.50, 0.40, 0.76, 19, 20, (232, 228, 214))   # papers
+    f.cbox(0.06, 0.20, 0.18, 0.34, 19, 27, (60, 62, 66))      # a lamp
+
+
+def furn_filing(f):
+    metal = (150, 154, 150)
+    f.cbox(0.00, 0.20, 0.50, 0.80, 0, 38, metal)
+    for z in (12, 25):
+        f.fline(0.50, 0.22, 0.78, z, z, shade(metal, -46))
+    for z in (6, 19, 32):
+        f.fline(0.50, 0.44, 0.56, z, z, (70, 72, 76))
+        f.fline(0.50, 0.46, 0.54, z + 2, z + 2, (236, 232, 214))   # the label
+
+
+def furn_locker(f):
+    metal = (92, 112, 132)
+    f.cbox(0.00, 0.06, 0.40, 0.94, 0, 46, metal)
+    f.fline(0.40, 0.50, 0.50, 1, 45, shade(metal, -44))
+    for b in (0.12, 0.56):
+        for z in (38, 40, 42):
+            f.fline(0.40, b, b + 0.12, z, z, shade(metal, -36))    # vents
+    for b in (0.42, 0.86):
+        f.fline(0.40, b, b, 20, 26, (190, 194, 198))               # handles
+
+
+def furn_pallets(f):
+    wood = (176, 140, 92)
+    for i, z in enumerate((0, 6, 12, 18)):
+        col = shade(wood, (i % 2) * -10)
+        f.box(0.10, 0.10, 0.90, 0.90, z, z + 4, col)
+        for v in (0.30, 0.50, 0.70):
+            f.draw.line([f.P(0.10, v, z + 4), f.P(0.90, v, z + 4)], fill=shade(col, -34) + (255,))
+    f.box(0.20, 0.24, 0.60, 0.62, 22, 32, (190, 170, 128))       # a sack on top
+
+
+def furn_pharmshelf(f):
+    white = (222, 226, 228)
+    f.cbox(0.00, 0.00, 0.44, 1.00, 0, 42, white)
+    goods = [(220, 70, 60), (90, 150, 210), (240, 240, 236), (110, 180, 110), (236, 196, 80)]
+    for z in (2, 12, 22, 32):
+        f.fline(0.44, 0.02, 0.98, z, z, shade(white, -50))
+        b = 0.06
+        while b < 0.92:
+            col = goods[f.rng.randrange(len(goods))]
+            h = f.rng.randint(3, 6)
+            for k in range(2):
+                f.fline(0.44, b + k * 0.02, b + k * 0.02, z + 1, z + h, shade(col, -k * 12))
+            b += 0.08
+    f.cbox(0.00, 0.40, 0.06, 0.60, 42, 48, (60, 150, 80))          # a green cross on top
+    f.cbox(0.00, 0.46, 0.06, 0.54, 39, 51, (60, 150, 80))
+
+
+def furn_toolrack(f):
+    board = (150, 130, 100)
+    f.cbox(0.00, 0.04, 0.06, 0.96, 10, 46, board)
+    for b, z0, z1, col in ((0.16, 24, 38, (70, 72, 78)), (0.30, 26, 40, (160, 60, 44)), (0.46, 22, 36, (70, 72, 78)),
+                           (0.62, 28, 40, (210, 170, 60)), (0.80, 24, 38, (70, 72, 78))):
+        f.fline(0.06, b, b, z0, z1, col)
+        f.fline(0.06, b - 0.03, b + 0.03, z1, z1, col)
+    f.cbox(0.00, 0.04, 0.36, 0.96, 8, 10, shade(board, -20))      # a shelf
+    for b in (0.06, 0.88):
+        f.cbox(0.00, b, 0.30, b + 0.06, 0, 8, shade(board, -30))
+    f.cbox(0.06, 0.20, 0.26, 0.44, 10, 16, (180, 60, 50))           # a red box
+
+
+def furn_dinertable(f):
+    chrome = (186, 190, 196)
+    f.box(0.44, 0.44, 0.56, 0.56, 0, 14, shade(chrome, -30))
+    f.box(0.30, 0.30, 0.70, 0.70, 0, 2, shade(chrome, -20))
+    f.box(0.10, 0.10, 0.90, 0.90, 14, 16, chrome)
+    f.box(0.12, 0.12, 0.88, 0.88, 16, 17, (176, 54, 48))
+    f.box(0.40, 0.44, 0.52, 0.56, 17, 23, (220, 220, 214))         # a napkin holder
+    f.box(0.62, 0.30, 0.68, 0.36, 17, 25, (200, 50, 40))           # ketchup
+
+
+def furn_floorlamp(f, on=False):
+    pole = (70, 66, 62)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.ellipse_at((gx, gy), 6, 3, shade(pole, -10))
+    f.draw.line([(gx, gy), (gx, gy - 40)], fill=pole + (255,), width=2)
+    shade_col = (250, 226, 150) if on else (206, 190, 156)
+    f.draw.polygon([(gx - 9, gy - 36), (gx + 9, gy - 36), (gx + 6, gy - 48), (gx - 6, gy - 48)],
+                   fill=shade_col + (255,))
+    f.draw.line([(gx + 3, gy - 36), (gx + 9, gy - 36)], fill=shade(shade_col, -30) + (255,))
+    if on:
+        f.ellipse_at((gx, gy - 35), 5, 2, (255, 246, 200))
+
+
+# Searched frames: a door swung out, a drawer pulled, goods pulled about.
+
+DARK_INSIDE = (38, 30, 26)
+
+
+def p6_door(f, a, b0, b1, z0, z1, col, hinge_far=False):
+    """A door on the front plane a, from b0 to b1, swung out on its hinge."""
+    f.draw.polygon([f.M(a, b0, z0), f.M(a, b1, z0), f.M(a, b1, z1), f.M(a, b0, z1)], fill=DARK_INSIDE + (255,))
+    w = b1 - b0
+    if hinge_far:
+        hb, tip = b1, (a + w * 0.62, b1 - w * 0.52)
+    else:
+        hb, tip = b0, (a + w * 0.62, b0 + w * 0.52)
+    f.draw.polygon([f.M(a, hb, z0), f.M(tip[0], tip[1], z0), f.M(tip[0], tip[1], z1), f.M(a, hb, z1)],
+                   fill=col + (255,))
+    f.draw.line([f.M(tip[0], tip[1], z0), f.M(tip[0], tip[1], z1)], fill=shade(col, -40) + (255,))
+
+
+def p6_drawer(f, a, b0, b1, z0, z1, col):
+    """A drawer pulled half out of the front plane a."""
+    f.cbox(a - 0.02, b0, a + 0.20, b1, z0, z1, col)
+    f.cbox(a, b0 + 0.03, a + 0.17, b1 - 0.03, z1 - 1, z1, DARK_INSIDE)
+
+
+def p6_pulled(f, a, z_rows, b0=0.06, b1=0.94):
+    """Gaps on a shelf front and a box fallen in front of it."""
+    for z in z_rows:
+        for _ in range(2):
+            b = f.rng.uniform(b0, b1 - 0.16)
+            f.draw.polygon([f.M(a, b, z + 1), f.M(a, b + 0.14, z + 1), f.M(a, b + 0.14, z + 7), f.M(a, b, z + 7)],
+                           fill=DARK_INSIDE + (255,))
+    fb = f.rng.uniform(0.25, 0.6)
+    f.cbox(min(0.92, a + 0.12), fb, min(0.98, a + 0.24), fb + 0.14, 0, 5, (186, 150, 96))
+
+
+def p6_open_crates(f):
+    wood = (160, 120, 70)
+    lid_top = f.P(0.31, 0.33, 30)
+    f.draw.polygon([f.P(0.16, 0.18, 30), f.P(0.46, 0.18, 30), f.P(0.46, 0.48, 30), f.P(0.16, 0.48, 30)],
+                   fill=DARK_INSIDE + (255,))
+    f.draw.line([f.P(0.52, 0.10, 2), f.P(0.70, 0.30, 16)], fill=shade(wood, 10) + (255,), width=3)  # the lid leaning
+    f.ellipse_at((lid_top[0], lid_top[1]), 1, 1, (210, 200, 170))
+
+
+def p6_open_barrels(f):
+    gx, gy = f.P(0.66, 0.66, 26)
+    f.ellipse_at((gx, gy), 7, 3, DARK_INSIDE)
+    lx, ly = f.P(0.92, 0.40, 0)
+    f.ellipse_at((lx, ly - 2), 9, 4, (130, 60, 46))     # its lid on the floor
+
+
+# How each container's searched frame is drawn, on top of the piece itself.
+P6_OPEN = {
+    "bookshelf": lambda f: p6_pulled(f, 0.36, (2, 13, 24)),
+    "wardrobe": lambda f: p6_door(f, 0.42, 0.50, 0.88, 2, 44, (128, 92, 62)),
+    "dresser": lambda f: p6_drawer(f, 0.45, 0.14, 0.86, 7, 13, (140, 100, 66)),
+    "fridge": lambda f: p6_door(f, 0.60, 0.16, 0.84, 1, 27, (222, 224, 226), True),
+    "stove": lambda f: p6_drawer(f, 0.60, 0.20, 0.80, 2, 13, (204, 206, 210)),
+    "counter": lambda f: p6_door(f, 0.58, 0.52, 0.94, 1, 15, (196, 176, 146), True),
+    "sink": lambda f: p6_door(f, 0.10, 0.30, 0.70, 24, 40, (226, 228, 230)),
+    "tvstand": lambda f: p6_door(f, 0.40, 0.12, 0.48, 1, 11, (88, 64, 46)),
+    "storeshelf": lambda f: p6_pulled(f, 0.48, (2, 13, 24, 35)),
+    "checkout": lambda f: p6_drawer(f, 0.55, 0.30, 0.70, 12, 18, (100, 104, 112)),
+    "crates": p6_open_crates,
+    "metalrack": lambda f: p6_pulled(f, 0.50, (2, 17, 32)),
+    "workbench": lambda f: p6_drawer(f, 0.62, 0.30, 0.70, 10, 15, (150, 110, 70)),
+    "barrels": p6_open_barrels,
+    "desk": lambda f: p6_drawer(f, 0.52, 0.12, 0.38, 10, 15, (132, 96, 62)),
+    "filing": lambda f: p6_drawer(f, 0.50, 0.24, 0.76, 26, 36, (150, 154, 150)),
+    "locker": lambda f: p6_door(f, 0.40, 0.08, 0.48, 2, 45, (92, 112, 132)),
+    "pharmshelf": lambda f: p6_pulled(f, 0.44, (2, 12, 22, 32)),
+    "toolrack": lambda f: p6_pulled(f, 0.36, (0,), 0.10, 0.90),
+}
+
+FURNITURE_P6 = [
+    ("cot", furn_cot, True),
+    ("desk", furn_desk, True),
+    ("filing", furn_filing, True),
+    ("locker", furn_locker, True),
+    ("pallets", furn_pallets, False),
+    ("pharmshelf", furn_pharmshelf, True),
+    ("toolrack", furn_toolrack, True),
+    ("dinertable", furn_dinertable, False),
+    ("floorlamp", furn_floorlamp, False),
+]
+
+
+def p6_place(sprites, cursor, w, h, row_y, row_w):
+    x, y = cursor
+    if x + w > row_w:
+        x = 0
+        y += h
+    rect = {"x": x, "y": y, "w": w, "h": h}
+    return rect, (x + w, y)
+
+
+def add_phase6_furniture(img, sprites):
+    painters = {name: (painter, oriented, 1000 + i) for i, (name, painter, oriented) in enumerate(FURNITURE)}
+    for j, (name, painter, oriented) in enumerate(FURNITURE_P6):
+        painters[name] = (painter, oriented, 1000 + len(FURNITURE) + j)
+    cursor = (0, P6_FURN_Y)
+    jobs = []
+    for name, _, _ in FURNITURE_P6:
+        jobs.append((name, "", None))
+    jobs.append(("floorlamp", "_on", lambda f: furn_floorlamp(f, True)))
+    for name in P6_OPEN:
+        jobs.append((name, "_open", P6_OPEN[name]))
+    for name, suffix, extra in jobs:
+        painter, oriented, seed = painters[name]
+        for orient in (("r", "l") if oriented else (None,)):
+            f = Furn(seed, orient)
+            if suffix == "_on":
+                extra(f)
+            else:
+                painter(f)
+                if extra is not None:
+                    extra(f)
+            piece = f.finish()
+            rect, cursor = p6_place(sprites, cursor, FURN_W, FURN_H, P6_FURN_Y, SHEET_W)
+            img.paste(piece, (rect["x"], rect["y"]), piece)
+            sprites["furn_" + name + suffix + ("_" + orient if orient else "")] = rect
+
+
+# Props: garden beds in four stages and dead, snares, the alarm box.
+
+def prop_garden(f, stage, dead=False):
+    wood = (128, 94, 60)
+    soil = (74, 56, 40)
+    f.box(0.08, 0.08, 0.92, 0.92, 0, 5, wood)
+    f.box(0.12, 0.12, 0.88, 0.88, 5, 6, soil)
+    for i in range(1, 4):
+        v = i * 0.22 + 0.04
+        f.draw.line([f.P(0.16, v, 6), f.P(0.84, v, 6)], fill=shade(soil, -18) + (255,))
+    leaf = (86, 150, 62) if not dead else (122, 96, 58)
+    for i in range(3):
+        for j in range(3):
+            u = 0.22 + i * 0.26
+            v = 0.24 + j * 0.24
+            x, y = f.P(u, v, 6)
+            if dead:
+                f.draw.line([(x, y), (x + 2, y - 4)], fill=leaf + (255,))
+                f.draw.line([(x, y), (x - 3, y - 2)], fill=shade(leaf, -20) + (255,))
+                continue
+            h = (2, 5, 9, 11)[stage]
+            r = (1, 2, 4, 5)[stage]
+            f.draw.line([(x, y), (x, y - h)], fill=shade(leaf, -30) + (255,))
+            f.ellipse_at((x - 1, y - h), r, max(1, r - 1), leaf)
+            f.ellipse_at((x + 1, y - h + 1), max(1, r - 1), max(1, r - 2), shade(leaf, 18))
+            if stage == 3:
+                f.ellipse_at((x + 2, y - 3), 2, 2, (220, 110, 40) if (i + j) % 2 else (190, 50, 44))
+
+
+def prop_snare(f, state):
+    peg = (120, 90, 56)
+    wire = (186, 190, 196)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.draw.line([(gx + 8, gy - 2), (gx + 8, gy - 9)], fill=peg + (255,), width=2)
+    if state == "sprung":
+        f.draw.line([(gx + 8, gy - 8), (gx - 4, gy + 1)], fill=wire + (255,))
+        f.draw.line([(gx - 4, gy + 1), (gx - 8, gy - 1)], fill=wire + (255,))
+    else:
+        f.draw.line([(gx + 8, gy - 8), (gx, gy - 4)], fill=wire + (255,))
+        f.draw.ellipse([gx - 8, gy - 8, gx + 1, gy - 1], outline=wire + (255,))
+    if state == "caught":
+        fur = (128, 102, 76)
+        f.ellipse_at((gx - 4, gy - 3), 6, 4, fur)
+        f.ellipse_at((gx - 9, gy - 6), 3, 3, shade(fur, 10))
+        f.draw.line([(gx - 10, gy - 9), (gx - 11, gy - 14)], fill=shade(fur, 16) + (255,), width=2)
+
+
+def prop_alarm_box(f):
+    metal = (150, 152, 156)
+    gx, gy = f.P(0.12, 0.5, 0)
+    f.draw.line([(gx, gy), (gx, gy - 30)], fill=(90, 92, 96, 255), width=2)     # the conduit
+    f.draw.rectangle([gx - 6, gy - 40, gx + 6, gy - 28], fill=metal + (255,))
+    f.draw.rectangle([gx + 2, gy - 40, gx + 6, gy - 28], fill=shade(metal, -30) + (255,))
+    f.ellipse_at((gx - 1, gy - 36), 2, 2, (200, 40, 36))                       # the lamp
+    f.draw.line([(gx - 4, gy - 31), (gx + 1, gy - 31)], fill=(60, 60, 64, 255))
+
+
+PROPS_P6 = [
+    ("prop_garden_0", lambda f: prop_garden(f, 0)),
+    ("prop_garden_1", lambda f: prop_garden(f, 1)),
+    ("prop_garden_2", lambda f: prop_garden(f, 2)),
+    ("prop_garden_3", lambda f: prop_garden(f, 3)),
+    ("prop_garden_dead", lambda f: prop_garden(f, 0, True)),
+    ("prop_snare", lambda f: prop_snare(f, "set")),
+    ("prop_snare_caught", lambda f: prop_snare(f, "caught")),
+    ("prop_snare_sprung", lambda f: prop_snare(f, "sprung")),
+    ("prop_alarm_box", prop_alarm_box),
+]
+
+
+def add_phase6_props(img, sprites):
+    for i, (name, painter) in enumerate(PROPS_P6):
+        f = Furn(6000 + i)
+        painter(f)
+        piece = f.finish()
+        x = i * PROP_CELL
+        img.paste(piece, (x + (PROP_CELL - FURN_W) // 2, P6_PROP_Y), piece)
+        sprites[name] = {"x": x, "y": P6_PROP_Y, "w": PROP_CELL, "h": PROP_CELL}
+
+
+# Signs: a small board on the wall over a shop's street door, a pictogram,
+# no text. Drawn flat, then sheared to lie along a wall running south-east.
+
+def sign_picture(kind):
+    ic = Icon("sign_" + kind)
+    board = (226, 220, 204)
+    ic.rect(4, 8, 28, 24, board)
+    ink = {"cross": (52, 150, 76), "wrench": (70, 74, 82), "cart": (40, 90, 160), "badge": (40, 60, 120),
+           "cup": (150, 70, 46), "crate": (140, 100, 56)}[kind]
+    if kind == "cross":
+        ic.rect(14, 10, 18, 22, ink)
+        ic.rect(10, 14, 22, 18, ink)
+    elif kind == "wrench":
+        ic.line(10, 21, 20, 12, ink, 2)
+        ic.ellipse(21, 11, 3.2, 3.2, ink)
+        ic.rect(20, 9, 23, 12, board)
+    elif kind == "cart":
+        ic.line(8, 11, 11, 11, ink, 1)
+        ic.poly([(11, 12), (24, 12), (22, 18), (12, 18)], ink)
+        ic.ellipse(13.5, 21, 1.6, 1.6, ink)
+        ic.ellipse(21.5, 21, 1.6, 1.6, ink)
+    elif kind == "badge":
+        ic.poly([(16, 9), (23, 12), (21, 21), (16, 23), (11, 21), (9, 12)], ink)
+        ic.ellipse(16, 15.5, 2.2, 2.2, (220, 190, 80))
+    elif kind == "cup":
+        ic.rect(11, 12, 20, 21, ink)
+        ic.ellipse(21, 16, 2.6, 2.6, ink)
+        ic.ellipse(21, 16, 1.2, 1.2, board)
+        ic.line(13, 9, 14, 11, (150, 150, 150), 1)
+        ic.line(17, 9, 16, 11, (150, 150, 150), 1)
+    elif kind == "crate":
+        ic.rect(10, 11, 22, 21, ink)
+        ic.line(10, 11, 22, 21, shade(ink, -40), 1)
+        ic.line(22, 11, 10, 21, shade(ink, -40), 1)
+    ic.outline()
+    return ic
+
+
+SIGNS = ("cross", "wrench", "cart", "badge", "cup", "crate")
+
+
+def add_phase6_signs(img, sprites):
+    for i, kind in enumerate(SIGNS):
+        ic = sign_picture(kind)
+        flat = Image.new("RGBA", (ITEM_SIZE, ITEM_SIZE), (0, 0, 0, 0))
+        ic.paste(flat, 0, 0)
+        # Shear: one pixel down for every two across, as a south-east wall runs.
+        sheared = Image.new("RGBA", (P6_SIGN_W, P6_SIGN_H + 8), (0, 0, 0, 0))
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                px = flat.getpixel((x, y))
+                if px[3] == 0:
+                    continue
+                ty = y - 6 + x // 2
+                if 0 <= ty < P6_SIGN_H + 8:
+                    sheared.putpixel((x, ty), px)
+        sheared = sheared.crop((0, 0, P6_SIGN_W, P6_SIGN_H + 8))
+        x = i * (P6_SIGN_W)
+        img.paste(sheared, (x, P6_SIGN_Y), sheared)
+        sprites["sign_" + kind] = {"x": x, "y": P6_SIGN_Y, "w": P6_SIGN_W, "h": P6_SIGN_H + 8}
+        # The flat pictogram for the town map.
+        fx = (len(SIGNS) + i) * ITEM_SIZE
+        ic.paste(img, fx, P6_SIGN_Y)
+        sprites["map_" + kind] = {"x": fx, "y": P6_SIGN_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+
+
+# Item icons for the new things to find, cook and grow.
+
+def draw_phase6_icon(name):
+    ic = Icon(name)
+    if name == "item_herbal_tea" or name == "item_dirty_water":
+        glass = (200, 214, 220)
+        water = (150, 190, 120) if name == "item_herbal_tea" else (120, 110, 70)
+        ic.rect(12, 9, 20, 27, glass)
+        ic.rect(14, 5, 18, 9, glass)
+        ic.rect(13, 13, 19, 26, water)
+        ic.light()
+        ic.rect(14, 4, 18, 6, (60, 70, 80))
+        if name == "item_herbal_tea":
+            ic.ellipse(16, 18, 2.4, 1.6, (70, 130, 60))
+        else:
+            for x, y in ((14, 22), (17, 19), (15, 16)):
+                ic.set(x, y, (70, 60, 40))
+    elif name == "item_cooked_meat":
+        ic.ellipse(16, 18, 9, 6, (150, 86, 50))
+        ic.ellipse(15, 17, 6, 3.6, (186, 116, 70))
+        ic.line(23, 15, 27, 11, (230, 224, 208), 2)
+        ic.light()
+    elif name == "item_berries":
+        for cx, cy in ((12, 18), (17, 15), (20, 20), (14, 23), (19, 25), (23, 16)):
+            ic.ellipse(cx, cy, 3, 3, (70, 50, 140))
+            ic.set(int(cx) - 1, int(cy) - 1, (150, 130, 210))
+        ic.line(16, 8, 17, 14, (70, 110, 50), 1)
+        ic.ellipse(13, 9, 3, 1.8, (80, 140, 60))
+    elif name == "item_mushrooms":
+        for cx in (12, 20):
+            ic.rect(cx - 1, 16, cx + 2, 25, (226, 214, 190))
+            ic.ellipse(cx + 0.5, 15, 6, 4, (170, 110, 60))
+            ic.set(cx - 2, 13, (230, 220, 200))
+            ic.set(cx + 2, 14, (230, 220, 200))
+        ic.light()
+    elif name == "item_herbs":
+        for i, (x, y) in enumerate(((10, 10), (16, 7), (22, 11), (13, 15), (20, 16))):
+            ic.ellipse(x, y, 3, 2.2, (80 + i * 8, 146, 64))
+        ic.line(16, 26, 12, 11, (90, 120, 60), 1)
+        ic.line(16, 26, 20, 12, (90, 120, 60), 1)
+        ic.rect(13, 22, 20, 25, (200, 170, 110))    # tied with string
+    elif name == "item_cooking_pot":
+        metal = (150, 154, 160)
+        ic.rect(8, 13, 24, 25, metal)
+        ic.rect(6, 12, 26, 14, shade(metal, 20))
+        ic.rect(3, 15, 8, 17, (60, 60, 64))
+        ic.rect(24, 15, 29, 17, (60, 60, 64))
+        ic.light()
+    elif name in ("item_rice", "item_cooked_rice", "item_stew"):
+        if name == "item_rice":
+            ic.rect(9, 8, 23, 27, (210, 196, 160))
+            ic.rect(9, 8, 23, 11, (180, 160, 120))
+            ic.rect(11, 14, 21, 21, (240, 236, 224))
+            ic.light()
+        else:
+            bowl = (190, 120, 80) if name == "item_stew" else (226, 226, 220)
+            fill = (150, 80, 46) if name == "item_stew" else (246, 244, 236)
+            ic.ellipse(16, 19, 10, 6, bowl)
+            ic.ellipse(16, 16, 9, 3, fill)
+            ic.rect(7, 16, 26, 20, bowl)
+            if name == "item_stew":
+                for x, y in ((12, 16), (18, 15), (20, 17)):
+                    ic.set(x, y, (220, 140, 60))
+                    ic.set(x + 1, y, (100, 160, 70))
+            ic.line(10, 10, 12, 14, (200, 200, 200), 1)
+            ic.line(20, 9, 19, 13, (200, 200, 200), 1)
+    elif name == "item_chips":
+        ic.poly([(9, 6), (23, 6), (25, 27), (7, 27)], (210, 60, 50))
+        ic.rect(9, 12, 23, 20, (240, 200, 70))
+        ic.light()
+    elif name == "item_soda":
+        ic.rect(11, 8, 21, 27, (60, 120, 200))
+        ic.rect(11, 14, 21, 18, (230, 230, 230))
+        ic.rect(12, 6, 20, 8, (180, 184, 190))
+        ic.light()
+    elif name == "item_battery":
+        ic.rect(9, 11, 23, 22, (60, 60, 64))
+        ic.rect(9, 11, 14, 22, (200, 150, 50))
+        ic.rect(23, 14, 25, 19, (190, 190, 194))
+        ic.light()
+    elif name == "item_radio":
+        ic.rect(6, 11, 26, 25, (70, 66, 60))
+        ic.rect(8, 13, 16, 23, (40, 40, 42))
+        for y in range(14, 23, 2):
+            ic.line(8, y, 15, y, (90, 90, 90), 1)
+        ic.ellipse(21, 16, 2.4, 2.4, (200, 190, 160))
+        ic.rect(18, 21, 24, 23, (190, 170, 120))
+        ic.line(22, 11, 27, 3, (170, 170, 176), 1)
+        ic.light()
+    elif name == "item_backpack":
+        cloth = (90, 110, 70)
+        ic.rect(9, 9, 23, 27, cloth)
+        ic.ellipse(16, 9, 7, 4, cloth)
+        ic.rect(11, 18, 21, 25, shade(cloth, -18))
+        ic.line(13, 6, 19, 6, (60, 50, 40), 1)
+        ic.light()
+    elif name == "item_duct_tape":
+        ic.ellipse(16, 16, 10, 10, (150, 156, 164))
+        ic.ellipse(16, 16, 4.5, 4.5, (0, 0, 0))
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                if ic.get(x, y) == (0, 0, 0):
+                    ic.set(x, y, None)
+        ic.rect(22, 18, 28, 22, (150, 156, 164))
+        ic.light()
+    elif name == "item_snare":
+        ic.line(8, 24, 22, 10, (186, 190, 196), 1)
+        for a in range(0, 360, 20):
+            r = math.radians(a)
+            ic.set(int(20 + math.cos(r) * 6), int(13 + math.sin(r) * 6), (186, 190, 196))
+        ic.rect(6, 22, 10, 28, (120, 90, 56))
+    elif name == "item_seed_packet":
+        ic.rect(9, 6, 23, 27, (232, 222, 190))
+        ic.ellipse(16, 15, 5, 5, (90, 160, 70))
+        ic.ellipse(16, 13, 2, 2, (220, 110, 40))
+        ic.rect(9, 22, 23, 25, (180, 60, 50))
+        ic.light()
+    elif name == "item_vegetables":
+        ic.poly([(8, 10), (14, 9), (17, 26), (13, 27)], (230, 120, 40))   # a carrot
+        ic.line(10, 9, 8, 4, (80, 150, 60), 1)
+        ic.line(12, 9, 13, 4, (80, 150, 60), 1)
+        ic.ellipse(21, 20, 6, 6, (130, 60, 120))                          # a beet
+        ic.line(21, 14, 22, 8, (80, 150, 60), 1)
+        ic.light()
+    elif name == "item_toolbox":
+        red = (190, 54, 44)
+        ic.rect(5, 13, 27, 26, red)
+        ic.rect(5, 13, 27, 16, shade(red, 20))
+        ic.frame(12, 8, 20, 13, (70, 72, 78))
+        ic.rect(14, 18, 18, 20, (200, 200, 200))
+        ic.light()
+    elif name == "item_purification_tablets":
+        ic.rect(8, 9, 24, 25, (230, 232, 236))
+        ic.rect(8, 9, 24, 13, (60, 120, 190))
+        for x, y in ((12, 17), (17, 17), (12, 21), (17, 21)):
+            ic.ellipse(x + 1.5, y + 1, 1.8, 1.8, (200, 220, 240))
+        ic.light()
+    else:
+        ic.rect(9, 9, 23, 23, (150, 150, 150))
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+ITEM_ICONS_P6 = [
+    "item_herbal_tea", "item_cooked_meat", "item_berries", "item_mushrooms", "item_herbs", "item_dirty_water",
+    "item_cooking_pot", "item_rice", "item_cooked_rice", "item_chips", "item_soda", "item_battery", "item_radio",
+    "item_backpack", "item_duct_tape", "item_snare", "item_seed_packet", "item_vegetables", "item_toolbox",
+    "item_stew", "item_purification_tablets",
+]
+
+
+def add_phase6_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    add_phase6_furniture(img, sprites)
+    add_phase6_props(img, sprites)
+    for i, name in enumerate(ITEM_ICONS_P6):
+        x = i * ITEM_SIZE
+        draw_phase6_icon(name).paste(img, x, P6_ICON_Y)
+        sprites[name] = {"x": x, "y": P6_ICON_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    add_phase6_signs(img, sprites)
+    # Nothing new may overlap what was there before.
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 6 sprite " + k + " overlaps " + ok)
+
+
+
+# --- Phase 7: weather and fire --------------------------------------------
+P7_Y = 3776   # below the armin rows, which end at 3776
+
+
+def burnt_roof_piece(mask):
+    """A gutted house's roof: the residential piece charred black, holed,
+    with the rafters left standing across the holes."""
+    src = make_roof_piece("residential", mask)
+    out = Image.new("RGBA", src.size, (0, 0, 0, 0))
+    rng = random.Random(7700 + mask)
+    rise = ROOF_RISE["residential"]
+    for py in range(src.height):
+        for px in range(src.width):
+            r, g, b, a = src.getpixel((px, py))
+            if a == 0:
+                continue
+            lum = (r * 3 + g * 5 + b * 2) / 10.0
+            # Charred: dark, a little warm.
+            c = (clamp8(18 + lum * 0.26), clamp8(15 + lum * 0.22), clamp8(14 + lum * 0.2))
+            # Holes burned through, in blotches; the rafters run down the slope
+            # (iso lines) and stay.
+            cell = ((px // 8) * 73856093 ^ ((py + rise) // 4) * 19349663 ^ mask * 83492791) & 0xFFFF
+            rafter = (px + 2 * py) % 12 in (0, 1)
+            hole = cell % 7 in (0, 1) and py < src.height - ROOF_FASCIA - 1
+            if hole and not rafter:
+                continue
+            if rafter and hole:
+                c = (34, 26, 22)
+            elif rng.random() < 0.06:
+                c = (90, 46, 30)        # a glowing ember left in the char
+            out.putpixel((px, py), (c[0], c[1], c[2], a))
+    return out
+
+
+def draw_flame(frame):
+    """A tile's flames, 32x40, four frames that flicker."""
+    img = Image.new("RGBA", (32, 40), (0, 0, 0, 0))
+    rng = random.Random(8100 + frame)
+    tongues = [(8 + rng.uniform(-1, 1), 16 + frame % 2 * 2), (16 + rng.uniform(-1.5, 1.5), 30 - frame), (24 + rng.uniform(-1, 1), 18 + (frame + 1) % 2 * 3)]
+    for cx, height in tongues:
+        sway = math.sin(frame * 1.6 + cx) * 2.0
+        for y in range(int(height)):
+            t = y / height                # 0 at the base, 1 at the tip
+            half = (1.0 - t) ** 0.8 * 5.5
+            x_mid = cx + sway * t
+            for x in range(int(x_mid - half), int(math.ceil(x_mid + half)) + 1):
+                if not 0 <= x < 32:
+                    continue
+                d = abs(x + 0.5 - x_mid) / max(0.5, half)
+                if d > 1.0:
+                    continue
+                core = (1.0 - d) * (1.0 - t)
+                if core > 0.45:
+                    c = (255, 236, 150)
+                elif core > 0.2:
+                    c = (250, 170, 60)
+                else:
+                    c = (210, 80, 30)
+                py = 39 - 4 - y
+                a = 235 if t < 0.85 else 160
+                prev = img.getpixel((x, py))
+                if prev[3] == 0 or core > 0.2:
+                    img.putpixel((x, py), (c[0], c[1], c[2], a))
+    # Embers on the ground.
+    for _ in range(6):
+        x, y = rng.randint(4, 27), rng.randint(34, 38)
+        img.putpixel((x, y), (200, 70, 30, 220))
+    # Sparks above.
+    for _ in range(3):
+        x, y = rng.randint(6, 25), rng.randint(2, 12)
+        img.putpixel((x, y), (255, 200, 90, 200))
+    return img
+
+
+def draw_phase7_icon(name):
+    ic = Icon(name)
+    if name == "item_winter_coat":
+        wool = (120, 70, 56)
+        ic.poly([(10, 6), (22, 6), (28, 13), (27, 29), (5, 29), (4, 13)], wool)
+        ic.poly([(4, 13), (10, 7), (10, 28), (2, 27)], shade(wool, -12))
+        ic.poly([(28, 13), (22, 7), (22, 28), (30, 27)], shade(wool, -12))
+        ic.light(22, -26)
+        ic.rect(10, 4, 22, 8, (214, 206, 190))           # the fleece collar
+        ic.line(16, 8, 16, 28, (70, 40, 32), 1)
+        for y in (12, 17, 22):
+            ic.set(18, y, (200, 180, 120))               # toggles
+            ic.set(19, y, (200, 180, 120))
+        ic.rect(5, 26, 10, 29, (214, 206, 190))           # cuffs
+        ic.rect(22, 26, 27, 29, (214, 206, 190))
+    elif name == "item_raincoat":
+        yellow = (214, 178, 52)
+        ic.poly([(11, 9), (21, 9), (27, 15), (26, 28), (6, 28), (5, 15)], yellow)
+        ic.poly([(5, 15), (11, 10), (11, 27), (3, 26)], shade(yellow, -14))
+        ic.poly([(27, 15), (21, 10), (21, 27), (29, 26)], shade(yellow, -14))
+        ic.ellipse(16, 7, 6, 4.5, shade(yellow, 8))     # the hood
+        ic.ellipse(16, 8, 3.2, 2.4, (70, 60, 40))
+        ic.light(28, -30)
+        ic.line(16, 12, 16, 27, (150, 120, 30), 1)
+        for y in (15, 20, 25):
+            ic.set(17, y, (60, 60, 64))
+    else:
+        ic.rect(9, 9, 23, 23, (150, 150, 150))
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+ITEM_ICONS_P7 = ["item_winter_coat", "item_raincoat"]
+
+
+def add_phase7_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    x = 0
+    row_h = 0
+    for mask in range(16):
+        piece = burnt_roof_piece(mask)
+        img.alpha_composite(piece, (x, P7_Y))
+        sprites["roofp_burnt_%d" % mask] = {"x": x, "y": P7_Y, "w": piece.width, "h": piece.height}
+        x += piece.width
+        row_h = max(row_h, piece.height)
+    for frame in range(4):
+        flame = draw_flame(frame)
+        img.alpha_composite(flame, (x, P7_Y))
+        sprites["fx_flame_%d" % frame] = {"x": x, "y": P7_Y, "w": flame.width, "h": flame.height}
+        x += flame.width
+    for name in ITEM_ICONS_P7:
+        draw_phase7_icon(name).paste(img, x, P7_Y)
+        sprites[name] = {"x": x, "y": P7_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+        x += ITEM_SIZE
+    if x > SHEET_W or P7_Y + max(row_h, 40) > SHEET_H:
+        raise SystemExit("phase 7 block does not fit")
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 7 sprite " + k + " overlaps " + ok)
+
+
+# --- Phase 9: the way out ------------------------------------------------
+P9_Y = 1880   # the free band above the kind blocks (1872 to 2048)
+
+GATE_STEEL = (112, 120, 128)
+GATE_RAIL = (86, 92, 100)
+
+
+def make_gate_panel(along_x):
+    """One tile of the service gate: a steel gate of bars between two rails,
+    standing where the wall round the town would be."""
+    piece = WallPiece(WALL_H)
+
+    def face(left):
+        def fn(u, z):
+            rail = z < 3 or 25 <= z <= 27 or z >= WALL_H - 3
+            if rail:
+                c = GATE_RAIL
+            elif u % 4 in (0, 1):
+                c = shade(GATE_STEEL, 10 if u % 4 == 0 else -6)
+            else:
+                return None
+            if (z * 7 + u * 3) % 23 == 0:
+                c = (128, 86, 60)                    # rust
+            return c if left else shade(c, -22)
+        return fn
+
+    top = shade(GATE_RAIL, 18)
+    if along_x:
+        piece.box(0, 32, SLAB_LO + 1, SLAB_HI - 1, 0, WALL_H, face(True), face(False), top)
+    else:
+        piece.box(SLAB_LO + 1, SLAB_HI - 1, 0, 32, 0, WALL_H, face(True), face(False), top)
+    outline_opaque(piece.img, FURN_OUTLINE)
+    return piece.img
+
+
+def prop_generator(f):
+    """The guard hut's generator under its lean-to."""
+    post = (96, 74, 52)
+    tin = (126, 130, 132)
+    # The lean-to at the back: two posts and a sloping tin roof.
+    for v in (0.12, 0.88):
+        x, y = f.P(0.1, v, 0)
+        f.draw.line([(x, y), (x, y - 44)], fill=post + (255,), width=2)
+    f.poly([f.P(0.0, 0.0, 46), f.P(0.0, 1.0, 46), f.P(0.42, 1.0, 40), f.P(0.42, 0.0, 40)], tin)
+    for i in range(1, 6):
+        a, b = f.P(0.0, i / 6.0, 46), f.P(0.42, i / 6.0, 40)
+        f.draw.line([a, b], fill=shade(tin, -24) + (255,))
+    # The generator: an olive housing on skids.
+    olive = (92, 104, 70)
+    f.box(0.22, 0.24, 0.82, 0.76, 0, 3, (60, 58, 54))
+    f.box(0.26, 0.28, 0.78, 0.72, 3, 22, olive)
+    f.box(0.36, 0.34, 0.56, 0.52, 22, 25, shade(olive, -20))      # the filler cap
+    gx, gy = f.P(0.78, 0.5, 12)
+    f.draw.rectangle([gx - 5, gy - 4, gx + 1, gy + 1], fill=(40, 40, 42, 255))   # the panel
+    f.ellipse_at(f.P(0.78, 0.36, 15), 1.5, 1.5, (210, 190, 90))
+    ex, ey = f.P(0.3, 0.7, 22)
+    f.draw.line([(ex, ey), (ex, ey - 10)], fill=(60, 60, 62, 255), width=2)      # the exhaust
+
+
+def prop_gate_box(f):
+    """The gate's control box on its post: four lamp sockets (the game lights
+    them) and a key switch."""
+    metal = (126, 138, 128)
+    gx, gy = f.P(0.5, 0.5, 0)
+    f.draw.line([(gx, gy), (gx, gy - 28)], fill=(76, 78, 82, 255), width=3)    # the post
+    f.draw.rectangle([gx - 9, gy - 48, gx + 9, gy - 27], fill=metal + (255,))
+    f.draw.rectangle([gx + 5, gy - 48, gx + 9, gy - 27], fill=shade(metal, -30) + (255,))
+    f.draw.rectangle([gx - 9, gy - 48, gx + 9, gy - 47], fill=shade(metal, 24) + (255,))
+    for dx in (-7, -3, 1, 5):
+        f.draw.rectangle([gx + dx - 1, gy - 44, gx + dx + 1, gy - 42], fill=(36, 36, 38, 255))
+    f.ellipse_at((gx - 2, gy - 34), 2.5, 2.5, (60, 60, 64))                    # the key switch
+    f.draw.line([(gx - 3, gy - 34), (gx - 1, gy - 34)], fill=(180, 170, 120, 255))
+
+
+def prop_read_note(f):
+    """A note stuck to the front of a fridge."""
+    gx, gy = f.P(0.5, 0.5, 0)
+    paper = (236, 232, 214)
+    f.poly([(gx - 2, gy - 40), (gx + 6, gy - 44), (gx + 6, gy - 34), (gx - 2, gy - 30)], paper)
+    f.draw.line([(gx, gy - 37), (gx + 4, gy - 39)], fill=(90, 90, 110, 255))
+    f.draw.line([(gx, gy - 34), (gx + 4, gy - 36)], fill=(90, 90, 110, 255))
+    f.ellipse_at((gx + 2, gy - 41), 1.2, 1.2, (190, 50, 44))                  # the magnet
+
+
+def prop_read_board(f):
+    """A board on the wall: a map or a duty sheet pinned up."""
+    gx, gy = f.P(0.5, 0.5, 0)
+    cork = (170, 132, 88)
+    f.poly([(gx - 10, gy - 44), (gx + 8, gy - 53), (gx + 8, gy - 37), (gx - 10, gy - 28)], cork)
+    f.poly([(gx - 7, gy - 43), (gx + 5, gy - 49), (gx + 5, gy - 39), (gx - 7, gy - 33)], (230, 226, 210))
+    f.draw.line([(gx - 5, gy - 39), (gx + 3, gy - 43)], fill=(120, 120, 140, 255))
+    f.ellipse_at((gx + 1, gy - 42), 1.4, 1.4, (200, 40, 36))
+
+
+def prop_read_book(f):
+    """A ledger lying open on a desk or a bench."""
+    gx, gy = f.P(0.5, 0.5, 22)
+    f.poly([(gx - 9, gy - 2), (gx, gy - 6), (gx + 9, gy - 2), (gx, gy + 2)], (60, 70, 110))
+    f.poly([(gx - 8, gy - 3), (gx, gy - 6), (gx, gy + 0), (gx - 8, gy + 0)], (232, 228, 212))
+    f.poly([(gx, gy - 6), (gx + 8, gy - 3), (gx + 8, gy + 0), (gx, gy + 0)], (220, 216, 200))
+    f.draw.line([(gx - 6, gy - 3), (gx - 2, gy - 4)], fill=(110, 110, 130, 255))
+    f.draw.line([(gx + 2, gy - 4), (gx + 6, gy - 3)], fill=(110, 110, 130, 255))
+
+
+PROPS_P9 = [
+    ("prop_generator", prop_generator),
+    ("prop_gate_box", prop_gate_box),
+    ("prop_read_note", prop_read_note),
+    ("prop_read_board", prop_read_board),
+    ("prop_read_book", prop_read_book),
+]
+
+
+def draw_phase9_icon(name):
+    ic = Icon(name)
+    if name == "item_gate_key":
+        brass = (206, 176, 84)
+        ic.ellipse(11, 12, 6, 6, brass)
+        ic.ellipse(11, 12, 2.6, 2.6, (0, 0, 0))
+        for y in range(ITEM_SIZE):
+            for x in range(ITEM_SIZE):
+                if ic.get(x, y) == (0, 0, 0):
+                    ic.set(x, y, None)
+        ic.line(15, 16, 26, 27, brass, 2)
+        ic.line(22, 24, 25, 21, brass, 2)
+        ic.line(19, 21, 21, 19, brass, 1)
+        ic.rect(3, 20, 10, 27, (180, 50, 44))      # the tag
+        ic.line(7, 18, 9, 16, (220, 220, 220), 1)
+        ic.light()
+    elif name == "item_gate_fuse":
+        ceramic = (226, 222, 210)
+        ic.rect(9, 11, 23, 21, ceramic)
+        ic.rect(9, 11, 23, 13, shade(ceramic, 14))
+        ic.rect(5, 10, 9, 22, (190, 160, 80))       # brass caps
+        ic.rect(23, 10, 27, 22, (190, 160, 80))
+        ic.rect(3, 14, 5, 18, (170, 140, 70))
+        ic.rect(27, 14, 29, 18, (170, 140, 70))
+        ic.rect(13, 15, 19, 17, (200, 60, 50))      # the rating band
+        ic.light()
+    else:
+        ic.rect(9, 9, 23, 23, (150, 150, 150))
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+ITEM_ICONS_P9 = ["item_gate_key", "item_gate_fuse"]
+
+
+def add_phase9_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    x = 0
+    for axis, along_x in (("x", True), ("y", False)):
+        panel = make_gate_panel(along_x)
+        img.alpha_composite(panel, (x, P9_Y))
+        sprites["gate_panel_" + axis] = {"x": x, "y": P9_Y, "w": panel.width, "h": panel.height}
+        x += panel.width
+    for i, (name, painter) in enumerate(PROPS_P9):
+        f = Furn(9000 + i)
+        painter(f)
+        piece = f.finish()
+        img.paste(piece, (x + (PROP_CELL - FURN_W) // 2, P9_Y), piece)
+        sprites[name] = {"x": x, "y": P9_Y, "w": PROP_CELL, "h": PROP_CELL}
+        x += PROP_CELL
+    for name in ITEM_ICONS_P9:
+        draw_phase9_icon(name).paste(img, x, P9_Y)
+        sprites[name] = {"x": x, "y": P9_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+        x += ITEM_SIZE
+    if x > SHEET_W or P9_Y + ISO_TILE_H + WALL_H > KIND_BLOCK_Y:
+        raise SystemExit("phase 9 block does not fit")
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 9 sprite " + k + " overlaps " + ok)
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: the cemetery (a low fence, set stones, the town's old stones),
+# bones in the street, and a grave's marker carried in the pack. Beside the
+# legacy props (y=448), from x=288.
+# ---------------------------------------------------------------------------
+
+P10_X = 288
+P10_Y = 448
+
+
+def fence_section(img, rng, along_x):
+    """A low picket run across one tile, along world x (down-right) or y (down-left)."""
+    wood = (118, 92, 64)
+    dark = shade(wood, -34)
+    cx, cy = 32, 54
+    dx, dy = (14, 7) if along_x else (-14, 7)
+    # rails: two lines between the ends, lit on top
+    for t10 in range(0, 29):
+        t = t10 / 28.0
+        x = int(round(cx - dx + 2 * dx * t))
+        y = int(round(cy - dy + 2 * dy * t))
+        for rail in (7, 13):
+            put(img, x, y - rail, shade(wood, 8 + rng.randint(-4, 4)))
+            put(img, x, y - rail + 1, dark)
+    # pickets: short boards with pointed tops
+    for i in range(5):
+        t = i / 4.0
+        x = int(round(cx - dx + 2 * dx * t))
+        y = int(round(cy - dy + 2 * dy * t))
+        h = 17 + rng.randint(-1, 1)
+        for yy in range(y - h, y + 1):
+            put(img, x, yy, shade(wood, 4 + rng.randint(-5, 5)))
+            put(img, x + 1, yy, shade(wood, -16 + rng.randint(-4, 4)))
+        put(img, x, y - h - 1, shade(wood, 12))
+    # a little grass at the feet
+    for _ in range(8):
+        t = rng.random()
+        x = int(round(cx - dx + 2 * dx * t)) + rng.randint(-2, 2)
+        y = int(round(cy - dy + 2 * dy * t)) + rng.randint(0, 2)
+        put(img, x, y, (74, 116, 54))
+
+
+def make_p10_prop(kind, seed):
+    rng = random.Random(10000 + seed)
+    img = Image.new("RGBA", (PROP, PROP), (0, 0, 0, 0))
+    if kind == "fence_x":
+        fence_section(img, rng, True)
+    elif kind == "fence_y":
+        fence_section(img, rng, False)
+    elif kind == "headstone":
+        # a stone set in the cemetery: upright, clean, flowers at its foot
+        soft_shadow(img, 34, 55, 12, 4, 70)
+        headstone(img, rng, 24, 54, 14, 21, stone=(150, 150, 146))
+        for (x, y, c) in ((22, 55, (200, 70, 60)), (23, 54, (220, 190, 70)), (40, 56, (210, 210, 220)),
+                          (41, 55, (200, 70, 60))):
+            put(img, x, y, c)
+            put(img, x, y + 1, (70, 112, 52))
+    elif kind == "stone_old":
+        # the town's own: low, leaning, moss in the letters
+        soft_shadow(img, 33, 55, 12, 4, 60)
+        stone = Image.new("RGBA", (PROP, PROP), (0, 0, 0, 0))
+        headstone(stone, rng, 25, 55, 13, 16, stone=(112, 116, 108))
+        stone = stone.rotate(-8, resample=Image.NEAREST, center=(31, 55))
+        img.alpha_composite(stone)
+        for _ in range(16):
+            x = rng.randint(25, 37)
+            y = rng.randint(41, 54)
+            if img.getpixel((x, y))[3] > 0:
+                put(img, x, y, (84, 112, 62))
+        for _ in range(10):
+            put(img, rng.randint(20, 44), rng.randint(55, 60), (78, 118, 56))
+    return img
+
+
+def make_bones(rng):
+    """Bones lying flat in the street (32x32, a ground decal)."""
+    img = Image.new("RGBA", (ITEM_SIZE, ITEM_SIZE), (0, 0, 0, 0))
+    bone = (214, 206, 186)
+    def stick(x0, y0, x1, y1):
+        steps = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+        for i in range(steps + 1):
+            t = i / float(steps)
+            x = int(round(x0 + (x1 - x0) * t))
+            y = int(round(y0 + (y1 - y0) * t))
+            put(img, x, y, shade(bone, rng.randint(-10, 6)))
+        for (x, y) in ((x0, y0), (x1, y1)):
+            put(img, x - 1, y, shade(bone, -6))
+            put(img, x, y + 1, shade(bone, -14))
+    stick(6, 18, 15, 22)
+    stick(14, 14, 24, 17)
+    stick(10, 23, 19, 25)
+    # the skull, small, half turned
+    for y in range(10, 15):
+        for x in range(20, 26):
+            if (x - 22.8) ** 2 / 9.0 + (y - 12.2) ** 2 / 5.0 <= 1.0:
+                put(img, x, y, shade(bone, 6 - (y - 10) * 3 + rng.randint(-4, 4)))
+    put(img, 21, 12, (60, 54, 48))
+    put(img, 23, 12, (60, 54, 48))
+    return img
+
+
+def draw_marker_icon():
+    ic = Icon("item_marker")
+    wood = (150, 112, 72)
+    ic.rect(14, 5, 18, 29, wood)        # the upright
+    ic.rect(8, 10, 24, 14, wood)        # the arm
+    ic.rect(14, 5, 15, 29, shade(wood, 18))
+    ic.rect(9, 11, 23, 13, (226, 218, 196))  # a strip with the name on it
+    ic.line(10, 12, 21, 12, (70, 60, 52), 1)
+    ic.rect(13, 25, 19, 29, (110, 82, 52))   # earth still on the point
+    ic.light()
+    ic.grain(3)
+    ic.outline()
+    return ic
+
+
+def add_phase10_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    # the block must be empty sheet
+    for yy in range(P10_Y, P10_Y + PROP):
+        for xx in range(P10_X, P10_X + 4 * PROP + ITEM_SIZE):
+            if img.getpixel((xx, yy))[3] != 0:
+                raise SystemExit("phase 10 block is not empty at %d,%d" % (xx, yy))
+    x = P10_X
+    for seed, kind in enumerate(("fence_x", "fence_y", "headstone", "stone_old")):
+        prop = make_p10_prop(kind, seed)
+        img.alpha_composite(prop, (x, P10_Y))
+        sprites["prop_" + kind] = {"x": x, "y": P10_Y, "w": PROP, "h": PROP}
+        x += PROP
+    bones = make_bones(random.Random(10100))
+    img.alpha_composite(bones, (x, P10_Y))
+    sprites["prop_bones"] = {"x": x, "y": P10_Y, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    draw_marker_icon().paste(img, x, P10_Y + ITEM_SIZE)
+    sprites["item_marker"] = {"x": x, "y": P10_Y + ITEM_SIZE, "w": ITEM_SIZE, "h": ITEM_SIZE}
+    x += ITEM_SIZE
+    if x > SHEET_W:
+        raise SystemExit("phase 10 block does not fit")
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 10 sprite " + k + " overlaps " + ok)
+
+
+# ---------------------------------------------------------------------------
+# Phase 11: vehicles. A sedan in four paints and a pickup in two (empty and
+# loaded), a bicycle standing and ridden. Each is built from boxes in its own
+# frame (a along the body, b across it, z up), turned to a heading and drawn
+# back to front. Five facings per vehicle (world headings 0, 45, 225, 270
+# and 315 degrees); the game mirrors them for the other three. The block
+# starts at y=3840, an empty band across the sheet.
+# Must match the frame sizes and sinks in src/core/GameVehicles.cpp.
+# ---------------------------------------------------------------------------
+
+VEH_Y = 3840
+VEH_CAR = 112          # car frames are 112x112; the ground centre sits at (56, 80)
+VEH_CAR_GROUND = 80
+VEH_BIKE = 64          # bicycle frames are 64x64; the ground centre at (32, 48)
+VEH_BIKE_GROUND = 48
+VEH_FACINGS = (0, 1, 5, 6, 7)
+VEH_OUTLINE = (24, 22, 22)
+SEDAN_PAINTS = (("red", (150, 42, 38)), ("blue", (52, 74, 132)), ("grey", (112, 114, 118)), ("white", (200, 200, 192)))
+PICKUP_PAINTS = (("green", (66, 94, 60)), ("tan", (164, 140, 100)))
+
+
+class VehicleDraw:
+    def __init__(self, size, ground_y, heading):
+        self.img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        self.draw = ImageDraw.Draw(self.img)
+        self.cx = size / 2.0
+        self.cy = float(ground_y)
+        self.f = (math.cos(heading), math.sin(heading))
+        self.l = (self.f[1], -self.f[0])
+        self.faces = []  # (depth key, points, colour)
+
+    def world(self, a, b):
+        return (a * self.f[0] + b * self.l[0], a * self.f[1] + b * self.l[1])
+
+    def scr(self, a, b, z):
+        x, y = self.world(a, b)
+        return (self.cx + (x - y), self.cy + (x + y) * 0.5 - z)
+
+    @staticmethod
+    def lit(col, normal):
+        # Light from the upper left of the screen: faces turned down-left are lit.
+        d = round(-14 + 16 * (normal[0] * -0.55 + normal[1] * 0.83))
+        return shade(col, d)
+
+    def box(self, a0, b0, a1, b1, z0, z1, side, top=None, front=None, back=None, order=0):
+        """A box; its visible faces are queued for drawing back to front."""
+        corners = [(a0, b0), (a1, b0), (a1, b1), (a0, b1)]
+        # Side faces: between consecutive corners, outward normal in world space.
+        for i in range(4):
+            p, q = corners[i], corners[(i + 1) % 4]
+            mid_a, mid_b = (p[0] + q[0]) * 0.5, (p[1] + q[1]) * 0.5
+            if i == 0:
+                n_local = (0.0, -1.0)
+            elif i == 1:
+                n_local = (1.0, 0.0)
+            elif i == 2:
+                n_local = (0.0, 1.0)
+            else:
+                n_local = (-1.0, 0.0)
+            n = self.world(n_local[0], n_local[1])
+            if n[0] + n[1] <= 0.01:
+                continue  # turned away from the camera
+            col = side
+            if i == 1 and front is not None:
+                col = front
+            if i == 3 and back is not None:
+                col = back
+            pts = [self.scr(p[0], p[1], z0), self.scr(q[0], q[1], z0), self.scr(q[0], q[1], z1), self.scr(p[0], p[1], z1)]
+            wx, wy = self.world(mid_a, mid_b)
+            self.faces.append((order, z0, wx + wy, pts, self.lit(col, n)))
+        top_pts = [self.scr(a, b, z1) for a, b in corners]
+        ca, cb = (a0 + a1) * 0.5, (b0 + b1) * 0.5
+        wx, wy = self.world(ca, cb)
+        self.faces.append((order, z1, wx + wy - 0.01, top_pts, shade(top or side, 16)))
+
+    def quad(self, pts_abz, col, order=5):
+        pts = [self.scr(a, b, z) for a, b, z in pts_abz]
+        self.faces.append((order, 99, 0.0, pts, col))
+
+    def flush(self):
+        for _, _, _, pts, col in sorted(self.faces, key=lambda f: (f[0], f[2], f[1])):
+            self.draw.polygon(pts, fill=(col[0], col[1], col[2], 255))
+        self.faces = []
+
+    def line(self, p, q, col, width=1):
+        self.draw.line([self.scr(*p), self.scr(*q)], fill=(col[0], col[1], col[2], 255), width=width)
+
+    def finish(self):
+        outline_opaque(self.img, VEH_OUTLINE)
+        return self.img
+
+
+def facing_heading(d):
+    return d * math.pi / 4.0
+
+
+def draw_car(paint, d, pickup=False, loaded=False):
+    v = VehicleDraw(VEH_CAR, VEH_CAR_GROUND, facing_heading(d))
+    tyre = (30, 30, 32)
+    glass = (46, 60, 72)
+    trim = shade(paint, -40)
+    half_l = 38.0 if pickup else 35.0
+    half_w = 15.0 if pickup else 14.0
+    # Wheels first: dark stubs at the corners, showing under the body.
+    for wa in (-half_l + 11, half_l - 12):
+        for wb in (-half_w - 0.5, half_w - 4.5):
+            v.box(wa - 6, wb, wa + 6, wb + 5, 0, 10, tyre, order=0)
+    v.flush()
+    # The body.
+    lights = (236, 226, 170)
+    tail = (170, 36, 30)
+    v.box(-half_l, -half_w, half_l, half_w, 4, 15, paint, front=shade(paint, -8), back=shade(paint, -8), order=1)
+    v.flush()
+    if pickup:
+        # The cab forward, the bed behind it with low sides.
+        v.box(-2, -half_w + 1, 18, half_w - 1, 15, 28, glass, top=paint, order=2)
+        v.box(-half_l, -half_w, -4, -half_w + 2.5, 15, 20, paint, order=2)
+        v.box(-half_l, half_w - 2.5, -4, half_w, 15, 20, paint, order=2)
+        v.box(-half_l, -half_w, -half_l + 2.5, half_w, 15, 20, shade(paint, -6), order=2)
+        if loaded:
+            wood = (122, 88, 58)
+            v.box(-half_l + 5, -half_w + 4, -8, half_w - 4, 15, 34, wood, top=shade(wood, 10), order=3)
+        v.flush()
+    else:
+        # The cabin: glass round, the roof in paint.
+        v.box(-16, -half_w + 2, 14, half_w - 2, 15, 26, glass, top=paint, order=2)
+        v.flush()
+    # Lamps on the nose and the tail (only where that face shows).
+    fx = v.world(1.0, 0.0)
+    if fx[0] + fx[1] > 0.01:
+        for lb in (-half_w + 3, half_w - 7):
+            v.quad([(half_l + 0.2, lb, 9), (half_l + 0.2, lb + 4, 9), (half_l + 0.2, lb + 4, 13), (half_l + 0.2, lb, 13)], lights)
+    else:
+        for lb in (-half_w + 3, half_w - 7):
+            v.quad([(-half_l - 0.2, lb, 9), (-half_l - 0.2, lb + 4, 9), (-half_l - 0.2, lb + 4, 13), (-half_l - 0.2, lb, 13)], tail)
+    # A trim line along the sides.
+    v.flush()
+    for side_b in (-half_w - 0.2, half_w + 0.2):
+        n = v.world(0.0, -1.0 if side_b < 0 else 1.0)
+        if n[0] + n[1] > 0.01:
+            v.line((-half_l + 2, side_b, 9), (half_l - 2, side_b, 9), trim)
+    return v.finish()
+
+
+def draw_bicycle(d, rider=False):
+    v = VehicleDraw(VEH_BIKE, VEH_BIKE_GROUND, facing_heading(d))
+    tyre = (28, 28, 30)
+    frame = (40, 96, 120)
+    r = 6.0
+
+    def wheel(ac):
+        pts = []
+        for i in range(17):
+            t = i * 2.0 * math.pi / 16.0
+            pts.append(v.scr(ac + r * math.cos(t), 0.0, r + r * math.sin(t)))
+        v.draw.line(pts, fill=tyre + (255,), width=2)
+
+    wheel(-9.0)
+    wheel(9.0)
+    v.line((-9, 0, r), (0, 0, 13), frame, 2)
+    v.line((0, 0, 13), (9, 0, r), frame, 2)
+    v.line((-9, 0, r), (-2, 0, 6), frame, 2)
+    v.line((-2, 0, 6), (0, 0, 13), frame, 2)
+    v.line((0, 0, 13), (-3, 0, 16), frame, 1)   # seat post
+    v.line((7, 0, 14), (9, 0, r), frame, 1)     # fork
+    v.line((7, -3, 17), (7, 3, 17), (60, 60, 60), 1)  # bars
+    v.line((7, 0, 14), (7, 0, 17), (60, 60, 60), 1)
+    if rider:
+        coat = (84, 96, 74)
+        skin = (206, 166, 132)
+        legs = (52, 56, 70)
+        v.line((-3, -2, 17), (0, -2, 8), legs, 2)
+        v.line((-3, 2, 17), (2, 2, 9), legs, 2)
+        v.box(-6, -3.5, 0, 3.5, 16, 30, coat, order=1)
+        v.flush()
+        v.line((-1, -3, 28), (7, -3, 17), coat, 2)
+        v.line((-1, 3, 28), (7, 3, 17), coat, 2)
+        hx, hy = v.scr(-2.5, 0.0, 35.0)
+        v.draw.ellipse([hx - 3.5, hy - 3.5, hx + 3.5, hy + 3.5], fill=skin + (255,))
+        v.draw.ellipse([hx - 3.5, hy - 4.0, hx + 3.5, hy - 0.5], fill=(70, 52, 40, 255))
+    return v.finish()
+
+
+def add_phase11_sprites(img, sprites):
+    before = {k: dict(v) for k, v in sprites.items()}
+    sedans_w = len(SEDAN_PAINTS) * len(VEH_FACINGS) * VEH_CAR
+    pickups_w = len(PICKUP_PAINTS) * 2 * len(VEH_FACINGS) * VEH_CAR
+    bikes_w = 2 * len(VEH_FACINGS) * VEH_BIKE
+    if sedans_w + bikes_w > SHEET_W or pickups_w > SHEET_W:
+        raise SystemExit("phase 11 block does not fit")
+    # the block must be empty sheet
+    for yy in range(VEH_Y, VEH_Y + 2 * VEH_CAR):
+        for xx in range(0, max(sedans_w + bikes_w, pickups_w)):
+            if img.getpixel((xx, yy))[3] != 0:
+                raise SystemExit("phase 11 block is not empty at %d,%d" % (xx, yy))
+    x = 0
+    for name, paint in SEDAN_PAINTS:
+        for d in VEH_FACINGS:
+            img.alpha_composite(draw_car(paint, d), (x, VEH_Y))
+            sprites["veh_sedan_%s_%d" % (name, d)] = {"x": x, "y": VEH_Y, "w": VEH_CAR, "h": VEH_CAR}
+            x += VEH_CAR
+    for rider in (False, True):
+        for d in VEH_FACINGS:
+            img.alpha_composite(draw_bicycle(d, rider), (x, VEH_Y))
+            key = "veh_bicycle_rider_%d" % d if rider else "veh_bicycle_%d" % d
+            sprites[key] = {"x": x, "y": VEH_Y, "w": VEH_BIKE, "h": VEH_BIKE}
+            x += VEH_BIKE
+    x = 0
+    y = VEH_Y + VEH_CAR
+    for name, paint in PICKUP_PAINTS:
+        for loaded in (False, True):
+            for d in VEH_FACINGS:
+                img.alpha_composite(draw_car(paint, d, pickup=True, loaded=loaded), (x, y))
+                key = "veh_pickup_%s%s_%d" % (name, "_load" if loaded else "", d)
+                sprites[key] = {"x": x, "y": y, "w": VEH_CAR, "h": VEH_CAR}
+                x += VEH_CAR
+    new = {k: v for k, v in sprites.items() if k not in before}
+    for k, v in new.items():
+        for ok, ov in before.items():
+            if v["x"] < ov["x"] + ov["w"] and v["x"] + v["w"] > ov["x"] and v["y"] < ov["y"] + ov["h"] and v["y"] + v["h"] > ov["y"]:
+                raise SystemExit("phase 11 sprite " + k + " overlaps " + ok)
 
 
 def main():
@@ -2664,8 +4656,8 @@ def main():
     print(f"  Saved {png_path} ({img.size[0]}x{img.size[1]})")
 
     atlas_meta = {
-        "imageWidth": ATLAS_W,
-        "imageHeight": ATLAS_H,
+        "imageWidth": SHEET_W,
+        "imageHeight": SHEET_H,
         "sprites": sprites,
     }
 

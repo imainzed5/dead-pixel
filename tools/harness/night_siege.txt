@@ -1,0 +1,83 @@
+# Nights: callers come to the weakest way into the house one at a time on
+# night 1 (here the boarded door: the windows carry two boards each), batter
+# it, and give up; at dawn the rest drift off. Night 3 sends more, at once.
+# "plan" prints the home door's boards and each caller (state, tiles from
+# home, seconds in that state). Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/night_siege.txt --hidden --world-seed 1234 --shots shots/night_siege
+
+newrun
+waits 1
+god on
+give Hammer
+give Wood Planks 4
+give Nails 8
+goto home
+waits 0.3
+goto door
+waits 0.3
+tap R
+waits 4.5
+tap R
+waits 4.5
+tap R
+waits 4.5
+goto home
+window boarded all
+waits 0.3
+plan
+# Night 1, first caller: sets out at 21:30.
+hours 21.4
+waits 20
+plan
+waits 20
+plan
+shot 01_night1_first
+waits 20
+plan
+waits 20
+plan
+waits 20
+plan
+waits 20
+plan
+# Second caller at 02:30. Add the spare board first.
+goto door
+waits 0.3
+tap R
+waits 4.5
+goto home
+day 2
+hours 2.4
+waits 20
+plan
+waits 20
+plan
+shot 02_night1_second
+waits 20
+plan
+waits 20
+plan
+waits 20
+plan
+waits 20
+plan
+# Dawn: whoever is left drifts off.
+hours 5.98
+waits 3
+plan
+# Night 3: more of them, and two groups at once.
+day 3
+hours 23.9
+waits 20
+plan
+shot 03_night3
+waits 20
+plan
+waits 20
+plan
+waits 20
+plan
+shot 04_night3_later
+zombies
+doors
+quit

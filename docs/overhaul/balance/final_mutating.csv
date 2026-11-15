@@ -1,0 +1,16 @@
+seed,life,status,days,end_day,cause,class,kills,kills_per_day,food,drink,containers,boards,day1_death,night1_death,night1_home,first_fight_day1,grabs,far_tiles,quiet_d1,quiet_d2,quiet_d3,quiet_d8_14,sleep_nights,drink_dawn3,depression_d7,panic_share,stocked_start,stocked_end
+1,1,ok,3.012,4,Overrun by the dead on Day 4,dead,28,9.296,8,4,41,3,False,False,False,True,4,66.934,0.263,0.275,0.542,,4 0,5,,0.122,3 3 119 237,1 3 118 247
+2,1,ok,4.154,5,Overrun by the dead on Day 5,dead,60,14.443,8,2,96,6,False,False,False,True,3,102.420,0.685,0.400,0.023,,9 0 0 11,4,,0.269,5 5 148 287,2 5 151 311
+3,1,ok,2.624,3,Overrun by the dead on Day 3,dead,13,4.955,15,11,66,6,False,False,False,True,6,80.723,0.869,0.517,0.252,,0 0,12,,0.043,6 6 160 302,4 6 155 313
+4,1,ok,4.331,5,Overrun by the dead on Day 5,dead,32,7.388,23,6,164,6,False,False,False,True,9,117.070,0.628,0.653,0.306,,1 0 3 3,7,,0.178,3 3 159 323,2 3 143 341
+5,1,ok,4.176,5,Succumbed to infection on Day 5,infection,38,9.099,18,7,117,4,False,False,False,True,5,119.930,0.827,0.551,0.307,,4 0 2 0,9,,0.139,2 2 132 262,1 2 132 281
+6,1,ok,2.326,3,Killed by Abel on Day 3,people,31,13.330,14,7,113,3,False,False,False,True,7,113.649,0.678,0.555,0.608,,9 0,5,,0.119,4 4 163 302,2 4 157 321
+7,1,ok,3.053,4,Succumbed to infection on Day 4,infection,14,4.586,5,4,39,3,False,False,False,True,9,119.330,0.960,0.443,0.240,,0 0,7,,0.250,4 6 128 244,1 6 134 259
+8,1,ok,3.999,5,Overrun by the dead on Day 5,dead,21,5.251,10,7,100,7,False,False,False,True,4,86.620,0.588,0.844,0.460,,7 0 0,9,,0.068,4 4 176 338,2 4 191 369
+9,1,ok,4.719,6,Overrun by the dead on Day 6,dead,37,7.840,11,5,69,6,False,False,False,True,13,109.017,0.494,0.264,0.585,,0 0 0 2,6,,0.190,5 5 124 231,3 5 136 258
+10,1,ok,3.490,4,Overrun by the dead on Day 4,dead,39,11.175,10,3,89,4,False,False,False,True,5,91.115,0.548,0.878,0.550,,9 3 2,3,,0.175,3 3 149 304,2 3 153 325
+11,1,ok,3.948,5,Beaten down by a big zombie on Day 5,dead,38,9.624,8,6,69,5,False,False,False,True,8,91.569,0.852,0.673,0.579,,5 0 0,6,,0.246,4 4 122 236,2 4 115 242
+12,1,ok,3.938,5,Killed by Viktor on Day 5,people,17,4.317,13,3,58,2,False,False,False,True,1,51.108,0.877,0.616,0.425,,0 0 0,5,,0.029,5 5 93 182,2 5 86 192
+13,1,ok,2.988,4,Killed by Hana on Day 4,people,13,4.351,5,12,27,6,False,False,False,True,2,102.774,0.036,0.020,0.001,,0 4,14,,0.043,4 4 165 335,2 4 168 349
+14,1,ok,2.949,4,Overrun by the dead on Day 4,dead,20,6.783,7,5,92,8,False,False,False,True,2,56.923,0.860,0.733,0.401,,9 9,4,,0.000,3 5 157 332,2 5 164 349
+15,1,ok,2.313,3,Overrun by the dead on Day 3,dead,28,12.107,5,4,21,4,False,False,False,True,7,91.511,0.625,0.485,0.000,,9 0,5,,0.133,4 4 123 256,3 4 136 278

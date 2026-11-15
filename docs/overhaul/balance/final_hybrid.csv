@@ -1,0 +1,16 @@
+seed,life,status,days,end_day,cause,class,kills,kills_per_day,food,drink,containers,boards,day1_death,night1_death,night1_home,first_fight_day1,grabs,far_tiles,quiet_d1,quiet_d2,quiet_d3,quiet_d8_14,sleep_nights,drink_dawn3,depression_d7,panic_share,stocked_start,stocked_end
+1,1,ok,3.427,4,Overrun by the dead on Day 4,dead,36,10.506,8,8,63,3,False,False,False,True,3,78.854,0.650,0.744,0.446,,9 0 0,8,,0.078,3 3 119 237,1 3 120 249
+2,1,ok,0.137,1,Killed by Hana on Day 1,people,10,40.000,7,2,26,0,True,False,False,True,0,45.659,,,,,,,,0.000,5 5 148 287,2 5 139 289
+3,1,ok,1.333,2,Killed by June on Day 2,people,18,13.499,8,3,17,6,False,False,False,True,3,87.890,0.443,0.000,,,0,,,0.097,6 6 160 302,4 6 163 311
+4,1,ok,4.052,5,Overrun by the dead on Day 5,dead,59,14.559,7,4,43,6,False,False,False,True,10,74.048,0.653,0.641,0.469,,4 0 0,4,,0.086,3 3 159 323,2 3 158 341
+5,1,ok,2.908,4,Succumbed to infection on Day 4,infection,17,5.846,10,6,28,6,False,False,False,True,5,86.790,0.806,0.646,0.048,,9 0,8,,0.091,2 2 132 262,1 2 135 276
+6,1,ok,3.029,4,Killed by Paula on Day 4,people,44,14.525,12,4,56,3,False,False,False,True,1,105.164,0.465,0.098,0.000,,0 0,4,,0.340,4 4 163 302,2 4 166 319
+7,1,ok,4.405,5,Overrun by the dead on Day 5,dead,27,6.130,12,14,109,3,False,False,False,True,6,119.377,0.824,0.594,0.060,,9 0 0 0,8,,0.347,4 6 128 244,1 6 140 269
+8,1,"FAIL: [harness] FAIL bot stuck at tile 65,90 for 3 game hours (doing: search)",0.350,1,alive,alive,10,28.586,6,7,67,0,False,False,False,True,1,39.123,0.347,,,,,,,0.000,4 4 176 338,2 4 167 343
+9,1,ok,2.682,4,Beaten down by a big zombie on Day 4,dead,25,9.322,7,7,49,7,False,False,False,True,2,55.693,0.757,0.251,0.236,,0 0,8,,0.109,5 5 124 231,3 4 123 243
+10,1,ok,3.783,5,Succumbed to infection on Day 5,infection,29,7.665,6,1,20,4,False,False,False,True,4,91.680,0.792,0.726,0.245,,9 3 0,3,,0.222,3 3 149 304,2 3 175 339
+11,1,ok,4.123,5,Overrun by the dead on Day 5,dead,46,11.157,6,6,78,5,False,False,False,True,5,145.471,0.824,0.739,0.596,,4 3 0 2,6,,0.229,4 4 122 236,2 4 122 249
+12,1,ok,4.235,5,Succumbed to infection on Day 5,infection,44,10.389,8,4,26,3,False,False,False,True,13,110.602,0.847,0.275,0.507,,0 0 3 2,7,,0.179,5 5 93 182,2 5 109 207
+13,1,ok,0.393,1,Beaten down by a big zombie on Day 1,dead,12,30.516,7,13,31,2,True,False,False,True,2,46.455,0.261,,,,,,,0.000,4 4 165 335,2 4 159 340
+14,1,ok,2.653,3,Killed by zombies on Day 3,dead,26,9.799,12,6,82,7,False,False,False,True,8,69.042,0.505,0.418,0.385,,9 0,7,,0.058,3 5 157 332,2 5 167 352
+15,1,ok,2.334,3,Overrun by the dead on Day 3,dead,35,14.996,6,5,38,4,False,False,False,True,8,95.479,0.650,0.327,0.206,,0 1,6,,0.222,4 4 123 256,3 4 145 285

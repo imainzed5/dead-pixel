@@ -1,0 +1,68 @@
+# Living off the land (phase 6): a garden bed from two planks and a seed
+# packet, watered with R, ripe after six watered days: four vegetables. The
+# next life finds it as seedlings. Left dry three days, it dies. A bush
+# searched, and a snare set far from the houses.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/garden.txt --hidden --world-seed 1234 --shots shots/garden
+
+newrun
+god on
+waits 1
+slay 300
+hours 12
+# A bush searched (three seconds): berries or nothing, then picked over.
+goto forage bush
+waits 0.3
+expect prompt Search it
+tap E
+waits 4.5
+expect prompt picked over
+shot 05_bush_searched
+# Soil by a tree, out of doors.
+goto forage tree
+waits 0.3
+give Wood Planks 2
+give Seed Packet
+build garden
+waits 20
+expect garden 0
+mark
+give Water Bottle
+expect prompt R: Water
+tap R
+waits 0.3
+expect message water
+shot 01_planted
+# Six days, watered each one: ripe, four vegetables.
+grow 6
+waits 0.5
+expect garden ripe
+shot 02_ripe
+tap E
+waits 0.3
+expect pack Vegetables 4
+# The next life: seedlings where the bed was.
+kill garden test
+waits 6
+newrun
+waits 1
+slay 300
+goto mark
+waits 0.5
+expect garden 0
+shot 03_next_life_seedlings
+# Dry for three days: dead.
+grow 3 dry
+waits 0.5
+expect garden dead
+shot 04_dead
+# A snare: on grass, fifteen tiles from any building.
+goto wild
+waits 0.3
+give Snare
+use snare
+waits 0.3
+expect message set the snare
+shot 06_snare
+expect alive
+quit

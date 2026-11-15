@@ -1,0 +1,1283 @@
+{
+  "_comment": "Loot classes. A container is stocked with stockedChance (x tone supplies x tuning loot.stocked.scale, at most 0.9); a stocked one gets rolls[0] stacks, then each further stack up to rolls[1] with extraRollChance. Entries: item key, weight, count min..max. See docs/overhaul/03_content_tables.md section 5.",
+  "classes": {
+    "fridge": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "canned_food",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "apple",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "bread",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "water_bottle",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "soda",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "vegetables",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "kitchen": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "canned_food",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "water_bottle",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "matches",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "knife",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "bread",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rice",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "cooking_pot",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "frying_pan",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "tin_can",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "chips",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "coffee",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "candle",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "bathroom": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "bandage",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "antibiotics",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rags",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "needle_and_thread",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "bedroom": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "jacket",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "notebook",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "flashlight",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "matches",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "book",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "backpack",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "keepsake",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rags",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "winter_coat",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "raincoat",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "living": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "notebook",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "matches",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "flashlight",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "book",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "candle",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "radio",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "alarm_clock",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "spirits",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "store": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "canned_food",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "water_bottle",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "bread",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "bandage",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "matches",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "checkout": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "notebook",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "matches",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "flashlight",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "chocolate",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "soda",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "storage": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "wood_planks",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "scrap_metal",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rope",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "fuel_can",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "glass_shards",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "nails",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "tin_can",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "workshop": {
+      "stockedChance": 0.45,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "hammer",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "scrap_metal",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rope",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "wood_planks",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "pipe",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "axe",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "nails",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "saw",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "wire",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "trunk": {
+      "stockedChance": 0.6,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "fuel_can",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "water_bottle",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "bandage",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "toolbox",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rope",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "flare",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "corpse": {
+      "stockedChance": 0.12,
+      "rolls": [
+        1,
+        1
+      ],
+      "extraRollChance": 0.0,
+      "entries": [
+        {
+          "item": "rags",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "matches",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "keepsake",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "pistol_ammo",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "chocolate",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "grocery_shelf": {
+      "stockedChance": 0.5,
+      "rolls": [
+        1,
+        3
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "canned_food",
+          "weight": 6,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "water_bottle",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "bread",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rice",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "chips",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "soda",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "chocolate",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "coffee",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "grocery_stock": {
+      "stockedChance": 0.6,
+      "rolls": [
+        2,
+        3
+      ],
+      "extraRollChance": 0.5,
+      "entries": [
+        {
+          "item": "canned_food",
+          "weight": 6,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "water_bottle",
+          "weight": 5,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rice",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "soda",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "seed_packet",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "pharmacy_shelf": {
+      "stockedChance": 0.5,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "bandage",
+          "weight": 5,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "antibiotics",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "purification_tablets",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "first_aid_kit",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "pharmacy_stock": {
+      "stockedChance": 0.65,
+      "rolls": [
+        2,
+        3
+      ],
+      "extraRollChance": 0.5,
+      "entries": [
+        {
+          "item": "antibiotics",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "first_aid_kit",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "suture_kit",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "splint",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "disinfected_bandage",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "hardware_shelf": {
+      "stockedChance": 0.5,
+      "rolls": [
+        1,
+        3
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "nails",
+          "weight": 6,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "wood_planks",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rope",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "wire",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "duct_tape",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "hammer",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "saw",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "candle",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "seed_packet",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "hardware_stock": {
+      "stockedChance": 0.6,
+      "rolls": [
+        2,
+        3
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "nails",
+          "weight": 5,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "wood_planks",
+          "weight": 5,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "scrap_metal",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "crowbar",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "axe",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "saw",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "fuel_can",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "toolbox",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "clinic": {
+      "stockedChance": 0.55,
+      "rolls": [
+        1,
+        3
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "bandage",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "antibiotics",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "suture_kit",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "splint",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "first_aid_kit",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "spirits",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "police": {
+      "stockedChance": 0.4,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "pistol_ammo",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "flashlight",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "radio",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "first_aid_kit",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "flare",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "armoury": {
+      "stockedChance": 1.0,
+      "rolls": [
+        2,
+        3
+      ],
+      "extraRollChance": 1.0,
+      "entries": [
+        {
+          "item": "pistol",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "pistol_ammo",
+          "weight": 5,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "shotgun",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "shotgun_shells",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "diner_kitchen": {
+      "stockedChance": 0.5,
+      "rolls": [
+        1,
+        3
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "canned_food",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rice",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "cooking_pot",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "frying_pan",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "knife",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "coffee",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "soda",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "matches",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "office": {
+      "stockedChance": 0.35,
+      "rolls": [
+        1,
+        2
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "notebook",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "book",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "coffee",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "painkillers",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "keepsake",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "garage": {
+      "stockedChance": 0.55,
+      "rolls": [
+        1,
+        3
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "fuel_can",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "scrap_metal",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "toolbox",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "crowbar",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "pipe",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "wire",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "duct_tape",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "battery",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "warehouse": {
+      "stockedChance": 0.5,
+      "rolls": [
+        1,
+        3
+      ],
+      "extraRollChance": 0.25,
+      "entries": [
+        {
+          "item": "wood_planks",
+          "weight": 5,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "scrap_metal",
+          "weight": 4,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "rope",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "nails",
+          "weight": 3,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "canned_food",
+          "weight": 2,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "fuel_can",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "sledgehammer",
+          "weight": 1,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    }
+  }
+}

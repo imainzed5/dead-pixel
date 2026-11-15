@@ -1,8 +1,12 @@
 #include "ui/Hud.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include <glm/common.hpp>
 
@@ -10,6 +14,8 @@
 #include "rendering/SpriteBatch.h"
 #include "rendering/SpriteSheet.h"
 #include "systems/NeedsSystem.h"
+#include "world/MindRules.h"
+#include "world/SleepRules.h"
 
 namespace
 {
@@ -17,36 +23,23 @@ namespace
 constexpr float kLabelScale = 2.0f;
 constexpr float kSmallScale = 1.0f;
 
-constexpr float kPanelPadding = 10.0f;
-constexpr float kIconSize = 20.0f;
-constexpr float kBarRowHeight = 18.0f;
-constexpr float kBarRowGap = 8.0f;
-constexpr float kValueColumnWidth = 48.0f;
-
-const glm::vec4 kPanelColor(0.03f, 0.04f, 0.06f, 0.72f);
-const glm::vec4 kPanelEdgeColor(0.72f, 0.62f, 0.40f, 0.55f);
-const glm::vec4 kBarTrackColor(0.10f, 0.10f, 0.11f, 0.95f);
-const glm::vec4 kStaminaColor(0.36f, 0.74f, 0.86f, 1.0f);
-const glm::vec4 kStaminaLostColor(0.42f, 0.16f, 0.16f, 0.95f);
-const glm::vec4 kTextColor(0.92f, 0.91f, 0.84f, 1.0f);
-const glm::vec4 kDimTextColor(0.70f, 0.72f, 0.70f, 0.90f);
+// Off-white on the world, amber for what needs attention, nothing boxed in.
+const glm::vec4 kTextColor(0.96f, 0.95f, 0.93f, 1.0f);
+const glm::vec4 kDimTextColor(0.72f, 0.71f, 0.68f, 1.0f);
+const glm::vec4 kAmber(0.94f, 0.71f, 0.30f, 1.0f);
+const glm::vec4 kGoodColor(0.58f, 0.88f, 0.56f, 1.0f);
+const glm::vec4 kTrackColor(0.04f, 0.05f, 0.06f, 0.62f);
+const glm::vec4 kStaminaColor = kAmber;
+const glm::vec4 kStaminaLostColor(0.46f, 0.16f, 0.14f, 0.95f);
 
 // Conditions thresholds that live only in the HUD (early warnings shown before
 // the needs model starts to bite).
 constexpr float kPeckishBelow = 50.0f;
-constexpr float kDrowsyAbove = 50.0f;
-constexpr float kExhaustedAbove = 90.0f;
 constexpr float kWindedAbove = 60.0f;
 constexpr float kQueasyAbove = 20.0f;
 constexpr float kSickAbove = 40.0f;
 constexpr float kGravelyIllAbove = 80.0f;
-constexpr float kAnxiousAt = 25.0f;
-constexpr float kScaredAt = 50.0f;
-constexpr float kPanickingAt = 75.0f;
-constexpr float kLowSpiritsAt = 40.0f;
-constexpr float kDepressedAt = 60.0f;
-constexpr float kDespairAt = 85.0f;
-constexpr float kNumbAt = 50.0f;
+constexpr float kHardenedAt = 50.0f;
 
 float ratio(float value, float maximum)
 {
@@ -72,7 +65,7 @@ glm::vec4 healthColor(float healthRatio)
 {
     if (healthRatio > 0.6f)
     {
-        return {0.44f, 0.80f, 0.40f, 1.0f};
+        return kTextColor;
     }
     if (healthRatio > 0.3f)
     {
@@ -82,14 +75,14 @@ glm::vec4 healthColor(float healthRatio)
 }
 
 // Night is bluish, day is warm white.
-glm::vec4 clockColor(double hours)
+glm::vec4 clockColor(double hours, double dusk, double dawn)
 {
     const double h = std::fmod(std::max(0.0, hours), 24.0);
-    if (h >= 21.0 || h < 5.0)
+    if (h >= dusk + 1.0 || h < dawn - 1.0)
     {
         return {0.62f, 0.72f, 0.98f, 1.0f};
     }
-    if (h >= 18.0 || h < 7.0)
+    if (h >= dusk - 2.0 || h < dawn + 1.0)
     {
         return {0.96f, 0.70f, 0.46f, 1.0f};
     }
@@ -101,14 +94,6 @@ bool hasSprite(const glm::vec4& uv)
     return uv.z > 0.0f && uv.w > 0.0f;
 }
 
-// The UI icons are drawn in the middle of 32px cells; crop to the drawn part so
-// they show at 1:1 instead of being shrunk.
-glm::vec4 iconUv(const glm::vec4& uv)
-{
-    constexpr float kCrop = 6.0f / 32.0f;
-    return {uv.x + uv.z * kCrop, uv.y + uv.w * kCrop, uv.z * (1.0f - 2.0f * kCrop), uv.w * (1.0f - 2.0f * kCrop)};
-}
-
 void drawFrame(SpriteBatch& batch, const glm::vec4& uv, const glm::vec2& pos, const glm::vec2& size,
                float thickness, const glm::vec4& color)
 {
@@ -117,12 +102,6 @@ void drawFrame(SpriteBatch& batch, const glm::vec4& uv, const glm::vec2& pos, co
     batch.draw(glm::vec2(pos.x, pos.y + thickness), glm::vec2(thickness, size.y - thickness * 2.0f), uv, color);
     batch.draw(glm::vec2(pos.x + size.x - thickness, pos.y + thickness),
                glm::vec2(thickness, size.y - thickness * 2.0f), uv, color);
-}
-
-void drawPanel(SpriteBatch& batch, const glm::vec4& uv, const glm::vec2& pos, const glm::vec2& size)
-{
-    batch.draw(pos, size, uv, kPanelColor);
-    batch.draw(pos, glm::vec2(size.x, 1.0f), uv, kPanelEdgeColor);
 }
 
 std::string clockText(double hours)
@@ -139,77 +118,138 @@ std::string weatherText(const HudState& state)
 {
     const int temperature = static_cast<int>(std::lround(state.outdoorTemperature));
     std::string text = state.weather.empty() ? std::string("Clear") : state.weather;
-    text += "  " + std::to_string(temperature) + "C";
+    text += ", " + std::to_string(temperature) + "C";
     return text;
 }
+
+struct Layout;
+// Where the vehicle lines go (phase 11): fuel (if it has a tank), condition, and the word above.
+struct VehicleRows
+{
+    float fuelY = -1.0f;
+    float conditionY = 0.0f;
+    float wordY = 0.0f;
+};
+VehicleRows vehicleRows(const HudState& state, const Layout& layout);
 
 // Shared geometry so the shape pass and the text pass agree.
 struct Layout
 {
     glm::vec2 viewport{0.0f};
+    bool docked = false;  // a panel is open down the right edge
+    float centreX = 0.0f; // middle of the part of the screen still showing the world
 
-    glm::vec2 vitalsPos{0.0f};
-    glm::vec2 vitalsSize{0.0f};
-    float healthRowY = 0.0f;
-    float staminaRowY = 0.0f;
-    float barX = 0.0f;
-    float barWidth = 0.0f;
-
-    float conditionsY = 0.0f;
+    float barsX = 0.0f;
+    float healthY = 0.0f;
+    float staminaY = 0.0f;
+    float stackBase = 0.0f; // conditions stack up from here (over the vehicle lines when inside one)
     std::size_t conditionRows = 0;
 
-    glm::vec2 clockPos{0.0f};
-    glm::vec2 clockSize{0.0f};
+    float rightX = 0.0f;
+    float clockY = 0.0f;
+    float dayY = 0.0f;
     float objectiveY = 0.0f;
 
-    glm::vec2 hotbarPos{0.0f};
-    float hotbarWidth = 0.0f;
+    std::array<float, 8> slotX{};
+    std::array<float, 8> slotW{};
+    float iconBottom = 0.0f;
     float itemNameY = 0.0f;
     float messageY = 0.0f;
 
     float toastY = 0.0f;
+
+    // Conditions stack upward from the bars, the worst at the top.
+    [[nodiscard]] float conditionY(std::size_t row) const
+    {
+        return stackBase - 12.0f - static_cast<float>(conditionRows - row) * Hud::kConditionRowHeight;
+    }
 };
 
 Layout computeLayout(const HudState& state, const glm::vec2& viewport)
 {
     Layout layout;
     layout.viewport = viewport;
+    layout.docked = state.dockedWidth > 0.0f;
+    layout.centreX = std::round((viewport.x - state.dockedWidth) * 0.5f);
 
-    layout.vitalsPos = glm::vec2(Hud::kMargin, Hud::kMargin);
-    layout.healthRowY = layout.vitalsPos.y + kPanelPadding;
-    layout.staminaRowY = layout.healthRowY + kBarRowHeight + kBarRowGap;
-    layout.vitalsSize = glm::vec2(Hud::kVitalsWidth, kPanelPadding * 2.0f + kBarRowHeight * 2.0f + kBarRowGap);
-    layout.barX = layout.vitalsPos.x + kPanelPadding + kIconSize + 8.0f;
-    layout.barWidth = layout.vitalsPos.x + layout.vitalsSize.x - kPanelPadding - kValueColumnWidth - layout.barX;
-
-    layout.conditionsY = layout.vitalsPos.y + layout.vitalsSize.y + 8.0f;
+    layout.barsX = Hud::kEdge;
+    layout.staminaY = viewport.y - Hud::kEdge - Hud::kStaminaHeight;
+    layout.healthY = layout.staminaY - 6.0f - Hud::kHealthHeight;
     layout.conditionRows = std::min(state.conditions.size(), Hud::kMaxConditionRows);
+    layout.stackBase = layout.healthY - (state.vehicle.inside ? Hud::kVehicleBlock : 0.0f);
 
-    const float clockRows = state.districtLine.empty() ? 2.0f : 3.0f;
-    layout.clockSize = glm::vec2(Hud::kClockWidth, kPanelPadding * 2.0f + clockRows * 18.0f + (clockRows - 1.0f) * 8.0f);
-    layout.clockPos = glm::vec2(viewport.x - Hud::kMargin - layout.clockSize.x, Hud::kMargin);
-    layout.objectiveY = layout.clockPos.y + layout.clockSize.y + 10.0f;
+    layout.rightX = viewport.x - Hud::kEdge;
+    layout.clockY = Hud::kEdge - 4.0f;
+    layout.dayY = layout.clockY + 36.0f;
+    layout.objectiveY = layout.dayY + (state.districtLine.empty() ? 22.0f : 44.0f) + 8.0f;
 
-    layout.hotbarWidth = 8.0f * Hud::kSlotSize + 7.0f * Hud::kSlotGap;
-    layout.hotbarPos = glm::vec2(std::round((viewport.x - layout.hotbarWidth) * 0.5f),
-                                 viewport.y - Hud::kMargin - Hud::kSlotSize);
-    layout.itemNameY = layout.hotbarPos.y - 26.0f;
-    layout.messageY = layout.itemNameY - 30.0f;
+    const int active = std::clamp(state.activeSlot, 0, 7);
+    const float total = 7.0f * Hud::kSlotSize + Hud::kActiveIcon + 7.0f * Hud::kSlotGap;
+    float x = std::round(layout.centreX - total * 0.5f);
+    for (int i = 0; i < 8; ++i)
+    {
+        const float width = i == active ? Hud::kActiveIcon : Hud::kSlotSize;
+        layout.slotX[static_cast<std::size_t>(i)] = x;
+        layout.slotW[static_cast<std::size_t>(i)] = width;
+        x += width + Hud::kSlotGap;
+    }
+    layout.itemNameY = viewport.y - Hud::kEdge - 8.0f;
+    layout.iconBottom = layout.itemNameY - 20.0f;
+    layout.messageY = layout.docked ? viewport.y - Hud::kEdge - 40.0f : layout.iconBottom - Hud::kActiveIcon - 30.0f;
+    if (layout.docked && layout.conditionRows > 0)
+    {
+        // With a panel docked the line sits low on the left, where the
+        // condition labels stack: keep it above them.
+        layout.messageY = std::min(layout.messageY, layout.conditionY(0) - 30.0f);
+    }
 
-    layout.toastY = Hud::kMargin + 4.0f;
+    layout.toastY = Hud::kEdge;
     return layout;
 }
 
-void drawTextStrip(SpriteBatch& batch, const glm::vec4& uv, float centerX, float y, float width, float height,
-                   float alpha)
+VehicleRows vehicleRows(const HudState& state, const Layout& layout)
 {
-    const float padX = 10.0f;
-    batch.draw(glm::vec2(std::round(centerX - width * 0.5f - padX), y - 5.0f),
-               glm::vec2(width + padX * 2.0f, height + 10.0f), uv,
-               glm::vec4(0.02f, 0.03f, 0.04f, 0.62f * alpha));
+    VehicleRows rows;
+    float y = layout.healthY - 8.0f - Hud::kVehicleLineHeight;
+    if (state.vehicle.fuelMax > 0.0f)
+    {
+        rows.fuelY = y;
+        y -= 7.0f;
+    }
+    rows.conditionY = y;
+    rows.wordY = y - 22.0f;
+    return rows;
 }
 
+// The objective: title, detail line, then the plan's steps.
+constexpr float kStepRow = 20.0f;
+constexpr float kStepBox = 10.0f;
+constexpr float kStepGap = 8.0f; // between a box and its text
+constexpr std::size_t kStepChars = 30;
+
+float objectiveStepsTop(const HudState& state)
+{
+    return state.objectiveDetail.empty() ? 26.0f : 40.0f;
+}
+
+constexpr float kDayCardTitleScale = 4.0f;
+constexpr float kClockScale = 4.0f;
+
 } // namespace
+
+glm::vec2 Hud::objectiveCorner(const HudState& state, const glm::vec2& viewport, const BitmapFont& font)
+{
+    if (state.objectiveTitle.empty() || state.dockedWidth > 0.0f) return glm::vec2(viewport.x, 0.0f);
+    const Layout layout = computeLayout(state, viewport);
+    float width = font.measureText(truncateText(state.objectiveTitle, 40), kLabelScale).x;
+    if (!state.objectiveDetail.empty()) width = std::max(width, font.measureText(truncateText(state.objectiveDetail, 60), kSmallScale).x);
+    for (const HudStep& step : state.objectiveSteps)
+    {
+        width = std::max(width, font.measureText(truncateText(step.text, kStepChars), kLabelScale).x + kStepGap + kStepBox);
+    }
+    const float bottom = layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(state.objectiveSteps.size()) * kStepRow;
+    return glm::vec2(layout.rightX - width, bottom);
+}
 
 std::string Hud::slotLabel(const HudSlot& slot)
 {
@@ -223,6 +263,10 @@ std::string Hud::slotLabel(const HudSlot& slot)
     if (slot.equipped)
     {
         label += " - in hand";
+    }
+    if (slot.worn)
+    {
+        label += " - worn";
     }
     return label;
 }
@@ -252,21 +296,45 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
     };
 
     // Wounds first: they are the most urgent things to fix.
-    if (in.bleeding)
+    if (!in.woundLabels.empty())
     {
-        add("Bleeding", HudSeverity::Critical, "fx_blood");
+        // Named by kind and place (phase 5): how bad each is reads from its name.
+        for (const std::string& label : in.woundLabels)
+        {
+            const auto starts = [&](const char* prefix) { return label.rfind(prefix, 0) == 0; };
+            HudSeverity severity = HudSeverity::Mild;
+            const char* icon = "fx_blood";
+            if (starts("Bleeding") || starts("Turning") || starts("Infected"))
+            {
+                severity = HudSeverity::Critical;
+                if (!starts("Bleeding")) icon = "ui_skull";
+            }
+            else if (starts("Broken") || starts("Deep") || starts("Bite") || starts("Fever") || starts("Dirty"))
+            {
+                severity = HudSeverity::Serious;
+                if (starts("Fever")) icon = "ui_skull";
+            }
+            out.push_back(HudStatus{label, severity, icon});
+        }
     }
-    if (in.infected)
+    else
     {
-        add("Infected", HudSeverity::Critical, "ui_skull");
-    }
-    else if (in.bites > 0)
-    {
-        add(in.bites > 1 ? "Bitten x2+" : "Bitten", HudSeverity::Serious, "ui_skull");
-    }
-    if (in.cuts > 0 && !in.bleeding)
-    {
-        add("Cut", HudSeverity::Mild, "fx_blood");
+        if (in.bleeding)
+        {
+            add("Bleeding", HudSeverity::Critical, "fx_blood");
+        }
+        if (in.infected)
+        {
+            add("Infected", HudSeverity::Critical, "ui_skull");
+        }
+        else if (in.bites > 0)
+        {
+            add(in.bites > 1 ? "Bitten x2+" : "Bitten", HudSeverity::Serious, "ui_skull");
+        }
+        if (in.cuts > 0 && !in.bleeding)
+        {
+            add("Cut", HudSeverity::Mild, "fx_blood");
+        }
     }
 
     if (in.thirst < NeedsSystem::kParchedBelow)
@@ -311,6 +379,14 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
     {
         add("Overheated", HudSeverity::Serious, "");
     }
+    if (in.wet)
+    {
+        add("Wet", HudSeverity::Mild, "");
+    }
+    if (in.coughing)
+    {
+        add("Coughing", HudSeverity::Serious, "");
+    }
 
     if (in.illness >= kGravelyIllAbove)
     {
@@ -327,17 +403,16 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
 
     if (!in.sleeping)
     {
-        if (in.sleepDebt > kExhaustedAbove)
+        // The sleep bands (phase 5, world/SleepRules): what a coffee hides is not shown.
+        switch (sleeprules::band(in.sleepDebt))
         {
-            add("Exhausted", HudSeverity::Critical, "ui_sleep");
-        }
-        else if (in.sleepDebt > NeedsSystem::kTiredAbove)
-        {
-            add("Tired", HudSeverity::Serious, "ui_sleep");
-        }
-        else if (in.sleepDebt > kDrowsyAbove)
-        {
-            add("Drowsy", HudSeverity::Mild, "ui_sleep");
+        case sleeprules::Band::DeadOnFeet: add("Dead on your feet", HudSeverity::Critical, "ui_sleep"); break;
+        case sleeprules::Band::Exhausted: add("Exhausted", HudSeverity::Critical, "ui_sleep"); break;
+        case sleeprules::Band::Tired: add("Tired", HudSeverity::Serious, "ui_sleep"); break;
+        case sleeprules::Band::Drowsy: add("Drowsy", HudSeverity::Mild, "ui_sleep"); break;
+        case sleeprules::Band::Fine:
+            if (in.rested) add("Rested", HudSeverity::Info, "ui_sleep");
+            break;
         }
     }
 
@@ -350,39 +425,36 @@ std::vector<HudStatus> Hud::buildConditions(const HudConditionInputs& in)
         add("Overburdened", HudSeverity::Serious, "");
     }
 
-    if (in.panic >= kPanickingAt)
+    // The mind's bands (phase 5, world/MindRules).
+    switch (mindrules::panicBand(in.panic))
     {
-        add("Panicking", HudSeverity::Critical, "");
-    }
-    else if (in.panic >= kScaredAt)
-    {
-        add("Scared", HudSeverity::Serious, "");
-    }
-    else if (in.panic >= kAnxiousAt)
-    {
-        add("Anxious", HudSeverity::Mild, "");
+    case mindrules::PanicBand::Breaking: add("Breaking", HudSeverity::Critical, ""); break;
+    case mindrules::PanicBand::Panicking: add("Panicking", HudSeverity::Critical, ""); break;
+    case mindrules::PanicBand::Shaken: add("Shaken", HudSeverity::Serious, ""); break;
+    case mindrules::PanicBand::Uneasy: add("Uneasy", HudSeverity::Mild, ""); break;
+    case mindrules::PanicBand::Calm: break;
     }
 
     if (in.inCrisis)
     {
         add("In crisis", HudSeverity::Critical, "");
     }
-    else if (in.depression >= kDespairAt)
+    else
     {
-        add("Despairing", HudSeverity::Critical, "");
-    }
-    else if (in.depression >= kDepressedAt)
-    {
-        add("Depressed", HudSeverity::Serious, "");
-    }
-    else if (in.depression >= kLowSpiritsAt)
-    {
-        add("Low spirits", HudSeverity::Mild, "");
+        switch (mindrules::depressionBand(in.depression))
+        {
+        case mindrules::DepressionBand::GivingUp: add("Giving up", HudSeverity::Critical, ""); break;
+        case mindrules::DepressionBand::Numb: add("Numb", HudSeverity::Serious, ""); break;
+        case mindrules::DepressionBand::WornDown: add("Worn down", HudSeverity::Serious, ""); break;
+        case mindrules::DepressionBand::Low: add("Low", HudSeverity::Mild, ""); break;
+        case mindrules::DepressionBand::Fine: break;
+        }
     }
 
-    if (in.desensitisation >= kNumbAt)
+    // Used to the killing (was "Numb" before the depression bands took the word).
+    if (in.desensitisation >= kHardenedAt)
     {
-        add("Numb", HudSeverity::Info, "");
+        add("Hardened", HudSeverity::Info, "");
     }
     if (in.sleeping)
     {
@@ -409,6 +481,13 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
     const glm::vec4 white = sheet.uvRect("solid_white");
     const float pulse = 0.5f + 0.5f * std::sin(state.timeSeconds * 6.0f);
 
+    // A line on the world: a dark edge keeps it readable over anything.
+    const auto line = [&](const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color)
+    {
+        batch.draw(pos - glm::vec2(1.0f), size + glm::vec2(2.0f), white, glm::vec4(0.0f, 0.0f, 0.0f, 0.55f * color.a));
+        batch.draw(pos, size, white, color);
+    };
+
     // Low-health vignette: red edges that close in as health drops.
     const float healthRatio = ratio(state.health, state.healthMax);
     if (healthRatio < 0.4f)
@@ -426,165 +505,179 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
         }
     }
 
-    // Vitals panel.
-    drawPanel(batch, white, layout.vitalsPos, layout.vitalsSize);
-    const float iconX = layout.vitalsPos.x + kPanelPadding;
-
-    const glm::vec4 heartUv = iconUv(sheet.uvRect("ui_heart"));
-    batch.draw(glm::vec2(iconX, layout.healthRowY - 1.0f), glm::vec2(kIconSize), heartUv,
-               glm::vec4(1.0f, 0.78f, 0.74f, 1.0f));
-    const float barY0 = layout.healthRowY + 3.0f;
-    const float barH = kBarHeight;
-    batch.draw(glm::vec2(layout.barX, barY0), glm::vec2(layout.barWidth, barH), white, kBarTrackColor);
-    glm::vec4 hpColor = healthColor(healthRatio);
-    if (healthRatio <= 0.3f)
+    // Body: health over stamina, two lines in the bottom-left corner.
     {
-        hpColor.a = 0.7f + 0.3f * pulse;
+        const glm::vec2 pos(layout.barsX, layout.healthY);
+        line(pos, glm::vec2(Hud::kBarsWidth, Hud::kHealthHeight), kTrackColor);
+        glm::vec4 hpColor = healthColor(healthRatio);
+        if (healthRatio <= 0.3f)
+        {
+            hpColor.a = 0.7f + 0.3f * pulse;
+        }
+        batch.draw(pos, glm::vec2(std::round(Hud::kBarsWidth * healthRatio), Hud::kHealthHeight), white, hpColor);
     }
-    batch.draw(glm::vec2(layout.barX, barY0), glm::vec2(std::round(layout.barWidth * healthRatio), barH), white,
-               hpColor);
-
-    const glm::vec4 staminaUv = iconUv(sheet.uvRect("ui_stamina"));
-    batch.draw(glm::vec2(iconX, layout.staminaRowY - 1.0f), glm::vec2(kIconSize), staminaUv,
-               glm::vec4(0.74f, 0.92f, 1.0f, 1.0f));
-    const float barY1 = layout.staminaRowY + 3.0f;
-    const float baseMax = std::max(1.0f, std::max(state.staminaBaseMax, state.staminaMax));
-    const float capRatio = ratio(state.staminaMax, baseMax);
-    const float staminaRatio = ratio(state.stamina, baseMax);
-    batch.draw(glm::vec2(layout.barX, barY1), glm::vec2(layout.barWidth, barH), white, kBarTrackColor);
-    if (capRatio < 0.999f)
     {
-        // The part of the bar that hunger, thirst, sleep and illness have taken away.
-        const float capX = std::round(layout.barX + layout.barWidth * capRatio);
-        batch.draw(glm::vec2(capX, barY1), glm::vec2(layout.barX + layout.barWidth - capX, barH), white,
-                   kStaminaLostColor);
+        const glm::vec2 pos(layout.barsX, layout.staminaY);
+        const float baseMax = std::max(1.0f, std::max(state.staminaBaseMax, state.staminaMax));
+        const float capRatio = ratio(state.staminaMax, baseMax);
+        const float staminaRatio = ratio(state.stamina, baseMax);
+        line(pos, glm::vec2(Hud::kBarsWidth, Hud::kStaminaHeight), kTrackColor);
+        if (capRatio < 0.999f)
+        {
+            // The part that hunger, thirst, sleep and illness have taken away.
+            const float capX = std::round(pos.x + Hud::kBarsWidth * capRatio);
+            batch.draw(glm::vec2(capX, pos.y), glm::vec2(pos.x + Hud::kBarsWidth - capX, Hud::kStaminaHeight), white,
+                       kStaminaLostColor);
+        }
+        // Out of breath (a fifth or less left): the line pulses.
+        glm::vec4 staminaColor = kStaminaColor;
+        if (ratio(state.stamina, state.staminaMax) <= 0.2f)
+        {
+            staminaColor.a = 0.45f + 0.55f * pulse;
+        }
+        batch.draw(pos, glm::vec2(std::round(Hud::kBarsWidth * staminaRatio), Hud::kStaminaHeight), white,
+                   staminaColor);
     }
-    batch.draw(glm::vec2(layout.barX, barY1), glm::vec2(std::round(layout.barWidth * staminaRatio), barH), white,
-               kStaminaColor);
 
-    // Condition rows: severity chip, icon, label backing.
+    // Held: the struggle meter as a row of ticks under the call to struggle.
+    if (state.held && state.struggleTicksTotal > 0)
+    {
+        constexpr float kTick = 8.0f;
+        constexpr float kGap = 4.0f;
+        const float width = static_cast<float>(state.struggleTicksTotal) * (kTick + kGap) - kGap;
+        const float x0 = std::round(layout.centreX - width * 0.5f);
+        const float y = layout.messageY - 36.0f;
+        for (int i = 0; i < state.struggleTicksTotal; ++i)
+        {
+            const bool filled = i < state.struggleTicks;
+            line(glm::vec2(x0 + static_cast<float>(i) * (kTick + kGap), y), glm::vec2(kTick),
+                 filled ? kAmber : kTrackColor);
+        }
+    }
+
+    // Conditions: a dot for each, coloured by how bad it is.
     for (std::size_t i = 0; i < layout.conditionRows; ++i)
     {
         const HudStatus& status = state.conditions[i];
-        const float rowY = layout.conditionsY + static_cast<float>(i) * kConditionRowHeight;
-        const float labelW = font.measureText(status.label, kLabelScale).x;
-        const float rowW = 4.0f + 6.0f + kIconSize + 6.0f + labelW + 10.0f;
-        batch.draw(glm::vec2(Hud::kMargin, rowY), glm::vec2(rowW, kConditionRowHeight - 4.0f), white, kPanelColor);
-
-        glm::vec4 chip = severityColor(status.severity);
+        glm::vec4 dot = severityColor(status.severity);
         if (status.severity == HudSeverity::Critical)
         {
-            chip.a = 0.55f + 0.45f * pulse;
+            dot.a = 0.55f + 0.45f * pulse;
         }
-        batch.draw(glm::vec2(Hud::kMargin, rowY), glm::vec2(4.0f, kConditionRowHeight - 4.0f), white, chip);
+        line(glm::vec2(layout.barsX, layout.conditionY(i) + 3.0f), glm::vec2(8.0f), dot);
+    }
 
-        if (!status.icon.empty())
+    // In a vehicle: its fuel, then its condition, as thin lines over the health line.
+    if (state.vehicle.inside)
+    {
+        const VehicleRows rows = vehicleRows(state, layout);
+        if (rows.fuelY > 0.0f)
         {
-            const glm::vec4 uv = sheet.uvRect(status.icon);
-            if (hasSprite(uv))
-            {
-                batch.draw(glm::vec2(Hud::kMargin + 8.0f, rowY), glm::vec2(kIconSize), iconUv(uv),
-                           glm::vec4(1.0f));
-            }
+            const glm::vec2 pos(layout.barsX, rows.fuelY);
+            line(pos, glm::vec2(Hud::kBarsWidth, Hud::kVehicleLineHeight), kTrackColor);
+            const float r = ratio(state.vehicle.fuel, state.vehicle.fuelMax);
+            glm::vec4 c = kAmber;
+            if (r <= 0.15f) c.a = 0.45f + 0.55f * pulse;
+            batch.draw(pos, glm::vec2(std::round(Hud::kBarsWidth * r), Hud::kVehicleLineHeight), white, c);
+        }
+        {
+            const glm::vec2 pos(layout.barsX, rows.conditionY);
+            line(pos, glm::vec2(Hud::kBarsWidth, Hud::kVehicleLineHeight), kTrackColor);
+            const float r = ratio(state.vehicle.condition, 100.0f);
+            batch.draw(pos, glm::vec2(std::round(Hud::kBarsWidth * r), Hud::kVehicleLineHeight), white, healthColor(r));
+        }
+        if (state.vehicle.wire >= 0.0f)
+        {
+            const glm::vec2 pos(layout.barsX + 110.0f, rows.wordY + 6.0f);
+            line(pos, glm::vec2(110.0f, Hud::kVehicleLineHeight), kTrackColor);
+            batch.draw(pos, glm::vec2(std::round(110.0f * std::clamp(state.vehicle.wire, 0.0f, 1.0f)), Hud::kVehicleLineHeight),
+                       white, kTextColor);
         }
     }
 
-    // Clock panel.
-    drawPanel(batch, white, layout.clockPos, layout.clockSize);
-    const glm::vec4 clockUv = iconUv(sheet.uvRect("ui_clock"));
-    batch.draw(glm::vec2(layout.clockPos.x + kPanelPadding, layout.clockPos.y + kPanelPadding - 1.0f),
-               glm::vec2(kIconSize), clockUv, glm::vec4(1.0f));
+    if (layout.docked)
+    {
+        return; // the open panel carries the belt, and covers the clock
+    }
 
-    // Objective backing.
+    // Objective steps: a box before each, hollow until done.
     if (!state.objectiveTitle.empty())
     {
-        const float titleW = font.measureText(truncateText(state.objectiveTitle, 40), kLabelScale).x;
-        const float detailW = font.measureText(truncateText(state.objectiveDetail, 60), kSmallScale).x;
-        const float w = std::max(titleW, detailW) + 20.0f;
-        const float h = state.objectiveDetail.empty() ? 28.0f : 42.0f;
-        batch.draw(glm::vec2(viewport.x - Hud::kMargin - w, layout.objectiveY), glm::vec2(w, h), white,
-                   glm::vec4(0.02f, 0.03f, 0.04f, 0.55f));
-        batch.draw(glm::vec2(viewport.x - Hud::kMargin - 3.0f, layout.objectiveY), glm::vec2(3.0f, h), white,
-                   state.objectiveColor);
+        for (std::size_t i = 0; i < state.objectiveSteps.size(); ++i)
+        {
+            const HudStep& step = state.objectiveSteps[i];
+            if (step.good) continue;
+            const float textW = font.measureText(truncateText(step.text, kStepChars), kLabelScale).x;
+            const glm::vec2 box(std::round(layout.rightX - textW - kStepGap - kStepBox),
+                                layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(i) * kStepRow + 2.0f);
+            const glm::vec4 edge = step.done ? kDimTextColor : kTextColor;
+            batch.draw(box - glm::vec2(1.0f), glm::vec2(kStepBox + 2.0f), white, glm::vec4(0.0f, 0.0f, 0.0f, 0.45f));
+            drawFrame(batch, white, box, glm::vec2(kStepBox), 2.0f, edge);
+            if (step.done)
+            {
+                batch.draw(box + glm::vec2(3.0f), glm::vec2(kStepBox - 6.0f), white, edge);
+            }
+        }
     }
 
-    // District toast backing.
-    if (!state.districtToast.empty() && state.districtToastAlpha > 0.01f)
-    {
-        const float w = font.measureText(state.districtToast, kLabelScale).x;
-        drawTextStrip(batch, white, viewport.x * 0.5f, layout.toastY, w, 18.0f, state.districtToastAlpha);
-    }
-
-    // Hotbar.
-    for (int i = 0; i < 8; ++i)
+    // Belt: bare items, the one in use drawn large over a line (put away in a vehicle).
+    for (int i = 0; i < 8 && !state.vehicle.inside; ++i)
     {
         const HudSlot& slot = state.hotbar[static_cast<std::size_t>(i)];
-        const glm::vec2 pos(layout.hotbarPos.x + static_cast<float>(i) * (Hud::kSlotSize + Hud::kSlotGap),
-                            layout.hotbarPos.y);
         const bool active = (i == state.activeSlot);
-        batch.draw(pos, glm::vec2(Hud::kSlotSize), white,
-                   active ? glm::vec4(0.10f, 0.09f, 0.05f, 0.85f) : glm::vec4(0.03f, 0.04f, 0.06f, 0.70f));
-        drawFrame(batch, white, pos, glm::vec2(Hud::kSlotSize), active ? 2.0f : 1.0f,
-                  active ? glm::vec4(0.98f, 0.84f, 0.38f, 1.0f) : glm::vec4(0.55f, 0.52f, 0.44f, 0.55f));
+        const float size = active ? Hud::kActiveIcon : Hud::kBeltIcon;
+        const float x = layout.slotX[static_cast<std::size_t>(i)];
+        const float width = layout.slotW[static_cast<std::size_t>(i)];
+        const glm::vec2 iconPos(std::round(x + (width - size) * 0.5f), layout.iconBottom - size);
 
+        glm::vec4 uv(0.0f);
         if (!slot.empty && !slot.icon.empty())
         {
-            const glm::vec4 uv = sheet.uvRect(slot.icon);
-            if (hasSprite(uv))
+            uv = sheet.uvRect(slot.icon);
+        }
+        if (hasSprite(uv))
+        {
+            batch.draw(iconPos + glm::vec2(0.0f, active ? 3.0f : 2.0f), glm::vec2(size), uv,
+                       glm::vec4(0.0f, 0.0f, 0.0f, 0.6f));
+            glm::vec4 tint = active ? glm::vec4(1.0f) : glm::vec4(1.0f, 1.0f, 1.0f, 0.82f);
+            if (slot.dim) tint = glm::vec4(0.42f, 0.42f, 0.46f, tint.a);
+            batch.draw(iconPos, glm::vec2(size), uv, tint);
+        }
+        else if (slot.empty)
+        {
+            const glm::vec2 mark(std::round(x + width * 0.5f - 3.0f), layout.iconBottom - 19.0f);
+            batch.draw(mark - glm::vec2(1.0f), glm::vec2(8.0f), white, glm::vec4(0.0f, 0.0f, 0.0f, 0.45f));
+            drawFrame(batch, white, mark, glm::vec2(6.0f), 1.0f, glm::vec4(kTextColor.r, kTextColor.g, kTextColor.b, 0.7f));
+        }
+
+        // Under the item in use: a line, which is also how worn a weapon is.
+        const glm::vec4 wearColor = slot.wear > 0.66f   ? kTextColor
+                                    : slot.wear > 0.33f ? kAmber
+                                                        : glm::vec4(0.96f, 0.42f, 0.34f, 1.0f);
+        if (active)
+        {
+            const glm::vec2 under(x, layout.iconBottom + 5.0f);
+            if (!slot.empty && slot.wear >= 0.0f)
             {
-                constexpr float kItemIcon = 32.0f;
-                const float inset = (Hud::kSlotSize - kItemIcon) * 0.5f;
-                batch.draw(pos + glm::vec2(inset, inset + 2.0f), glm::vec2(kItemIcon), uv,
-                           active ? glm::vec4(1.0f) : glm::vec4(0.88f, 0.88f, 0.88f, 1.0f));
+                line(under, glm::vec2(width, 3.0f), kTrackColor);
+                batch.draw(under, glm::vec2(std::max(2.0f, std::round(width * slot.wear)), 3.0f), white, wearColor);
+            }
+            else
+            {
+                line(under, glm::vec2(width, 3.0f), kTextColor);
             }
         }
-
-        // Weapons: wear along the bottom, a gold corner on the one in hand.
-        if (!slot.empty && slot.wear >= 0.0f)
+        else if (!slot.empty && slot.wear >= 0.0f)
         {
-            const glm::vec2 barPos = pos + glm::vec2(5.0f, Hud::kSlotSize - 7.0f);
-            const float barW = Hud::kSlotSize - 10.0f;
-            batch.draw(barPos, glm::vec2(barW, 3.0f), white, glm::vec4(0.0f, 0.0f, 0.0f, 0.65f));
-            const glm::vec4 wearColor = slot.wear > 0.66f   ? glm::vec4(0.47f, 0.80f, 0.42f, 1.0f)
-                                        : slot.wear > 0.33f ? glm::vec4(0.95f, 0.74f, 0.28f, 1.0f)
-                                                            : glm::vec4(0.92f, 0.33f, 0.27f, 1.0f);
-            batch.draw(barPos, glm::vec2(std::max(1.0f, std::round(barW * slot.wear)), 3.0f), white, wearColor);
+            const glm::vec2 under(iconPos.x, layout.iconBottom + 1.0f);
+            line(under, glm::vec2(size, 2.0f), kTrackColor);
+            batch.draw(under, glm::vec2(std::max(1.0f, std::round(size * slot.wear)), 2.0f), white, wearColor);
         }
-        if (!slot.empty && slot.equipped)
+        // The weapon in hand, when it is not the slot in use.
+        if (!slot.empty && slot.equipped && !active)
         {
-            const glm::vec4 gold(0.98f, 0.84f, 0.38f, 1.0f);
-            const glm::vec2 corner = pos + glm::vec2(Hud::kSlotSize - 3.0f, 3.0f);
-            for (int k = 0; k < 6; ++k)
-            {
-                batch.draw(corner + glm::vec2(-static_cast<float>(6 - k), static_cast<float>(k)),
-                           glm::vec2(static_cast<float>(6 - k), 1.0f), white, gold);
-            }
+            line(glm::vec2(std::round(x + width * 0.5f - 3.0f), iconPos.y - 9.0f), glm::vec2(6.0f), kAmber);
         }
-    }
-
-    // Selected item name and message backings.
-    const HudSlot& activeSlot = state.hotbar[static_cast<std::size_t>(std::clamp(state.activeSlot, 0, 7))];
-    if (!activeSlot.empty && !activeSlot.name.empty())
-    {
-        const float w = font.measureText(Hud::slotLabel(activeSlot), kLabelScale).x;
-        drawTextStrip(batch, white, viewport.x * 0.5f, layout.itemNameY, w, 18.0f, 0.8f);
-    }
-
-    const bool showMessage = !state.message.empty() && state.messageAlpha > 0.01f;
-    const std::string& line = showMessage ? state.message : state.prompt;
-    if (!line.empty())
-    {
-        const float w = font.measureText(truncateText(line, 72), kLabelScale).x;
-        drawTextStrip(batch, white, viewport.x * 0.5f, layout.messageY, w, 18.0f,
-                      showMessage ? state.messageAlpha : 0.9f);
-    }
-
-    // Vehicle readout backing (bottom-left).
-    if (!state.vehicleLine.empty())
-    {
-        const float w = font.measureText(state.vehicleLine, kLabelScale).x;
-        batch.draw(glm::vec2(Hud::kMargin, viewport.y - Hud::kMargin - 28.0f), glm::vec2(w + 20.0f, 28.0f), white,
-                   kPanelColor);
     }
 }
 
@@ -599,119 +692,210 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
     const Layout layout = computeLayout(state, viewport);
     const float pulse = 0.5f + 0.5f * std::sin(state.timeSeconds * 6.0f);
 
-    // Vitals values, right-aligned in the value column.
-    const float valueX = layout.vitalsPos.x + layout.vitalsSize.x - kPanelPadding;
-    const float healthRatio = ratio(state.health, state.healthMax);
-    font.drawText(batch, glm::vec2(valueX, layout.healthRowY),
-                  std::to_string(static_cast<int>(std::ceil(std::max(0.0f, state.health)))),
-                  healthColor(healthRatio), kLabelScale, TextAlign::Right);
-    font.drawText(batch, glm::vec2(valueX, layout.staminaRowY),
-                  std::to_string(static_cast<int>(std::max(0.0f, state.stamina))), kStaminaColor, kLabelScale,
-                  TextAlign::Right);
+    // Every label sits straight on the world, so each carries its own shadow.
+    const auto put = [&](const glm::vec2& pos, const std::string& text, const glm::vec4& color, float scale,
+                         TextAlign align = TextAlign::Left)
+    {
+        const float offset = scale >= 2.0f ? 2.0f : 1.0f;
+        font.drawText(batch, pos + glm::vec2(offset), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.85f * color.a), scale, align);
+        font.drawText(batch, pos, text, color, scale, align);
+    };
 
     // Conditions.
     for (std::size_t i = 0; i < layout.conditionRows; ++i)
     {
         const HudStatus& status = state.conditions[i];
-        const float rowY = layout.conditionsY + static_cast<float>(i) * kConditionRowHeight;
-        glm::vec4 color = severityColor(status.severity);
+        glm::vec4 color = status.severity == HudSeverity::Info || status.severity == HudSeverity::Mild
+                              ? kTextColor
+                              : severityColor(status.severity);
         if (status.severity == HudSeverity::Critical)
         {
             color = glm::mix(color, glm::vec4(1.0f), 0.25f * pulse);
         }
-        font.drawText(batch, glm::vec2(Hud::kMargin + 10.0f + kIconSize + 6.0f, rowY + 2.0f), status.label, color,
-                      kLabelScale);
+        // Critical: a mark before the word too, never the colour alone (phase 13).
+        put(glm::vec2(layout.barsX + 16.0f, layout.conditionY(i)),
+            status.severity == HudSeverity::Critical ? "! " + status.label : status.label, color, kLabelScale);
     }
     if (state.conditions.size() > layout.conditionRows)
     {
-        const float rowY = layout.conditionsY + static_cast<float>(layout.conditionRows) * kConditionRowHeight;
-        font.drawText(batch, glm::vec2(Hud::kMargin + 4.0f, rowY),
-                      "+" + std::to_string(state.conditions.size() - layout.conditionRows) + " more",
-                      kDimTextColor, kSmallScale);
+        put(glm::vec2(layout.barsX, layout.conditionY(0) - 14.0f),
+            "+" + std::to_string(state.conditions.size() - layout.conditionRows) + " more", kDimTextColor, kSmallScale);
     }
 
-    // Clock panel: day and time, then weather.
-    const float clockTextX = layout.clockPos.x + kPanelPadding + kIconSize + 8.0f;
-    const float clockRight = layout.clockPos.x + layout.clockSize.x - kPanelPadding;
-    const float clockRow0 = layout.clockPos.y + kPanelPadding;
-    const float clockRow1 = clockRow0 + 18.0f + 8.0f;
-    font.drawText(batch, glm::vec2(clockTextX, clockRow0), "DAY " + std::to_string(state.day), kTextColor,
-                  kLabelScale);
-    font.drawText(batch, glm::vec2(clockRight, clockRow0), clockText(state.hours), clockColor(state.hours),
-                  kLabelScale, TextAlign::Right);
-    font.drawText(batch, glm::vec2(clockRight, clockRow1), truncateText(weatherText(state), 17), kDimTextColor,
-                  kLabelScale, TextAlign::Right);
-    if (!state.districtLine.empty())
+    if (state.vehicle.inside)
     {
-        const glm::vec4 color = state.districtLineDanger ? glm::vec4(1.0f, 0.48f, 0.36f, 1.0f)
-                                                         : glm::vec4(0.86f, 0.74f, 0.46f, 0.95f);
-        font.drawText(batch, glm::vec2(clockRight, clockRow1 + 26.0f), truncateText(state.districtLine, 17), color,
-                      kLabelScale, TextAlign::Right);
-    }
-
-    // Objective under the clock.
-    if (!state.objectiveTitle.empty())
-    {
-        const float rightX = viewport.x - Hud::kMargin - 10.0f;
-        font.drawText(batch, glm::vec2(rightX, layout.objectiveY + 6.0f), truncateText(state.objectiveTitle, 40),
-                      state.objectiveColor, kLabelScale, TextAlign::Right);
-        if (!state.objectiveDetail.empty())
+        const VehicleRows rows = vehicleRows(state, layout);
+        put(glm::vec2(layout.barsX, rows.wordY), state.vehicle.word, kTextColor, kLabelScale);
+        if (rows.fuelY > 0.0f)
         {
-            font.drawText(batch, glm::vec2(rightX, layout.objectiveY + 28.0f),
-                          truncateText(state.objectiveDetail, 60), kDimTextColor, kSmallScale, TextAlign::Right);
+            put(glm::vec2(layout.barsX + Hud::kBarsWidth + 8.0f, rows.fuelY - 5.0f), "fuel", kDimTextColor, kSmallScale);
+        }
+        put(glm::vec2(layout.barsX + Hud::kBarsWidth + 8.0f, rows.conditionY - 5.0f), "body", kDimTextColor, kSmallScale);
+    }
+
+    // Day card.
+    if (!state.dayCardTitle.empty() && state.dayCardAlpha > 0.01f)
+    {
+        float y = std::round(viewport.y * 0.22f);
+        // A long line on a narrow interface would run into the objective
+        // panel: the card goes below it instead.
+        const float halfW = 0.5f * std::max(font.measureText(state.dayCardTitle, kDayCardTitleScale).x,
+                                            font.measureText(state.dayCardLine, kLabelScale).x);
+        const glm::vec2 corner = objectiveCorner(state, viewport, font);
+        if (layout.centreX + halfW > corner.x - 12.0f && y < corner.y + 8.0f) y = std::round(corner.y + 16.0f);
+        put(glm::vec2(layout.centreX, y), state.dayCardTitle, withAlpha(kTextColor, state.dayCardAlpha),
+            kDayCardTitleScale, TextAlign::Center);
+        if (!state.dayCardLine.empty())
+        {
+            put(glm::vec2(layout.centreX, y + 36.0f), state.dayCardLine, withAlpha(kDimTextColor, state.dayCardAlpha),
+                kLabelScale, TextAlign::Center);
         }
     }
 
     // District toast.
     if (!state.districtToast.empty() && state.districtToastAlpha > 0.01f)
     {
-        const glm::vec4 color = state.districtDanger ? glm::vec4(1.0f, 0.48f, 0.36f, 1.0f)
-                                                     : glm::vec4(0.94f, 0.86f, 0.60f, 1.0f);
-        font.drawText(batch, glm::vec2(viewport.x * 0.5f, layout.toastY), state.districtToast,
-                      withAlpha(color, state.districtToastAlpha), kLabelScale, TextAlign::Center);
+        const glm::vec4 color = state.districtDanger ? glm::vec4(1.0f, 0.54f, 0.44f, 1.0f) : kTextColor;
+        put(glm::vec2(layout.centreX, layout.toastY), state.districtToast, withAlpha(color, state.districtToastAlpha),
+            kLabelScale, TextAlign::Center);
     }
 
-    // Hotbar labels: key numbers, counts, and short names for items without art.
+    if (state.held)
+    {
+        put(glm::vec2(layout.centreX, layout.messageY - 62.0f), state.heldLine,
+            glm::mix(kAmber, glm::vec4(1.0f), 0.3f * pulse), kLabelScale, TextAlign::Center);
+    }
+
+    // Message (transient) wins over the standing interaction prompt. With a
+    // panel docked the world is narrower: shorten the line to fit what is
+    // left of it, or a long message runs off the left edge.
+    const float lineRoom = (viewport.x - state.dockedWidth) - 2.0f * Hud::kEdge;
+    const auto fitLine = [&](const std::string& text)
+    {
+        std::size_t chars = 72;
+        std::string line = truncateText(text, chars);
+        while (chars > 8 && font.measureText(line, kLabelScale).x > lineRoom)
+        {
+            line = truncateText(text, --chars);
+        }
+        return line;
+    };
+    const bool showMessage = !state.message.empty() && state.messageAlpha > 0.01f;
+    std::size_t messageLines = showMessage || !state.prompt.empty() ? 1 : 0;
+    if (showMessage)
+    {
+        // A long message (a note read, phase 9) wraps upward, three lines at most.
+        std::vector<std::string> lines;
+        {
+            std::istringstream words(state.message);
+            std::string word;
+            std::string line;
+            while (words >> word)
+            {
+                const std::string longer = line.empty() ? word : line + " " + word;
+                if (!line.empty() && (longer.size() > 72 || font.measureText(longer, kLabelScale).x > lineRoom))
+                {
+                    lines.push_back(line);
+                    line = word;
+                }
+                else
+                {
+                    line = longer;
+                }
+            }
+            if (!line.empty()) lines.push_back(line);
+        }
+        constexpr std::size_t kMaxMessageLines = 3;
+        if (lines.size() > kMaxMessageLines)
+        {
+            lines.resize(kMaxMessageLines);
+            lines.back() += " ...";
+        }
+        const float lineStep = font.lineHeight(kLabelScale) + 4.0f;
+        messageLines = std::max<std::size_t>(1, lines.size());
+        for (std::size_t i = 0; i < lines.size(); ++i)
+        {
+            const float y = layout.messageY - static_cast<float>(lines.size() - 1 - i) * lineStep;
+            put(glm::vec2(layout.centreX, y), fitLine(lines[i]), withAlpha(kTextColor, state.messageAlpha), kLabelScale,
+                TextAlign::Center);
+        }
+    }
+    else if (!state.prompt.empty())
+    {
+        put(glm::vec2(layout.centreX, layout.messageY), fitLine(state.prompt), kTextColor, kLabelScale,
+            TextAlign::Center);
+    }
+    // A teaching prompt (phase 13): one at a time, over whatever is on the line.
+    if (!state.teach.empty())
+    {
+        const float lineStep = font.lineHeight(kLabelScale) + 4.0f;
+        const float y = layout.messageY - static_cast<float>(messageLines) * lineStep;
+        put(glm::vec2(layout.centreX, y), fitLine(state.teach), kAmber, kLabelScale, TextAlign::Center);
+    }
+
+    if (layout.docked)
+    {
+        return;
+    }
+
+    // Time, then the day and the weather.
+    put(glm::vec2(layout.rightX, layout.clockY), clockText(state.hours), clockColor(state.hours, state.duskHour, state.dawnHour), kClockScale,
+        TextAlign::Right);
+    // "Day 17 - Summer - Clear, 29C" (phase 7).
+    put(glm::vec2(layout.rightX, layout.dayY),
+        "Day " + std::to_string(state.day) + (state.season.empty() ? std::string("  ") : " - " + state.season + " - ") +
+            weatherText(state),
+        kTextColor, kLabelScale, TextAlign::Right);
+    if (!state.districtLine.empty())
+    {
+        put(glm::vec2(layout.rightX, layout.dayY + 22.0f), truncateText(state.districtLine, 30),
+            state.districtLineDanger ? glm::vec4(1.0f, 0.54f, 0.44f, 1.0f) : kDimTextColor, kLabelScale,
+            TextAlign::Right);
+    }
+
+    // The thing to do, and the day's plan under it.
+    if (!state.objectiveTitle.empty())
+    {
+        put(glm::vec2(layout.rightX, layout.objectiveY + 6.0f), truncateText(state.objectiveTitle, 40), kAmber,
+            kLabelScale, TextAlign::Right);
+        if (!state.objectiveDetail.empty())
+        {
+            put(glm::vec2(layout.rightX, layout.objectiveY + 28.0f), truncateText(state.objectiveDetail, 60),
+                kDimTextColor, kSmallScale, TextAlign::Right);
+        }
+        for (std::size_t i = 0; i < state.objectiveSteps.size(); ++i)
+        {
+            const HudStep& step = state.objectiveSteps[i];
+            put(glm::vec2(layout.rightX, layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(i) * kStepRow),
+                truncateText(step.text, kStepChars), step.good ? kGoodColor : step.done ? kDimTextColor : kTextColor,
+                kLabelScale, TextAlign::Right);
+        }
+    }
+
+    // Belt: a number under each item that is not in use, and how many.
+    if (state.vehicle.inside) return; // put away
     for (int i = 0; i < 8; ++i)
     {
         const HudSlot& slot = state.hotbar[static_cast<std::size_t>(i)];
-        const glm::vec2 pos(layout.hotbarPos.x + static_cast<float>(i) * (Hud::kSlotSize + Hud::kSlotGap),
-                            layout.hotbarPos.y);
         const bool active = (i == state.activeSlot);
-        font.drawText(batch, pos + glm::vec2(4.0f, 4.0f), std::to_string(i + 1),
-                      active ? glm::vec4(0.98f, 0.84f, 0.38f, 1.0f) : glm::vec4(0.70f, 0.68f, 0.60f, 0.9f),
-                      kSmallScale);
+        const float x = layout.slotX[static_cast<std::size_t>(i)];
+        const float width = layout.slotW[static_cast<std::size_t>(i)];
+        if (!active)
+        {
+            put(glm::vec2(std::round(x + width * 0.5f), layout.iconBottom + 6.0f), std::to_string(i + 1), kDimTextColor,
+                kSmallScale, TextAlign::Center);
+        }
         if (!slot.empty && slot.count > 1)
         {
-            font.drawText(batch, pos + glm::vec2(Hud::kSlotSize - 4.0f, Hud::kSlotSize - 12.0f),
-                          std::to_string(slot.count), kTextColor, kSmallScale, TextAlign::Right);
+            put(glm::vec2(x + width, layout.iconBottom - 10.0f), std::to_string(slot.count), kTextColor, kSmallScale,
+                TextAlign::Right);
         }
     }
 
     const HudSlot& activeSlot = state.hotbar[static_cast<std::size_t>(std::clamp(state.activeSlot, 0, 7))];
     if (!activeSlot.empty && !activeSlot.name.empty())
     {
-        font.drawText(batch, glm::vec2(viewport.x * 0.5f, layout.itemNameY), Hud::slotLabel(activeSlot),
-                      glm::vec4(0.98f, 0.90f, 0.62f, 0.95f), kLabelScale, TextAlign::Center);
-    }
-
-    // Message (transient) wins over the standing interaction prompt.
-    const bool showMessage = !state.message.empty() && state.messageAlpha > 0.01f;
-    if (showMessage)
-    {
-        font.drawText(batch, glm::vec2(viewport.x * 0.5f, layout.messageY), truncateText(state.message, 72),
-                      glm::vec4(1.0f, 0.97f, 0.84f, state.messageAlpha), kLabelScale, TextAlign::Center);
-    }
-    else if (!state.prompt.empty())
-    {
-        font.drawText(batch, glm::vec2(viewport.x * 0.5f, layout.messageY), truncateText(state.prompt, 72),
-                      glm::vec4(0.86f, 0.92f, 0.72f, 0.95f), kLabelScale, TextAlign::Center);
-    }
-
-    if (!state.vehicleLine.empty())
-    {
-        font.drawText(batch, glm::vec2(Hud::kMargin + 10.0f, viewport.y - Hud::kMargin - 23.0f), state.vehicleLine,
-                      state.driving ? glm::vec4(0.94f, 0.90f, 0.56f, 1.0f) : glm::vec4(0.66f, 0.80f, 0.86f, 0.95f),
-                      kLabelScale);
+        put(glm::vec2(layout.centreX, layout.itemNameY), Hud::slotLabel(activeSlot), kTextColor, kLabelScale,
+            TextAlign::Center);
     }
 }

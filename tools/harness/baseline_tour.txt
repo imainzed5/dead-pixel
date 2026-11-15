@@ -19,7 +19,7 @@ shot 03_after_walk
 tap Tab
 waits 0.2
 shot 04_inventory
-tap Tab
+tap Esc
 tap M
 waits 0.2
 shot 05_world_map

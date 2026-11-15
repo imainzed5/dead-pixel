@@ -92,8 +92,62 @@ DP_TEST(structures_classify_walls_doorways_and_runs)
     DP_CHECK_EQ(view.tile(4, 4).building, 1);
     DP_CHECK(view.tile(8, 10).kind == StructureKind::Wall);
     DP_CHECK(view.tile(8, 10).perimeter); // walls outside buildings always show
-    DP_CHECK(view.coversGround(2, 2));
+    // Walls are thin and stand on the ground beside them.
+    DP_CHECK(!view.coversGround(2, 2));
     DP_CHECK(!view.coversGround(4, 6));
+    DP_CHECK(!view.coversGround(8, 10));
+    DP_CHECK_EQ(view.groundUnder(8, 10), TileGid::kGrass);
+    DP_CHECK_EQ(view.groundUnder(5, 2), TileGid::kGrass);
+    DP_CHECK_EQ(view.groundUnder(4, 4), 0);
+}
+
+DP_TEST(structures_place_thin_walls_on_the_room_side_of_their_tiles)
+{
+    TinyTown town;
+    StructureView view;
+    view.build(town.map, town.layout);
+
+    // Back walls stand on the near edge of their tile, front walls on the far
+    // edge, and corners are posts in the corner nearest the rooms.
+    DP_CHECK(view.tile(5, 2).place == WallPlace::EdgeS);
+    DP_CHECK(view.tile(5, 6).place == WallPlace::EdgeN);
+    DP_CHECK(view.tile(2, 4).place == WallPlace::EdgeE);
+    DP_CHECK(view.tile(7, 4).place == WallPlace::EdgeW);
+    DP_CHECK(view.tile(2, 2).place == WallPlace::PostSE);
+    DP_CHECK(view.tile(7, 6).place == WallPlace::PostNW);
+    DP_CHECK(view.tile(4, 6).place == WallPlace::EdgeN); // the doorway, in the front wall
+    DP_CHECK(view.tile(8, 10).place == WallPlace::Centre); // free-standing: down the middle
+    DP_CHECK_EQ(static_cast<int>(view.tile(8, 10).arms), 4 | 8);
+    DP_CHECK_EQ(static_cast<int>(view.tile(6, 10).arms), 8);
+
+    DP_CHECK(view.wallAtEdge(7, 4, 0));
+    DP_CHECK(!view.wallAtEdge(7, 4, 2));
+    DP_CHECK(view.wallAtEdge(5, 2, 3));
+    DP_CHECK(!view.wallAtEdge(8, 10, 1));
+    DP_CHECK(!view.wallAtEdge(4, 4, 0));
+}
+
+DP_TEST(structures_roof_is_a_hip_over_the_whole_footprint)
+{
+    TinyTown town;
+    StructureView view;
+    view.build(town.map, town.layout);
+
+    // 6 x 5: eaves all round, rising to a ridge along the middle row.
+    DP_CHECK(view.tile(2, 2).roofed);
+    DP_CHECK_EQ(static_cast<int>(view.tile(2, 2).roofLevel), 0);
+    DP_CHECK_EQ(static_cast<int>(view.tile(2, 2).roofMask), 1 | 4); // north-west hip
+    DP_CHECK_EQ(static_cast<int>(view.tile(4, 2).roofMask), 4);     // north slope
+    DP_CHECK_EQ(static_cast<int>(view.tile(4, 6).roofMask), 8);     // south slope
+    DP_CHECK_EQ(static_cast<int>(view.tile(7, 4).roofMask), 2);     // east slope
+    DP_CHECK_EQ(static_cast<int>(view.tile(3, 3).roofLevel), 1);
+    DP_CHECK_EQ(static_cast<int>(view.tile(4, 4).roofLevel), 2);
+    DP_CHECK_EQ(static_cast<int>(view.tile(4, 4).roofMask), 1 | 4 | 8); // the west end of the ridge
+    DP_CHECK(!view.tile(8, 10).roofed);
+
+    // A roof thins out over a player who walks behind the building.
+    DP_CHECK(StructureView::roofHidesPlayer({4, 3}, {3, 1}));
+    DP_CHECK(!StructureView::roofHidesPlayer({4, 3}, {6, 8}));
 }
 
 DP_TEST(structures_roof_hides_interior_until_player_enters)
@@ -167,13 +221,16 @@ DP_TEST(structures_collect_emits_walls_and_roofs)
     view.snapRoofs({12, 4});
     view.collect(camera, {12, 4}, sprites, out);
     const float full = 32.0f + StructureView::kWallHeight;
-    DP_CHECK_EQ(countSprites(out, 32.0f), 12);        // roof over the 4x3 interior
-    DP_CHECK_EQ(countSprites(out, full), 18 + 9);     // 17 walls + doorway, 9 free-standing
+    const float roofPiece = 32.0f + StructureView::kRoofRise[0] + StructureView::kRoofFascia;
+    DP_CHECK_EQ(countSprites(out, roofPiece), 30);    // roof over the whole 6x5 footprint
+    // 17 walls + doorway; the free-standing line is 9 tiles of half pieces,
+    // two each but for its two ends.
+    DP_CHECK_EQ(countSprites(out, full), 18 + 16);
 
     out.clear();
     view.snapRoofs({4, 4});
     view.collect(camera, {4, 4}, sprites, out);
-    DP_CHECK_EQ(countSprites(out, 32.0f), 0); // roof open
+    DP_CHECK_EQ(countSprites(out, 32.0f + StructureView::kRoofRise[0] + StructureView::kRoofFascia), 0); // roof open
     // Front walls (south and east, minus the shared corner and the doorway) are stubs.
     DP_CHECK(countSprites(out, 32.0f + StructureView::kWallLowHeight) >= 8);
 }

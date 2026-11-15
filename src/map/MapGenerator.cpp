@@ -2,7 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <numeric>
+#include <string>
+
+#include "world/BuildingKinds.h"
 
 LayoutData MapGenerator::generateLayout(std::uint32_t layoutSeed, int width, int height)
 {
@@ -17,6 +21,7 @@ LayoutData MapGenerator::generateLayout(std::uint32_t layoutSeed, int width, int
     mDistrict.assign(total, 0);
     mBuildings.clear();
     mDoorTiles.clear();
+    mLayout.gate = LayoutData::GateSite{};
 
     fillBase();
     borderWalls();
@@ -69,6 +74,8 @@ LayoutData MapGenerator::generateLayout(std::uint32_t layoutSeed, int width, int
 void MapGenerator::loadLayout(const LayoutData& layout)
 {
     mLayout = layout;
+    // Layouts saved before phase 6 have no kinds: the same rule gives them.
+    buildingkinds::assignMissing(mLayout);
     unpackLayout();
 }
 
@@ -78,12 +85,12 @@ void MapGenerator::applyToTileMap(TileMap& outMap) const
 
     TilesetInfo tileset{};
     tileset.firstGid = 1;
-    tileset.tileCount = TileGid::kPerRow * TileGid::kVariants;
+    tileset.tileCount = TileGid::kPerRow * (TileGid::kVariants + TileGid::kOverlayRows);
     tileset.columns = TileGid::kPerRow;
     tileset.tileWidth = 64;
     tileset.tileHeight = 32;
     tileset.imageWidth = 64 * TileGid::kPerRow;
-    tileset.imageHeight = 32 * TileGid::kVariants;
+    tileset.imageHeight = 32 * (TileGid::kVariants + TileGid::kOverlayRows);
     tileset.imagePath = "../sprites/placeholder.png";
     outMap.setTileset(tileset);
 
@@ -141,6 +148,11 @@ void MapGenerator::packLayout()
     {
         mLayout.doors.push_back({d.x, d.y});
     }
+
+    // What each building was (phase 6).
+    std::vector<std::string> notes;
+    buildingkinds::assignMissing(mLayout, &notes);
+    for (const std::string& note : notes) std::cout << "[World] building kinds: " << note << "\n";
 }
 
 void MapGenerator::unpackLayout()
@@ -969,6 +981,13 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
 
     for (int bi = 0; bi < static_cast<int>(mBuildings.size()); ++bi)
     {
+        // The guard hut by the gate (phase 9) holds nothing and no one: it is
+        // left out, so a town's spawns are what they were before it stood.
+        if (static_cast<std::size_t>(bi) < mLayout.buildings.size() &&
+            mLayout.buildings[static_cast<std::size_t>(bi)].kind == static_cast<int>(BuildingKind::GuardHut))
+        {
+            continue;
+        }
         const auto& b = mBuildings[static_cast<std::size_t>(bi)];
         BuildingFloors bf;
         bf.buildingIdx = bi;
@@ -1134,7 +1153,10 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
     {
         for (int x = 2; x < mWidth - 2; x += 3)
         {
-            if (mCollision[index(x, y)] == 0 && buildingIndexAt(x, y) < 0)
+            const LayoutData::GateSite& gate = mLayout.gate;
+            const bool yard = gate.placed && x >= gate.yardMin.x && x <= gate.yardMax.x && y >= gate.yardMin.y &&
+                              y <= gate.yardMax.y;
+            if (mCollision[index(x, y)] == 0 && buildingIndexAt(x, y) < 0 && !yard)
             {
                 outdoorTiles.emplace_back(x, y);
             }
@@ -1338,28 +1360,6 @@ void MapGenerator::selectSpawns(SpawnData& outSpawns)
         static_cast<int>(DistrictType::Residential),
         true,
         SpawnTileBias::NearWall);
-
-    // Home furniture dressing pass: mostly residential, with a near-wall bias.
-    const int homeFurnitureCount = static_cast<int>(std::uniform_int_distribution<int>(18, 30)(mRng) * areaScale);
-    const int homeNearWallCount = (homeFurnitureCount * 7) / 10;
-    pickBuildingTiles(
-        homeNearWallCount,
-        outSpawns.homeFurnitureSpawns,
-        false,
-        static_cast<int>(DistrictType::Residential),
-        true,
-        SpawnTileBias::NearWall);
-    pickBuildingTiles(
-        homeFurnitureCount - homeNearWallCount,
-        outSpawns.homeFurnitureSpawns,
-        false,
-        static_cast<int>(DistrictType::Residential),
-        true,
-        SpawnTileBias::OpenSpace);
-
-    // Containers
-    const int containerCount = static_cast<int>(std::uniform_int_distribution<int>(10, 16)(mRng) * areaScale);
-    pickBuildingTiles(containerCount, outSpawns.containerSpawns, true, -1, true, SpawnTileBias::NearWall);
 
     // Indoor decor: ambient utility and distress dressing inside buildings
     const int indoorDecorCount = static_cast<int>(std::uniform_int_distribution<int>(12, 24)(mRng) * areaScale);

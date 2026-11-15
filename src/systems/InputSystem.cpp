@@ -7,11 +7,11 @@
 #include "components/Facing.h"
 #include "components/PlayerInput.h"
 #include "components/Stamina.h"
-#include "components/Traits.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
+#include "world/CombatRules.h"
 
-void InputSystem::update(World& world, const Input& input, const glm::vec2& mouseWorld) const
+void InputSystem::update(World& world, const Input& input, const glm::vec2& mouseWorld, float dtSeconds) const
 {
     world.forEach<PlayerInput, Velocity, Facing, Transform>(
         [&](Entity entity, PlayerInput&, Velocity& velocity, Facing& facing, Transform& transform)
@@ -23,22 +23,22 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             // S = screen down (iso SE) = world (+1, +1)
             // A = screen left (iso SW) = world (-1, +1)
             // D = screen right (iso NE) = world (+1, -1)
-            if (input.isKeyDown(SDL_SCANCODE_W))
+            if (input.down(Action::MoveUp))
             {
                 moveInput.x -= 1.0f;
                 moveInput.y -= 1.0f;
             }
-            if (input.isKeyDown(SDL_SCANCODE_S))
+            if (input.down(Action::MoveDown))
             {
                 moveInput.x += 1.0f;
                 moveInput.y += 1.0f;
             }
-            if (input.isKeyDown(SDL_SCANCODE_A))
+            if (input.down(Action::MoveLeft))
             {
                 moveInput.x -= 1.0f;
                 moveInput.y += 1.0f;
             }
-            if (input.isKeyDown(SDL_SCANCODE_D))
+            if (input.down(Action::MoveRight))
             {
                 moveInput.x += 1.0f;
                 moveInput.y -= 1.0f;
@@ -50,16 +50,15 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             }
 
             facing.crouching =
-                input.isKeyDown(SDL_SCANCODE_C) ||
-                input.isKeyDown(SDL_SCANCODE_LCTRL) ||
-                input.isKeyDown(SDL_SCANCODE_RCTRL);
+                input.down(Action::Crouch) ||
+                input.down(Action::Crouch);
 
             const bool runRequested =
-                input.isKeyDown(SDL_SCANCODE_LSHIFT) ||
-                input.isKeyDown(SDL_SCANCODE_RSHIFT);
+                input.down(Action::Run);
 
             facing.running =
                 runRequested &&
+                mModifiers.canRun &&
                 !facing.crouching &&
                 glm::dot(moveInput, moveInput) > 0.0f;
 
@@ -70,30 +69,31 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             }
             else if (facing.running)
             {
-                speedMultiplier = kRunSpeedMultiplier;
+                // A splinted leg: you hurry, but no faster than a walk.
+                speedMultiplier = mModifiers.runAtWalkSpeed ? 1.0f : kRunSpeedMultiplier * mModifiers.runSpeedScale;
             }
 
             if (world.hasComponent<Stamina>(entity))
             {
                 const Stamina& stamina = world.getComponent<Stamina>(entity);
-                if (stamina.maximum > 0.0f && stamina.current <= stamina.maximum * 0.2f)
+                // Out of breath: slower, but not so slow you cannot get away.
+                if (combatrules::exhausted(stamina.current, stamina.maximum))
                 {
-                    speedMultiplier *= 0.6f;
+                    speedMultiplier *= combatrules::kExhaustedMoveScale;
                 }
             }
 
-            // Quick trait: +15% speed
-            if (world.hasComponent<Traits>(entity))
-            {
-                const Traits& traits = world.getComponent<Traits>(entity);
-                if (traits.positive == PositiveTrait::Quick)
-                {
-                    speedMultiplier *= 1.15f;
-                }
-            }
+            // Traits, wounds and the mind (Quick, a hurt leg, Numb).
+            speedMultiplier *= mModifiers.speedScale;
 
-            velocity.dx = moveInput.x * (kBaseSpeed * speedMultiplier);
-            velocity.dy = moveInput.y * (kBaseSpeed * speedMultiplier);
+            const glm::vec2 wanted = moveInput * (kBaseSpeed * speedMultiplier);
+            const glm::vec2 current(velocity.dx, velocity.dy);
+            const glm::vec2 change = wanted - current;
+            const float changeLength = glm::length(change);
+            const float step = (glm::dot(wanted, wanted) > 0.0f ? kAcceleration : kDeceleration) * mModifiers.accelScale * dtSeconds;
+            const glm::vec2 next = changeLength <= step ? wanted : current + change / changeLength * step;
+            velocity.dx = next.x;
+            velocity.dy = next.y;
 
             const glm::vec2 playerCenter(
                 transform.x + kSpriteSize * 0.5f,

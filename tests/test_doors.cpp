@@ -141,7 +141,7 @@ DP_TEST(doors_boards_hold_shut_and_take_blows_first)
 
     // Blows split the boards one by one before the door takes any.
     int splinters = 0;
-    for (int i = 0; i < 100 && doors.boards(tile) > 0; ++i)
+    for (int i = 0; i < 400 && doors.boards(tile) > 0; ++i)
     {
         doors.tick(Doors::kBangInterval);
         if (doors.batter(room.map, tile, 10.0f) == Doors::Blow::Splinters) ++splinters;
@@ -156,7 +156,7 @@ DP_TEST(doors_boards_hold_shut_and_take_blows_first)
     DP_CHECK(!doors.removeBoard(room.map, tile));
     DP_CHECK(doors.toggle(room.map, tile) == DoorState::Open);
     DP_CHECK(doors.toggle(room.map, tile) == DoorState::Closed);
-    doors.setBoards(room.map, tile, 150.0f);
+    doors.setBoards(room.map, tile, Doors::kBoardHp * 1.5f);
     DP_CHECK_EQ(doors.boards(tile), 2);
     doors.setState(room.map, tile, DoorState::Broken);
     DP_CHECK_EQ(doors.boards(tile), 0);

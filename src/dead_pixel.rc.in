@@ -1,0 +1,26 @@
+// The exe's icon (a boarded door, tools/generate_icon.py) and version.
+// CMake fills in the paths and numbers (configure_file).
+#include <winver.h>
+
+IDI_ICON1 ICON "@DEAD_PIXEL_ICON_PATH@"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Dead Pixel Survival"
+            VALUE "FileVersion", "@PROJECT_VERSION@"
+            VALUE "ProductName", "Dead Pixel Survival"
+            VALUE "ProductVersion", "@PROJECT_VERSION@"
+            VALUE "OriginalFilename", "dead_pixel_survival.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

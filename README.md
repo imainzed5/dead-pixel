@@ -21,45 +21,158 @@ done, what is next, and known issues.
   roads, houses, shops and workshops. Rooms are furnished, and the furniture
   can be searched. Walls cut away around you, and roofs lift when you go
   inside.
+- **The first three days:** each run starts at home, with a plan for each
+  day and night. Search the house and board it up before dark; the taps run
+  until day 3; every night more of the dead come knocking.
+- **The town that runs out:** pharmacies, groceries, hardware stores,
+  clinics, police stations, diners, offices, garages and warehouses, each
+  furnished for what it was; most carry a sign above the street door, and
+  the town map marks the ones you have seen. Doors may be
+  locked (force them, break them, or find the back way) and shops may ring
+  an alarm. Searching takes time, and a searched cupboard stands ajar. The
+  taps fail on day 3 and the power around day 5: lamps go dark, fridges
+  stop keeping food, alarms die. Then boil dirty water, cook at a fire,
+  forage, set snares and grow a garden bed.
+- **Who wakes up:** each run starts with a name and traits picked on the
+  character screen (good at, bad at, the points must balance; Space takes
+  the seed's pick). Seven skills (Carpentry, Fighting, Fitness,
+  Scavenging, Medicine, Mechanics, Living off the land) rise with use and
+  fade slowly unused.
 - **Staying alive:** hunger, thirst, fatigue and sleep debt, temperature,
-  illness, wounds, bleeding and infection. Panic, depression and
-  desensitisation also play a part.
-- **The dead:** they hunt by sight and noise, and a threat director decides
-  how hard the town pushes back. Their lunges are telegraphed. They batter
-  closed doors down, and the bodies stay where they fall.
+  illness. Wounds land on a part of the body (cuts, bites, bruises,
+  breaks; deep or shallow) and each needs its own care: a dressing that
+  goes dirty, stitches, a splint, antibiotics. The BODY tab shows them.
+  Panic and depression come in named bands that change how you move, work
+  and sleep; a tired or frightened mind sees things that are not there.
+- **The dead:** five kinds you learn to tell apart: the Shambler, the
+  Runner (its head snaps up, then it sprints), the Brute (broad, grey, and
+  it knocks you down), the Crawler (low in the grass and under furniture)
+  and the Screamer (pale; its scream brings the rest). They see in a cone,
+  less in the dark and less of you crouched; they hear through walls only
+  if a door or window is open; rain muffles you; they follow your blood.
+  Hordes cross the town on set nights and pass a dark, shut house by. Each
+  threat mode plays differently, and districts show how far they have gone
+  ("quiet", "uneasy", "turning", "overrun") in litter, smears and bodies.
+  Lunges are telegraphed, and a well-timed blow breaks one off. They batter
+  closed doors down, and the bodies stay where they fall; search them with E.
 - **Fighting back:**
-  - melee weapons that wear out, plus firearms, grabs and molotovs;
+  - weapons that each fight differently (wind-up, reach, weight, noise) and
+    wear with every blow that lands;
+  - the shove, being grabbed and tearing free, knockdowns and the stomp,
+    blades that stick, the take-down from behind;
+  - throwing (rocks, alarm clocks, flares, bottles, molotovs) to draw the
+    dead away; a pistol and a shotgun that are loud, rare and short of
+    rounds;
   - crafting, with recipes you discover;
   - doors you can board up.
 - **The legacy layer:**
   - graves of past characters, and the risen;
   - packs left behind, and retired survivors;
-  - a notebook, a town map, and world memory that carries from one life to
-    the next.
-- **Extras:** survivors (NPCs), vehicles, fire, and tone presets that change
-  the rules.
+  - a notebook with tabs, a town map, and world memory that carries from
+    one life to the next;
+  - journals (carry a notebook and a life writes itself down), read at the
+    grave; skills and six traits that run in the family;
+  - a town that ages between lives (crates and boards wear, the districts
+    turn, bones where people fell), a cemetery to set the dead in, and
+    "Stay here for good" from day 10;
+  - Fresh Start (the town forgets) or Living World, chosen when a world
+    is made.
+- **Other people:** a dozen survivors with homes, stores, needs and tempers
+  of their own; they scavenge, board up, run from the dead, trade, come
+  along, rob you, and go on living between your lives.
+- **The way out:** a note on a fridge, a guard hut, a sergeant with a key: clues
+  across lives lead to the service gate on the east side, which needs a
+  fuse, fuel, a freed generator and a key, and a last stand while it
+  grinds open. Progress stays in the town; someone gets out, or nobody.
+- **After day 3:** a standing aim each dawn (water that refills, a house
+  that holds, tonight's horde, food for a week, before the cold, the way
+  out) and a card for the day.
+- **Weather and seasons:** rain, fog, wind, heat and snow that change the
+  rules (rain hides your steps, cold builds outdoors, ponds freeze), and
+  fire that spreads with the wind and leaves a house gutted for good.
+- **Vehicles:** sedans, a pickup and bicycles with trunks, keys or
+  hot-wiring, fuel and wear; the dead batter a parked car.
+- **Sound and mood:** a generated sound for everything that makes noise,
+  muffled through walls; ambience that tells the truth; music almost
+  never; a screen that shows panic, cold and exhaustion.
+- **Numbers from runs:** the balance comes from a bot that plays hundreds
+  of lives against written targets (`docs/overhaul/balance/`).
+- **Extras:** tone presets that change the rules.
 
 ## Controls
 
 | Key | Action |
 |---|---|
-| WASD | Move (screen directions) |
-| Shift / C | Run / crouch |
-| Mouse, left click, right click | Aim, attack, grab |
-| E | Interact: open and close doors, search containers, sleep in a bed |
-| R / X at a closed door | Board it up (hammer and a plank) / pry a board off |
-| F | Use the selected item, or take a weapon in hand |
-| Q | Flashlight |
+| WASD | Move (screen directions); steer a vehicle |
+| Shift / C | Run / crouch (held still for 3 s: a slow breath that calms you) |
+| C, still, by a shut door | Listen: "Listening." shows, the walls stop muffling what is out there, and you hear further |
+| Mouse, left click | Aim, attack (on one lying down: stomp; with a gun: fire) |
+| Right click, then left click | Take down one turned away or on the floor |
+| Space | Shove (a crowd back, one hurt or from behind off its feet); when held, tap fast to tear free |
+| Hold G, aim, let go | Throw the selected item (rock, alarm clock, flare, bottle, molotov) |
+| E | Interact: talk to a survivor (with nothing else in reach), open and close doors (a locked one says "Locked."; from inside the lock turns), search containers (a held action: 1.5 to 5 seconds the first time, at once after), search a body of the dead, sleep in a bed, cot or bedroll, draw a window's curtain, climb through an empty frame (a light piece in a doorway: climb over), light or put out a campfire, candle or lantern, switch a floor lamp, stop a shop alarm at its box by the door (3 seconds), search a bush, tree or tuft of grass (3 seconds), collect a snare, harvest or clear a garden bed |
+| E at a lit campfire | Cook: the Make panel opens on its FOOD tab (a kitchen stove counts while the power is on) |
+| Hold E beside furniture, then walk | Grab and push it (heavy pieces slowly, a tile at a time; through an open doorway; onto the floor inside a door to block it) |
+| In a container: A/D or Left/Right, W/S, E or Enter, Shift+E, Esc | Pick the pack or the container side, move the cursor, move one across, move the whole stack, close (the mouse works too: click moves one, Shift+click the stack) |
+| R / X at a closed door or a window (from inside) | Board it up (hammer, a plank and 2 nails; about 4 seconds standing still, quicker with Carpentry, slower when shaken) / pry a board off (a crowbar saves the nails) |
+| X at furniture | Break it up for planks and rags (hands, faster with a hammer, axe or crowbar; a saw gives an extra plank; a pallet stack gives 2 planks) |
+| X at a locked door, from outside | With a crowbar: force it (about 6 seconds, loud). Without: a blow with the weapon in hand, or a shoulder (25 stamina), until it breaks for good. A shop's alarm may ring while the power is on |
+| X at a lit campfire | Feed it fuel |
+| E at a window from outside, or click at one in reach / X with duct tape | Smash the glass (loud) / tape it and break it quietly (4 seconds, soft) |
+| R at a kitchen counter or sink, or a rain collector | Drink from the tap and fill empty bottles (taps until day 3) |
+| R at a pond or a toilet, or at a garden bed | Fill empty bottles with Dirty Water (a toilet once per world) / water the bed |
+| R at a worn station | Repair it with one of what it is made of |
+| R with a gun in hand (nothing else in reach) | Reload from the pack, or clear a jam |
+| E at a grave or stone | Read: the journal reader opens (Up/Down to read on, Backspace back); E again takes a grave's marker when it has no pack, or tends a weathered stone (5 seconds); at an emptied survivor's body, bury them (30 seconds) |
+| F | Inside the cemetery with a marker selected: set it, and the grave moves there. Otherwise: use the selected item, or take a weapon in hand; set down a can alarm (at a door or window), spike board, candle or can lantern; wind an alarm clock (it rings 8 seconds later); water on a fire ahead; set a snare (on grass, 15 tiles from any building); turn the radio on or off; with a Battery selected, put it in the flashlight |
+| Q | Flashlight (in a car: headlights) |
 | 1-8 | Hotbar slot |
-| Tab, arrows, Enter | Inventory, cursor, swap to hotbar |
+| Tab | Cycles the side panel: Pack, Body, Make, closed (Esc closes it) |
+| In the pack: arrows, Enter, F, Backspace | Cursor, swap to hotbar, use, drop on the floor (Shift+Backspace: the whole stack) |
+| In the body tab: W/S, Enter or F | Pick a wound, treat it (then pick what with) |
 | N | Crafting |
-| B | Build mode |
-| L | Fire action |
-| V / Shift+V | Enter or exit a car / refuel |
-| M / J | Town map / notebook |
+| B | Build wheel: campfire, workbench, storage crate, rain collector, bedroll, garden bed (click one, then click where it goes; right click puts it away) |
+| V | Get in or out of a vehicle within reach: a sedan, a pickup or a bicycle (out on the driver's side, or whichever side is free; not above a crawl) |
+| In a vehicle: WASD, E, Q | Steer (the keys say where to go on the screen; it turns toward it, and brakes and backs up toward what lies behind) / start the engine with the key, or hold E to hot-wire it (20 seconds, loud when it fails; E again stops the engine) / headlights |
+| E at a vehicle | With a Fuel Can selected: refuel (6 seconds). With a Toolbox selected: mend it (60 seconds, a Scrap Metal; twice the work by a garage). At the back: open the trunk or the truck bed; at a pickup's tailgate, load a piece of furniture pushed up to it, or unload it (backed up to an open door, it goes in across the doorway). At a parked car with a blinking alarm light, with nothing else in reach: set it off |
+| M / J | Town map / notebook with tabs (Left/Right): Leads, The way out, People, Before you (Up/Down, Enter: read a journal), Know-how, Journal (this life's, written only while you carry a Notebook) |
 | +/- | Minimap zoom |
-| Esc | Pause |
-| F1 / F2 / F3 | Noise debug / controls / district infection debug |
+| Esc | Pause: Resume, Save, Settings, Controls, Stay here for good (from day 10), Save and quit to title, Quit to desktop |
+| F2 | Controls: what each key does where you stand (on foot, in a fight, at home, in a car), as bound |
+| F1 / F3 / K | Dev builds only: noise debug / district infection debug / despawn the test entity (hidden in the packaged game) |
+
+Every action key can be rebound under Settings > Keys (Enter, then the new
+key; a key already in use swaps with it; Esc, Enter and F1 to F3 stay the
+menus'). Prompts and the Controls panel print the keys as bound.
+
+## Title, settings and saving
+
+The title screen: Continue, New Life (same world), New World, The Town,
+Settings, Controls, Credits, Quit; Left/Right picks the save slot (three,
+each its own town); the version shows bottom-right. Settings has four tabs:
+
+- **Sound:** master, effects, ambience and music levels.
+- **Screen:** fullscreen (off, borderless, exclusive), resolution, VSync,
+  interface size (1x, 1.5x, 2x; by default from the window's height),
+  screen effects (full, reduced, off), screen shake.
+- **Game:** pause when the window loses focus, crouch and run as hold or
+  toggle, teaching prompts, hold to act or press once (push, hot-wire,
+  aim a throw), and this world's day length (24, 36 or 48 real minutes a
+  game day, chosen on the New World screen).
+- **Keys:** every action, two keys each, and Reset keys.
+
+They are kept in `settings.json` beside the saves (`save/` from a source
+build; `%APPDATA%\DeadPixelSurvival` in the packaged game unless a
+`portable.txt` sits beside the exe). The game saves at dawn, on coming home
+(at most every two minutes) and on quitting to the title.
+
+From day 4 the objective panel shows one standing aim, chosen each dawn
+from what the base lacks (water that refills, a house that holds, tonight's
+horde, the power, food, somewhere to work, the cold, the way out, someone
+out there); a dawn card names the day. A first life is taught by doing:
+day 1 opens with "Look around (WASD, E to use)", and the push, shove,
+listen and throw prompts come once each, when first needed, never again
+once used. A death early on may end with a hint (twice per save at most).
 
 ## Build and run (Windows, MSYS2 UCRT64)
 
@@ -81,6 +194,24 @@ cmake --build build
 
 The executable needs the UCRT64 `bin` directory on `PATH` for its DLLs.
 Without it, the game exits at once.
+
+### The packaged game and the demo
+
+```powershell
+$env:Path = 'C:\msys64\ucrt64\bin;' + $env:Path
+python tools/package.py           # dist\DeadPixelSurvival-<version>.zip
+python tools/package.py --demo    # dist\DeadPixelSurvival-<version>-demo.zip
+```
+
+It builds Release in `build-package` with `DEAD_PIXEL_PACKAGED` (the dev
+keys F1, F3 and K are hidden; saves and settings go to
+`%APPDATA%\DeadPixelSurvival` unless a `portable.txt` sits beside the exe),
+then copies the exe, `assets/`, every DLL it needs (found by walking its
+imports, so it runs without MSYS2), a README and the license into a folder
+under `dist/` and zips it. The exe and the window carry the boarded-door
+icon. The demo adds a `demo.txt` (the same as `--demo`): a life ends at dawn
+on day 7 with a card, then the retirement screen. `--jobs N` sets the
+parallel compiles (6 by default). Nothing is uploaded anywhere.
 
 ## Tests
 
@@ -114,37 +245,252 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 
 | Option | Effect |
 |---|---|
-| `--script FILE` | Run a harness script |
+| `--script FILE` | Run a harness script (the game makes no sound while a script runs) |
 | `--shots DIR` | Where screenshots go |
 | `--metrics FILE` | Write a CSV of player and world metrics |
 | `--world-seed N` | Seed for new save slots (deterministic town) |
 | `--hidden` | Keep the window hidden |
 | `--watch` | Draw every tick (watch the script play) |
 | `--max-ticks N` | Hard stop |
+| `--mute` | Open no audio device (the mixer still works out what it would play) |
 
 **Script commands**
 
 - **Input:**
   - `tap KEY`, `hold KEY TICKS`, `key KEY down|up`;
   - `mouse X Y`, `click left|right`, `button left|right down|up`.
-- **Time:** `wait TICKS`, `waits SECONDS`, `hours H` (set the clock).
-- **Runs:** `newrun`, `save`, `resume`, `kill [cause]`, `retire`, `quit`.
+- **Time:** `wait TICKS`, `waits SECONDS`, `hours H` (set the clock),
+  `day N`.
+- **Runs:** `newrun` (quick start: the seed's pick of traits), `newrun create`
+  (through the character screen), `newrun TRAIT,TRAIT,...` (exactly these),
+  `save`, `resume`, `kill [cause]`, `retire`, `quit`.
 - **Moving and setup:**
-  - `teleport X Y`, `enter N` (a building);
-  - `goto risen|pack|grave|door [outside]|furniture [KIND|any] [stocked]`;
-  - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE`, `zoom Z`.
-- **The dead:** `zombie DX DY`, `slay RADIUS`.
+  - `teleport X Y`, `enter N` (a building), `mark` (remember this tile);
+  - `goto home|mark|risen|pack|grave|door [outside]|furniture [KIND|any|container] [stocked]`;
+  - `goto pavement` (the nearest open outdoor spot on ordinary ground, three
+    tiles clear either side: no grass, gravel or road, which change a
+    footstep's loudness);
+  - `goto window [home] [front|back] [inside|outside [N]]` (the nearest
+    window, of the home, in a wall facing the camera or away; N tiles off),
+    `goto base` (the house the last lives held, beside its crate);
+  - `god on|off`, `give ITEM NAME [COUNT]`, `set STAT VALUE` (also
+    `set wounds N`, `set bleeding SECONDS`, `set debt V` for sleep debt,
+    `set illness V`, `set rebleeds 0`), `set skill NAME LEVEL`,
+    `trait NAME|plain` (`plain`: no bad trait, so a Clumsy player's louder
+    steps do not skew a test), `zoom Z`;
+  - `wound cut|bite|bruise|fracture head|torso|larm|rarm|lleg|rleg [deep]
+    [dirty]` gives a wound; `treat ITEM_KEY [WOUND]` treats with it as the
+    BODY tab does; `use ITEM NAME` puts it on the belt and presses F;
+  - `mode swarm|stalker|mutating|society|unknown|hybrid` sets the threat
+    mode of the next `newrun`;
+  - `tune KEY VALUE` overrides a number from `assets/data/tuning.json` for
+    the run;
+  - `weather KIND` holds a condition (clear, cloudy, rain, heavyrain,
+    storm, fog, heatwave, snow, blizzard), `weather roll` lets it roll a new
+    one, `weather mark` remembers the current one.
+- **Containers:** `open` (the nearest in reach), `container` (print what
+  the open one holds), `stash ITEM NAME [COUNT]` (from the pack into it).
+- **The bot:** `bot careful|normal|bold [DAYS] [SECONDS]` plays the game through the
+  keyboard and mouse until DAYS days pass, SECONDS real seconds pass (a
+  duel) or the run ends; the script waits.
+  A bot that stands on one tile for 3 game hours while awake prints `FAIL`
+  (resting and holding the house on purpose do not count).
+  `botshots TICKS` takes a screenshot every TICKS ticks while it plays.
+- **The base:** `push n|s|e|w` (the piece beside the player, one tile, by
+  the pushing rules), `haul KIND [KIND...]|any` (the nearest movable piece of
+  the first kind the house has, pushed tile by tile onto the floor inside the
+  nearest door; the player waits outside it), `break` (the nearest piece in
+  reach broken up at once), `build KIND` (campfire, workbench, crate,
+  collector, bedroll: start building on the nearest free tile in reach, with
+  the pack's materials), `light` (the nearest candle, lantern or campfire),
+  `window intact|broken|boarded1|boarded|curtained|open [all]` (the nearest
+  window, or every window of this building), `windows` (how they stand).
+- **The dead:** `zombie DX DY [KIND] [idle] [still] [dormant] [down]
+  [lunging] [away] [close] [exact] [hp N]`, `zombie mark [...]`,
+  `zombie outside R [...]` (heading for the player, or wandering; KIND is
+  shambler, runner, brute, crawler or screamer, with that kind's own
+  health, speed and senses; `still` stands where it is put but still looks
+  and listens; `dormant` a Crawler lying in wait; `down` on the floor;
+  `lunging` with a lunge winding up; `away` with its back to the player,
+  reeling so it cannot turn; `close` 20 px from the player toward the spot;
+  `exact` at a fractional DX, DY; `outside R` on open ground about R tiles from
+  the player; `hp N` below 60 is a hurt one), `slay RADIUS` (counts as the
+  player's kills).
+- **Senses and crowds:** `noise whisper|soft|medium|loud|explosive [DX DY]`
+  (a noise at the player, or DX, DY tiles off, through the walls as the
+  rules say), `trail` (print the blood markers), `horde` (start tonight's
+  horde now), `infection N [all]` (the player's district, or every one, set
+  to N and its ruin shown at once), `perf N` (N of the dead put round the
+  player, 5 to 40 tiles off, and the next 600 ticks timed).
+- **Fighting:** `shove` (Space for a tick: a shove, or a struggle tap when
+  held), `reload` (R for a tick), `select ITEM NAME` (make it the active
+  slot, in hand if a weapon), `throw DX DY [ITEM NAME]` (the selected or
+  named item at the spot DX, DY tiles off).
+- **Body and mind (phase 5):** `mark sim` remembers the zombie count and
+  noise events; `expect sim` checks they are unchanged.
+- **Scavenging (phase 6):** `goto kind NAME [inside] [N]` (the nearest
+  building of that kind: N tiles out from its street door, default 1, or
+  just inside; logs whether the door is locked), `goto forage [bush|tree|tuft]`,
+  `goto wild` (open grass at least 15 tiles from any building), `recipe
+  NAME` (pick it in the Make panel and press Enter), `power on|off|auto|soon`
+  (forced, or back to the clock; `soon` sets the clock just before the
+  failure), `grow DAYS [dry]` (garden beds age that many days, watered or
+  not), `locks [arm]` (print the locks; `arm` gives the nearest locked
+  building a live alarm and its box), `fridge mark` (note a food in the
+  nearest fridge, putting in an Apple if it holds none). Checks: `expect message|prompt TEXT`,
+  `expect power on|off`, `expect alarm on|off`, `expect locked|unlocked`
+  (the nearest door), `expect garden STAGE|dead|ripe`, `expect fridgerate
+  LO HI` (since the mark it spoiled at LO to HI times normal speed), `expect need
+  illness|hunger|thirst below|above V`.
+- **Weather and fire (phase 7):** `season spring|summer|autumn|winter`
+  (the fifth day of that season), `wind X Y` (held, blowing toward X, Y in
+  tile axes; `wind 0 0` lets it go), `air C` (the air held at C degrees;
+  `air off`), `ignite DX DY [N]` (that tile alight, or N tiles that will
+  burn round it), `ignite DX DY molotov` (as a molotov thrown from the
+  player), `fires` (tiles burning and burned, and how far east and west of
+  where it was lit), `weatherinfo` (the rules as they read the weather:
+  noise, the dead's sight, view, fog, body shift, fire, air, snow, wind,
+  the player's temperature), `strip` (everything warm out of the pack),
+  `goto pond [on]` (beside the nearest pond, or on it). Checks: `expect
+  weatherinfo NOISE SIGHT BODY`, `expect drawn|undrawn DX DY` (a zombie
+  there drawn or hidden by fog), `expect spread east|west`, `expect fires N`
+  (at most N burning), `expect gutted|notgutted` (the building at the mark
+  or underfoot), `expect walkable|solid` (the mark or the tile underfoot),
+  `expect collector MAX` (water in the nearest rain collector).
+- **Survivors (phase 8):** `survivor DX DY [open|wary|hostile]
+  [low|empty|hungry|planks|bandages|armed|gun] [trust N]` (someone living in
+  the building there, the script's focus from then on), `survivor house
+  [doors2] [...]` (in the nearest free house; `doors2`: the nearest free
+  building with two doors, one of them one they would board), `survivor crowd N`, `survivor dead N [KIND]` (idle
+  dead 2 to 4 tiles round them), `survivor fill ITEM NAME [COUNT]` (into the
+  container they will go to next, kept for them), `survivors` (everyone:
+  state, trust, stock, home), `goto survivor [NAME]`, `goto open N` (open
+  ground about N tiles off), `set trust N`, `set shunger N`, `talk` (the talk
+  panel, as E) and `talk N|WORD` (a choice), `trade offer|ask ITEM NAME
+  [COUNT]`, `trade agree`, `advance DAYS [apply]` (the days between lives,
+  dry or for real), `waitfor SECONDS survivor CONDITION` (the script waits
+  until it holds; `waitfor SECONDS held` until the dead hold the player),
+  `survivors gone` (nobody living in town this run, for scripts about the
+  player and the dead alone). Checks: `expect survivor STATE|alive|dead|buried|home|
+  away|shut|boarded [door]|searched|companion`, `expect survivor stock ITEM
+  NAME COUNT|trust above|below N|near N|farther N|kills N`, `expect talk
+  open|closed|trade`, `expect card TEXT` (`$survivor` is the focus's name),
+  `expect advance same|loots N`.
+- **Legacy (phase 10):** `journal` / `journal last` (this life's journal or
+  the last life's, as kept), `age LIVES [DAYS]` (the town ages in the save as
+  if LIVES lives of DAYS days ended now; `newrun` to see it), `aging` (the
+  crates' stages, the boards, district infection against creation, bones),
+  `goto cemetery` (just inside its gap), `goto stone [NAME]` (in front of a
+  stone of the line), `bury [kill] [now]` (empty the nearest dead
+  survivor and bury them, 30 s; `kill`: the nearest living one dies first;
+  `now`: at once), `world fresh|living` (the save's kind), `lineage SKILL
+  LEVEL COUNT [read]` (COUNT earlier lives who died with SKILL at LEVEL,
+  their journals read or not), `bloodline` (traits earned and skill
+  echoes), `pack empty`. Checks: `expect journal [last] MIN [MAX]`,
+  `expect crate intact|damaged|breaking|gone` (the nearest), `expect boardhp
+  LO HI` (the nearest boarded door's record), `expect infection above`,
+  `expect echo SKILL N`, `expect bloodline NAME|none`, `expect stone
+  NAME|any`, `expect graves N`, `expect remembered nothing|something`,
+  `expect reader open|closed`, `expect marker N`.
+- **Vehicles (phase 11):** `vehicles` (every one: kind, tile, heading,
+  speed, condition, fuel, tyres, trunk, key), `goto vehicle [KIND]
+  [tailgate]` (beside the nearest one, of a kind: sedan, pickup, bicycle; at
+  its driver's door, or just behind it), `set fuel N`, `set condition N`,
+  `set tyres N`, `set key in|known|none`, `set alarm on|off`, `set started
+  on|off` (the one sat in, or the nearest), `drive DIR SECONDS [CAP]` (the
+  keys toward n, s, e, w, ne, nw, se or sw, the town's axes, for SECONDS;
+  the script waits), `drive road SECONDS [CAP]` (follow the road: off a
+  driveway to the nearest asphalt, straight on, the cross road where it
+  ends; under CAP px/s, 160 by default), `drive brake`, `vehicle mark`,
+  `vehicle turn DEGREES` (faces it that way where it stands), `vehicle
+  fetch KIND` (the nearest movable piece of that kind, e.g. wardrobe,
+  pushed up behind the tailgate), `vehicle park door` (backed up to the
+  nearest open doorway with a free floor inside), `vehicle map R` (the
+  ground as a vehicle sees it). Checks: `expect vehicle in|out|engine|off|
+  started|cargo|nocargo|window|ringing|silent`, `expect vehicle
+  speed|condition|fuel|tyres above|below N`, `expect vehicle trunk N`,
+  `expect vehicle randown|stopped N` (the dead thrown by a car, cars stopped
+  dead by one), and since `vehicle mark`: `expect vehicle moved N` (tiles),
+  `scrapes N` (at most N ticks against a wall), `lost N` (at least N
+  condition), `same [worn]` (where and as it was; worn: 15 condition less,
+  as the next life finds it).
+- **Sound and mood (phase 12):** scripts are silent, but the mixer still
+  works out everything it would play, and these read it. `sounds` (what
+  played in the last second, the layers up and their targets, the duck,
+  music starts, listening), `sound mark` (from now, for `expect sound`),
+  `sound KEY [DX DY]` (a sound from `assets/data/sounds.json` played at the
+  player or DX, DY tiles off, through the real mixer: distance, walls, the
+  far tail), `sound KEY building N` (inside the Nth nearest other
+  building), `fx on|reduced|off` (the screen effects; off for scripts unless
+  asked, so older shots do not change), `tone hopeless|grim|brutal` (the
+  music's tone, from now), `music reset`. Checks: `expect sound KEY
+  [muffled|far|plain] [N]` (since the mark, N times at least), `expect
+  nosound KEY`, `expect layer NAME above|below V`, `expect music starts
+  N|none`, `expect duck below V|none`, `expect listening [no]`, `expect fx
+  neutral|active` (the mood pass runs or not), `expect idle
+  low|cold|knee|none` (the idle the character falls into).
+- **Run flow (phase 13):** scripts start from the default settings and
+  keys, with teaching, the extra checkpoints and the demo off and 24-minute
+  days, whatever `settings.json` says. `screen W H` (the window's pixels,
+  and the shots'), `uisize auto|1|1.5|2`, `settings reload|save|reset|open|
+  close` and `settings NAME VALUE` (levels 0-10; teaching, crouch, run,
+  pressonce, autopause on|off), `teach on|off`, `autosave on|off`, `demo
+  on|off`, `daylength 24|36|48`, `day horde [next]` (the first horde day
+  from 4, or after today), `home sealed`, `aim [choose]`, `push any`,
+  `corpses age S`, `goto clock`. Checks: `expect aim KEY|none [no]`,
+  `expect aimdone [no]`, `expect binding ACTION KEY`, `expect teach
+  ID|none`, `expect taught|seen ID [no]`, `expect step TEXT [done|open]`,
+  `expect nostep TEXT`, `expect hint TEXT|none`, `expect retired`, `expect
+  daycard TEXT`, `expect hour LO HI`, `expect uiscale X`, `expect settings
+  open|closed`, `expect note TEXT`, `expect level NAME N`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
-  - `expect alive|dead`, `shot NAME`, `metrics INTERVAL` (game seconds),
-    `log TEXT`.
+  - `plan` prints the day's plan, the home's doors and boards, every way
+    into the house (doors and windows, how they stand, their strength) and
+    the night's callers;
+  - `expect alive|dead|creating|playing`, `expect maxhp N`, `expect weather same`,
+    `expect condition NAME` / `expect nocondition NAME` (the HUD list),
+    `expect skill NAME LEVEL` (at least), `expect carry KG`,
+    `expect health N`, `expect mind panic|depression below|above V`,
+    `expect signs N` (false figures seen), `expect moved MIN MAX` (tiles
+    since `mark`), `expect action none|busy` (a held action under way),
+    `expect wounds N [bleeding|dressed|stitched|splinted|dirty|undressed]`,
+    `expect rebleeds MIN MAX` (deep wounds opened again since
+    `set rebleeds 0`), `expect door boarded N` (the nearest door),
+    `expect container ITEM NAME COUNT`, `expect speed V` (the player moves
+    no faster than V pixels a second), `expect pack ITEM NAME COUNT`,
+    `expect blocked` (furniture blocks a door of this house),
+    `expect window glass|broken|boarded [N]|curtained|clear` (the nearest),
+    `expect zombies coming|all|calm|inside R` (within R tiles: some or
+    every one after something, none, or some in the player's building),
+    `expect held|free` (the dead hold the player or not),
+    `expect down N` / `expect lured N` (at least N of the dead on the floor,
+    or drawn to a thrown thing), `expect lunging N` (exactly N winding up a
+    lunge), `expect kills N` (the run's kills), `expect loaded N` (rounds in
+    the gun in hand), `expect landed DX DY` (the last throw came down within
+    a tile of the spot), `expect burning DX DY` (a fire on or beside that
+    tile), `expect kind KIND|any near|coming|calm|dormant|awake|unmoved|far R`
+    (of that kind within R tiles: some, some after something, none after
+    anything, some lying in wait, none lying in wait, one struck and not
+    moved, none at all), `expect zombies outside R` (some within R tiles
+    and none in the player's building), `expect trail N|none` (blood
+    markers on the ground), `expect horde on|off`, `expect perf AVG WORST`
+    (milliseconds a tick over the last `perf`);
+  - `shot NAME`, `metrics INTERVAL` (ticks), `log TEXT`. Metrics rows add the
+    cause of death, items carried by category, containers searched, boards
+    up (doors and windows), tonight's callers, zombies within 10 tiles,
+    noises per game hour, and whether the player is in the home.
 
 **Scripts in `tools/harness/`**
 
 | Script | What it checks |
 |---|---|
 | `baseline_tour` | A first look around a fresh run |
+| `first_day` | Day 1's plan: search the house, the tap, boarding up, sleep, night 1, the day 2 card, the taps dying |
+| `night_siege` | Night callers at the weakest way in (a boarded door), giving up, drifting off at dawn; night 3 |
+| `base` | A bookshelf pushed into a doorway holds the dead after the door; a table broken up; the build wheel; a crate built; both still there in the next life |
+| `windows` | Every window state in two wall materials, inside and out; the dead see a lit window at night, not a curtained one; break in, climb in; boards hold; all kept |
 | `hud_states` | HUD for a fresh character, one in trouble, and night |
 | `soak_idle` | Two idle game days with metrics, so needs and zombie pressure can be read |
 | `interiors` | Walls, cut-away and roofs inside buildings |
@@ -152,11 +498,69 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `crafting` | The crafting screen and discovering recipes |
 | `doors`, `doors_memory` | Doors open and shut, the dead break them down, broken doors are remembered |
 | `boards` | Boarding up, splintering boards, boards remembered by checkpoints and the next life |
-| `weapon_wear` | Weapon wear kept on the item through re-equip and resume |
+| `weapon_wear` | Blows that land wear the weapon; wear kept through re-equip and resume |
+| `fighting` | A shove breaks a lunge and fells the hurt and one from behind; a bat's stomp kills one down; the take-down; grabbed within three lunges, four taps free; the sledgehammer's knockdown |
+| `throwing` | The aim arc; a rock at 8 tiles turns two of the dead to it; a wound clock holds three for 20 s; a flare at night; a molotov lights its tile; a bottle |
+| `kinds` | The five kinds side by side at default zoom; a Runner covers 10 tiles in under 4 s; a knife does not move a Brute; a scream brings a wanderer from 20 tiles; a dormant Crawler wakes at 2 tiles |
+| `senses` | Crouched and still in the dark, unseen at 5 tiles; running, heard; a swing in a shut house not heard 10 tiles out, with the door open it is; heavy rain hides a walk; a bleeding walk is followed, and with dressed wounds in rain it is not |
+| `horde` | Night 7's horde passes a dark, curtained house by; with a candle in a clear window, some break in |
+| `perf` | 300 of the dead: average and worst tick time (the town's vehicles parked throughout); 20 survivors and 100 of the dead; a sedan driven up the road through 300 of the dead |
+| `ruin` | A district's ruin from quiet to overrun: litter, smears and bodies, the HUD word, the town map's shading; blood drops on the ground |
+| `guns` | Reload from the pack; a pistol shot kills at 6 tiles, costs a round, brings every wanderer in earshot; the empty click; the shotgun a shell at a time drops two side by side |
 | `resume` | Checkpoints keep the walking dead and the bodies |
 | `corpses` | Melee kills count and leave a body |
 | `facing` | Characters face the four screen diagonals |
 | `legacy` | Graves, the risen, packs, laying the dead to rest |
+| `journal` | A life with a notebook (a kill, boards, a bite, the first night, the taps) writes six to nine entries; the next life reads them at the grave and again from "Before you" |
+| `aging` | A crate and three boards at home: the crate goes Intact, Damaged, Breaking, gone over three lives, the boards lose a quarter each; long lives leave the districts worse than when the world was made. Run it twice: the same |
+| `cemetery` | A life ends on day 11 ("Eleven days since anyone lived here."); a marker taken from a grave with no pack and set in the cemetery: the lead moves, depression falls once, the stone reads the name after a reload; a survivor buried by hand; the map's cemetery |
+| `bloodline` | Four lives with Carpentry 3 and journals read: the fifth starts at Carpentry 2 and Vigilant; a Fresh Start remembers nothing |
+| `character` | The character screen with nothing chosen, overspent (Begin refused) and balanced; the character starts with the health, carry limit and skill it promised; Space quick-starts |
+| `body` | A broken leg slows a 5 s walk 45 %, a splint brings it to 20 %; a deep arm cut opens again on swings until stitched; a dressing left 12 hours goes dirty; the BODY tab |
+| `mind` | At sleep debt 90 a false figure within two minutes, with the dead and the noise untouched; panic 60 makes boarding 30 % longer, Carpentry 3 quicker; a book lowers depression by 10, once |
+| `atmosphere` | Each kind of weather, a storm at night, lamps; weather left alone holds for hours |
+| `storage` | Putting things in a cupboard; they stay through a save, a resume and the next life |
+| `vehicles` | A keyed sedan driven 20 s along the road touching no wall; parked, the tail of the dead arrives and batters it; a Shambler run down at speed (thrown, the car slowed), a Brute stops it; four headings; a wall hit costs condition; the trunk opens and stores; a save and resume and the next life keep it (one stage worse); a live alarm set off on purpose, never by an E meant for the trunk |
+| `bicycle` | A bicycle at night crosses 40 tiles; one of the dead 8 tiles off the route does not turn; one in the way pulls the rider off |
+| `pickup_haul` | A wardrobe pushed to a pickup's tailgate is loaded, driven, and unloaded with the tailgate backed up to a doorway: it stands across it inside |
+| `town_kinds` | The pharmacy, grocery, hardware store, clinic, police station and garage from the street, each with its sign; three interiors; the town map's pictograms (run on seeds 1234, 42 and 777) |
+| `break_in` | A locked door says "Locked."; a crowbar forces it in about 6 s and the alarm rings; the dead 20 tiles off come; the box stops it; with the power off, no alarm |
+| `power_out` | The power fails at its hour with "The power is out."; street lamps lit, then dark; a fridge halves spoilage, then does not; a floor lamp |
+| `cooking` | A campfire opens the FOOD tab; dirty water boiled, rice and meat cooked; raw meat and dirty water sicken, cooked food does not; feeding the fire |
+| `garden` | A bush searched, then picked over; a bed planted, watered, six days: four Vegetables; the next life finds seedlings; dry three days: dead; a snare set in the wild |
+| `weather_rules` | Each condition outdoors at noon, with its noise, sight and body numbers checked against the table; a Raincoat; in fog a zombie at 8 tiles is not drawn, at 5 it is |
+| `seasons` | Winter: snow building over six game hours, the pond frozen and walkable, a collector that stays empty, Cold within two hours of a night outdoors, and not with a Winter Coat by a fire indoors |
+| `fire_spread` | A molotov on grass in a heatwave, wind east: further east than west in five game minutes, out within forty in heavy rain; a house lit inside is gutted and stays gutted in the next life; 300 of the dead and 60 tiles burning within the tick budget |
+| `soundscape` | From the mixer's log: birds by day stop within 2 s of one of the dead 8 tiles off; footsteps of the ground; rain on the roof indoors; a door bang two buildings away muffled, and plain while listening at the door; your own shot rings the ears and ducks the rest for 3 s; a pistol 20 tiles off is its far tail; six calm hours indoors: no music in Hopeless, one pad once in Grim Human |
+| `mood` | With screen effects on: neutral, panic 80, sleep debt 90, depression 90, cold and held each change the picture and the idle (shoulders down, a shiver, a hand on the knee); the HUD stays sharp; off again, the plain picture |
+| `mood_details` | The small things, each in a shot: long shadows morning and evening (none at noon), flies over a day-old body, a curtain lifting in the wind at a broken window, dust in a lamp's light and in the flashlight's beam, the town clock |
+| `settings` | The title, the settings screen, Shove rebound to F (swapping with Use item), Enter refused, the Controls panel showing F, the file read back as at a restart, a sound level saved; at 1920x1080 and 2x the title, settings, Controls, HUD, pack, body, make, notebook and pause |
+| `first_run` | A fresh world: "Look around" leads day 1 and checks itself off; the push and shove prompts come once and never after use; the second life gets none |
+| `aims` | Day 4 with no collector: "Water that refills"; a collector built finishes it, the next dawn brings "A house that holds"; a horde day with the house closed up: "Tonight"; four aims at 1x and 2x; 48-minute days run the clock at half speed |
+| `bot_aim` | The bot, on day 4 with the makings, builds a rain collector by the build wheel |
+| `bot_week` | The bot plays a week with metrics (what `tools/soak.py` runs) |
+| `bare_world`, `world_tour`, `combat_feel` | The town without the interface, a tour of it, the weight of a blow |
+
+**Soak runs.** `python tools/soak.py --exe build/dead_pixel_survival.exe`
+runs `bot_week` for seeds 1 to 40, six at a time, each in a fresh
+directory, and prints a row per life (days survived, how it ended, kills,
+food and drink, containers searched, boards) and a summary: the median
+day of death with quartiles and the range a median of that many seeds
+moves by chance, lives ended on day 1 and on night 1, causes by class,
+kills per day, the first fight, quiet hours, grabs, sleep, boards at
+dusk, drink at dawn of day 3, depression on day 7 and panic. Runs that
+did not finish clean are left out of the numbers. Flags:
+`--seeds 1-3`, `--jobs N`, `--profile careful|normal|bold`, `--mode
+stalker` (any threat mode), `--tone hopeless|grim|brutal`, `--days N`,
+`--lives N` (N lives in one world, for the legacy), `--tune KEY=VALUE`
+(repeatable), `--csv FILE` (a row per life), `--metrics-dir DIR`,
+`--compare OLD.csv` (the difference per measure), `--report FILE` and
+`--from-metrics DIR` (summaries without runs), and `--duel N` with
+`--script tools/harness/duel_one.txt` (or `duel_three`, `duel_brute`) for
+30-second fights against one, three or a Brute. `python
+tools/soak_report.py LABEL=FILE.csv ... --out REPORT.md` writes the
+summaries side by side against the targets. Phase 14's runs and reports
+are in `docs/overhaul/balance/`.
 
 ## Assets
 
@@ -166,12 +570,15 @@ and the image scripts also need Pillow.
 | Script | Writes |
 |---|---|
 | `tools/generate_sprites.py` | Sprite atlas and tileset: `assets/sprites/spritesheet.png` and `.json`, `placeholder.png` |
+| `tools/charrig.py` | The character rig `generate_sprites.py` draws the player and the dead from: poses, facings, animation tables. `python tools/charrig.py out.png` writes a preview sheet |
+| `tools/scenery.py` | Outdoor scenery `generate_sprites.py` packs into the atlas: trees, bushes, rocks, street furniture and ground litter. `python tools/scenery.py out.png` writes a preview sheet |
 | `tools/generate_font_atlas.py` | The pixel font in `assets/fonts/` |
-| `tools/generate_sounds.py` | Placeholder sound effects in `assets/sounds/` |
+| `tools/generate_icon.py` | The icon, a boarded door: `assets/icons/icon_32.png` (the window), `icon_256.png`, `dead_pixel.ico` (the exe) |
+| `tools/generate_sounds.py` | Every sound, loop and music pad in `assets/sounds/` (3 to 5 variants each, a muffled twin and a far tail where the table asks), synthesized in code, and the table `assets/data/sounds.json` |
 
-The item and recipe data in `assets/data/` is edited by hand.
-`tools/generate_items.py` is the original generator and is out of date: it
-would overwrite `items.json` with an older, shorter list.
+The game's content is data in `assets/data/`, edited by hand: `items.json`
+(items, by key), `recipes.json` (recipes by item key), `loot.json` (what each
+kind of container holds) and `tuning.json` (numbers balance runs adjust).
 
 ## Project layout
 
@@ -181,9 +588,10 @@ would overwrite `items.json` with an older, shorter list.
 | `src/systems` | ECS systems: input, movement, combat, AI, needs, fire, rendering |
 | `src/components`, `src/ecs` | Components and the entity store |
 | `src/world`, `src/map` | Town generation, furniture, doors, tile map |
-| `src/rendering`, `src/ui` | Sprite batching, structures, furniture, HUD |
+| `src/rendering`, `src/ui` | Sprite batching, structures, furniture, HUD, the mood pass (`PostFx`, shaders in `assets/shaders/`) |
+| `src/audio` | The mixer (`AudioManager`), the sound table, ambience layers and the music director |
 | `src/save` | Save slots, checkpoints, world memory |
-| `src/dev` | Launch options and the dev harness |
+| `src/dev` | Launch options, the dev harness and the bot (`Autoplayer`) |
 | `tests` | Unit tests |
 | `tools` | Asset generators and harness scripts |
 | `docs` | Revival plan, GDD, style guide, older audits and backlog |
@@ -199,9 +607,10 @@ would overwrite `items.json` with an older, shorter list.
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) builds with CMake and Ninja on
-Windows under MSYS2 UCRT64 and runs the unit tests. It runs on pushes and pull
-requests to `main`. Harness scripts need an OpenGL context, so they run
-locally, not in CI.
+Windows under MSYS2 UCRT64, runs the unit tests, and packages the game and
+the demo (`tools/package.py`), kept as the run's artifact. It runs on
+pushes and pull requests to `main`. Harness scripts need an OpenGL context,
+so they run locally, not in CI.
 
 ## License
 

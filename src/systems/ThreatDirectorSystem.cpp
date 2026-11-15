@@ -1,4 +1,5 @@
 #include "systems/ThreatDirectorSystem.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -51,7 +52,9 @@ bool ThreatDirectorSystem::findWalkableNear(const TileMap& tileMap, const glm::v
         const glm::vec2 p = center + glm::vec2(std::cos(angle), std::sin(angle)) * radius;
         const int tx = static_cast<int>(std::floor(p.x / tile));
         const int ty = static_cast<int>(std::floor(p.y / tile));
-        if (tileMap.inBounds(tx, ty) && !tileMap.isSolid(tx, ty))
+        // Outdoors only (phase 4): a dark, shut house is passed by; the dead
+        // drift down the streets, not into the rooms.
+        if (tileMap.inBounds(tx, ty) && !tileMap.isSolid(tx, ty) && tileMap.getBuildingId(tx, ty) == 0)
         {
             outWorld = glm::vec2((static_cast<float>(tx) + 0.5f) * tile, (static_cast<float>(ty) + 0.5f) * tile);
             return true;
@@ -109,7 +112,7 @@ void ThreatDirectorSystem::update(World& world,
     }
 
     mElapsed += dtSeconds;
-    if (mElapsed < kGracePeriodSeconds)
+    if (mElapsed < ::Tuning::get("threat.grace.seconds", kGracePeriodSeconds))
     {
         return;
     }
@@ -132,15 +135,18 @@ void ThreatDirectorSystem::update(World& world,
 
     // --- 1. Migration ---
     mMigrationTimer += dtSeconds * mTuning.migrationScale;
-    const float interval = isNight ? kNightMigrationInterval : kDayMigrationInterval;
+    const float interval = isNight ? ::Tuning::get("threat.migration.nightInterval", kNightMigrationInterval)
+                                   : ::Tuning::get("threat.migration.dayInterval", kDayMigrationInterval);
     if (mMigrationTimer >= interval)
     {
         mMigrationTimer = 0.0f;
 
         // How many bodies the area "should" hold: rises at night and with days.
         const int desiredNear = static_cast<int>(isNight
-            ? kDesiredNearNight + dayFactor * kDesiredNearNightGrowth
-            : kDesiredNearDay + dayFactor * kDesiredNearDayGrowth);
+            ? ::Tuning::get("threat.near.night", kDesiredNearNight) +
+                  dayFactor * ::Tuning::get("threat.near.nightGrowth", kDesiredNearNightGrowth)
+            : ::Tuning::get("threat.near.day", kDesiredNearDay) +
+                  dayFactor * ::Tuning::get("threat.near.dayGrowth", kDesiredNearDayGrowth));
 
         if (nearCount < desiredNear && !farWanderers.empty())
         {
@@ -170,13 +176,13 @@ void ThreatDirectorSystem::update(World& world,
     // --- 2. Population growth ---
     mPopulationTarget = static_cast<int>(
         static_cast<float>(mInitialPopulation) *
-        (1.0f + dayFactor * kDailyGrowth) *
+        (1.0f + dayFactor * ::Tuning::get("threat.growth.daily", kDailyGrowth)) *
         (1.0f + infectionGrowth / 100.0f) *
         mTuning.populationScale);
     mPopulationTarget = std::min(mPopulationTarget, kMaxPopulation);
 
     mSpawnTimer += dtSeconds;
-    if (mSpawnTimer >= kSpawnInterval && alive < mPopulationTarget)
+    if (mSpawnTimer >= ::Tuning::get("threat.spawn.interval", kSpawnInterval) && alive < mPopulationTarget)
     {
         mSpawnTimer = 0.0f;
         const int batch = std::min(3, mPopulationTarget - alive);

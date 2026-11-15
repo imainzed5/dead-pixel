@@ -1,0 +1,49 @@
+# Buildings with a purpose (phase 6): the town has its pharmacy, grocery,
+# hardware store, clinic, police station and garage; each wears a sign over
+# its street door; walking past marks it on the town map, for good.
+# Run on seeds 1234, 42 and 777, each in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/town_kinds.txt --hidden --world-seed 1234 --shots shots/town_kinds
+
+newrun
+god on
+waits 1
+slay 300
+hours 12
+locks
+# Each kind's street front, from three tiles out, at the default zoom.
+goto kind pharmacy 3
+waits 1.5
+shot 01_pharmacy_front
+goto kind grocery 3
+waits 1.5
+shot 02_grocery_front
+goto kind hardware 3
+waits 1.5
+shot 03_hardware_front
+goto kind clinic 3
+waits 1.5
+shot 04_clinic_front
+goto kind police 3
+waits 1.5
+shot 05_police_front
+goto kind garage 3
+waits 1.5
+shot 06_garage_front
+# Inside: shelves, cots, lockers, racks.
+goto kind grocery inside
+waits 1.5
+shot 07_grocery_inside
+goto kind police inside
+waits 1.5
+shot 08_police_inside
+goto kind clinic inside
+waits 1.5
+shot 09_clinic_inside
+# The town map shows the six kinds just walked past.
+tap M
+waits 0.5
+shot 10_map_seen
+tap M
+waits 0.3
+expect alive
+quit

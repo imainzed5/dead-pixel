@@ -13,8 +13,12 @@ void Game::beginDeathState(const std::string& cause)
     mRunState = RunState::Dead;
     mDeathStateTimer = 0.0;
     mDeathCause = cause;
-    mAudioManager.playSound(SoundId::Death, 0.8f);
+    chooseDeathHint(); // before anything below moves the player or the night on
+    mAudioManager.silenceLayers();
+    mAudioManager.play(SoundId::BodyScream, 0.7f);
+    mAudioManager.play(SoundId::DeathSting);
     stopPlayerAtRunEnd();
+    releaseMarkers(); // a marker carried goes back to its grave (phase 10)
     // Recording the grave or retirement advances the save's run number, so
     // everything about this run uses the index it had while it was played.
     const int runIndex = mSaveManager.runNumber();
@@ -28,16 +32,39 @@ void Game::beginDeathState(const std::string& cause)
     record.cause = cause;
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
-        for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+        record.items = InventorySystem::itemsUnloaded(mWorld.getComponent<Inventory>(mPlayerEntity), mItemDatabase);
+        // A notebook in the pack keeps what they knew of the way out (phase 9).
+        if (InventorySystem::countItem(mWorld.getComponent<Inventory>(mPlayerEntity), mItems.notebook) > 0 &&
+            (mLeads != 0 || mGateSeen.valid))
         {
-            if (slot.itemId >= 0 && slot.count > 0)
-            {
-                record.items.emplace_back(slot.itemId, slot.count);
-            }
+            record.notebook = true;
+            record.leads = mLeads;
+            record.seen = mGateSeen;
         }
     }
+    // Who they were, for the journals of phase 10: their traits and their
+    // two best skills.
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
+    {
+        const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+        for (PositiveTrait trait : traits.positives) record.positiveTraits.emplace_back(traitrules::key(trait));
+        for (NegativeTrait trait : traits.negatives) record.negativeTraits.emplace_back(traitrules::key(trait));
+    }
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Skills>(mPlayerEntity))
+    {
+        const Skills& skills = mWorld.getComponent<Skills>(mPlayerEntity);
+        std::vector<std::pair<int, int>> ranked;
+        for (std::size_t i = 0; i < kSkillCount; ++i)
+        {
+            if (skills.level[i] > 0) ranked.emplace_back(static_cast<int>(i), skills.level[i]);
+        }
+        std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        if (ranked.size() > 2) ranked.resize(2);
+        record.skills = ranked;
+    }
+    // A turning always rises (Hopeless).
     const bool infectedBite = mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Wounds>(mPlayerEntity) &&
-                              hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity));
+                              (hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity)) || cause.rfind("Turned", 0) == 0);
     record.risen = legacy::shouldRise(cause, infectedBite);
     mRunEndLegacyLine = record.risen          ? "They will not stay down. Whoever comes next will meet them."
                       : !record.items.empty() ? "Their pack will wait by the grave for whoever comes next."
@@ -52,6 +79,13 @@ void Game::beginDeathState(const std::string& cause)
     CharacterHistoryRecord history = runEndHistory(false, runIndex);
     history.cause = cause;
     history.finalNote = "Died on Day " + std::to_string(mCurrentDay) + ": " + cause;
+    // The last entry: hunger, thirst and a fever end slowly; the rest stop the writing.
+    {
+        std::string lower = cause;
+        for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const bool slow = legacy::hungerDeath(lower) || lower.find("infection") != std::string::npos || lower.find("turned") != std::string::npos;
+        history.journal = finishJournal(slow ? journal::Kind::EndSlow : journal::Kind::EndSudden);
+    }
     mSaveManager.addCharacterHistoryRecord(history);
     addRunEndMemoryEvent(WorldMemoryEventType::GravePlaced, runIndex);
 
@@ -78,7 +112,9 @@ void Game::beginRetirementState(const std::string& customCause)
 
     mRunState = RunState::Retired;
     mDeathStateTimer = 0.0;
-    mRunEndLegacyLine = "They will live on in town, keeping to themselves.";
+    mRunEndLegacyLine = mStayedForGood ? "They will keep the house. Whoever comes next can knock."
+                                       : "They will live on in town, keeping to themselves.";
+    releaseMarkers();
     mDeathCause = customCause.empty()
         ? ("Gave up on Day " + std::to_string(mCurrentDay))
         : customCause;
@@ -100,12 +136,25 @@ void Game::beginRetirementState(const std::string& customCause)
     history.cause = customCause.empty() ? "Psychological retirement" : customCause;
     history.finalNote = customCause.empty()
         ? ("They stopped on Day " + std::to_string(mCurrentDay) + ".")
-        : (customCause + ".");
+        : (customCause.back() == '.' ? customCause : customCause + ".");
+    history.chosen = mStayedForGood;
+    // A retirement always leaves its last words: the life in one sentence.
+    {
+        journal::LifeStats stats;
+        stats.day = mCurrentDay;
+        stats.built = mRunStats.structuresBuilt;
+        stats.kills = mRunStats.kills;
+        stats.met = static_cast<int>(std::count_if(mSurvivors.begin(), mSurvivors.end(), [&](const SurvivorRecord& r)
+                                                   { return r.met && !r.retired && r.metRun == runIndex; }));
+        history.journal = finishJournal(mStayedForGood ? journal::Kind::EndStayed : journal::Kind::EndRetired, journal::lifeSummary(stats));
+    }
     mSaveManager.addCharacterHistoryRecord(history);
     addRunEndMemoryEvent(WorldMemoryEventType::RetirementPlaced, runIndex);
 
-    // They stay on in town as a survivor, keeping to themselves.
-    const glm::ivec2 retireTile = worldToTile(mTileMap, mDeathWorldPosition);
+    // They stay on in town as a survivor (phase 8): the base, or the house
+    // they stopped in, is home; their pack is their stock; they greet the
+    // bloodline at trust 50 and will teach what they knew.
+    const glm::ivec2 retireTile = worldToTile(mTileMap, mDeathWorldPosition + glm::vec2(kSpriteSize * 0.5f));
     SurvivorRecord retiree;
     retiree.name = mCurrentCharacterName;
     retiree.alive = true;
@@ -113,9 +162,34 @@ void Game::beginRetirementState(const std::string& customCause)
     retiree.x = mDeathWorldPosition.x;
     retiree.y = mDeathWorldPosition.y;
     retiree.aggression = 0.1f;
-    retiree.cooperation = 0.85f;
-    retiree.competence = std::clamp(0.3f + static_cast<float>(mCurrentDay) * 0.05f, 0.3f, 0.9f);
+    retiree.cooperation = 0.7f;
+    retiree.competence = 0.8f;
     retiree.homeDistrictId = mTileMap.getDistrictId(retireTile.x, retireTile.y);
+    retiree.role = static_cast<int>(survivorrules::Role::Retired);
+    retiree.retired = true;
+    retiree.outfit = static_cast<int>(mSurvivors.size() % 3);
+    retiree.trust = survivorrules::kBloodlineTrust;
+    retiree.met = true;
+    retiree.gateLeads = mLeads; // what they knew of the way out, to tell (phase 9)
+    {
+        int home = mFirstDays.homeBuilding;
+        if (home <= 0 && mSaveManager.baseRecord().building > 0) home = mSaveManager.baseRecord().building;
+        const int here = mTileMap.getBuildingId(retireTile.x, retireTile.y);
+        if (here > 0 && mTileMap.isIndoors(retireTile.x, retireTile.y)) home = home > 0 ? home : here;
+        retiree.homeBuilding = std::max(0, home);
+        const glm::ivec2 tile = home > 0 ? homeTileOf(home) : retireTile;
+        retiree.homeX = tile.x;
+        retiree.homeY = tile.y;
+        retiree.homeKnown = home > 0;
+    }
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+    {
+        for (const InventorySlot& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
+        {
+            if (slot.itemId < 0 || slot.count <= 0) continue;
+            retiree.stock.push_back(ContainerItemRecord{slot.itemId, slot.count, slot.condition, slot.loaded});
+        }
+    }
 
     persistWorldForNextRun(runIndex, &retiree);
 
@@ -128,7 +202,7 @@ void Game::beginRetirementState(const std::string& customCause)
               << " | Distance: " << static_cast<int>(mRunStats.distanceWalked) << "px"
               << '\n';
 
-    mInteractionMessage = "They couldn't go on.";
+    mInteractionMessage = mStayedForGood ? mCurrentCharacterName + " stayed." : "They couldn't go on.";
     mInteractionMessageTimer = 5.0f;
 }
 
@@ -161,10 +235,16 @@ CharacterHistoryRecord Game::runEndHistory(bool retired, int runIndex) const
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
     {
         const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        history.positiveTrait = traits.positiveName();
-        history.negativeTrait = traits.negativeName();
-        history.bloodlineTrait = traits.bloodlineName();
+        for (PositiveTrait trait : traits.positives) history.positiveTraits.emplace_back(traitName(trait));
+        for (NegativeTrait trait : traits.negatives) history.negativeTraits.emplace_back(traitName(trait));
+        history.bloodlineTrait = traits.bloodlineNames();
     }
+    // What makes the bloodline's traits (phase 10).
+    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<MentalState>(mPlayerEntity))
+    {
+        history.depression = mWorld.getComponent<MentalState>(mPlayerEntity).depression;
+    }
+    history.tilesBurned = static_cast<int>(mBurnedTiles.size() - std::min(mBurnedTilesAtRunStart, mBurnedTiles.size()));
     return history;
 }
 
@@ -186,78 +266,42 @@ void Game::addRunEndMemoryEvent(WorldMemoryEventType type, int runIndex)
 // checkpoint is deleted (death is permanent; retirement ends the run).
 void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
 {
+    // The days this character lived pass for everyone else (phase 8): their
+    // stock falls, they empty cupboards near home, some of them die.
+    survivorsBetweenLives(std::max(1, mCurrentDay), retiree != nullptr);
+    // The one who retired is among them now (a kept house: phase 10's aging).
+    if (retiree != nullptr)
     {
-        std::vector<StructureRecord> structRecords;
-        mWorld.forEach<Structure, Transform>(
-            [&](Entity e, Structure& s, Transform& t)
-            {
-                StructureRecord rec;
-                rec.type = static_cast<int>(s.type);
-                rec.x = t.x;
-                rec.y = t.y;
-                rec.condition = static_cast<int>(s.condition);
-                rec.hpRatio = s.maxHp > 0.0f ? s.hp / s.maxHp : 0.0f;
-                if (s.type == StructureType::SupplyCache && mWorld.hasComponent<Inventory>(e))
-                {
-                    const Inventory& inv = mWorld.getComponent<Inventory>(e);
-                    for (const auto& slot : inv.slots)
-                    {
-                        if (slot.itemId >= 0 && slot.count > 0)
-                        {
-                            rec.items.emplace_back(slot.itemId, slot.count);
-                        }
-                    }
-                }
-                structRecords.push_back(rec);
-            });
-        mSaveManager.saveStructures(structRecords);
+        SurvivorRecord record = *retiree;
+        record.id = static_cast<int>(mSurvivors.size());
+        mSurvivors.push_back(record);
     }
+
+    // What was built and set down lasts, a stage worse; windows stay as they
+    // were left; and the house this life held is remembered.
+    mSaveManager.saveStructures(structureRecords(true));
+    mSaveManager.setWindows(windowRecords());
+    recordBase(mRunState == RunState::Dead);
+    saveDistrictMemory(); // infection, this life's kills, the rules learned
+    saveScavengeMemory(); // things left lying indoors
+    persistGate();        // where the gate key lies (phase 9)
 
     mSaveManager.addRunStats(mRunStats.kills, mCurrentDay);
 
-    {
-        std::vector<VehicleRecord> vehicleRecords;
-        mWorld.forEach<Vehicle, Transform>(
-            [&](Entity e, Vehicle& vehicle, Transform& transform)
-            {
-                VehicleRecord record;
-                record.x = transform.x;
-                record.y = transform.y;
-                record.condition = vehicle.condition;
-                record.fuel = vehicle.fuel;
-                record.maxFuel = vehicle.maxFuel;
-                record.engineOn = false;
-
-                if (mWorld.hasComponent<Inventory>(e))
-                {
-                    const Inventory& trunk = mWorld.getComponent<Inventory>(e);
-                    for (const auto& slot : trunk.slots)
-                    {
-                        if (slot.itemId >= 0 && slot.count > 0)
-                        {
-                            record.items.emplace_back(slot.itemId, slot.count);
-                        }
-                    }
-                }
-
-                vehicleRecords.push_back(record);
-            });
-        mSaveManager.setVehicleRecords(std::move(vehicleRecords));
-    }
+    persistVehicles(true); // a life that used one leaves it a stage worse (GameVehicles.cpp)
 
     {
         std::vector<FireTileRecord> fireRecords;
-        mWorld.forEach<Fire, Transform>(
-            [&](Entity, Fire& fire, Transform& transform)
-            {
-                const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(transform.x, transform.y));
-                FireTileRecord record;
-                record.tileX = tile.x;
-                record.tileY = tile.y;
-                record.intensity = fire.intensity;
-                record.lifeRemaining = fire.lifeRemaining;
-                fireRecords.push_back(record);
-            });
+        for (const FireSystem::Burning& b : mFireSystem.all())
+        {
+            FireTileRecord record;
+            record.tileX = b.tile.x;
+            record.tileY = b.tile.y;
+            record.intensity = b.heat;
+            record.lifeRemaining = b.fuel;
+            record.byPlayer = false; // the next life did not light it
+            fireRecords.push_back(record);
+        }
         mSaveManager.setFireTileRecords(std::move(fireRecords));
     }
 
@@ -288,33 +332,22 @@ void Game::persistWorldForNextRun(int runIndex, const SurvivorRecord* retiree)
         mSaveManager.addWorldMemoryEvent(event);
     }
 
-    mSaveManager.deleteCheckpoint();
-    mSaveManager.saveLootedPositions();
+    // The town ages: built things, boards, crates, gardens, the dead in the
+    // street, the districts (phase 10).
+    if (livingWorld()) ageWorldForNextLife(std::max(1, mCurrentDay), runIndex);
 
+    mSaveManager.deleteCheckpoint();
+    refreshContainerRecords();
+    mSaveManager.saveWorldMemory();
+
+    // The town's people as they are now (already advanced, the one who
+    // retired among them).
+    mSaveManager.saveSurvivors(mSurvivors);
+
+    // Fresh Start: the next life finds the town as it was made (phase 10).
+    if (!livingWorld())
     {
-        std::vector<SurvivorRecord> survivorRecords;
-        mWorld.forEach<SurvivorAI, Transform, Health>(
-            [&](Entity, SurvivorAI& ai, Transform& t, Health& h)
-            {
-                SurvivorRecord sr;
-                sr.name = ai.name;
-                sr.alive = ai.alive && h.current > 0.0f;
-                sr.spawnDay = ai.spawnDay;
-                sr.deathDay = sr.alive ? 0 : mCurrentDay;
-                sr.x = t.x;
-                sr.y = t.y;
-                sr.hunger = ai.hunger;
-                sr.thirst = ai.thirst;
-                sr.aggression = ai.personality.aggression;
-                sr.cooperation = ai.personality.cooperation;
-                sr.competence = ai.personality.competence;
-                sr.homeDistrictId = ai.homeDistrictId;
-                survivorRecords.push_back(sr);
-            });
-        if (retiree != nullptr)
-        {
-            survivorRecords.push_back(*retiree);
-        }
-        mSaveManager.saveSurvivors(survivorRecords);
+        mSaveManager.forgetWorld();
+        std::cout << "[World] fresh start: nothing carried over\n";
     }
 }

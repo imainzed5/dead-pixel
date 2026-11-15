@@ -14,11 +14,16 @@ class SpriteSheet;
 // The in-play HUD: vitals, status conditions, clock, objective, hotbar and
 // messages. Game builds a HudState snapshot each frame; Hud only draws it.
 //
+// Nothing is boxed in: text and thin lines sit straight on the world, each
+// with a dark edge so it reads over anything.
+//
 // Layout (anchored to window edges):
-//   top-left      health and stamina bars, then active conditions
+//   bottom-left   health and stamina lines, active conditions stacked above
 //   top-center    district toast when entering a new district
-//   top-right     day, time, weather; objective below
-//   bottom-center hotbar with item icons, selected item name, messages
+//   top-right     time, day and weather; objective below
+//   bottom-center belt of bare item icons, the one in use drawn large
+//                 (in a vehicle: put away; its fuel and condition lines and
+//                 speed word sit over the health line instead)
 //
 // Conditions follow the "only show problems" rule: nothing is listed while
 // the character is fine, and each entry is colored by severity.
@@ -57,6 +62,21 @@ struct HudConditionInputs
     bool infected = false;
     bool overburdened = false;
     bool sleeping = false;
+    // Phase 5: each wound by name and place, most urgent first (from
+    // woundrules::hudLabels: "Bleeding", "Infected bite", "Broken left leg",
+    // "Fever"). When set, it replaces bites / cuts / infected above.
+    std::vector<std::string> woundLabels;
+    bool rested = false;
+    // Phase 7: soaked through; smoke in the lungs.
+    bool wet = false;
+    bool coughing = false;
+};
+
+struct HudStep
+{
+    std::string text;
+    bool done = false;
+    bool good = false; // "Done." (phase 13): no box, in the good colour
 };
 
 struct HudSlot
@@ -67,6 +87,8 @@ struct HudSlot
     int count = 0;
     bool equipped = false; // the weapon in hand
     float wear = -1.0f;    // weapon durability left, 0..1; -1 for other items
+    bool dim = false;      // a flashlight or radio with a flat battery
+    bool worn = false;     // the warm thing that counts as worn (phase 7)
 };
 
 struct HudState
@@ -83,8 +105,11 @@ struct HudState
 
     int day = 1;
     double hours = 8.0;
-    std::string weather;           // e.g. "Rain"
+    std::string weather;           // e.g. "Rain", or "Clear, clouding" when it is about to change
     float outdoorTemperature = 18.0f;
+    std::string season;            // phase 7: "Summer"
+    double duskHour = 20.0;        // the clock tints by the season's hours
+    double dawnHour = 6.0;
     std::string characterName;
     std::string districtLine;      // infection of the district you stand in
     bool districtLineDanger = false;
@@ -92,6 +117,13 @@ struct HudState
     std::string objectiveTitle;
     std::string objectiveDetail;
     glm::vec4 objectiveColor{0.9f, 0.8f, 0.3f, 1.0f};
+    // The day's plan under the objective, each step with a check box.
+    std::vector<HudStep> objectiveSteps;
+
+    // A card at the top of the screen at dawn ("Day 2" and a line).
+    std::string dayCardTitle;
+    std::string dayCardLine;
+    float dayCardAlpha = 0.0f;
 
     std::array<HudSlot, 8> hotbar{};
     int activeSlot = 0;
@@ -99,13 +131,33 @@ struct HudState
     std::string message;  // transient feedback ("Flashlight on.")
     float messageAlpha = 0.0f;
     std::string prompt;   // context action ("E: Search shelf")
+    std::string teach;    // a teaching prompt (phase 13), over the prompt line
+    std::string heldLine = "HELD - SPACE"; // with the shove key as bound
 
-    std::string vehicleLine;
-    bool driving = false;
+    // Phase 11: inside a vehicle, two thin lines over the health line (fuel,
+    // then the body's condition) and a word for the speed. The belt is put away.
+    struct VehicleReadout
+    {
+        bool inside = false;
+        float fuel = 0.0f;
+        float fuelMax = 0.0f;    // 0: no tank (a bicycle)
+        float condition = 100.0f;
+        std::string word;        // "Idle", "Slow", "Fast", "Engine off", "Hot-wiring"
+        float wire = -1.0f;      // hot-wiring, 0..1; -1 when not
+    } vehicle;
 
     std::string districtToast;
     float districtToastAlpha = 0.0f;
     bool districtDanger = false;
+
+    // Held by the dead: a call to struggle, and the meter as ticks to fill.
+    bool held = false;
+    int struggleTicks = 0;
+    int struggleTicksTotal = 0;
+
+    // Width of a panel open down the right edge (pack, crafting), or 0. The
+    // panel carries the belt and covers the clock, so the HUD leaves them out.
+    float dockedWidth = 0.0f;
 };
 
 class Hud
@@ -121,14 +173,21 @@ public:
     [[nodiscard]] static glm::vec4 severityColor(HudSeverity severity);
     // Name shown above the hotbar: "Knife - in hand", "Bat - worn", "Pipe - broken".
     [[nodiscard]] static std::string slotLabel(const HudSlot& slot);
+    // The objective panel's left edge and bottom (top right of the screen),
+    // for cards that must keep clear of it (phase 13). Empty: {viewport.x, 0}.
+    [[nodiscard]] static glm::vec2 objectiveCorner(const HudState& state, const glm::vec2& viewport, const BitmapFont& font);
 
     // Layout constants (pixels at 1x).
-    static constexpr float kMargin = 16.0f;
-    static constexpr float kVitalsWidth = 260.0f;
-    static constexpr float kBarHeight = 12.0f;
-    static constexpr float kConditionRowHeight = 24.0f;
+    static constexpr float kEdge = 24.0f;          // gap to the window edge
+    static constexpr float kBarsWidth = 220.0f;    // health and stamina lines
+    static constexpr float kHealthHeight = 6.0f;
+    static constexpr float kStaminaHeight = 3.0f;
+    static constexpr float kConditionRowHeight = 22.0f;
     static constexpr std::size_t kMaxConditionRows = 9;
-    static constexpr float kSlotSize = 48.0f;
-    static constexpr float kSlotGap = 6.0f;
-    static constexpr float kClockWidth = 236.0f;
+    static constexpr float kSlotSize = 40.0f;      // a belt slot not in use
+    static constexpr float kBeltIcon = 32.0f;
+    static constexpr float kActiveIcon = 64.0f;    // the item in use, drawn double size
+    static constexpr float kSlotGap = 8.0f;
+    static constexpr float kVehicleLineHeight = 3.0f;
+    static constexpr float kVehicleBlock = 44.0f;  // what the vehicle lines take above the health line
 };

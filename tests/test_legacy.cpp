@@ -10,6 +10,13 @@ DP_TEST(legacy_zombie_deaths_and_infected_bites_rise)
     DP_CHECK(legacy::shouldRise("Killed by zombies on Day 3", false));
     DP_CHECK(legacy::shouldRise("Overrun at the corner store", false));
     DP_CHECK(legacy::shouldRise("Succumbed to infection on Day 5", false));
+    // Phase 4's causes say what did it; every one still rises.
+    for (const char* cause : {"Hunted down by the zombie that followed on Day 4", "Overrun by the dead on Day 2",
+                              "Run down by a zombie on Day 3", "Beaten down by a big zombie on Day 6",
+                              "Bitten by a crawling zombie on Day 2"})
+    {
+        DP_CHECK(legacy::shouldRise(cause, false));
+    }
     DP_CHECK(!legacy::shouldRise("Starved on Day 9", false));
     DP_CHECK(!legacy::shouldRise("Bled out on Day 2", false));
     DP_CHECK(!legacy::shouldRise("Burned alive on Day 4", false));

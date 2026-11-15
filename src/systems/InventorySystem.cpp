@@ -1,6 +1,7 @@
 #include "systems/InventorySystem.h"
 
 #include <algorithm>
+#include <array>
 
 AddItemResult InventorySystem::addItem(Inventory& inv, const ItemDatabase& db, int itemId, int count)
 {
@@ -11,10 +12,10 @@ AddItemResult InventorySystem::addItem(Inventory& inv, const ItemDatabase& db, i
     // Weight check: reject if adding would exceed carry limit
     const float currentWeight = totalWeight(inv, db);
     const float addWeight = def->weight * static_cast<float>(count);
-    if (currentWeight + addWeight > Inventory::kMaxCarryWeight + 0.01f)
+    if (currentWeight + addWeight > inv.maxWeight + 0.01f)
     {
         // Allow partial add up to weight limit
-        const float room = Inventory::kMaxCarryWeight - currentWeight;
+        const float room = inv.maxWeight - currentWeight;
         if (room <= 0.01f || def->weight <= 0.0f)
         {
             result.overflow = count;
@@ -32,8 +33,10 @@ AddItemResult InventorySystem::addItem(Inventory& inv, const ItemDatabase& db, i
     int remaining = count;
 
     // First try stacking into existing slots
-    for (auto& slot : inv.slots)
+    const int usable = std::clamp(inv.maxSlots, 0, Inventory::kMaxSlots);
+    for (int i = 0; i < usable; ++i)
     {
+        auto& slot = inv.slots[static_cast<std::size_t>(i)];
         if (remaining <= 0) break;
         if (slot.itemId == itemId && slot.count < def->maxStack)
         {
@@ -46,8 +49,9 @@ AddItemResult InventorySystem::addItem(Inventory& inv, const ItemDatabase& db, i
     }
 
     // Then use empty slots
-    for (auto& slot : inv.slots)
+    for (int i = 0; i < usable; ++i)
     {
+        auto& slot = inv.slots[static_cast<std::size_t>(i)];
         if (remaining <= 0) break;
         if (slot.itemId < 0)
         {
@@ -125,8 +129,10 @@ bool InventorySystem::isFull(const Inventory& inv, const ItemDatabase& db, int i
     const ItemDef* def = db.find(itemId);
     if (!def) return true;
 
-    for (const auto& slot : inv.slots)
+    const int usable = std::clamp(inv.maxSlots, 0, Inventory::kMaxSlots);
+    for (int i = 0; i < usable; ++i)
     {
+        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
         if (slot.itemId < 0) return false; // empty slot available
         if (slot.itemId == itemId && slot.count < def->maxStack) return false;
     }
@@ -146,4 +152,84 @@ void InventorySystem::degradeFood(Inventory& inv, const ItemDatabase& db, float 
         const float decay = gameHoursElapsed / def->spoilHours;
         slot.condition = std::max(0.0f, slot.condition - decay);
     }
+}
+
+int InventorySystem::countTagged(const Inventory& inv, const ItemDatabase& db, const char* tag)
+{
+    int total = 0;
+    for (const auto& slot : inv.slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+        const ItemDef* def = db.find(slot.itemId);
+        if (def != nullptr && def->hasTag(tag)) total += slot.count;
+    }
+    return total;
+}
+
+float InventorySystem::bestWarmth(const Inventory& inv, const ItemDatabase& db)
+{
+    float best = 0.0f;
+    for (const auto& slot : inv.slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+        const ItemDef* def = db.find(slot.itemId);
+        if (def != nullptr) best = std::max(best, def->warmth);
+    }
+    return best;
+}
+
+AddItemResult InventorySystem::addItemWithCondition(Inventory& inv, const ItemDatabase& db, int itemId, int count, float condition, int loaded)
+{
+    // Remember what each slot held, add, then blend the condition into the
+    // slots that grew.
+    std::array<int, Inventory::kMaxSlots> before{};
+    for (std::size_t i = 0; i < inv.slots.size(); ++i)
+    {
+        before[i] = inv.slots[i].itemId == itemId ? inv.slots[i].count : 0;
+    }
+    const AddItemResult result = addItem(inv, db, itemId, count);
+    for (std::size_t i = 0; i < inv.slots.size(); ++i)
+    {
+        InventorySlot& slot = inv.slots[i];
+        if (slot.itemId != itemId || slot.count <= before[i]) continue;
+        const float added = static_cast<float>(slot.count - before[i]);
+        const float kept = static_cast<float>(before[i]);
+        const float previous = before[i] > 0 ? slot.condition : condition;
+        slot.condition = (previous * kept + condition * added) / (kept + added);
+        // A gun keeps its rounds when it moves (guns do not stack).
+        if (loaded > 0 && before[i] == 0) slot.loaded = loaded;
+    }
+    return result;
+}
+
+void InventorySystem::consumeOne(Inventory& inv, const ItemDatabase& db, int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= Inventory::kMaxSlots) return;
+    InventorySlot& slot = inv.slots[static_cast<std::size_t>(slotIndex)];
+    if (slot.itemId < 0 || slot.count <= 0) return;
+    const ItemDef* def = db.find(slot.itemId);
+    slot.count -= 1;
+    if (slot.count <= 0)
+    {
+        slot = InventorySlot{};
+    }
+    if (def != nullptr && def->leavesId >= 0)
+    {
+        addItem(inv, db, def->leavesId, 1);
+    }
+}
+
+std::vector<std::pair<int, int>> InventorySystem::itemsUnloaded(const Inventory& inv, const ItemDatabase& db)
+{
+    std::vector<std::pair<int, int>> items;
+    for (const auto& slot : inv.slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+        items.emplace_back(slot.itemId, slot.count);
+        if (slot.loaded <= 0) continue;
+        const ItemDef* def = db.find(slot.itemId);
+        const int ammo = def != nullptr && !def->weapon.ammo.empty() ? db.idOf(def->weapon.ammo) : -1;
+        if (ammo >= 0) items.emplace_back(ammo, slot.loaded);
+    }
+    return items;
 }

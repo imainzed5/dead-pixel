@@ -1,5 +1,8 @@
 // HUD snapshot and the menu and overlay panels (inventory, crafting, pause, title...).
 #include "core/GameShared.h"
+#include "world/BuildingKinds.h"
+#include "world/WeatherRules.h"
+#include "world/CombatRules.h"
 
 using namespace gameshared;
 
@@ -8,7 +11,6 @@ void Game::buildHudState()
     HudState& hud = mHudState;
     hud = HudState{};
     hud.visible = mRunState == RunState::Playing &&
-        !mShowCrafting &&
         !mShowWorldMap &&
         mPlayerEntity != kInvalidEntity &&
         mWorld.hasComponent<Transform>(mPlayerEntity);
@@ -18,6 +20,11 @@ void Game::buildHudState()
     }
 
     hud.timeSeconds = mHudClock;
+    if (mShowCrafting || mShowInventory || mContainerOpen || mTalk.open)
+    {
+        const bool wide = mShowCrafting || mContainerOpen || (mTalk.open && mTalk.view == TalkState::View::Trade);
+        hud.dockedWidth = dockedPanelWidth(wide, mWindowWidth);
+    }
 
     if (mWorld.hasComponent<Health>(mPlayerEntity))
     {
@@ -32,6 +39,13 @@ void Game::buildHudState()
         hud.staminaMax = stamina.maximum;
         hud.staminaBaseMax = stamina.baseMaximum > 0.0f ? stamina.baseMaximum : stamina.maximum;
     }
+    if (mWorld.hasComponent<Combat>(mPlayerEntity) && playerHeld())
+    {
+        const Combat& combat = mWorld.getComponent<Combat>(mPlayerEntity);
+        hud.held = true;
+        hud.struggleTicksTotal = static_cast<int>(std::round(combatrules::struggleNeeded(std::max(1, combat.holders))));
+        hud.struggleTicks = std::clamp(static_cast<int>(combat.struggle), 0, hud.struggleTicksTotal);
+    }
 
     // Conditions.
     HudConditionInputs conditions;
@@ -43,7 +57,12 @@ void Game::buildHudState()
         conditions.sleepDebt = needs.sleepDebt;
         conditions.fatigue = needs.fatigue;
         conditions.bodyTemperature = needs.bodyTemperature;
+        conditions.wet = needs.wetHours > 0.0f;
+        conditions.coughing = needs.smokeSeconds >= weatherrules::kCoughAfterSeconds;
         conditions.illness = needs.illness;
+        // What a coffee hides does not show (phase 5).
+        conditions.sleepDebt = sleeprules::shownDebt(needs.sleepDebt, needs.coffeeHours);
+        conditions.rested = needs.restedHours > 0.0f;
     }
     if (mWorld.hasComponent<MentalState>(mPlayerEntity))
     {
@@ -73,12 +92,19 @@ void Game::buildHudState()
             conditions.infected = conditions.infected || wound.infected;
         }
     }
+    // Each wound by kind and place (phase 5). Infection shows only when it
+    // shows: Medicine 2 sees it early, everyone sees it once it is a fever.
+    {
+        std::vector<Wound> shown;
+        if (mWorld.hasComponent<Wounds>(mPlayerEntity)) shown = mWorld.getComponent<Wounds>(mPlayerEntity).active;
+        conditions.woundLabels = woundrules::hudLabels(shown, conditions.bleeding, conditions.illness);
+    }
     const Inventory* inventory = mWorld.hasComponent<Inventory>(mPlayerEntity)
         ? &mWorld.getComponent<Inventory>(mPlayerEntity)
         : nullptr;
     if (inventory)
     {
-        conditions.overburdened = InventorySystem::totalWeight(*inventory, mItemDatabase) > Inventory::kMaxCarryWeight;
+        conditions.overburdened = InventorySystem::totalWeight(*inventory, mItemDatabase) > playerCarryLimit();
     }
     hud.conditions = Hud::buildConditions(conditions);
     if (mFlashlightOn)
@@ -89,46 +115,64 @@ void Game::buildHudState()
     // Clock and weather.
     hud.day = mCurrentDay;
     hud.hours = mGameHours;
-    hud.weather = weatherConditionLabel(mWeatherState.condition);
+    hud.weather = weatherrules::label(mWeatherState.condition);
+    // The weather word gains a second when a change is close (phase 7).
+    if (mWeatherState.nextCondition != mWeatherState.condition && mWeatherState.hoursToChange <= weatherrules::kWarningHours)
+    {
+        hud.weather += std::string(", ") + weatherrules::changeWord(mWeatherState.nextCondition);
+    }
     hud.outdoorTemperature = mWeatherState.temperature;
+    hud.season = weatherrules::seasonName(mWeatherState.season);
+    hud.duskHour = weatherrules::duskHour(mCurrentDay);
+    hud.dawnHour = weatherrules::dawnHour(mCurrentDay);
     hud.characterName = mCurrentCharacterName;
 
     // Objective: the most urgent thing to do next.
     {
+        // The way out (phase 9): the next step this character knows of.
         const bool campaignMode = (mTitleGameModeIndex == 0);
-        std::string title = campaignMode ? "Reach the objective" : "Survive";
-        std::string detail = campaignMode ? "Objective not yet located" : "Standing still burns food, water and daylight";
+        const std::string wayOut = gateObjective();
+        std::string title = campaignMode ? "The way out" : "Survive";
+        std::string detail = campaignMode ? wayOut : "Standing still burns food, water and daylight";
         glm::vec4 color(0.92f, 0.80f, 0.34f, 1.0f);
 
-        if (campaignMode && mCampaignObjective.completed)
+        // The first days: the plan for this day or night, which urgent needs
+        // still override.
+        const firstdays::Plan plan = firstdays::planFor(mCurrentDay, mGameHours, firstDaysFacts());
+        if (!plan.title.empty())
         {
-            title = "Objective secured";
-            detail = "Extraction route confirmed. Legacy recorded.";
-            color = glm::vec4(0.58f, 0.88f, 0.56f, 1.0f);
-        }
-        else if (campaignMode && mCampaignObjective.active)
-        {
-            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-            const int tx = static_cast<int>(std::floor(pt.x / static_cast<float>(std::max(1, mTileMap.tileWidth()))));
-            const int ty = static_cast<int>(std::floor(pt.y / static_cast<float>(std::max(1, mTileMap.tileHeight()))));
-            const int distance = std::abs(mCampaignObjective.tileX - tx) + std::abs(mCampaignObjective.tileY - ty);
-            detail = std::to_string(distance) + " tiles away";
-            if (mCampaignObjective.infectionDeadlineDay > 0)
+            title = plan.title;
+            detail = firstdays::clockLine(mGameHours, mCurrentDay);
+            color = firstdays::nightIndex(mCurrentDay, mGameHours) > 0 ? glm::vec4(0.70f, 0.66f, 0.95f, 1.0f)
+                                                                       : glm::vec4(0.92f, 0.80f, 0.34f, 1.0f);
+            for (const firstdays::Step& step : plan.steps)
             {
-                const int daysRemaining = std::max(0, mCampaignObjective.infectionDeadlineDay - mCurrentDay);
-                detail += ", " + std::to_string(daysRemaining) + " days before the deadline";
-                if (daysRemaining <= 5)
-                {
-                    color = glm::vec4(0.95f, 0.42f, 0.38f, 1.0f);
-                }
+                hud.objectiveSteps.push_back(HudStep{mInput.text(step.text), step.done});
             }
         }
-        else if (campaignMode && mCampaignObjective.infectionDeadlineDay > 0 &&
-                 mCurrentDay > mCampaignObjective.infectionDeadlineDay)
+        // From day 4, one standing aim (phase 13).
+        const bool aimShowing = plan.title.empty() && mAimKind != aims::Kind::None && !mAimShown.title.empty();
+        if (aimShowing)
         {
-            title = "Objective failed";
-            detail = "The infection deadline has passed.";
-            color = glm::vec4(0.95f, 0.42f, 0.38f, 1.0f);
+            title = mAimShown.title;
+            detail = mAimShown.detail.empty() ? firstdays::clockLine(mGameHours, mCurrentDay) : mAimShown.detail;
+            color = firstdays::nightIndex(mCurrentDay, mGameHours) > 0 ? glm::vec4(0.70f, 0.66f, 0.95f, 1.0f)
+                                                                       : glm::vec4(0.92f, 0.80f, 0.34f, 1.0f);
+            for (const aims::Step& step : mAimShown.steps)
+            {
+                hud.objectiveSteps.push_back(HudStep{step.text, step.done});
+            }
+            if (mAimDoneTimer > 0.0f) hud.objectiveSteps.push_back(HudStep{"Done.", true, true});
+        }
+        // A horde comes tonight: the day says so (the Tonight aim says it already).
+        if (hordeDay() && mGameHours >= 12.0 && !(aimShowing && mAimKind == aims::Kind::Tonight))
+        {
+            hud.objectiveSteps.push_back(HudStep{"Tonight: stay quiet.", false});
+        }
+        // Under the first days' plan or an aim, the way out is a line of its own.
+        if (campaignMode && (!plan.title.empty() || (aimShowing && mAimKind != aims::Kind::WayOut)) && !wayOut.empty())
+        {
+            hud.objectiveSteps.push_back(HudStep{wayOut, false});
         }
 
         const glm::vec4 medicalColor(0.95f, 0.50f, 0.45f, 1.0f);
@@ -161,10 +205,23 @@ void Game::buildHudState()
             detail = "Indoors, away from the dead";
             color = glm::vec4(0.70f, 0.66f, 0.95f, 1.0f);
         }
-        else if (mRunStats.itemsLooted < 6)
+        else if (plan.title.empty() && !aimShowing && mRunStats.itemsLooted < 6)
         {
             title = "Search nearby buildings";
             detail = "Look for food, water and medicine before dusk";
+        }
+
+        // The last stand comes before everything (phase 9).
+        if (mStand.running || (gatePlaced() && mGate.open && campaignMode))
+        {
+            title = mStand.running ? "Hold the gate" : "The way out";
+            detail = wayOut.empty() ? (mGate.open ? "The gate is open. Walk out." : "") : wayOut;
+            if (mStand.running && mTitleGameModeIndex != 0)
+            {
+                const int left = static_cast<int>(std::ceil(std::max(0.0f, gate::kOpenSeconds - mStand.opened) + mStand.grind));
+                detail = std::to_string(left) + " s.";
+            }
+            color = mStand.running ? glm::vec4(0.95f, 0.42f, 0.38f, 1.0f) : glm::vec4(0.58f, 0.88f, 0.56f, 1.0f);
         }
 
         hud.objectiveTitle = title;
@@ -176,6 +233,8 @@ void Game::buildHudState()
     if (inventory)
     {
         hud.activeSlot = inventory->activeSlot;
+        const float warmest = InventorySystem::bestWarmth(*inventory, mItemDatabase);
+        bool wornShown = false;
         for (std::size_t i = 0; i < hud.hotbar.size() && i < inventory->slots.size(); ++i)
         {
             const auto& slot = inventory->slots[i];
@@ -198,57 +257,63 @@ void Game::buildHudState()
                 out.wear = std::clamp(slot.condition, 0.0f, 1.0f);
                 out.equipped = static_cast<int>(i) == mEquippedWeaponSlot;
             }
+            // A flashlight or radio whose battery is flat (phase 6).
+            out.dim = (slot.itemId == mItems.flashlight || item->hasTag("radio")) && slot.condition <= 0.0f;
+            // The warmest thing carried counts as worn (phase 7): the first of it.
+            if (item->warmth > 0.0f && item->warmth >= warmest && !wornShown)
+            {
+                out.worn = true;
+                wornShown = true;
+            }
         }
     }
 
     // Messages.
     if (!mInteractionMessage.empty() && mInteractionMessageTimer > 0.0f)
     {
-        hud.message = mInteractionMessage;
+        hud.message = mInput.text(mInteractionMessage); // "E" is the key as bound (phase 13)
         hud.messageAlpha = std::min(1.0f, mInteractionMessageTimer / 0.5f);
     }
-    hud.prompt = mProximityPrompt;
+    hud.prompt = mInput.text(mProximityPrompt);
+    // An ear to a closed door (phase 12): the verb teaches itself.
+    if (mListening) hud.prompt = hud.prompt.empty() ? std::string("Listening.") : "Listening.   " + hud.prompt;
+    if (teachingOn()) hud.teach = mTeachLine;
+    hud.heldLine = "HELD - " + bindings::label(mInput.bindings(), Action::Shove);
+    for (char& c : hud.heldLine) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 
-    // Vehicle readout: the car you drive, or the nearest one in reach.
+    // Inside a vehicle (phase 11): its fuel, condition and a word for the speed.
+    if (mActiveVehicleEntity != kInvalidEntity && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity))
     {
-        Entity statusVehicle = mActiveVehicleEntity;
-        if (statusVehicle == kInvalidEntity)
+        const Vehicle& vehicle = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
+        const bool engine = vehiclerules::info(vehicle.kind).engine;
+        hud.vehicle.inside = true;
+        hud.vehicle.fuel = vehicle.fuel;
+        hud.vehicle.fuelMax = engine ? vehicle.maxFuel : 0.0f;
+        hud.vehicle.condition = vehicle.condition;
+        if (mWireHeld)
         {
-            const Transform& pt = mWorld.getComponent<Transform>(mPlayerEntity);
-            const glm::vec2 playerCenter(pt.x + kSpriteSize * 0.5f, pt.y + kSpriteSize * 0.5f);
-            float bestDistSq = kVehicleInteractRangePixels * kVehicleInteractRangePixels;
-            mWorld.forEach<Vehicle, Transform>(
-                [&](Entity entity, Vehicle&, Transform& vt)
-                {
-                    const glm::vec2 vc(vt.x + kSpriteSize * 0.5f, vt.y + kSpriteSize * 0.5f);
-                    const glm::vec2 d = vc - playerCenter;
-                    const float distSq = glm::dot(d, d);
-                    if (distSq < bestDistSq)
-                    {
-                        bestDistSq = distSq;
-                        statusVehicle = entity;
-                    }
-                });
+            hud.vehicle.word = "Hot-wiring";
+            hud.vehicle.wire = mWireTimer / std::max(1.0f, vehiclerules::hotwireSeconds(skillLevel(Skill::Mechanics)));
         }
-
-        if (statusVehicle != kInvalidEntity && mWorld.hasComponent<Vehicle>(statusVehicle))
+        else if (engine && !vehicle.engineOn && std::fabs(vehicle.speed) < 8.0f)
         {
-            const Vehicle& vehicle = mWorld.getComponent<Vehicle>(statusVehicle);
-            hud.driving = (statusVehicle == mActiveVehicleEntity);
-            hud.vehicleLine = std::string(hud.driving ? "Driving" : "Car")
-                + "  " + vehicleConditionLabel(vehicle.condition)
-                + "  Fuel " + std::to_string(static_cast<int>(std::round(vehicle.fuel)))
-                + "/" + std::to_string(static_cast<int>(std::round(vehicle.maxFuel)));
+            hud.vehicle.word = "Engine off";
+        }
+        else
+        {
+            hud.vehicle.word = vehiclerules::speedWord(vehicle.speed);
         }
     }
 
     // District you are standing in, and a toast when you cross into a new one.
     if (mHudDistrictId > 0)
     {
-        const int infection = static_cast<int>(std::round(mDistrictInfectionSystem.getInfection(mHudDistrictId)));
-        const bool overwhelmed = mDistrictInfectionSystem.isOverwhelmed(mHudDistrictId);
-        hud.districtLine = overwhelmed ? std::string("Overwhelmed") : "Infection " + std::to_string(infection) + "%";
-        hud.districtLineDanger = overwhelmed || infection >= 60;
+        // A word for how far it has gone (phase 4), not a number.
+        const int level = ruinLevel(mHudDistrictId);
+        std::string word = ruinWord(level);
+        word[0] = static_cast<char>(word[0] - 'a' + 'A');
+        hud.districtLine = word;
+        hud.districtLineDanger = level >= 2;
     }
     if (mDistrictToastTimer > 0.0f)
     {
@@ -256,225 +321,26 @@ void Game::buildHudState()
         hud.districtToastAlpha = std::min(1.0f, mDistrictToastTimer / 0.6f);
         hud.districtDanger = mDistrictToastDanger;
     }
+
+    // The dawn card fades in, holds, and fades out.
+    if (mFirstDays.cardTimer > 0.0f)
+    {
+        // One line from assets/data/day_cards.json (phase 13), or "Day N" alone.
+        const firstdays::DayCard card = dawnCard();
+        hud.dayCardTitle = card.title;
+        hud.dayCardLine = card.line;
+        const float shown = 6.0f - mFirstDays.cardTimer;
+        hud.dayCardAlpha = std::clamp(std::min(shown / 0.8f, mFirstDays.cardTimer / 1.2f), 0.0f, 1.0f);
+    }
 }
 
-void Game::renderNotebookOverlay()
-{
-    if (mRunState != RunState::Playing || !mShowNotebook)
-    {
-        return;
-    }
-
-    // The notebook is where the legacy reads as a story: what earlier runs
-    // left out there (live distance and direction), then who they were.
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    const float w = static_cast<float>(mWindowWidth);
-    const float h = static_cast<float>(mWindowHeight);
-
-    const auto& history = mSaveManager.characterHistory();
-    const auto leads = currentLegacyLeads();
-    constexpr std::size_t kMaxLeads = 6;
-    constexpr std::size_t kMaxHistory = 10;
-    constexpr float kBody = 2.0f;
-    const float bodyLine = mFont.lineHeight(kBody) + 5.0f;
-
-    // Sized to what it holds: header, two sections, totals.
-    const std::size_t leadRows = std::max<std::size_t>(1, std::min(leads.size(), kMaxLeads));
-    const std::size_t historyRows = std::max<std::size_t>(1, std::min(history.size(), kMaxHistory));
-    // Recipes written down, as wrapped lines of names.
-    std::vector<std::string> knownLines;
-    {
-        std::string names;
-        for (const auto& [a, b] : mSaveManager.discoveredRecipes())
-        {
-            const CraftingRecipe* recipe = mCraftingSystem.findRecipe(a, b);
-            if (recipe == nullptr) continue;
-            names += (names.empty() ? "" : ", ") + recipe->label;
-        }
-        if (names.empty())
-        {
-            names = "Nothing written down. Carry a notebook item when you work out a recipe.";
-        }
-        const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, (std::min(900.0f, w - 40.0f) - 56.0f) / (6.0f * kBody)));
-        std::istringstream words(names);
-        std::string word;
-        std::string line;
-        while (words >> word)
-        {
-            if (!line.empty() && line.size() + 1 + word.size() > maxChars)
-            {
-                knownLines.push_back(line);
-                line.clear();
-            }
-            line += (line.empty() ? "" : " ") + word;
-        }
-        if (!line.empty()) knownLines.push_back(line);
-        if (knownLines.size() > 3) knownLines.resize(3);
-    }
-    const float contentH = 22.0f + bodyLine + 2.0f + 30.0f +
-                           18.0f + static_cast<float>(leadRows) * bodyLine + (leads.size() > kMaxLeads ? 16.0f : 0.0f) + 14.0f +
-                           18.0f + static_cast<float>(historyRows) * bodyLine + (history.size() > kMaxHistory ? 16.0f : 0.0f) + 14.0f +
-                           18.0f + static_cast<float>(knownLines.size()) * bodyLine +
-                           44.0f;
-    const float panelW = std::min(900.0f, w - 40.0f);
-    const float panelH = std::min(contentH, h - 40.0f);
-    const float panelX = std::floor((w - panelW) * 0.5f);
-    const float panelY = std::floor((h - panelH) * 0.5f);
-
-    const glm::vec4 ink(0.90f, 0.88f, 0.80f, 1.0f);
-    const glm::vec4 dimInk(0.66f, 0.64f, 0.58f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
-    const glm::vec4 risenColor = legacyLeadColor(legacy::LeadKind::Risen);
-    const glm::vec4 survivorColor = legacyLeadColor(legacy::LeadKind::Survivor);
-
-    mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.06f, 0.055f, 0.05f, 0.97f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, 3.0f), uiUv, gold);
-
-    const float left = panelX + 28.0f;
-    const float textW = panelW - 56.0f;
-    const auto fit = [&](const std::string& text, float scale)
-    {
-        const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, textW / (6.0f * scale)));
-        return truncateHudText(text, maxChars);
-    };
-    const auto heading = [&](float y, const std::string& text)
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), text, gold, 1.0f);
-        const float textEnd = left + mFont.measureText(text, 1.0f).x + 10.0f;
-        mSpriteBatch.draw(glm::vec2(textEnd, y + 4.0f), glm::vec2(left + textW - textEnd, 1.0f), uiUv,
-                          glm::vec4(gold.r, gold.g, gold.b, 0.35f));
-    };
-
-    // Title and who you are now.
-    const int run = mSaveManager.runNumber();
-    float y = panelY + 22.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "NOTEBOOK", gold, kBody);
-    const std::string closeHint = "J to close";
-    mFont.drawText(mSpriteBatch, glm::vec2(left + textW - mFont.measureText(closeHint, 1.0f).x, y + 4.0f), closeHint, dimInk, 1.0f);
-    y += bodyLine + 2.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y),
-                   fit(mCurrentCharacterName + ", day " + std::to_string(mCurrentDay) + ". " +
-                           legacy::runHeadline(run, static_cast<int>(history.size())) + ".", 1.0f),
-                   dimInk, 1.0f);
-    y += 30.0f;
-
-    // What is out there.
-    heading(y, "WHAT IS OUT THERE");
-    y += 18.0f;
-    const glm::vec2 here = playerWorldCenter();
-    const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
-    if (leads.empty())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit("Nothing yet. No one came this way before you.", kBody), dimInk, kBody);
-        y += bodyLine;
-    }
-    for (std::size_t i = 0; i < leads.size() && i < kMaxLeads; ++i)
-    {
-        const legacy::Lead& lead = leads[i];
-        mSpriteBatch.draw(glm::vec2(left, y + 5.0f), glm::vec2(8.0f, 8.0f), uiUv, legacyLeadColor(lead.kind));
-        mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y), fit(legacy::describeLead(lead, here, tileSize), kBody), ink, kBody);
-        y += bodyLine;
-    }
-    if (leads.size() > kMaxLeads)
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left + 18.0f, y),
-                       "and " + std::to_string(leads.size() - kMaxLeads) + " more on the map (M)", dimInk, 1.0f);
-        y += 16.0f;
-    }
-    y += 14.0f;
-
-    // Who came before, newest first.
-    heading(y, "WHO CAME BEFORE");
-    y += 18.0f;
-    const auto& graves = mLegacyGraves.empty() ? mSaveManager.graves() : mLegacyGraves;
-    const float statsY = panelY + panelH - 30.0f;
-    if (history.empty())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), "No one. You are the first.", dimInk, kBody);
-    }
-    std::size_t shown = 0;
-    for (auto it = history.rbegin(); it != history.rend() && shown < kMaxHistory && y + bodyLine < statsY - 6.0f; ++it, ++shown)
-    {
-        const CharacterHistoryRecord& rec = *it;
-        std::string line = "Run " + std::to_string(rec.runIndex) + "  " + rec.name + " - ";
-        glm::vec4 color = ink;
-        if (rec.retired)
-        {
-            line += "retired on day " + std::to_string(rec.dayEnded);
-            color = survivorColor;
-        }
-        else
-        {
-            line += "day " + std::to_string(rec.dayEnded) + ", " + rec.cause;
-            for (const GraveRecord& grave : graves)
-            {
-                if (grave.runIndex == rec.runIndex && grave.name == rec.name)
-                {
-                    if (grave.risen) { line += " (walks again)"; color = risenColor; }
-                    else if (grave.laidToRest) { line += " (at rest)"; }
-                    break;
-                }
-            }
-        }
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), fit(line, kBody), color, kBody);
-        y += bodyLine;
-    }
-    if (shown < history.size())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), "and " + std::to_string(history.size() - shown) + " before them", dimInk, 1.0f);
-        y += 16.0f;
-    }
-    else if (history.empty())
-    {
-        y += bodyLine;
-    }
-    y += 14.0f;
-
-    // What earlier lives worked out and wrote down.
-    if (y + 18.0f + bodyLine < statsY - 6.0f)
-    {
-        heading(y, "WHAT WE KNOW");
-        y += 18.0f;
-        const bool none = mSaveManager.discoveredRecipes().empty();
-        for (const std::string& line : knownLines)
-        {
-            if (y + bodyLine >= statsY - 6.0f) break;
-            mFont.drawText(mSpriteBatch, glm::vec2(left, y), line, none ? dimInk : ink, kBody);
-            y += bodyLine;
-        }
-    }
-
-    // Totals across every run in this town.
-    int daysTotal = 0;
-    int longest = 0;
-    std::string longestName;
-    for (const CharacterHistoryRecord& rec : history)
-    {
-        const int days = std::max(1, rec.dayEnded - rec.dayStarted + 1);
-        daysTotal += days;
-        if (days > longest)
-        {
-            longest = days;
-            longestName = rec.name;
-        }
-    }
-    int laidToRest = 0;
-    for (const GraveRecord& grave : graves)
-    {
-        laidToRest += grave.laidToRest ? 1 : 0;
-    }
-    std::string stats = "Lives " + std::to_string(history.size()) + "   Days survived " + std::to_string(daysTotal);
-    if (longest > 0) stats += "   Longest " + std::to_string(longest) + (longest == 1 ? " day (" : " days (") + longestName + ")";
-    if (laidToRest > 0) stats += "   Laid to rest " + std::to_string(laidToRest);
-    mSpriteBatch.draw(glm::vec2(left, statsY - 8.0f), glm::vec2(textW, 1.0f), uiUv, glm::vec4(gold.r, gold.g, gold.b, 0.25f));
-    mFont.drawText(mSpriteBatch, glm::vec2(left, statsY), fit(stats, 1.0f), dimInk, 1.0f);
-}
+// The notebook (J) is drawn in GameJournal.cpp (phase 10).
 
 void Game::renderRunEndOverlay()
 {
     const bool dead = mRunState == RunState::Dead;
-    if (!dead && mRunState != RunState::Retired)
+    const bool out = mRunState == RunState::Out; // got out by the gate (phase 9)
+    if (!dead && !out && mRunState != RunState::Retired)
     {
         return;
     }
@@ -488,13 +354,17 @@ void Game::renderRunEndOverlay()
     const float fade = std::clamp(t / 0.8f, 0.0f, 1.0f);
     const bool ready = mDeathStateTimer >= kDeathRestartDelaySeconds;
 
-    const glm::vec4 accent = dead ? glm::vec4(0.86f, 0.26f, 0.22f, 1.0f) : legacyLeadColor(legacy::LeadKind::Survivor);
-    const glm::vec4 ink(0.92f, 0.90f, 0.84f, 1.0f);
-    const glm::vec4 dimInk(0.64f, 0.62f, 0.58f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
+    const glm::vec4 accent = dead ? glm::vec4(0.86f, 0.26f, 0.22f, 1.0f)
+                           : out  ? kPanelGood
+                                  : legacyLeadColor(legacy::LeadKind::Survivor);
+    const glm::vec4 ink = kPanelInk;
+    const glm::vec4 dimInk = kPanelDim;
+    const glm::vec4 gold = kPanelAmber;
     const auto faded = [&](glm::vec4 c) { c.a *= fade; return c; };
 
-    const glm::vec4 backdrop = dead ? glm::vec4(0.10f, 0.02f, 0.02f, 0.72f) : glm::vec4(0.03f, 0.04f, 0.09f, 0.70f);
+    const glm::vec4 backdrop = dead ? glm::vec4(0.10f, 0.02f, 0.02f, 0.72f)
+                             : out  ? glm::vec4(0.02f, 0.05f, 0.03f, 0.74f)
+                                    : glm::vec4(0.03f, 0.04f, 0.09f, 0.70f);
     mSpriteBatch.draw(glm::vec2(0.0f), glm::vec2(w, h), uiUv, faded(backdrop));
 
     // Lines, top to bottom.
@@ -506,17 +376,28 @@ void Game::renderRunEndOverlay()
         float gapAfter;
     };
     std::vector<Line> lines;
-    lines.push_back({dead ? "YOU DIED" : "RETIRED", accent, 3.0f, 10.0f});
-    lines.push_back({mCurrentCharacterName, ink, 2.0f, 6.0f});
+    lines.push_back({dead ? "YOU DIED" : out ? "OUT" : mStayedForGood ? "STAYED" : "RETIRED", accent, 3.0f, 10.0f});
+    if (!out) lines.push_back({mCurrentCharacterName, ink, 2.0f, 6.0f});
     lines.push_back({mDeathCause, dead ? glm::vec4(0.92f, 0.62f, 0.56f, 1.0f) : ink, 2.0f, 8.0f});
+    // Death teaches (phase 13): one plain line under the cause, at most.
+    if (dead && !mDeathHint.empty()) lines.push_back({mDeathHint, ink, 1.0f, 8.0f});
+    // Out: the whole line's count, then who did what to open it.
+    if (out)
+    {
+        for (std::size_t i = 0; i < mOutLines.size(); ++i)
+        {
+            lines.push_back({mOutLines[i], i == 0 ? ink : dimInk, i == 0 ? 2.0f : 1.0f, i == 0 ? 8.0f : 4.0f});
+        }
+        if (!lines.empty()) lines.back().gapAfter = 8.0f;
+    }
 
     std::string traitLine;
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Traits>(mPlayerEntity))
     {
         const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
-        if (traits.positive != PositiveTrait::None) traitLine += traits.positiveName();
-        if (traits.negative != NegativeTrait::None) traitLine += (traitLine.empty() ? "" : " / ") + std::string(traits.negativeName());
-        if (traits.bloodline != BloodlineTrait::None) traitLine += (traitLine.empty() ? "Bloodline: " : "   Bloodline: ") + std::string(traits.bloodlineName());
+        for (PositiveTrait trait : traits.positives) traitLine += (traitLine.empty() ? "" : ", ") + std::string(traitName(trait));
+        for (NegativeTrait trait : traits.negatives) traitLine += (traitLine.empty() ? "" : ", ") + std::string(traitName(trait));
+        if (!traits.bloodlines.empty()) traitLine += (traitLine.empty() ? "Bloodline: " : "   Bloodline: ") + traits.bloodlineNames();
     }
     if (!traitLine.empty()) lines.push_back({traitLine, dimInk, 1.0f, 4.0f});
 
@@ -544,14 +425,14 @@ void Game::renderRunEndOverlay()
     contentH += mFont.lineHeight(2.0f) + 8.0f; // prompt or progress bar
     const glm::vec2 panelSize(std::min(w - 24.0f, contentW + 64.0f), contentH + 36.0f);
     const glm::vec2 panelPos(std::floor((w - panelSize.x) * 0.5f), std::floor((h - panelSize.y) * 0.5f));
-    mSpriteBatch.draw(panelPos, panelSize, uiUv, faded(glm::vec4(0.05f, 0.045f, 0.045f, 0.94f)));
+    mSpriteBatch.draw(panelPos, panelSize, uiUv, faded(glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.94f)));
     mSpriteBatch.draw(panelPos, glm::vec2(panelSize.x, 3.0f), uiUv, faded(accent));
 
     const float cx = panelPos.x + panelSize.x * 0.5f;
     float y = panelPos.y + 18.0f;
 
     // What marks them now: a grave or a cairn.
-    glm::vec4 iconUv = mSpriteSheet.uvRect(dead ? "prop_grave" : "prop_cairn");
+    glm::vec4 iconUv = mSpriteSheet.uvRect(dead ? "prop_grave" : out ? "prop_gate_box" : "prop_cairn");
     iconUv.y += iconUv.w * kIconCrop;
     iconUv.w *= 1.0f - kIconCrop;
     mSpriteBatch.draw(glm::vec2(cx - kIcon * 0.5f, y), glm::vec2(kIcon, iconH), iconUv, faded(glm::vec4(1.0f)));
@@ -580,6 +461,54 @@ void Game::renderRunEndOverlay()
     }
 }
 
+namespace
+{
+const char* itemCategoryLabel(ItemCategory category)
+{
+    switch (category)
+    {
+    case ItemCategory::Food: return "FOOD";
+    case ItemCategory::Drink: return "DRINK";
+    case ItemCategory::Medical: return "MEDICAL";
+    case ItemCategory::Weapon: return "WEAPON";
+    case ItemCategory::Material: return "MATERIAL";
+    }
+    return "";
+}
+} // namespace
+
+void Game::renderDockedHeader(const glm::vec2& pos, float width, bool crafting)
+{
+    const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
+    mSpriteBatch.draw(pos, glm::vec2(width, static_cast<float>(mWindowHeight)), white, kPanelBack);
+
+    // Both panels are named; the open one is underlined.
+    float x = pos.x + InventoryLayout::kPadding;
+    const float y = pos.y + 22.0f;
+    const auto tab = [&](const char* label, const char* key, bool open)
+    {
+        const float w = mFont.measureText(label, 3.0f).x;
+        mFont.drawText(mSpriteBatch, glm::vec2(x, y), label, open ? kPanelInk : kPanelDim, 3.0f);
+        if (open)
+        {
+            mSpriteBatch.draw(glm::vec2(x, y + 27.0f), glm::vec2(w, 3.0f), white, kPanelInk);
+        }
+        else
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(x + w + 6.0f, y + 12.0f), key, kPanelDim, 1.0f);
+            x += mFont.measureText(key, 1.0f).x + 6.0f;
+        }
+        x += w + 24.0f;
+    };
+    // PACK, BODY, MAKE (phase 5): Tab steps through them.
+    const int open = crafting ? 2 : mPackTab;
+    tab("PACK", "Tab", open == 0);
+    tab("BODY", "Tab", open == 1);
+    tab("MAKE", "N", open == 2);
+    mSpriteBatch.draw(glm::vec2(pos.x + InventoryLayout::kPadding, pos.y + 64.0f),
+                      glm::vec2(width - InventoryLayout::kPadding * 2.0f, 1.0f), white, kPanelRule);
+}
+
 void Game::renderInventoryPanel()
 {
     if (!mShowInventory || mShowCrafting || mRunState != RunState::Playing ||
@@ -587,160 +516,260 @@ void Game::renderInventoryPanel()
     {
         return;
     }
+    if (mPackTab == 1)
+    {
+        renderBodyTab();
+        return;
+    }
 
     const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
     const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
+    const float left = layout.panelPos.x + InventoryLayout::kPadding;
+    const float right = layout.panelPos.x + layout.panelSize.x - InventoryLayout::kPadding;
+    const float innerW = right - left;
 
-    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.05f, 0.06f, 0.09f, 0.94f));
-    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+    const auto rect = [&](const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color)
+    {
+        mSpriteBatch.draw(pos, size, white, color);
+    };
+    const auto frame = [&](const glm::vec2& pos, float size, float thickness, const glm::vec4& color)
+    {
+        rect(pos, glm::vec2(size, thickness), color);
+        rect(pos + glm::vec2(0.0f, size - thickness), glm::vec2(size, thickness), color);
+        rect(pos + glm::vec2(0.0f, thickness), glm::vec2(thickness, size - thickness * 2.0f), color);
+        rect(pos + glm::vec2(size - thickness, thickness), glm::vec2(thickness, size - thickness * 2.0f), color);
+    };
+    const auto text = [&](const glm::vec2& pos, const std::string& s, const glm::vec4& color, float scale,
+                          TextAlign align = TextAlign::Left)
+    {
+        mFont.drawText(mSpriteBatch, pos, s, color, scale, align);
+    };
+    const auto fit = [&](const std::string& s, float width, float scale)
+    {
+        return truncateHudText(s, static_cast<std::size_t>(std::max(4.0f, width / (6.0f * scale))));
+    };
 
-    // Carry weight bar.
+    renderDockedHeader(layout.panelPos, layout.panelSize.x, false);
+
+    // Carry weight, top right.
     const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
-    const float weightRatio = std::clamp(weight / Inventory::kMaxCarryWeight, 0.0f, 1.0f);
-    const glm::vec2 barPos(layout.panelPos.x + 20.0f, layout.weightY + 14.0f);
-    const float barW = layout.panelSize.x - 40.0f;
-    mSpriteBatch.draw(barPos, glm::vec2(barW, 4.0f), uiUv, glm::vec4(0.12f, 0.12f, 0.13f, 1.0f));
-    mSpriteBatch.draw(barPos, glm::vec2(std::round(barW * weightRatio), 4.0f), uiUv,
-                      weight > Inventory::kMaxCarryWeight ? glm::vec4(0.95f, 0.40f, 0.30f, 1.0f)
-                                                          : glm::vec4(0.72f, 0.66f, 0.50f, 1.0f));
+    const float carryLimit = playerCarryLimit();
+    const bool over = weight > carryLimit;
+    {
+        std::ostringstream weightStr;
+        weightStr << std::fixed << std::setprecision(1) << weight << " / " << std::setprecision(0)
+                  << carryLimit << " kg";
+        text(glm::vec2(right, layout.titleY), weightStr.str(), over ? kPanelBad : kPanelInk, 2.0f, TextAlign::Right);
+        const float barW = 150.0f;
+        rect(glm::vec2(right - barW, layout.titleY + 24.0f), glm::vec2(barW, 3.0f), kPanelTrack);
+        rect(glm::vec2(right - barW, layout.titleY + 24.0f),
+             glm::vec2(std::round(barW * std::clamp(weight / carryLimit, 0.0f, 1.0f)), 3.0f),
+             over ? kPanelBad : kPanelAmber);
+    }
 
+    text(glm::vec2(left, layout.carriedLabelY), "CARRIED", kPanelDim, 1.0f);
+    text(glm::vec2(left, layout.beltLabelY), "BELT  -  KEYS 1 TO 8", kPanelDim, 1.0f);
+
+    const int cursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
     for (int i = 0; i < Inventory::kMaxSlots; ++i)
     {
         const glm::vec2 pos = layout.slotPos(i);
-        const bool isHotbar = i < 8;
-        const bool isCursor = i == mInventoryCursor;
-        const bool isActive = i == inv.activeSlot;
-        mSpriteBatch.draw(pos, glm::vec2(InventoryLayout::kSlot), uiUv,
-                          isHotbar ? glm::vec4(0.10f, 0.10f, 0.08f, 0.95f) : glm::vec4(0.08f, 0.09f, 0.11f, 0.95f));
-
-        glm::vec4 frame = isHotbar ? glm::vec4(0.50f, 0.46f, 0.36f, 0.7f) : glm::vec4(0.36f, 0.38f, 0.42f, 0.6f);
-        float thickness = 1.0f;
-        if (isActive)
-        {
-            frame = glm::vec4(0.98f, 0.84f, 0.38f, 0.9f);
-            thickness = 2.0f;
-        }
+        const bool isCursor = i == cursor;
         if (isCursor)
         {
-            frame = glm::vec4(1.0f, 1.0f, 0.85f, 1.0f);
-            thickness = 2.0f;
+            rect(pos, glm::vec2(InventoryLayout::kSlot), glm::vec4(kPanelInk.r, kPanelInk.g, kPanelInk.b, 0.14f));
+            frame(pos, InventoryLayout::kSlot, 2.0f, kPanelInk);
         }
-        mSpriteBatch.draw(pos, glm::vec2(InventoryLayout::kSlot, thickness), uiUv, frame);
-        mSpriteBatch.draw(pos + glm::vec2(0.0f, InventoryLayout::kSlot - thickness), glm::vec2(InventoryLayout::kSlot, thickness), uiUv, frame);
-        mSpriteBatch.draw(pos, glm::vec2(thickness, InventoryLayout::kSlot), uiUv, frame);
-        mSpriteBatch.draw(pos + glm::vec2(InventoryLayout::kSlot - thickness, 0.0f), glm::vec2(thickness, InventoryLayout::kSlot), uiUv, frame);
+        else if (i == inv.activeSlot)
+        {
+            frame(pos, InventoryLayout::kSlot, 1.0f, kPanelAmber);
+        }
+        else
+        {
+            frame(pos, InventoryLayout::kSlot, 1.0f, glm::vec4(kPanelInk.r, kPanelInk.g, kPanelInk.b, 0.16f));
+        }
+        if (i < InventoryLayout::kBeltSlots)
+        {
+            text(pos + glm::vec2(5.0f, 5.0f), std::to_string(i + 1), i == inv.activeSlot ? kPanelAmber : kPanelDim, 1.0f);
+        }
 
         const auto& slot = inv.slots[static_cast<std::size_t>(i)];
-        if (slot.itemId < 0 || slot.count <= 0)
-        {
-            continue;
-        }
-        const ItemDef* item = mItemDatabase.find(slot.itemId);
-        if (!item)
+        const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+        if (item == nullptr)
         {
             continue;
         }
         const glm::vec4 iconUv = mSpriteSheet.uvRect(item->sprite);
         if (iconUv.z > 0.0f)
         {
-            mSpriteBatch.draw(pos + glm::vec2(8.0f, 10.0f), glm::vec2(32.0f), iconUv, glm::vec4(1.0f));
+            mSpriteBatch.draw(pos + glm::vec2(10.0f, 10.0f), glm::vec2(32.0f), iconUv, glm::vec4(1.0f));
         }
-        // Freshness strip along the bottom for food that spoils.
-        if (item->spoilHours > 0.0f && slot.condition < 0.999f)
+        else
         {
-            const float fresh = std::clamp(slot.condition, 0.0f, 1.0f);
-            const glm::vec4 color = fresh > 0.5f ? glm::vec4(0.46f, 0.80f, 0.40f, 1.0f)
-                : fresh > 0.2f ? glm::vec4(0.92f, 0.74f, 0.28f, 1.0f) : glm::vec4(0.92f, 0.30f, 0.24f, 1.0f);
-            mSpriteBatch.draw(pos + glm::vec2(4.0f, InventoryLayout::kSlot - 6.0f),
-                              glm::vec2(std::round((InventoryLayout::kSlot - 8.0f) * fresh), 2.0f), uiUv, color);
+            text(pos + glm::vec2(InventoryLayout::kSlot * 0.5f, 22.0f), item->name.substr(0, 3), kPanelInk, 1.0f,
+                 TextAlign::Center);
         }
-    }
-}
-
-void Game::renderInventoryOverlay()
-{
-    if (!mShowInventory || mShowCrafting || mRunState != RunState::Playing ||
-        mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
-    {
-        return;
-    }
-
-    const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-    const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
-    const float centerX = layout.panelPos.x + layout.panelSize.x * 0.5f;
-
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + 20.0f, layout.titleY), "INVENTORY",
-                   glm::vec4(0.94f, 0.86f, 0.60f, 1.0f), 2.0f);
-
-    const float weight = InventorySystem::totalWeight(inv, mItemDatabase);
-    std::ostringstream weightStr;
-    weightStr << std::fixed << std::setprecision(1) << weight << " / " << std::setprecision(0) << Inventory::kMaxCarryWeight << " kg";
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + layout.panelSize.x - 20.0f, layout.titleY + 4.0f), weightStr.str(),
-                   weight > Inventory::kMaxCarryWeight ? glm::vec4(0.95f, 0.45f, 0.35f, 1.0f) : glm::vec4(0.72f, 0.72f, 0.68f, 0.95f),
-                   1.0f, TextAlign::Right);
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + 20.0f, layout.weightY), "HOTBAR 1-8  /  BACKPACK",
-                   glm::vec4(0.56f, 0.56f, 0.52f, 0.9f), 1.0f);
-
-    for (int i = 0; i < Inventory::kMaxSlots; ++i)
-    {
-        const glm::vec2 pos = layout.slotPos(i);
-        if (i < 8)
+        if (slot.count > 1)
         {
-            mFont.drawText(mSpriteBatch, pos + glm::vec2(4.0f, 4.0f), std::to_string(i + 1),
-                           i == inv.activeSlot ? glm::vec4(0.98f, 0.84f, 0.38f, 1.0f) : glm::vec4(0.66f, 0.64f, 0.56f, 0.9f), 1.0f);
+            text(pos + glm::vec2(InventoryLayout::kSlot - 5.0f, InventoryLayout::kSlot - 13.0f),
+                 std::to_string(slot.count), kPanelInk, 1.0f, TextAlign::Right);
         }
-        const auto& slot = inv.slots[static_cast<std::size_t>(i)];
-        if (slot.itemId >= 0 && slot.count > 1)
+        // Along the bottom: how fresh food is, how worn a weapon is.
+        const bool wears = item->category == ItemCategory::Weapon || item->spoilHours > 0.0f;
+        if (wears && slot.condition < 0.999f)
         {
-            mFont.drawText(mSpriteBatch, pos + glm::vec2(InventoryLayout::kSlot - 4.0f, InventoryLayout::kSlot - 14.0f),
-                           std::to_string(slot.count), glm::vec4(0.94f, 0.93f, 0.86f, 1.0f), 1.0f, TextAlign::Right);
+            const float left01 = std::clamp(slot.condition, 0.0f, 1.0f);
+            const glm::vec4 color = left01 > 0.66f ? kPanelInk : left01 > 0.33f ? kPanelAmber : kPanelBad;
+            rect(pos + glm::vec2(5.0f, InventoryLayout::kSlot - 5.0f),
+                 glm::vec2(std::max(1.0f, std::round((InventoryLayout::kSlot - 10.0f) * left01)), 2.0f), color);
         }
-        else if (slot.itemId >= 0 && slot.count > 0)
+        if (i == mEquippedWeaponSlot)
         {
-            const ItemDef* item = mItemDatabase.find(slot.itemId);
-            if (item && mSpriteSheet.uvRect(item->sprite).z <= 0.0f)
-            {
-                mFont.drawText(mSpriteBatch, pos + glm::vec2(InventoryLayout::kSlot * 0.5f, 20.0f), item->name.substr(0, 3),
-                               glm::vec4(0.9f, 0.9f, 0.85f, 1.0f), 1.0f, TextAlign::Center);
-            }
+            rect(pos + glm::vec2(InventoryLayout::kSlot - 11.0f, 5.0f), glm::vec2(6.0f), kPanelAmber);
         }
     }
 
-    // Details for the slot under the cursor.
-    const int cursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
+    // The slot under the cursor.
+    rect(glm::vec2(left, layout.detailY - 18.0f), glm::vec2(innerW, 1.0f), kPanelRule);
     const auto& slot = inv.slots[static_cast<std::size_t>(cursor)];
-    const ItemDef* item = (slot.itemId >= 0 && slot.count > 0) ? mItemDatabase.find(slot.itemId) : nullptr;
-    if (item)
+    const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+    if (item == nullptr)
     {
-        std::string title = item->name;
-        if (slot.count > 1) title += " x" + std::to_string(slot.count);
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY), truncateHudText(title, 24),
-                       glm::vec4(1.0f, 0.96f, 0.80f, 1.0f), 2.0f, TextAlign::Center);
-
-        std::ostringstream info;
-        info << std::fixed << std::setprecision(1) << item->weight * static_cast<float>(slot.count) << " kg";
-        if (item->spoilHours > 0.0f)
-        {
-            info << "  |  " << static_cast<int>(std::round(std::clamp(slot.condition, 0.0f, 1.0f) * 100.0f)) << "% fresh";
-        }
-        const std::string effects = itemEffectSummary(*item);
-        if (!effects.empty())
-        {
-            info << "  |  " << effects;
-        }
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY + 24.0f), truncateHudText(info.str(), 52),
-                       glm::vec4(0.70f, 0.74f, 0.70f, 0.95f), 1.0f, TextAlign::Center);
+        text(glm::vec2(left, layout.detailY + 4.0f), "Empty slot", kPanelDim, 2.0f);
     }
     else
     {
-        mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.detailY + 4.0f), "Empty slot",
-                       glm::vec4(0.50f, 0.50f, 0.48f, 0.9f), 2.0f, TextAlign::Center);
+        const glm::vec4 iconUv = mSpriteSheet.uvRect(item->sprite);
+        if (iconUv.z > 0.0f)
+        {
+            mSpriteBatch.draw(glm::vec2(left, layout.detailY), glm::vec2(64.0f), iconUv, glm::vec4(1.0f));
+        }
+        const float textX = left + 80.0f;
+        std::string title = packItemName(slot);
+        if (slot.count > 1) title += " x" + std::to_string(slot.count);
+        text(glm::vec2(textX, layout.detailY + 2.0f), fit(title, right - textX, 3.0f), kPanelInk, 3.0f);
+
+        std::string tag = itemCategoryLabel(item->category);
+        if (cursor == mEquippedWeaponSlot) tag += "  -  IN HAND";
+        text(glm::vec2(textX, layout.detailY + 32.0f), tag, kPanelAmber, 1.0f);
+        {
+            std::ostringstream kg;
+            kg << std::fixed << std::setprecision(1) << item->weight * static_cast<float>(slot.count) << " kg";
+            text(glm::vec2(textX, layout.detailY + 46.0f), kg.str(), kPanelDim, 2.0f);
+        }
+
+        float y = layout.detailY + 84.0f;
+        const float barX = left + 124.0f;
+        const float barW = innerW - 124.0f - 84.0f;
+        // A short window (a large interface size, phase 13): what does not
+        // fit above the footer is left off rather than drawn over it.
+        const auto room = [&]() { return y + 18.0f <= layout.footerY - 8.0f; };
+        const auto stat = [&](const std::string& label, float ratio, const std::string& value, const glm::vec4& color)
+        {
+            if (!room())
+            {
+                y += 24.0f;
+                return;
+            }
+            text(glm::vec2(left, y), label, kPanelDim, 2.0f);
+            rect(glm::vec2(barX, y + 5.0f), glm::vec2(barW, 4.0f), kPanelTrack);
+            rect(glm::vec2(barX, y + 5.0f), glm::vec2(std::round(barW * std::clamp(ratio, 0.0f, 1.0f)), 4.0f), color);
+            text(glm::vec2(right, y), value, color, 2.0f, TextAlign::Right);
+            y += 24.0f;
+        };
+        const auto metres = [](float pixels)
+        {
+            std::ostringstream m;
+            m << std::fixed << std::setprecision(1) << pixels / 32.0f << " m";
+            return m.str();
+        };
+        const float left01 = std::clamp(slot.condition, 0.0f, 1.0f);
+        const glm::vec4 wearColor = left01 > 0.66f ? kPanelInk : left01 > 0.33f ? kPanelAmber : kPanelBad;
+        const std::string percent = std::to_string(static_cast<int>(std::round(left01 * 100.0f))) + "%";
+
+        if (item->category == ItemCategory::Weapon)
+        {
+            const WeaponStats stats = weaponStatsForItem(*item, &mItemDatabase);
+            stat("Damage", stats.damage / 70.0f, std::to_string(static_cast<int>(std::round(stats.damage))), kPanelInk);
+            stat("Reach", stats.rangePixels / 96.0f, metres(stats.rangePixels), kPanelInk);
+            const float speed = combatrules::speedRating(stats);
+            stat("Speed", speed, speed > 0.66f ? "quick" : speed > 0.33f ? "steady" : "slow", kPanelInk);
+            stat("Condition", left01, percent, wearColor);
+            if (stats.magazine > 0 && room())
+            {
+                text(glm::vec2(left, y), "Loaded " + std::to_string(slot.loaded) + " of " + std::to_string(stats.magazine),
+                     kPanelInk, 2.0f);
+                y += 24.0f;
+            }
+            const std::string special = combatrules::specialLine(stats);
+            if (!special.empty() && room())
+            {
+                text(glm::vec2(left, y), fit(special, innerW, 2.0f), kPanelInk, 2.0f);
+                y += 24.0f;
+            }
+
+            // Against whatever is in hand now.
+            if (cursor != mEquippedWeaponSlot && mWorld.hasComponent<Combat>(mPlayerEntity) && y + 64.0f <= layout.footerY - 8.0f)
+            {
+                const WeaponStats& held = mWorld.getComponent<Combat>(mPlayerEntity).weapon;
+                const ItemDef* heldItem = held.itemId >= 0 ? mItemDatabase.find(held.itemId) : nullptr;
+                y += 6.0f;
+                rect(glm::vec2(left, y), glm::vec2(innerW, 1.0f), kPanelRule);
+                y += 12.0f;
+                text(glm::vec2(left, y),
+                     fit("Against " + (heldItem != nullptr ? "the " + heldItem->name + " in hand" : std::string("bare hands")),
+                         innerW, 2.0f),
+                     kPanelDim, 2.0f);
+                y += 22.0f;
+                const int damage = static_cast<int>(std::round(stats.damage - held.damage));
+                const float reach = (stats.rangePixels - held.rangePixels) / 32.0f;
+                std::ostringstream reachStr;
+                reachStr << (reach >= 0.0f ? "+" : "") << std::fixed << std::setprecision(1) << reach << " m reach";
+                const std::string damageStr = (damage >= 0 ? "+" : "") + std::to_string(damage) + " damage";
+                text(glm::vec2(left, y), damageStr, damage >= 0 ? kPanelGood : kPanelBad, 2.0f);
+                text(glm::vec2(left + mFont.measureText(damageStr, 2.0f).x + 24.0f, y), reachStr.str(),
+                     reach >= 0.0f ? kPanelGood : kPanelBad, 2.0f);
+                y += 24.0f;
+            }
+        }
+        else
+        {
+            if (item->spoilHours > 0.0f)
+            {
+                stat("Freshness", left01, percent, wearColor);
+            }
+            // A flashlight or radio: what is left of its battery (phase 6).
+            if (slot.itemId == mItems.flashlight || item->hasTag("radio"))
+            {
+                stat("Battery", left01, percent, wearColor);
+            }
+            const std::string effects = itemEffectSummary(*item);
+            if (!effects.empty())
+            {
+                // One effect to a line.
+                std::istringstream parts(effects);
+                std::string part;
+                while (std::getline(parts, part, ',') && room())
+                {
+                    const std::size_t start = part.find_first_not_of(' ');
+                    text(glm::vec2(left, y), fit(part.substr(start == std::string::npos ? 0 : start), innerW, 2.0f),
+                         kPanelInk, 2.0f);
+                    y += 22.0f;
+                }
+            }
+        }
+        // Where it is useful (phase 6).
+        if (!item->fits.empty() && room())
+        {
+            text(glm::vec2(left, y), fit("Fits: " + item->fits, innerW, 2.0f), kPanelDim, 2.0f);
+            y += 22.0f;
+        }
     }
 
-    mFont.drawText(mSpriteBatch, glm::vec2(centerX, layout.footerY),
-                   "Click/F use  -  Right click swap  -  Tab close",
-                   glm::vec4(0.54f, 0.54f, 0.50f, 0.9f), 1.0f, TextAlign::Center);
+    text(glm::vec2(left, layout.footerY),
+         fit(mInput.text("F use   Enter swap with belt   Backspace drop (Shift: stack)   Tab body   Esc close"), innerW, 2.0f),
+         kPanelDim, 2.0f);
 }
 
 Game::CraftingLayout Game::craftingLayout() const
@@ -748,26 +777,27 @@ Game::CraftingLayout Game::craftingLayout() const
     CraftingLayout layout;
     const float w = static_cast<float>(mWindowWidth);
     const float h = static_cast<float>(mWindowHeight);
-    layout.size = glm::vec2(std::min(980.0f, w - 32.0f), std::min(620.0f, h - 48.0f));
-    layout.pos = glm::floor((glm::vec2(w, h) - layout.size) * 0.5f);
+    layout.size = glm::vec2(dockedPanelWidth(true, mWindowWidth), h);
+    layout.pos = glm::vec2(w - layout.size.x, 0.0f);
+    const float left = layout.pos.x + InventoryLayout::kPadding;
+    const float right = layout.pos.x + layout.size.x - InventoryLayout::kPadding;
 
-    // Category tabs, right-aligned in the header.
-    float tabRight = layout.pos.x + layout.size.x - 24.0f;
-    for (int i = 2; i >= 0; --i)
+    // Category tabs in a row under the header.
+    float tabX = left;
+    for (int i = 0; i < kCraftingCategories; ++i)
     {
-        const float tabW = mFont.measureText(craftingCategoryLabel(i), 2.0f).x + 24.0f;
-        tabRight -= tabW;
-        layout.tabs[static_cast<std::size_t>(i)] = glm::vec4(tabRight, layout.pos.y + 18.0f, tabW, 30.0f);
-        tabRight -= 6.0f;
+        const float tabW = mFont.measureText(craftingCategoryLabel(i), 2.0f).x;
+        layout.tabs[static_cast<std::size_t>(i)] = glm::vec4(tabX - 6.0f, 74.0f, tabW + 12.0f, 28.0f);
+        tabX += tabW + 22.0f;
     }
 
-    layout.footerY = layout.pos.y + layout.size.y - 44.0f;
-    layout.listPos = glm::vec2(layout.pos.x + 16.0f, layout.pos.y + 76.0f);
-    layout.listW = 330.0f;
-    layout.rowH = 40.0f;
+    layout.footerY = h - 40.0f;
+    layout.listPos = glm::vec2(left, 116.0f);
+    layout.listW = std::min(262.0f, (right - left) * 0.42f);
+    layout.rowH = 44.0f;
     layout.maxRows = std::max(1, static_cast<int>((layout.footerY - 8.0f - layout.listPos.y) / layout.rowH));
-    layout.detailPos = glm::vec2(layout.listPos.x + layout.listW + 24.0f, layout.pos.y + 80.0f);
-    layout.detailW = layout.pos.x + layout.size.x - 24.0f - layout.detailPos.x;
+    layout.detailPos = glm::vec2(layout.listPos.x + layout.listW + 24.0f, 118.0f);
+    layout.detailW = right - layout.detailPos.x;
     layout.detailBottom = layout.footerY - 12.0f;
     return layout;
 }
@@ -791,11 +821,11 @@ void Game::renderCraftingOverlay()
     const CraftingLayout layout = craftingLayout();
 
     const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
-    const glm::vec4 ink(0.90f, 0.88f, 0.80f, 1.0f);
-    const glm::vec4 dimInk(0.62f, 0.60f, 0.55f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
-    const glm::vec4 good(0.50f, 0.86f, 0.48f, 1.0f);
-    const glm::vec4 bad(0.94f, 0.46f, 0.40f, 1.0f);
+    const glm::vec4 ink = kPanelInk;
+    const glm::vec4 dimInk = kPanelDim;
+    const glm::vec4 gold = kPanelAmber;
+    const glm::vec4 good = kPanelGood;
+    const glm::vec4 bad = kPanelBad;
     const float bodyLine = mFont.lineHeight(2.0f) + 6.0f;
 
     const auto rect = [&](const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color)
@@ -836,7 +866,6 @@ void Game::renderCraftingOverlay()
     const auto itemIcon = [&](const glm::vec2& pos, float size, int itemId, float alpha)
     {
         const ItemDef* def = mItemDatabase.find(itemId);
-        rect(pos, glm::vec2(size), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
         if (def != nullptr && !def->sprite.empty())
         {
             mSpriteBatch.draw(pos, glm::vec2(size), mSpriteSheet.uvRect(def->sprite), glm::vec4(1.0f, 1.0f, 1.0f, alpha));
@@ -844,16 +873,15 @@ void Game::renderCraftingOverlay()
     };
     const auto unknownIcon = [&](const glm::vec2& pos, float size)
     {
-        rect(pos, glm::vec2(size), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
         const float scale = size >= 48.0f ? 4.0f : 2.0f;
         const glm::vec2 q = mFont.measureText("?", scale);
         text(glm::floor(pos + (glm::vec2(size) - q) * 0.5f), "?", dimInk, scale);
     };
     const auto heading = [&](float x, float y, float width, const std::string& s)
     {
-        text(glm::vec2(x, y), s, gold, 1.0f);
+        text(glm::vec2(x, y), s, dimInk, 1.0f);
         const float end = x + mFont.measureText(s, 1.0f).x + 10.0f;
-        rect(glm::vec2(end, y + 4.0f), glm::vec2(x + width - end, 1.0f), glm::vec4(gold.r, gold.g, gold.b, 0.35f));
+        rect(glm::vec2(end, y + 4.0f), glm::vec2(x + width - end, 1.0f), kPanelRule);
     };
     const auto isDiscovered = [&](const CraftingRecipe& recipe)
     {
@@ -878,47 +906,44 @@ void Game::renderCraftingOverlay()
         clue = recipe.hintA;
         return recipe.inputB;
     };
-    const ItemDef* notebookDef = mItemDatabase.findByName("Notebook");
-    const bool hasNotebook = notebookDef != nullptr && InventorySystem::countItem(inv, notebookDef->id) > 0;
-    const bool nearWorkbench = hasNearbyWorkbench(mWorld, mPlayerEntity);
-
-    // Backdrop and panel.
-    rect(glm::vec2(0.0f), glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)),
-         glm::vec4(0.0f, 0.0f, 0.0f, 0.62f));
-    rect(layout.pos, layout.size, glm::vec4(0.06f, 0.055f, 0.05f, 0.97f));
-    rect(layout.pos, glm::vec2(layout.size.x, 3.0f), gold);
-
-    // Header: title and category tabs (the notebook view has no tabs).
-    text(layout.pos + glm::vec2(24.0f, 20.0f), "CRAFTING", gold, 3.0f);
+    const bool hasNotebook = InventorySystem::countItem(inv, mItems.notebook) > 0;
+    const glm::ivec2 standingOn = playerTile();
+    const auto stationOk = [&](const CraftingRecipe& recipe)
     {
-        for (int i = 0; i < 3; ++i)
+        return craftStationNearby(recipe.station, mFurniture, mWorld, mTileMap, standingOn, powerOn(),
+                                  !mFireSystem.burningNear(standingOn, 3).empty());
+    };
+
+    // Backing and header; the world stays in view to the left.
+    renderDockedHeader(layout.pos, layout.size.x, true);
+    for (int i = 0; i < kCraftingCategories; ++i)
+    {
+        const glm::vec4 tab = layout.tabs[static_cast<std::size_t>(i)];
+        const bool active = i == mCraftingCategory;
+        text(glm::vec2(tab.x + 6.0f, tab.y + 4.0f), craftingCategoryLabel(i), active ? gold : dimInk, 2.0f);
+        if (active)
         {
-            const glm::vec4 tab = layout.tabs[static_cast<std::size_t>(i)];
-            const bool active = i == mCraftingCategory;
-            rect(glm::vec2(tab.x, tab.y), glm::vec2(tab.z, tab.w),
-                 active ? glm::vec4(0.20f, 0.16f, 0.09f, 1.0f) : glm::vec4(0.09f, 0.085f, 0.08f, 1.0f));
-            if (active)
-            {
-                rect(glm::vec2(tab.x, tab.y + tab.w - 2.0f), glm::vec2(tab.z, 2.0f), gold);
-            }
-            text(glm::vec2(tab.x + 12.0f, tab.y + 6.0f), craftingCategoryLabel(i), active ? gold : dimInk, 2.0f);
+            rect(glm::vec2(tab.x + 6.0f, tab.y + 22.0f), glm::vec2(tab.z - 12.0f, 2.0f), gold);
         }
     }
-    rect(glm::vec2(layout.pos.x + 16.0f, layout.pos.y + 64.0f), glm::vec2(layout.size.x - 32.0f, 1.0f),
-         glm::vec4(gold.r, gold.g, gold.b, 0.25f));
 
     // Footer: the keys.
-    rect(glm::vec2(layout.pos.x + 16.0f, layout.footerY), glm::vec2(layout.size.x - 32.0f, 1.0f),
-         glm::vec4(gold.r, gold.g, gold.b, 0.25f));
     {
-        const std::string keys = "W/S choose   A/D tab   Enter craft   +/- amount   X stop   N close";
-        const float scale = mFont.measureText(keys, 2.0f).x <= layout.size.x - 48.0f ? 2.0f : 1.0f;
-        text(glm::vec2(layout.pos.x + 24.0f, layout.footerY + 14.0f), keys, dimInk, scale);
+        const float footW = layout.size.x - InventoryLayout::kPadding * 2.0f;
+        const std::string keys = "W/S choose  A/D kind  Enter make  +/- amount  X stop  N close";
+        const float scale = mFont.measureText(keys, 2.0f).x <= footW ? 2.0f : 1.0f;
+        text(glm::vec2(layout.pos.x + InventoryLayout::kPadding, layout.footerY + (scale > 1.0f ? 4.0f : 8.0f)), keys,
+             dimInk, scale);
     }
 
     const float dx = layout.detailPos.x;
     const float dy = layout.detailPos.y;
     const float dw = layout.detailW;
+    // A name beside the big icon: large if it fits, otherwise the body size.
+    const auto titleScale = [&](const std::string& s)
+    {
+        return mFont.measureText(s, 3.0f).x <= dw - 80.0f ? 3.0f : 2.0f;
+    };
 
     // Recipe list.
     const int count = static_cast<int>(visible.size());
@@ -936,18 +961,16 @@ void Game::renderCraftingOverlay()
         const CraftingRecipe& recipe = recipes[visible[static_cast<std::size_t>(listIndex)]];
         const bool selected = listIndex == mCraftingRecipeCursor;
         const bool known = isDiscovered(recipe);
-        const bool craftable = known && hasCraftIngredients(inv, recipe, 1) && hasCraftTools(inv, recipe) &&
-                               (!recipe.requiresWorkbench || nearWorkbench);
+        const bool craftable = known && hasCraftIngredients(inv, recipe, 1) && hasCraftTools(inv, mItemDatabase, recipe) &&
+                               stationOk(recipe);
         const glm::vec2 rowPos = layout.listPos + glm::vec2(0.0f, static_cast<float>(row) * layout.rowH);
 
-        rect(rowPos, glm::vec2(layout.listW, layout.rowH - 2.0f),
-             selected ? glm::vec4(0.19f, 0.15f, 0.09f, 1.0f) : glm::vec4(0.085f, 0.08f, 0.072f, 1.0f));
         if (selected)
         {
-            rect(rowPos, glm::vec2(3.0f, layout.rowH - 2.0f), gold);
+            rect(rowPos, glm::vec2(layout.listW, layout.rowH - 2.0f), ink);
         }
 
-        const glm::vec2 iconPos = rowPos + glm::vec2(8.0f, 3.0f);
+        const glm::vec2 iconPos = rowPos + glm::vec2(8.0f, 5.0f);
         std::string label;
         if (known)
         {
@@ -960,9 +983,12 @@ void Game::renderCraftingOverlay()
             std::string clue;
             label = itemName(heldHalf(recipe, clue)) + " + ?";
         }
-        text(rowPos + glm::vec2(50.0f, 11.0f), fit(label, layout.listW - 50.0f - 24.0f, 2.0f), known ? ink : dimInk, 2.0f);
-        rect(rowPos + glm::vec2(layout.listW - 16.0f, 15.0f), glm::vec2(8.0f),
-             craftable ? good : (known ? glm::vec4(0.55f, 0.30f, 0.26f, 1.0f) : glm::vec4(0.32f, 0.31f, 0.29f, 1.0f)));
+        // Name, and under it where the recipe stands.
+        const glm::vec4 nameColor = selected ? kPanelOnInk : (known ? ink : dimInk);
+        const glm::vec4 stateColor = selected ? kPanelOnInk : (craftable ? good : (known ? gold : dimInk));
+        text(rowPos + glm::vec2(50.0f, 6.0f), fit(label, layout.listW - 50.0f - 8.0f, 2.0f), nameColor, 2.0f);
+        text(rowPos + glm::vec2(50.0f, 26.0f), craftable ? "Ready" : (known ? "Missing something" : "A hunch"),
+             stateColor, 1.0f);
     }
     if (first > 0)
     {
@@ -1007,7 +1033,7 @@ void Game::renderCraftingOverlay()
     {
         // Half a recipe: what you hold and a clue to the rest.
         unknownIcon(glm::vec2(dx, dy), 64.0f);
-        text(glm::vec2(dx + 80.0f, dy + 6.0f), "Unknown recipe", ink, 3.0f);
+        text(glm::vec2(dx + 80.0f, dy + 6.0f), "Unknown recipe", ink, titleScale("Unknown recipe"));
         std::string clue;
         const std::string held = itemName(heldHalf(recipe, clue));
         text(glm::vec2(dx + 80.0f, dy + 40.0f), fit("Something goes with your " + held + ".", dw - 80.0f, 2.0f), dimInk, 2.0f);
@@ -1038,7 +1064,8 @@ void Game::renderCraftingOverlay()
 
     // A known recipe: what it makes and what it takes.
     itemIcon(glm::vec2(dx, dy), 64.0f, recipe.outputItemId, 1.0f);
-    text(glm::vec2(dx + 80.0f, dy + 6.0f), fit(recipe.label, dw - 80.0f, 3.0f), ink, 3.0f);
+    text(glm::vec2(dx + 80.0f, dy + (titleScale(recipe.label) > 2.0f ? 6.0f : 12.0f)),
+         fit(recipe.label, dw - 80.0f, titleScale(recipe.label)), ink, titleScale(recipe.label));
     {
         std::string sub = std::string(recipe.category == "MED" ? "Medical" : "Tools") + "  -  " +
                           std::to_string(recipe.craftTimeSeconds) + " s";
@@ -1067,32 +1094,45 @@ void Game::renderCraftingOverlay()
     };
     for (int itemId : {recipe.inputA, recipe.inputB})
     {
+        if (itemId < 0) continue;
         const int have = InventorySystem::countItem(inv, itemId);
-        const int need = recipe.inputA == recipe.inputB ? 2 : 1;
+        const int need = craftInputNeed(recipe, itemId);
         needRow(itemId, std::to_string(have) + " / " + std::to_string(need), have >= need);
         if (recipe.inputA == recipe.inputB) break;
     }
-    for (int toolId : recipe.requiredTools)
+    for (const CraftTool& tool : recipe.tools)
     {
-        float condition = -1.0f;
-        for (const auto& slot : inv.slots)
-        {
-            if (slot.itemId == toolId && slot.count > 0) condition = std::max(condition, slot.condition);
-        }
+        const float condition = craftToolCondition(inv, mItemDatabase, tool);
         const bool ok = condition >= 0.0f;
-        needRow(toolId, ok ? "tool, " + std::to_string(static_cast<int>(std::round(std::clamp(condition, 0.0f, 1.0f) * 100.0f))) + "%"
-                           : "tool, missing",
+        // A tag met by what is carried shows that item (a Cooking Pot, not
+        // the first thing in the book with the tag).
+        int shown = tool.iconItemId;
+        if (ok && !tool.tag.empty())
+        {
+            for (const InventorySlot& slot : inv.slots)
+            {
+                const ItemDef* item = slot.itemId >= 0 && slot.count > 0 ? mItemDatabase.find(slot.itemId) : nullptr;
+                if (item != nullptr && item->hasTag(tool.tag))
+                {
+                    shown = item->id;
+                    break;
+                }
+            }
+        }
+        needRow(shown, ok ? "tool, " + std::to_string(static_cast<int>(std::round(std::clamp(condition, 0.0f, 1.0f) * 100.0f))) + "%"
+                                    : "tool, missing",
                 ok);
     }
-    if (recipe.requiresWorkbench)
+    if (recipe.station != CraftStation::None)
     {
-        rect(glm::vec2(dx, y), glm::vec2(32.0f), glm::vec4(0.11f, 0.10f, 0.09f, 1.0f));
+        const bool nearWorkbench = stationOk(recipe);
         rect(glm::vec2(dx + 6.0f, y + 12.0f), glm::vec2(20.0f, 4.0f), nearWorkbench ? ink : dimInk);
         rect(glm::vec2(dx + 8.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
         rect(glm::vec2(dx + 21.0f, y + 16.0f), glm::vec2(3.0f, 10.0f), nearWorkbench ? ink : dimInk);
-        text(glm::vec2(dx + 44.0f, y + 8.0f), "Workbench (a supply cache you built)", nearWorkbench ? ink : dimInk, 2.0f);
+        text(glm::vec2(dx + 44.0f, y + 8.0f), craftStationName(recipe.station), nearWorkbench ? ink : dimInk, 2.0f);
         textRight(dx + dw, y + 8.0f, nearWorkbench ? "nearby" : "too far", nearWorkbench ? good : bad, 2.0f);
-        if (!nearWorkbench && missing.empty()) missing = "a workbench nearby";
+        if (!nearWorkbench && missing.empty())
+            missing = recipe.station == CraftStation::Workbench ? "a workbench nearby" : "a fire nearby";
         y += 38.0f;
     }
 
@@ -1107,22 +1147,24 @@ void Game::renderCraftingOverlay()
         std::string status = "Making " + recipe.label + "...  " + std::to_string(std::max(0, left)) + " s";
         if (mCraftQueue.front().remaining > 1) status += "  (" + std::to_string(mCraftQueue.front().remaining) + " to go)";
         text(glm::vec2(dx, actionY), fit(status, dw, 2.0f), ink, 2.0f);
-        rect(glm::vec2(dx, actionY + 26.0f), glm::vec2(dw, 10.0f), glm::vec4(0.12f, 0.11f, 0.10f, 1.0f));
-        rect(glm::vec2(dx, actionY + 26.0f), glm::vec2(std::floor(dw * progress), 10.0f), gold);
+        rect(glm::vec2(dx, actionY + 28.0f), glm::vec2(dw, 4.0f), kPanelTrack);
+        rect(glm::vec2(dx, actionY + 28.0f), glm::vec2(std::floor(dw * progress), 4.0f), gold);
     }
     else if (missing.empty())
     {
         // Amount, then the craft button.
         const std::string amount = "- " + std::to_string(mCraftingQuantity) + " +";
         const float amountW = mFont.measureText(amount, 2.0f).x + 24.0f;
-        rect(glm::vec2(dx, actionY), glm::vec2(amountW, 36.0f), glm::vec4(0.10f, 0.095f, 0.09f, 1.0f));
-        text(glm::vec2(dx + 12.0f, actionY + 9.0f), amount, ink, 2.0f);
+        rect(glm::vec2(dx, actionY), glm::vec2(amountW, 1.0f), kPanelRule);
+        rect(glm::vec2(dx, actionY + 35.0f), glm::vec2(amountW, 1.0f), kPanelRule);
+        rect(glm::vec2(dx, actionY), glm::vec2(1.0f, 36.0f), kPanelRule);
+        rect(glm::vec2(dx + amountW - 1.0f, actionY), glm::vec2(1.0f, 36.0f), kPanelRule);
+        text(glm::vec2(dx + 12.0f, actionY + 11.0f), amount, ink, 2.0f);
         const float buttonX = dx + amountW + 8.0f;
-        rect(glm::vec2(buttonX, actionY), glm::vec2(dx + dw - buttonX, 36.0f), glm::vec4(0.22f, 0.18f, 0.09f, 1.0f));
-        rect(glm::vec2(buttonX, actionY + 34.0f), glm::vec2(dx + dw - buttonX, 2.0f), gold);
-        const std::string label = "Enter: craft " + std::to_string(mCraftingQuantity) + "x";
-        text(glm::vec2(std::floor(buttonX + (dx + dw - buttonX - mFont.measureText(label, 2.0f).x) * 0.5f), actionY + 9.0f),
-             label, gold, 2.0f);
+        rect(glm::vec2(buttonX, actionY), glm::vec2(dx + dw - buttonX, 36.0f), ink);
+        const std::string label = "Enter  Make " + std::to_string(mCraftingQuantity);
+        text(glm::vec2(std::floor(buttonX + (dx + dw - buttonX - mFont.measureText(label, 2.0f).x) * 0.5f), actionY + 11.0f),
+             label, kPanelOnInk, 2.0f);
     }
     else
     {
@@ -1139,129 +1181,109 @@ void Game::renderCraftingOverlay()
     drawMessage(actionY - (mCraftQueue.empty() || makingThis ? 10.0f : 32.0f));
 }
 
-void Game::renderContainerOverlay()
+glm::vec2 Game::baseActionAnchor() const
 {
-    if (!mContainerOpen || mOpenContainerEntity == kInvalidEntity || mRunState != RunState::Playing)
-    {
-        return;
-    }
-
-    if (!mWorld.hasComponent<Inventory>(mOpenContainerEntity))
-    {
-        return;
-    }
-
-    const Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    constexpr float kItemScale = 2.0f;
-    const float itemLine = mFont.lineHeight(kItemScale) + 4.0f;
-
-    std::string header = "Container";
-    if (mWorld.hasComponent<Interactable>(mOpenContainerEntity))
-    {
-        const Interactable& inter = mWorld.getComponent<Interactable>(mOpenContainerEntity);
-        if (!inter.prompt.empty()) header = inter.prompt;
-        std::string thing = searchedThing(inter.prompt);
-        if (!thing.empty())
-        {
-            thing[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(thing[0])));
-            header = thing;
-        }
-    }
-
-    std::vector<std::string> lines;
-    for (const auto& slot : containerInv.slots)
-    {
-        if (slot.itemId < 0 || slot.count <= 0) continue;
-        const ItemDef* item = mItemDatabase.find(slot.itemId);
-        std::string line = item ? item->name : ("Item #" + std::to_string(slot.itemId));
-        if (slot.count > 1) line += " x" + std::to_string(slot.count);
-        lines.push_back(std::move(line));
-    }
-    const std::string hint = lines.empty() ? "Esc close" : "W/S select   E take   Esc close";
-
-    // Wide enough for the header and every line, never off screen.
-    float contentW = std::max(mFont.measureText(header, kItemScale).x, mFont.measureText(hint, 1.0f).x);
-    for (const std::string& line : lines)
-    {
-        contentW = std::max(contentW, mFont.measureText(line, kItemScale).x + 8.0f);
-    }
-    const float panelW = std::min(static_cast<float>(mWindowWidth) - 24.0f, std::max(300.0f, contentW + 32.0f));
-    const float panelX = std::floor((static_cast<float>(mWindowWidth) - panelW) * 0.5f);
-    const float panelY = 110.0f;
-    const float listY = panelY + 40.0f;
-    const float panelH = 40.0f + static_cast<float>(std::max<std::size_t>(1, lines.size())) * itemLine + 26.0f;
-
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, panelH), uiUv, glm::vec4(0.06f, 0.055f, 0.05f, 0.94f));
-    mSpriteBatch.draw(glm::vec2(panelX, panelY), glm::vec2(panelW, 2.0f), uiUv, glm::vec4(0.95f, 0.84f, 0.56f, 1.0f));
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + 12.0f), header, glm::vec4(0.95f, 0.84f, 0.56f, 1.0f), kItemScale);
-
-    float y = listY;
-    for (std::size_t i = 0; i < lines.size(); ++i)
-    {
-        const bool selected = static_cast<int>(i) == mContainerCursor;
-        if (selected)
-        {
-            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 2.0f), glm::vec2(panelW - 16.0f, itemLine), uiUv,
-                              glm::vec4(0.95f, 0.84f, 0.56f, 0.16f));
-            mSpriteBatch.draw(glm::vec2(panelX + 8.0f, y - 2.0f), glm::vec2(2.0f, itemLine), uiUv,
-                              glm::vec4(0.95f, 0.84f, 0.56f, 0.9f));
-        }
-        const glm::vec4 color = selected ? glm::vec4(1.0f, 0.97f, 0.86f, 1.0f) : glm::vec4(0.76f, 0.75f, 0.70f, 1.0f);
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), lines[i], color, kItemScale);
-        y += itemLine;
-    }
-    if (lines.empty())
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX + 20.0f, y), "Empty", glm::vec4(0.56f, 0.55f, 0.52f, 1.0f), kItemScale);
-    }
-
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX + 16.0f, panelY + panelH - 18.0f), hint,
-                   glm::vec4(0.66f, 0.64f, 0.58f, 1.0f), 1.0f);
+    const glm::vec2 here = playerWorldCenter();
+    return uiAt(here) - glm::vec2(0.0f, 78.0f * uiZoom());
 }
 
-void Game::renderBuildModeOverlay()
+void Game::renderBaseActionBar()
 {
-    if (mShowCrafting || !mBuildSystem.isBuildMode() || mRunState != RunState::Playing)
+    if (mRunState != RunState::Playing || mBaseAction.kind == BaseAction::Kind::None ||
+        mBaseAction.kind == BaseAction::Kind::Grab || mBaseAction.total <= 0.0f)
+    {
+        return;
+    }
+    // A thin line over the player's head that fills as the work goes on.
+    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+    const glm::vec2 anchor = baseActionAnchor();
+    constexpr float kWidth = 72.0f;
+    const float done = std::clamp(mBaseAction.timer / mBaseAction.total, 0.0f, 1.0f);
+    mSpriteBatch.draw(anchor + glm::vec2(-kWidth * 0.5f, 0.0f), glm::vec2(kWidth, 3.0f), uiUv, kPanelTrack);
+    mSpriteBatch.draw(anchor + glm::vec2(-kWidth * 0.5f, 0.0f), glm::vec2(kWidth * done, 3.0f), uiUv, kPanelInk);
+}
+
+glm::vec2 Game::buildWheelEntry(int index) const
+{
+    // An oval, wider than tall, so the names side by side at the bottom
+    // keep apart.
+    const float angle = -1.5707963f + 6.2831853f * static_cast<float>(index) / static_cast<float>(BuildSystem::kRecipeCount);
+    return mBuildWheelCentre + glm::vec2(std::cos(angle) * 190.0f, std::sin(angle) * 110.0f);
+}
+
+void Game::renderBuildWheel()
+{
+    if (mShowCrafting || mRunState != RunState::Playing)
+    {
+        return;
+    }
+    const auto put = [&](const glm::vec2& at, const std::string& text, const glm::vec4& color, float scale, bool centred)
+    {
+        const float width = mFont.measureText(text, scale).x;
+        const glm::vec2 pos = centred ? at - glm::vec2(width * 0.5f, 0.0f) : at;
+        const float offset = scale >= 2.0f ? 2.0f : 1.0f;
+        mFont.drawText(mSpriteBatch, pos + glm::vec2(offset), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.85f * color.a), scale);
+        mFont.drawText(mSpriteBatch, pos, text, color, scale);
+    };
+
+    // The held action's name over the line.
+    if (mBaseAction.kind != BaseAction::Kind::None && mBaseAction.kind != BaseAction::Kind::Grab && !mBaseAction.label.empty())
+    {
+        put(baseActionAnchor() - glm::vec2(0.0f, 14.0f), mBaseAction.label, kPanelInk, 1.0f, true);
+    }
+
+    if (mBuildChoice >= 0 && !mBuildWheelOpen)
+    {
+        const StationRecipe& recipe = BuildSystem::kRecipes[static_cast<std::size_t>(mBuildChoice)];
+        const glm::vec2 mouse = uiMouse();
+        put(mouse + glm::vec2(18.0f, 14.0f), recipe.name, mBuildGhostValid ? kPanelInk : kPanelAmber, 1.0f, false);
+        put(mouse + glm::vec2(18.0f, 28.0f), "Click: build here   Right click: put away", kPanelDim, 1.0f, false);
+    }
+    if (!mBuildWheelOpen)
     {
         return;
     }
 
-    constexpr float kSmallScale = 1.5f;
-    const float panelX = 12.0f;
-    float y = static_cast<float>(mWindowHeight) - 120.0f;
-
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), "BUILD MODE", glm::vec4(0.9f, 0.8f, 0.3f, 1.0f), 2.0f);
-    y += 22.0f;
-
+    // Plain words around the point where B was pressed: the one under the
+    // cursor in ink if it can be built, amber if something is missing, with
+    // what it costs beneath it.
+    const glm::vec2 mouse = uiMouse();
+    int hover = -1;
+    float best = 80.0f;
     for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
     {
-        const auto& recipe = BuildSystem::kRecipes[i];
-        const bool selected = (i == mBuildSystem.selectedRecipe());
-
-        // Check if player has enough materials
-        bool canAfford = false;
-        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
+        const glm::vec2 at = buildWheelEntry(i);
+        const float d = glm::length(mouse - at);
+        if (d < best)
         {
-            const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
-            canAfford = InventorySystem::countItem(inv, recipe.materialId) >= recipe.materialCost;
+            best = d;
+            hover = i;
         }
-
-        std::string line = std::to_string(i + 1) + ": " + std::string(recipe.name) + " (" + std::to_string(recipe.materialCost) + " mat)";
-        glm::vec4 color;
-        if (selected)
-        {
-            color = canAfford ? glm::vec4(0.3f, 1.0f, 0.4f, 1.0f) : glm::vec4(1.0f, 0.5f, 0.4f, 1.0f);
-        }
-        else
-        {
-            color = canAfford ? glm::vec4(0.4f, 0.75f, 0.45f, 0.85f) : glm::vec4(0.5f, 0.5f, 0.5f, 0.6f);
-        }
-        mFont.drawText(mSpriteBatch, glm::vec2(panelX, y), line, color, kSmallScale);
-        y += 16.0f;
     }
+    put(mBuildWheelCentre - glm::vec2(0.0f, 6.0f), "BUILD", kPanelDim, 1.0f, true);
+    for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
+    {
+        const StationRecipe& recipe = BuildSystem::kRecipes[static_cast<std::size_t>(i)];
+        const glm::vec2 at = buildWheelEntry(i);
+        const bool affordable = canAffordStation(recipe, nullptr);
+        const glm::vec4 nameColor = i == hover ? (affordable ? kPanelInk : kPanelAmber) : kPanelDim;
+        put(at - glm::vec2(0.0f, 10.0f), recipe.name, nameColor, 2.0f, true);
 
-    mFont.drawText(mSpriteBatch, glm::vec2(panelX, y + 2.0f), "Click: Place  |  B/ESC: Cancel", glm::vec4(0.5f, 0.5f, 0.45f, 0.8f), 1.0f);
+        std::string cost;
+        const auto part = [&](const char* key, int count)
+        {
+            if (key == nullptr || count <= 0) return;
+            const ItemDef* def = mItemDatabase.findByKey(key);
+            if (!cost.empty()) cost += ", ";
+            cost += std::to_string(count) + " " + (def != nullptr ? def->name : key);
+        };
+        part(recipe.materialKey, recipe.materialCount);
+        part(recipe.secondKey, recipe.secondCount);
+        if (recipe.needsHammer) cost += ", hammer";
+        if (recipe.needsSaw) cost += ", saw";
+        put(at + glm::vec2(0.0f, 10.0f), cost, i == hover ? kPanelDim : glm::vec4(kPanelDim.r, kPanelDim.g, kPanelDim.b, 0.7f),
+            1.0f, true);
+    }
 }
 
 void Game::renderPauseOverlay()
@@ -1280,295 +1302,22 @@ void Game::renderPauseOverlay()
         uiUv,
         glm::vec4(0.0f, 0.0f, 0.0f, 0.65f));
 
-    const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight);
-    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.06f, 0.07f, 0.10f, 0.94f));
-    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
+    const PauseLayout layout = computePauseLayout(mWindowWidth, mWindowHeight, static_cast<int>(pauseOptions().size()));
+    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, kPanelBack);
     mSpriteBatch.draw(
         glm::vec2(layout.panelPos.x + 20.0f, layout.optionsY - 10.0f),
         glm::vec2(layout.panelSize.x - 40.0f, 1.0f),
         uiUv,
-        glm::vec4(0.72f, 0.62f, 0.40f, 0.35f));
+        kPanelRule);
 
-    // Highlight selected option
+    // The chosen option is inverted
     mSpriteBatch.draw(
         glm::vec2(layout.panelPos.x + 60.0f, layout.optionsY + static_cast<float>(mPauseSelection) * PauseLayout::kOptionH),
         glm::vec2(layout.panelSize.x - 120.0f, PauseLayout::kOptionH - 2.0f),
         uiUv,
-        glm::vec4(0.25f, 0.4f, 0.55f, 0.5f));
+        kPanelInk);
 }
 
-void Game::renderTitleScreen()
-{
-    if (mRunState != RunState::TitleScreen)
-    {
-        return;
-    }
+// The title is drawn in GameTitle.cpp (phase 13).
 
-    // The town itself is the backdrop (the title camera drifts over it);
-    // the menu sits on the darker left, the town's memory on the right.
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    const float w = static_cast<float>(mWindowWidth);
-    const float h = static_cast<float>(mWindowHeight);
-    const glm::vec4 ink(0.92f, 0.90f, 0.84f, 1.0f);
-    const glm::vec4 dimInk(0.62f, 0.61f, 0.57f, 1.0f);
-    const glm::vec4 gold(0.95f, 0.84f, 0.56f, 1.0f);
-    const glm::vec4 red(0.90f, 0.30f, 0.24f, 1.0f);
-
-    constexpr int kStrips = 48;
-    for (int i = 0; i < kStrips; ++i)
-    {
-        const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(kStrips);
-        const float fadeT = std::clamp((t - 0.30f) / 0.70f, 0.0f, 1.0f);
-        const float alpha = 0.92f - 0.50f * fadeT * fadeT * (3.0f - 2.0f * fadeT);
-        // Strips meet exactly; overlapping edges would show as dark lines.
-        const float x0 = std::floor(w * static_cast<float>(i) / kStrips);
-        const float x1 = std::floor(w * static_cast<float>(i + 1) / kStrips);
-        mSpriteBatch.draw(glm::vec2(x0, 0.0f), glm::vec2(x1 - x0, h), uiUv, glm::vec4(0.02f, 0.025f, 0.03f, alpha));
-    }
-
-    const auto wrap = [](const std::string& text, std::size_t maxChars)
-    {
-        std::vector<std::string> lines;
-        std::string line;
-        std::size_t start = 0;
-        while (start < text.size())
-        {
-            std::size_t end = text.find(' ', start);
-            if (end == std::string::npos) end = text.size();
-            const std::string word = text.substr(start, end - start);
-            if (!line.empty() && line.size() + 1 + word.size() > maxChars)
-            {
-                lines.push_back(line);
-                line.clear();
-            }
-            line += (line.empty() ? "" : " ") + word;
-            start = end + 1;
-        }
-        if (!line.empty()) lines.push_back(line);
-        return lines;
-    };
-
-    const float left = std::max(32.0f, std::floor(w * 0.06f));
-    float y = std::max(28.0f, std::floor(h * 0.08f));
-
-    // Title.
-    const float titleScale = (w >= 1100.0f && h >= 680.0f) ? 6.0f : 4.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "DEAD PIXEL", ink, titleScale);
-    y += mFont.lineHeight(titleScale) + 2.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left + 2.0f, y), "SURVIVAL", red, titleScale * 0.5f);
-    y += mFont.lineHeight(titleScale * 0.5f) + 10.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left + 2.0f, y), "The town remembers every life you lose in it.", dimInk, 1.0f);
-    y += 34.0f;
-
-    // Menu.
-    const float rowH = 28.0f;
-    const float valueX = left + 220.0f;
-    const float rowW = std::min(560.0f, w - left * 2.0f);
-    const auto valueOf = [&](int item) -> std::string
-    {
-        switch (item)
-        {
-        case 3: return kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)];
-        case 4: return kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)];
-        case 5: return kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
-        case 6: return kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)];
-        default: return {};
-        }
-    };
-    for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
-    {
-        const float rowY = y + static_cast<float>(i) * rowH;
-        const bool selected = i == mTitleMenuSelection;
-        const bool disabled = i == 0 && !mTitleHasCheckpoint;
-        if (selected)
-        {
-            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 5.0f), glm::vec2(rowW, rowH - 2.0f), uiUv,
-                              glm::vec4(gold.r, gold.g, gold.b, 0.13f));
-            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 5.0f), glm::vec2(3.0f, rowH - 2.0f), uiUv, gold);
-        }
-        glm::vec4 color = selected ? glm::vec4(1.0f, 0.97f, 0.86f, 1.0f) : glm::vec4(0.78f, 0.77f, 0.72f, 1.0f);
-        if (disabled) color = glm::vec4(0.42f, 0.41f, 0.39f, 1.0f);
-        mFont.drawText(mSpriteBatch, glm::vec2(left, rowY), kTitleMenuItems[static_cast<std::size_t>(i)], color, 2.0f);
-
-        const std::string value = valueOf(i);
-        if (!value.empty())
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(valueX, rowY), selected ? "< " + value + " >" : value,
-                           selected ? gold : dimInk, 2.0f);
-        }
-    }
-    y += static_cast<float>(kTitleMenuItems.size()) * rowH + 12.0f;
-
-    // What the selected item does.
-    const auto& history = mSaveManager.characterHistory();
-    std::string about;
-    glm::vec4 aboutColor = dimInk;
-    switch (mTitleMenuSelection)
-    {
-    case 0:
-        about = mTitleHasCheckpoint
-            ? "Pick up where " + mTitleCheckpointName + " left off, day " + std::to_string(mTitleCheckpointDay) + "."
-            : "No run in progress in this slot.";
-        break;
-    case 1:
-        about = legacy::runHeadline(mSaveManager.runNumber(), static_cast<int>(history.size())) +
-                ". Someone new wakes up in town.";
-        break;
-    case 2:
-        about = mTitleConfirmNewWorld ? "Press Enter again. This town and everything it remembers will be gone."
-                                      : "A different town. This one, and everything it remembers, is erased.";
-        if (mTitleConfirmNewWorld) aboutColor = red;
-        break;
-    case 3: about = "Each slot is its own town with its own history."; break;
-    case 4: about = kTitleGameModeDescriptions[static_cast<std::size_t>(mTitleGameModeIndex)]; break;
-    case 5: about = kTitleModeDescriptions[static_cast<std::size_t>(mTitleModeIndex)]; break;
-    case 6: about = kTitleToneDescriptions[static_cast<std::size_t>(mTitleToneIndex)]; break;
-    case 7: about = "Every key on one page."; break;
-    case 8: about = "Who made this."; break;
-    case 9: about = "The town will still be here."; break;
-    default: break;
-    }
-    const std::size_t aboutChars = static_cast<std::size_t>(std::max(16.0f, (rowW - 16.0f) / 12.0f));
-    for (const std::string& line : wrap(about, aboutChars))
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), line, aboutColor, 2.0f);
-        y += mFont.lineHeight(2.0f) + 4.0f;
-    }
-
-    // The town remembers.
-    {
-        int risenWalking = 0;
-        int packsWaiting = 0;
-        for (const GraveRecord& grave : mSaveManager.graves())
-        {
-            if (grave.risen && !grave.laidToRest) ++risenWalking;
-            else if (!grave.items.empty()) ++packsWaiting;
-        }
-        const int graves = static_cast<int>(mSaveManager.graves().size());
-        const int survivors = static_cast<int>(mSaveManager.retirements().size());
-        const auto plural = [](int n, const char* one, const char* many)
-        {
-            return std::to_string(n) + " " + (n == 1 ? one : many);
-        };
-
-        std::vector<std::pair<std::string, glm::vec4>> lines;
-        if (history.empty())
-        {
-            lines.emplace_back("Nothing yet.", ink);
-            lines.emplace_back("Every life you lose", dimInk);
-            lines.emplace_back("here stays here.", dimInk);
-        }
-        else
-        {
-            lines.emplace_back(plural(static_cast<int>(history.size()), "life", "lives") + ", " +
-                                   plural(mSaveManager.totalDaysSurvived(), "day", "days"), ink);
-            if (graves > 0) lines.emplace_back(plural(graves, "grave", "graves"), legacyLeadColor(legacy::LeadKind::Grave));
-            if (risenWalking > 0) lines.emplace_back(plural(risenWalking, "walks again", "walk again"), legacyLeadColor(legacy::LeadKind::Risen));
-            if (packsWaiting > 0) lines.emplace_back(plural(packsWaiting, "pack waiting", "packs waiting"), legacyLeadColor(legacy::LeadKind::Pack));
-            if (survivors > 0) lines.emplace_back(plural(survivors, "survivor lives on", "survivors live on"), legacyLeadColor(legacy::LeadKind::Survivor));
-        }
-        std::string lastLine;
-        if (!history.empty())
-        {
-            const CharacterHistoryRecord& last = history.back();
-            lastLine = "Last: " + last.name + (last.retired ? ", retired" : ", " + last.cause);
-        }
-
-        const float cardW = 360.0f;
-        const float lineH = mFont.lineHeight(2.0f) + 6.0f;
-        const float cardH = 40.0f + static_cast<float>(lines.size()) * lineH + (lastLine.empty() ? 0.0f : 22.0f);
-        const float cardX = w - left - cardW;
-        const float cardY = h - 56.0f - cardH;
-        if (cardX > left + rowW + 24.0f || cardY > y + 12.0f)
-        {
-            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, cardH), uiUv, glm::vec4(0.04f, 0.04f, 0.045f, 0.86f));
-            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, 2.0f), uiUv, gold);
-            mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, cardY + 14.0f), "THE TOWN REMEMBERS", gold, 1.0f);
-            float ly = cardY + 34.0f;
-            for (const auto& [text, color] : lines)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly), truncateHudText(text, 27), color, 2.0f);
-                ly += lineH;
-            }
-            if (!lastLine.empty())
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly + 2.0f), truncateHudText(lastLine, 52), dimInk, 1.0f);
-            }
-        }
-    }
-
-    // Footer.
-    mFont.drawText(mSpriteBatch, glm::vec2(left, h - 30.0f), "W/S move    A/D change    Enter select", dimInk, 1.0f);
-    const std::string seed = std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) +
-                             " slot  -  town " + std::to_string(mSaveManager.worldSeed());
-    mFont.drawText(mSpriteBatch, glm::vec2(w - left - mFont.measureText(seed, 1.0f).x, h - 30.0f), seed,
-                   glm::vec4(dimInk.r, dimInk.g, dimInk.b, 0.7f), 1.0f);
-
-    if (!mTitleStatusMessage.empty() && mTitleStatusTimer > 0.0f)
-    {
-        const float alpha = std::clamp(mTitleStatusTimer / 0.4f, 0.0f, 1.0f);
-        const glm::vec2 size = mFont.measureText(mTitleStatusMessage, 2.0f);
-        const glm::vec2 pos(std::floor((w - size.x) * 0.5f), h - 92.0f);
-        mSpriteBatch.draw(pos - glm::vec2(14.0f, 8.0f), size + glm::vec2(28.0f, 16.0f), uiUv, glm::vec4(0.04f, 0.04f, 0.045f, 0.9f * alpha));
-        mFont.drawText(mSpriteBatch, pos, mTitleStatusMessage, glm::vec4(gold.r, gold.g, gold.b, alpha), 2.0f);
-    }
-
-    if (mShowTitleCredits)
-    {
-        const glm::vec2 size(std::min(560.0f, w - 40.0f), 220.0f);
-        const glm::vec2 pos(std::floor((w - size.x) * 0.5f), std::floor((h - size.y) * 0.5f));
-        mSpriteBatch.draw(pos, size, uiUv, glm::vec4(0.05f, 0.045f, 0.045f, 0.97f));
-        mSpriteBatch.draw(pos, glm::vec2(size.x, 3.0f), uiUv, gold);
-        const float cx = pos.x + size.x * 0.5f;
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 24.0f), "CREDITS", gold, 3.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 74.0f), "Dead Pixel Survival", ink, 2.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 102.0f), "Design and code: L. Bartolome", dimInk, 2.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 128.0f), "C++20, SDL2, OpenGL", dimInk, 2.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + size.y - 30.0f), "Enter to close", dimInk, 1.0f, TextAlign::Center);
-    }
-}
-
-void Game::renderControlsPanel()
-{
-    if (!mShowControls)
-    {
-        return;
-    }
-
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
-    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(0.05f, 0.06f, 0.09f, 0.94f));
-    mSpriteBatch.draw(layout.panelPos, glm::vec2(layout.panelSize.x, 2.0f), uiUv, glm::vec4(0.72f, 0.62f, 0.40f, 0.8f));
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.rowsY),
-        glm::vec2(1.0f, ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) - 4.0f),
-        uiUv,
-        glm::vec4(0.72f, 0.62f, 0.40f, 0.3f));
-}
-
-void Game::renderControlsOverlay()
-{
-    if (!mShowControls)
-    {
-        return;
-    }
-
-    const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
-    const glm::vec4 headerColor(0.94f, 0.86f, 0.60f, 1.0f);
-    const glm::vec4 keyColor(0.98f, 0.84f, 0.38f, 1.0f);
-    const glm::vec4 textColor(0.80f, 0.80f, 0.76f, 0.95f);
-
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.panelPos.y + 18.0f),
-                   "CONTROLS", headerColor, 3.0f, TextAlign::Center);
-
-    for (std::size_t i = 0; i < kControlBindings.size(); ++i)
-    {
-        const std::size_t column = i / ControlsLayout::kRowsPerColumn;
-        const std::size_t row = i % ControlsLayout::kRowsPerColumn;
-        const float x = layout.panelPos.x + 24.0f + static_cast<float>(column) * (layout.columnWidth + 8.0f);
-        const float y = layout.rowsY + static_cast<float>(row) * ControlsLayout::kRowH;
-        mFont.drawText(mSpriteBatch, glm::vec2(x, y), kControlBindings[i].key, keyColor, 2.0f);
-        mFont.drawText(mSpriteBatch, glm::vec2(x + ControlsLayout::kKeyColumn, y), kControlBindings[i].action,
-                       textColor, 2.0f);
-    }
-}
+// The Controls panel (F2) is drawn in GameSettings.cpp (phase 13).

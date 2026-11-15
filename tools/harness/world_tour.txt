@@ -1,0 +1,49 @@
+# World tour: the look of the town. Home from inside, the street outside, and
+# a few other parts of the map by day, at dusk and at night.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/world_tour.txt --hidden --world-seed 1234 --shots shots/world_tour
+
+newrun
+god on
+hours 12
+waits 1
+shot 01_home
+zoom 2.5
+waits 0.2
+shot 02_home_close
+zoom 0.9
+waits 0.2
+shot 03_home_wide
+
+zoom 1.5
+teleport 64 62
+waits 0.4
+shot 04_street
+teleport 40 40
+waits 0.4
+shot 05_northwest
+teleport 96 44
+waits 0.4
+shot 06_northeast
+teleport 44 92
+waits 0.4
+shot 07_southwest
+teleport 96 96
+waits 0.4
+shot 08_southeast
+teleport 20 64
+waits 0.4
+shot 09_west_edge
+
+teleport 64 62
+hours 19.5
+waits 0.5
+shot 10_dusk
+hours 23
+waits 0.5
+shot 11_night
+tap Q
+waits 0.3
+shot 12_flashlight
+expect alive
+quit

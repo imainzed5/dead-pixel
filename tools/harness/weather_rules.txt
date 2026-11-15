@@ -1,0 +1,96 @@
+# One table of consequences (phase 7): each condition outdoors at noon, and
+# the rules as they read it (noise scale, the dead's sight scale, the body
+# shift outdoors) match the table. In fog a zombie 8 tiles off is not drawn;
+# at 5 tiles it is.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/weather_rules.txt --hidden --world-seed 1234 --shots shots/weather_rules
+
+newrun
+god on
+trait plain
+waits 1
+slay 200
+hours 12
+zoom 1.5
+teleport 64 62
+# Out in the open: the strip round a house is under its eaves, where the
+# view fog does not reach.
+goto pavement
+waits 0.5
+
+weather clear
+waits 4
+weatherinfo
+expect weatherinfo 1 1 0
+shot 01_clear
+
+weather cloudy
+waits 4
+weatherinfo
+expect weatherinfo 1 1 0
+shot 02_cloudy
+
+weather rain
+waits 4
+weatherinfo
+expect weatherinfo 0.7 0.85 -4
+shot 03_rain
+
+weather heavyrain
+waits 4
+weatherinfo
+expect weatherinfo 0.55 0.7 -4.5
+shot 04_heavy_rain
+
+weather storm
+waits 4
+weatherinfo
+expect weatherinfo 0.45 0.6 -6
+shot 05_storm
+
+# A Raincoat keeps the rain off; a storm's wind still bites through it.
+give Raincoat
+waits 0.5
+expect weatherinfo 0.45 0.6 -2
+weather rain
+waits 0.5
+expect weatherinfo 0.7 0.85 0
+
+weather heatwave
+waits 4
+weatherinfo
+expect weatherinfo 1 1 8
+shot 06_heatwave
+
+weather snow
+waits 4
+weatherinfo
+expect weatherinfo 0.75 0.8 -3
+shot 07_snow
+
+weather blizzard
+waits 4
+weatherinfo
+expect weatherinfo 0.4 0.3 -8
+shot 08_blizzard
+
+weather fog
+waits 4
+weatherinfo
+expect weatherinfo 1 0.45 0
+shot 09_fog
+
+# Fog: the dead beyond 6 tiles are not drawn.
+zombie 0 -8
+waits 0.05
+expect undrawn 0 -8
+slay 12
+waits 0.2
+zombie 0 -5
+waits 0.05
+expect drawn 0 -5
+shot 10_fog_close
+slay 12
+
+expect alive
+quit

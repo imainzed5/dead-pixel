@@ -19,70 +19,6 @@ constexpr float kRisenLeashTiles = 6.0f;
 constexpr float kLabelRangeTiles = 7.0f;
 const glm::vec4 kRisenTint(0.80f, 0.86f, 1.0f, 1.0f);
 
-const char* districtFlavor(DistrictType type, std::uint32_t hash)
-{
-    static constexpr std::array<const char*, 5> kResidential = {
-        "The house alarms died, but the footsteps didn't.",
-        "I barricaded the kitchen and still heard them upstairs.",
-        "Family photos stayed on the wall longer than we did.",
-        "Backyards connect faster than streets after dark.",
-        "Every porch light looked like a signal.",
-    };
-    static constexpr std::array<const char*, 5> kCommercial = {
-        "I slept in the stockroom between shipping pallets.",
-        "The register drawers were empty before the shelves were.",
-        "Reflections in storefront glass nearly got me killed.",
-        "Loading docks are exits if you keep them clear.",
-        "The mall speakers played static all night.",
-    };
-    static constexpr std::array<const char*, 5> kIndustrial = {
-        "The plant gates held until someone cut power.",
-        "Tools mattered more than ammo by day three.",
-        "Conveyors jammed with things that used to be people.",
-        "The siren tower became a beacon for the dead.",
-        "I trusted steel walls and forgot about roof access.",
-    };
-    static constexpr std::array<const char*, 4> kWilderness = {
-        "Open ground helps until exhaustion makes you loud.",
-        "We kept moving camp but not fast enough.",
-        "The quiet lots are where hope goes to thin out.",
-        "Smoke carries farther than footsteps.",
-    };
-    switch (type)
-    {
-    case DistrictType::Residential: return kResidential[hash % kResidential.size()];
-    case DistrictType::Commercial: return kCommercial[hash % kCommercial.size()];
-    case DistrictType::Industrial: return kIndustrial[hash % kIndustrial.size()];
-    default: return kWilderness[hash % kWilderness.size()];
-    }
-}
-
-const char* causeHint(const std::string& cause)
-{
-    std::string text = cause;
-    std::transform(text.begin(), text.end(), text.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (text.find("infect") != std::string::npos || text.find("bite") != std::string::npos) return "The fever came back worse each night.";
-    if (text.find("bleed") != std::string::npos || text.find("bled") != std::string::npos) return "I ran out of clean wraps.";
-    if (text.find("starv") != std::string::npos) return "I traded too much food for one more day.";
-    if (text.find("dehydrat") != std::string::npos || text.find("thirst") != std::string::npos) return "Dry taps ended us faster than the dead.";
-    if (text.find("burn") != std::string::npos) return "The smoke was supposed to keep them back.";
-    if (text.find("zombie") != std::string::npos || text.find("overrun") != std::string::npos) return "There were always more behind the first one.";
-    return nullptr;
-}
-
-std::vector<std::pair<int, int>> inventoryItems(const Inventory& inv)
-{
-    std::vector<std::pair<int, int>> items;
-    for (const auto& slot : inv.slots)
-    {
-        if (slot.itemId >= 0 && slot.count > 0)
-        {
-            items.emplace_back(slot.itemId, slot.count);
-        }
-    }
-    return items;
-}
 } // namespace
 
 DistrictType Game::districtTypeAt(int tileX, int tileY) const
@@ -104,6 +40,16 @@ DistrictType Game::districtTypeAt(int tileX, int tileY) const
 
 void Game::spawnLegacy()
 {
+    mLegacyCardLines.clear();
+    mLegacyCardTimer = 0.0f;
+    // Fresh Start: nothing of earlier lives (phase 10).
+    if (!livingWorld())
+    {
+        mLegacyGraves.clear();
+        mLegacyPackSpawned.clear();
+        mRisenTracks.clear();
+        return;
+    }
     mLegacyGraves = mSaveManager.graves();
     mLegacyPackSpawned.assign(mLegacyGraves.size(), false);
     mRisenTracks.clear();
@@ -145,14 +91,22 @@ void Game::spawnLegacy()
         mWorld.addComponent<Interactable>(cairn, inter);
     }
 
-    // Run-start card: who came before and the most pressing traces.
-    mLegacyCardLines.clear();
-    mLegacyCardTimer = 0.0f;
+    // Run-start card: who came before and the most pressing traces, and how
+    // long the town stood empty after a long life (phase 10).
     const auto leads = currentLegacyLeads();
-    if (!leads.empty())
+    std::string empty;
+    if (!mSaveManager.characterHistory().empty())
     {
+        const CharacterHistoryRecord& last = mSaveManager.characterHistory().back();
+        empty = journal::timePassingLine(std::max(1, last.dayEnded - last.dayStarted + 1));
+    }
+    if (!leads.empty() || !empty.empty())
+    {
+        // A companion's grave is not a life of the bloodline.
+        const auto companionGraves = static_cast<std::size_t>(std::count_if(
+            mLegacyGraves.begin(), mLegacyGraves.end(), [](const GraveRecord& g) { return !g.travelledWith.empty(); }));
         const int previous = static_cast<int>(std::max(mSaveManager.characterHistory().size(),
-                                                       mLegacyGraves.size() + mSaveManager.retirements().size()));
+                                                       mLegacyGraves.size() - companionGraves + mSaveManager.retirements().size()));
         mLegacyCardTitle = legacy::runHeadline(mSaveManager.runNumber(), previous);
         const glm::vec2 player = playerWorldCenter();
         const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
@@ -164,6 +118,7 @@ void Game::spawnLegacy()
             }
             mLegacyCardLines.push_back(legacy::describeLead(lead, player, tileSize));
         }
+        if (!empty.empty()) mLegacyCardLines.push_back(empty);
         mLegacyCardTimer = kLegacyCardSeconds;
     }
 }
@@ -172,8 +127,6 @@ void Game::spawnGrave(int graveIndex)
 {
     const GraveRecord& grave = mLegacyGraves[static_cast<std::size_t>(graveIndex)];
     const GLuint sheetTex = mSpriteSheet.textureId();
-    const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(grave.x, grave.y));
-    const DistrictType district = districtTypeAt(tile.x, tile.y);
 
     Entity graveEntity = mWorld.createEntity();
     Transform t{};
@@ -181,7 +134,8 @@ void Game::spawnGrave(int graveIndex)
     t.y = grave.y;
     Sprite s{};
     s.textureId = sheetTex;
-    s.uvRect = mSpriteSheet.uvRect(grave.laidToRest ? "prop_grave_cross" : "prop_grave");
+    // A stone in the cemetery, or a mound where they fell.
+    s.uvRect = mSpriteSheet.uvRect(grave.buried ? "prop_headstone" : grave.laidToRest ? "prop_grave_cross" : "prop_grave");
     s.layer = 5;
     s.drawSize = SpriteSizes::kHumanoid;
     Interactable inter{};
@@ -190,35 +144,16 @@ void Game::spawnGrave(int graveIndex)
     inter.message = grave.laidToRest
         ? "Here lies " + grave.name + ", put to rest by another survivor. Fell on Day " + std::to_string(grave.day) + "."
         : "Here lies " + grave.name + ". " + grave.cause + ".";
+    if (!grave.travelledWith.empty())
+    {
+        inter.message = "Here lies " + grave.name + ". Fell on Day " + std::to_string(grave.day) + ". Travelled with " +
+                        grave.travelledWith + ".";
+    }
     mWorld.addComponent<Transform>(graveEntity, t);
     mWorld.addComponent<Sprite>(graveEntity, s);
     mWorld.addComponent<Interactable>(graveEntity, inter);
     mWorld.addComponent<LegacyLink>(graveEntity, LegacyLink{LegacyLinkKind::Grave, graveIndex});
-
-    // A page from their journal, by the grave.
-    const std::uint32_t hash = static_cast<std::uint32_t>(grave.day) * 2654435761u ^
-                               static_cast<std::uint32_t>(grave.x + grave.y * 137.0f);
-    std::string note = grave.name + ", Day " + std::to_string(grave.day) + ": " + districtFlavor(district, hash);
-    if (const char* hint = causeHint(grave.cause))
-    {
-        note += std::string(" ") + hint;
-    }
-    Entity noteEntity = mWorld.createEntity();
-    Transform nt{};
-    nt.x = grave.x - 18.0f;
-    nt.y = grave.y + 14.0f;
-    Sprite ns{};
-    ns.textureId = sheetTex;
-    ns.uvRect = mSpriteSheet.uvRect("prop_note");
-    ns.layer = 3;
-    ns.drawSize = SpriteSizes::kPickup;
-    Interactable ni{};
-    ni.type = InteractableType::JournalNote;
-    ni.prompt = "Read note";
-    ni.message = note;
-    mWorld.addComponent<Transform>(noteEntity, nt);
-    mWorld.addComponent<Sprite>(noteEntity, ns);
-    mWorld.addComponent<Interactable>(noteEntity, ni);
+    // Their journal is read at the grave (E, phase 10: handleLegacyInteraction).
 }
 
 void Game::spawnLegacyPack(int graveIndex, const glm::vec2& topLeftWorld)
@@ -319,6 +254,14 @@ void Game::updateLegacy(float dtSeconds)
         GraveRecord& grave = mLegacyGraves[static_cast<std::size_t>(track.graveIndex)];
         grave.risen = false;
         grave.laidToRest = true;
+        grave.restRun = mSaveManager.runNumber();
+        // One of the line at rest: it lifts, twice as much for a Gravedigger (phase 10).
+        {
+            const Traits* traits = playerTraits();
+            const bool digger = traits != nullptr && traits->has(BloodlineTrait::Gravedigger);
+            addDepression(-legacy::kLaidToRestRelief * (digger ? legacy::kGravediggerRestScale : 1.0f));
+            noteJournal(journal::Kind::LaidToRest, grave.name);
+        }
         grave.x = track.lastTopLeft.x;
         grave.y = track.lastTopLeft.y;
         spawnGrave(track.graveIndex);
@@ -354,7 +297,7 @@ void Game::syncLegacyToSave()
             if (link.kind == LegacyLinkKind::Pack && link.graveIndex >= 0 &&
                 link.graveIndex < static_cast<int>(mLegacyGraves.size()))
             {
-                auto items = inventoryItems(inv);
+                auto items = InventorySystem::itemsUnloaded(inv, mItemDatabase);
                 auto& target = mLegacyGraves[static_cast<std::size_t>(link.graveIndex)].items;
                 target.insert(target.end(), items.begin(), items.end());
             }
@@ -415,6 +358,16 @@ std::vector<legacy::Lead> Game::currentLegacyLeads()
         lead.world += glm::vec2(kSpriteSize * 0.5f);
         out.push_back(lead);
     }
+    // The house an earlier life held, unless this life starts in it.
+    const BaseRecord& base = mSaveManager.baseRecord();
+    if (base.building > 0 && base.building != mFirstDays.homeBuilding)
+    {
+        legacy::Lead lead;
+        lead.kind = legacy::LeadKind::Base;
+        lead.world = glm::vec2(base.x, base.y);
+        lead.runIndex = base.runIndex;
+        out.push_back(lead);
+    }
     return out;
 }
 
@@ -427,8 +380,7 @@ void Game::renderLegacyCardShapes()
     const float alpha = std::min(1.0f, mLegacyCardTimer / kLegacyCardFadeSeconds);
     const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
     const LegacyCardLayout layout = legacyCardLayout();
-    mSpriteBatch.draw(layout.pos, layout.size, uiUv, glm::vec4(0.05f, 0.05f, 0.06f, 0.82f * alpha));
-    mSpriteBatch.draw(layout.pos, glm::vec2(layout.size.x, 2.0f), uiUv, glm::vec4(0.78f, 0.66f, 0.42f, 0.9f * alpha));
+    mSpriteBatch.draw(layout.pos, layout.size, uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.82f * alpha));
 }
 
 Game::LegacyCardLayout Game::legacyCardLayout() const
@@ -446,6 +398,16 @@ Game::LegacyCardLayout Game::legacyCardLayout() const
                                        static_cast<float>(mLegacyCardLines.size()) * (mFont.lineHeight(kLineScale) + 6.0f) + 12.0f));
     layout.pos = glm::vec2(std::round((static_cast<float>(mWindowWidth) - layout.size.x) * 0.5f),
                            std::round(static_cast<float>(mWindowHeight) * 0.18f));
+    // Clear of the objective panel (phase 13): slide left if there is room,
+    // else drop below it.
+    const glm::vec2 corner = Hud::objectiveCorner(mHudState, glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)), mFont);
+    constexpr float kClear = 16.0f;
+    if (layout.pos.x + layout.size.x > corner.x - kClear && layout.pos.y < corner.y + kClear)
+    {
+        const float slid = corner.x - kClear - layout.size.x;
+        if (slid >= Hud::kEdge) layout.pos.x = std::round(slid);
+        else layout.pos.y = std::round(corner.y + kClear);
+    }
     layout.titleScale = kTitleScale;
     layout.lineScale = kLineScale;
     return layout;
@@ -461,7 +423,7 @@ void Game::renderLegacyText()
     // Names over past characters' traces near the player.
     const glm::vec2 player = playerWorldCenter();
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
-    const float zoom = mCamera.zoom();
+    const float zoom = uiZoom();
     const auto label = [&](const glm::vec2& topLeft, float heightPx, const std::string& text, const glm::vec4& color)
     {
         const glm::vec2 center = topLeft + glm::vec2(kSpriteSize * 0.5f);
@@ -476,7 +438,7 @@ void Game::renderLegacyText()
             return;
         }
         const float fade = std::clamp((kLabelRangeTiles - distTiles) / 2.0f, 0.0f, 1.0f);
-        const glm::vec2 screen = mCamera.worldToScreen(center);
+        const glm::vec2 screen = uiAt(center);
         const glm::vec2 pos(std::round(screen.x), std::round(screen.y - heightPx * zoom - 12.0f));
         mFont.drawText(mSpriteBatch, pos + glm::vec2(1.0f, 1.0f), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.7f * fade), 1.0f, TextAlign::Center);
         mFont.drawText(mSpriteBatch, pos, text, color * glm::vec4(1.0f, 1.0f, 1.0f, fade), 1.0f, TextAlign::Center);
@@ -519,12 +481,12 @@ void Game::renderLegacyText()
         const float cx = layout.pos.x + layout.size.x * 0.5f;
         float y = layout.pos.y + 20.0f;
         mFont.drawText(mSpriteBatch, glm::vec2(cx, y), mLegacyCardTitle,
-                       glm::vec4(0.95f, 0.84f, 0.58f, alpha), layout.titleScale, TextAlign::Center);
+                       glm::vec4(kPanelAmber.r, kPanelAmber.g, kPanelAmber.b, alpha), layout.titleScale, TextAlign::Center);
         y += mFont.lineHeight(layout.titleScale) + 12.0f;
         for (const std::string& line : mLegacyCardLines)
         {
             mFont.drawText(mSpriteBatch, glm::vec2(cx, y), line,
-                           glm::vec4(0.86f, 0.86f, 0.82f, alpha), layout.lineScale, TextAlign::Center);
+                           glm::vec4(kPanelInk.r, kPanelInk.g, kPanelInk.b, alpha), layout.lineScale, TextAlign::Center);
             y += mFont.lineHeight(layout.lineScale) + 6.0f;
         }
     }

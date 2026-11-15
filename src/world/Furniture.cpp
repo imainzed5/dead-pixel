@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <random>
 
 #include "map/TileIds.h"
+#include "world/BuildingKinds.h"
 
 namespace
 {
@@ -32,6 +34,15 @@ constexpr std::array<FurnitureInfo, static_cast<std::size_t>(K::Count)> kInfo = 
     {"furn_metalrack", true, true, L::Storage, "Search rack"},
     {"furn_workbench", true, true, L::Workshop, "Search workbench"},
     {"furn_barrels", false, false, L::Storage, "Search barrels"},
+    {"furn_cot", true, false, L::None, "Sleep on the cot"},
+    {"furn_desk", true, false, L::Storage, "Search desk"},
+    {"furn_filing", true, false, L::Storage, "Search filing cabinet"},
+    {"furn_locker", true, true, L::Storage, "Search locker"},
+    {"furn_pallets", false, false, L::None, nullptr},
+    {"furn_pharmshelf", true, true, L::Store, "Search shelf"},
+    {"furn_toolrack", true, true, L::Workshop, "Search tool rack"},
+    {"furn_dinertable", false, false, L::None, nullptr},
+    {"furn_floorlamp", false, true, L::None, nullptr},
 }};
 
 enum class Role
@@ -44,7 +55,24 @@ enum class Role
     KitchenLiving,
     Shop,
     Backroom,
-    Workshop
+    Workshop,
+    // Phase 6: rooms by what the building was.
+    Stockroom,
+    PharmacyFront,
+    PharmacyStock,
+    HardwareFront,
+    ClinicWard,
+    ClinicRoom,
+    PoliceFront,
+    LockerRoom,
+    DinerFront,
+    DinerKitchen,
+    OfficeFront,
+    OfficeBack,
+    GarageFloor,
+    WarehouseFloor,
+    // Phase 9: the guard hut by the service gate.
+    GuardPost
 };
 
 struct Order
@@ -80,8 +108,79 @@ std::vector<Order> recipeFor(Role role)
     case Role::Workshop:
         return {{K::Workbench}, {K::MetalRack, 2}, {K::MetalRack, 2, 0.7f}, {K::Crates}, {K::Barrels},
                 {K::Crates, 1, 0.7f}, {K::Barrels, 1, 0.5f}};
+    case Role::Stockroom:
+        return {{K::MetalRack, 2}, {K::Crates}, {K::Crates, 1, 0.6f}, {K::Barrels, 1, 0.5f}};
+    case Role::PharmacyFront:
+        return {{K::Checkout}, {K::PharmacyShelf, 3}, {K::PharmacyShelf, 2}, {K::PharmacyShelf, 2, 0.7f},
+                {K::Plant, 1, 0.4f}};
+    case Role::PharmacyStock:
+        return {{K::PharmacyShelf, 2}, {K::MetalRack, 2}, {K::Crates, 1, 0.6f}};
+    case Role::HardwareFront:
+        return {{K::Checkout}, {K::ToolRack, 2}, {K::MetalRack, 2}, {K::ToolRack, 2, 0.8f}, {K::Crates},
+                {K::Barrels, 1, 0.6f}};
+    case Role::ClinicWard:
+        return {{K::Cot}, {K::Cot}, {K::PharmacyShelf, 2}, {K::Cot, 1, 0.8f}, {K::Desk, 1, 0.7f},
+                {K::Sink, 1, 0.6f}, {K::Plant, 1, 0.4f}};
+    case Role::ClinicRoom:
+        return {{K::Cot}, {K::PharmacyShelf}, {K::Sink, 1, 0.6f}};
+    case Role::PoliceFront:
+        return {{K::Desk}, {K::Desk}, {K::FilingCabinet, 2}, {K::Locker, 2}, {K::Desk, 1, 0.7f}, {K::Plant, 1, 0.3f}};
+    case Role::LockerRoom:
+        return {{K::Locker, 3}, {K::Locker, 2, 0.7f}, {K::Table, 1, 0.3f}};
+    case Role::DinerFront:
+        return {{K::Counter, 2}, {K::Stove}, {K::Fridge}, {K::DinerTable}, {K::DinerTable}, {K::DinerTable, 1, 0.8f},
+                {K::DinerTable, 1, 0.6f}, {K::Plant, 1, 0.5f}};
+    case Role::DinerKitchen:
+        return {{K::Stove}, {K::Counter, 2}, {K::Fridge, 1, 0.7f}, {K::Stove, 1, 0.5f}, {K::Crates, 1, 0.5f}};
+    case Role::OfficeFront:
+        return {{K::Desk}, {K::Desk}, {K::FilingCabinet, 2}, {K::Desk, 1, 0.8f}, {K::FilingCabinet, 1, 0.6f},
+                {K::Plant, 1, 0.6f}};
+    case Role::OfficeBack:
+        return {{K::FilingCabinet, 2}, {K::Crates, 1, 0.6f}, {K::Desk, 1, 0.5f}};
+    case Role::GarageFloor:
+        return {{K::Workbench}, {K::ToolRack, 2}, {K::Barrels}, {K::Barrels, 1, 0.7f}, {K::MetalRack, 2, 0.7f},
+                {K::Crates, 1, 0.6f}};
+    case Role::WarehouseFloor:
+        return {{K::PalletStack, 2}, {K::PalletStack, 2}, {K::Crates}, {K::Crates}, {K::MetalRack, 2},
+                {K::PalletStack, 1, 0.7f}, {K::Crates, 1, 0.7f}};
+    case Role::GuardPost:
+        return {{K::Desk}, {K::Locker}};
     }
     return {};
+}
+
+// The front room and the back rooms of a building of each kind. Houses use
+// the floor rule in assignRoles instead.
+struct KindRoles
+{
+    Role front;
+    Role back;
+};
+KindRoles rolesFor(BuildingKind kind, BuildingArchetype archetype)
+{
+    switch (kind)
+    {
+    case BuildingKind::Grocery: return {Role::Shop, Role::Stockroom};
+    case BuildingKind::Pharmacy: return {Role::PharmacyFront, Role::PharmacyStock};
+    case BuildingKind::Hardware: return {Role::HardwareFront, Role::Stockroom};
+    case BuildingKind::Clinic: return {Role::ClinicWard, Role::ClinicRoom};
+    case BuildingKind::Police: return {Role::PoliceFront, Role::LockerRoom};
+    case BuildingKind::Diner: return {Role::DinerFront, Role::DinerKitchen};
+    case BuildingKind::Office: return {Role::OfficeFront, Role::OfficeBack};
+    case BuildingKind::Garage: return {Role::GarageFloor, Role::Backroom};
+    case BuildingKind::Warehouse: return {Role::WarehouseFloor, Role::Backroom};
+    case BuildingKind::Workshop: return {Role::Workshop, Role::Backroom};
+    case BuildingKind::GuardHut: return {Role::GuardPost, Role::GuardPost};
+    case BuildingKind::House:
+    case BuildingKind::Count: break;
+    }
+    return archetype == BuildingArchetype::Commercial ? KindRoles{Role::Shop, Role::Backroom}
+                                                       : KindRoles{Role::Workshop, Role::Backroom};
+}
+
+bool lampRoom(Role role)
+{
+    return role == Role::Living || role == Role::Bedroom || role == Role::Studio || role == Role::KitchenLiving;
 }
 
 constexpr std::uint8_t kOccupied = 1; // furniture stands here
@@ -93,6 +192,7 @@ struct Room
     std::vector<glm::ivec2> tiles;
     int floor = 0; // base ground GID
     Role role = Role::Living;
+    int building = 0; // index + 1
 };
 
 class Furnisher
@@ -127,6 +227,9 @@ public:
         {
             furnishBuilding(static_cast<int>(b));
         }
+        // Floor lamps last, with their own dice, so every other piece in a
+        // house stands where it stood before lamps existed (phase 6).
+        placeLamps();
         return std::move(mPieces);
     }
 
@@ -202,10 +305,57 @@ private:
         if (rooms.empty()) return;
 
         const int firstRoom = static_cast<int>(mRooms.size() - rooms.size());
-        assignRoles(rooms, archetypeForWidth(rect.w));
+        const BuildingKind kind = buildingkinds::kindOf(rect);
+        assignRoles(rooms, archetypeForWidth(rect.w), kind);
+        const std::size_t piecesBefore = mPieces.size();
         for (std::size_t r = 0; r < rooms.size(); ++r)
         {
-            furnishRoom(firstRoom + static_cast<int>(r), rooms[r].role, b + 1, rng);
+            Room& stored = mRooms[static_cast<std::size_t>(firstRoom) + r];
+            stored.role = rooms[r].role;
+            stored.building = b + 1;
+            const bool back = kind != BuildingKind::House && rooms[r].role == rolesFor(kind, archetypeForWidth(rect.w)).back;
+            furnishRoom(firstRoom + static_cast<int>(r), rooms[r].role, b + 1, rng, static_cast<int>(kind), back);
+        }
+        // The police station's armoury: the locker deepest inside.
+        if (kind == BuildingKind::Police)
+        {
+            const glm::ivec2 door = buildingkinds::streetDoor(mLayout, b + 1);
+            FurniturePiece* best = nullptr;
+            int bestDistance = -1;
+            for (std::size_t i = piecesBefore; i < mPieces.size(); ++i)
+            {
+                FurniturePiece& p = mPieces[i];
+                if (p.kind != K::Locker) continue;
+                const int d = std::abs(p.tile.x - door.x) + std::abs(p.tile.y - door.y);
+                if (d > bestDistance)
+                {
+                    bestDistance = d;
+                    best = &p;
+                }
+            }
+            if (best != nullptr) best->armoury = true;
+        }
+    }
+
+    void placeLamps()
+    {
+        for (std::size_t r = 0; r < mRooms.size(); ++r)
+        {
+            const Room& room = mRooms[r];
+            if (room.building <= 0 || !lampRoom(room.role) || room.tiles.size() < 6) continue;
+            const LayoutData::BuildingRect& rect = mLayout.buildings[static_cast<std::size_t>(room.building - 1)];
+            if (buildingkinds::kindOf(rect) != BuildingKind::House) continue;
+            std::mt19937 rng(mSeed ^ 0x1A3Bu ^ (0x85EBCA6Bu * static_cast<std::uint32_t>(r + 1)));
+            std::vector<glm::ivec2> candidates = room.tiles;
+            std::shuffle(candidates.begin(), candidates.end(), rng);
+            for (const glm::ivec2& tile : candidates)
+            {
+                FurniturePiece piece;
+                piece.kind = K::FloorLamp;
+                piece.building = room.building;
+                piece.tile = tile;
+                if (tryPlace(static_cast<int>(r), piece, rng)) break;
+            }
         }
     }
 
@@ -215,7 +365,7 @@ private:
         return !TileGid::isGrass(floorAt(x, y));
     }
 
-    static void assignRoles(std::vector<Room>& rooms, BuildingArchetype archetype)
+    static void assignRoles(std::vector<Room>& rooms, BuildingArchetype archetype, BuildingKind kind)
     {
         const auto largest = [&](auto pred) -> int
         {
@@ -231,12 +381,12 @@ private:
             return best;
         };
 
-        if (archetype != BuildingArchetype::Residential)
+        if (archetype != BuildingArchetype::Residential || kind == BuildingKind::GuardHut)
         {
-            for (Room& room : rooms) room.role = Role::Backroom;
+            const KindRoles roles = rolesFor(kind, archetype);
+            for (Room& room : rooms) room.role = roles.back;
             const int main = largest([](const Room&) { return true; });
-            rooms[static_cast<std::size_t>(main)].role =
-                archetype == BuildingArchetype::Commercial ? Role::Shop : Role::Workshop;
+            rooms[static_cast<std::size_t>(main)].role = roles.front;
             return;
         }
 
@@ -291,7 +441,7 @@ private:
         }
     }
 
-    void furnishRoom(int roomId, Role role, int building, std::mt19937& rng)
+    void furnishRoom(int roomId, Role role, int building, std::mt19937& rng, int buildingKind, bool stock)
     {
         const Room& room = mRooms[static_cast<std::size_t>(roomId)];
         const int area = static_cast<int>(room.tiles.size());
@@ -312,6 +462,8 @@ private:
                 FurniturePiece piece;
                 piece.kind = order.kind;
                 piece.building = building;
+                piece.buildingKind = buildingKind;
+                piece.stock = stock;
                 piece.tile = tile;
                 if (!tryPlace(roomId, piece, rng)) continue;
                 ++placed;
@@ -347,7 +499,8 @@ private:
         const glm::ivec2 t = piece.tile;
         if (!isFree(roomId, t)) return false;
         const bool byWall = isWall(t.x - 1, t.y) || isWall(t.x + 1, t.y) || isWall(t.x, t.y - 1) || isWall(t.x, t.y + 1);
-        if (!byWall && piece.kind != K::Table) return false;
+        const bool free = piece.kind == K::Table || piece.kind == K::DinerTable || piece.kind == K::PalletStack;
+        if (!byWall && !free) return false;
         return commit(roomId, piece, nullptr);
     }
 
@@ -468,15 +621,86 @@ const FurnitureInfo& info(FurnitureKind kind)
     return kInfo[i];
 }
 
-std::string spriteName(const FurniturePiece& piece)
+bool hasAltSprite(FurnitureKind kind)
+{
+    return info(kind).prompt != nullptr ? (kind != K::Bed && kind != K::Cot) : kind == K::FloorLamp;
+}
+
+std::string spriteName(const FurniturePiece& piece, bool alt)
 {
     const FurnitureInfo& def = info(piece.kind);
     std::string name = def.sprite;
+    if (alt && hasAltSprite(piece.kind)) name += piece.kind == K::FloorLamp ? "_on" : "_open";
     if (def.oriented)
     {
         name += piece.backNorth ? "_l" : "_r";
     }
     return name;
+}
+
+std::string lootClass(const FurniturePiece& piece)
+{
+    const FurnitureInfo& def = info(piece.kind);
+    if (def.prompt == nullptr || piece.kind == K::Bed || piece.kind == K::Cot) return "";
+    if (piece.armoury) return "armoury";
+    if (piece.kind == K::Fridge) return "fridge";
+    const auto kind = static_cast<BuildingKind>(std::clamp(piece.buildingKind, 0, static_cast<int>(BuildingKind::Count) - 1));
+    const bool checkout = piece.kind == K::Checkout;
+    switch (kind)
+    {
+    case BuildingKind::Grocery:
+        return checkout ? "checkout" : piece.stock || piece.kind != K::StoreShelf ? "grocery_stock" : "grocery_shelf";
+    case BuildingKind::Pharmacy:
+        return checkout ? "checkout" : piece.stock ? "pharmacy_stock" : "pharmacy_shelf";
+    case BuildingKind::Hardware:
+        return checkout ? "checkout" : piece.stock ? "hardware_stock" : "hardware_shelf";
+    case BuildingKind::Clinic: return "clinic";
+    case BuildingKind::Police: return "police";
+    case BuildingKind::Diner: return "diner_kitchen";
+    case BuildingKind::Office: return "office";
+    case BuildingKind::Garage: return "garage";
+    case BuildingKind::Warehouse: return "warehouse";
+    case BuildingKind::GuardHut: return "office";
+    case BuildingKind::Workshop:
+    case BuildingKind::House:
+    case BuildingKind::Count: break;
+    }
+    switch (def.loot)
+    {
+    case L::Fridge: return "fridge";
+    case L::Kitchen: return "kitchen";
+    case L::Bathroom: return "bathroom";
+    case L::Bedroom: return "bedroom";
+    case L::Living: return "living";
+    case L::Store: return "store";
+    case L::Checkout: return "checkout";
+    case L::Storage: return "storage";
+    case L::Workshop: return "workshop";
+    case L::None: break;
+    }
+    return "";
+}
+
+float searchSeconds(FurnitureKind kind)
+{
+    switch (kind)
+    {
+    case K::Locker:
+    case K::FilingCabinet:
+        return 5.0f;
+    case K::Wardrobe:
+    case K::Bookshelf:
+    case K::StoreShelf:
+    case K::PharmacyShelf:
+    case K::MetalRack:
+    case K::ToolRack:
+    case K::Crates:
+    case K::Barrels:
+    case K::Workbench:
+        return 3.0f;
+    default:
+        return 1.5f;
+    }
 }
 
 glm::ivec2 frontTile(const FurniturePiece& piece)
@@ -486,6 +710,21 @@ glm::ivec2 frontTile(const FurniturePiece& piece)
 
 std::vector<FurniturePiece> furnish(const LayoutData& layout, std::uint32_t seed)
 {
-    return Furnisher(layout, seed).run();
+    std::vector<FurniturePiece> pieces = Furnisher(layout, seed).run();
+    for (FurniturePiece& piece : pieces) piece.origin = piece.tile;
+    return pieces;
+}
+bool kindWithin(const std::vector<FurniturePiece>& pieces, FurnitureKind kind, const glm::ivec2& tile, float radiusTiles)
+{
+    for (const FurniturePiece& piece : pieces)
+    {
+        if (piece.kind != kind) continue;
+        const glm::ivec2 d = piece.tile - tile;
+        if (static_cast<float>(d.x * d.x + d.y * d.y) <= radiusTiles * radiusTiles)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 } // namespace furniture

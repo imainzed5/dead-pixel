@@ -1,0 +1,34 @@
+# Bloodline (phase 10): four earlier lives who died with Carpentry 3, their
+# journals read: the fifth starts with Carpentry 2 ("runs in the family").
+# Then a Fresh Start world: no graves after a death, nothing remembered.
+# Run in a fresh directory (it writes saves):
+#   dead_pixel_survival.exe --script tools/harness/bloodline.txt --hidden --world-seed 1234 --shots shots/bloodline
+
+survivors gone
+newrun
+waits 1
+lineage carpentry 3 4 read
+bloodline
+newrun create
+waits 0.5
+expect creating
+shot 01_in_the_family
+tap Space
+waits 0.5
+expect playing
+god on
+expect echo carpentry 2
+expect skill carpentry 2
+expect bloodline vigilant
+
+# A Fresh Start: the next life finds nothing of this one.
+world fresh
+kill Fresh start test
+waits 6
+newrun
+waits 1
+expect graves 0
+expect remembered nothing
+expect echo carpentry 0
+expect bloodline none
+quit

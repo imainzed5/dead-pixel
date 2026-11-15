@@ -1,0 +1,80 @@
+# Storage: things put away at home stay there, through a save and a resume,
+# and into the next life.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/storage.txt --hidden --world-seed 1234 --shots shots/storage
+
+newrun
+god on
+hours 10
+goto home
+goto furniture container
+mark
+waits 0.3
+# Opened for the first time, a cupboard takes a moment to go through (phase 6).
+tap E
+waits 2.5
+container
+give Wood Planks 2
+give Rope 1
+give Bandage 1
+stash Wood Planks 2
+stash Rope 1
+stash Bandage 1
+waits 0.2
+container
+expect container Wood Planks 2
+expect container Rope 1
+expect container Bandage 1
+shot storage_panel
+
+# Things in the pack move across too, one at a time and as a stack.
+tap A
+waits 0.1
+tap E
+waits 0.1
+tap D
+waits 0.1
+key LShift down
+tap E
+waits 0.1
+key LShift up
+container
+shot storage_moved
+tap Esc
+waits 0.2
+
+# A save and a resume: still there.
+save
+waits 0.5
+resume
+waits 0.5
+goto mark
+waits 0.3
+open
+waits 0.3
+container
+expect container Wood Planks 2
+expect container Rope 1
+expect container Bandage 1
+tap Esc
+waits 0.2
+
+# A new life: still there. (Die away from home: what a body leaves behind
+# would stand in front of the cupboard.)
+enter 4
+kill Harness
+waits 1
+newrun
+god on
+hours 10
+goto mark
+waits 0.3
+open
+waits 0.3
+container
+expect container Wood Planks 2
+expect container Rope 1
+expect container Bandage 1
+shot storage_next_life
+expect alive
+quit

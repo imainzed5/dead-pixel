@@ -1,4 +1,5 @@
 #include "systems/MentalStateSystem.h"
+#include "world/WeatherRules.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,6 +17,7 @@
 #include "map/TileMap.h"
 #include "systems/NeedsSystem.h"
 #include "systems/ZombieAISystem.h"
+#include "world/MindRules.h"
 
 namespace
 {
@@ -36,16 +38,32 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
     const Transform& playerTransform = world.getComponent<Transform>(playerEntity);
     const glm::vec2 playerCenter(playerTransform.x + kSpriteSize * 0.5f, playerTransform.y + kSpriteSize * 0.5f);
     const bool indoors = tileMap != nullptr && tileMap->isIndoorsAtWorld(playerCenter.x, playerCenter.y);
-    const bool isDark = (gameHours >= 20.0 || gameHours < 5.0);
+    const bool isDark = weatherrules::isNight(currentDay, gameHours);
     const bool sleeping = world.hasComponent<Sleeping>(playerEntity);
 
     // ------------------------------------------------------------------ Panic
+
+    // Company: a friendly survivor nearby.
+    bool companyNearby = false;
+    world.forEach<SurvivorAI, Transform, Health>(
+        [&](Entity, SurvivorAI& ai, Transform& st, Health& sh)
+        {
+            if (companyNearby) return;
+            if (!ai.alive || sh.current <= 0.0f) return;
+            if (ai.attitude == survivorrules::Attitude::Hostile) return;
+            const glm::vec2 sc(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
+            if (glm::dot(sc - playerCenter, sc - playerCenter) < kSocialRecoveryRange * kSocialRecoveryRange)
+            {
+                companyNearby = true;
+            }
+        });
 
     float panicGain = 0.0f;
 
     // Threats the character can actually see. Hunters count fully; wanderers
     // that haven't noticed you are unsettling but much less so.
     float threatWeight = 0.0f;
+    int threatsInSight = 0;
     bool hunterInSight = false;
     world.forEach<ZombieAI, Transform, Health>(
         [&](Entity, ZombieAI& ai, Transform& zt, Health& zh)
@@ -58,6 +76,7 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
 
             const bool hunting = ai.state == ZombieState::Chase || ai.state == ZombieState::Attack;
             threatWeight += hunting ? 1.0f : kUnawareThreatWeight;
+            ++threatsInSight;
             hunterInSight = hunterInSight || hunting;
         });
 
@@ -84,23 +103,36 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         panicGain += std::min(kDarknessPanicGain * dtSeconds, calmFloor - mental.panic);
     }
 
-    if (world.hasComponent<Traits>(playerEntity) &&
-        world.getComponent<Traits>(playerEntity).negative == NegativeTrait::Nervous)
+    // A horde close by; the dark inside with no light, and one of them heard.
+    if (mInputs.hordeNear) panicGain += mindrules::kHordePanicPerSecond * dtSeconds;
+    if (mInputs.darkIndoorsHeard && mental.panic < mindrules::kDarkIndoorsPanicCeiling)
     {
-        panicGain *= 1.3f;
+        panicGain += std::min(mindrules::kDarkIndoorsPanicPerSecond * dtSeconds,
+                              mindrules::kDarkIndoorsPanicCeiling - mental.panic);
     }
 
+    // Steady and Nervous.
+    panicGain *= mInputs.panicGainScale;
+
+    const float panicBefore = mental.panic;
     mental.panic = std::clamp(mental.panic + panicGain, 0.0f, 100.0f);
+    // Hardened to it: one of the dead alone no longer unsettles.
+    if (threatsInSight == 1 && !mInputs.hordeNear && !mInputs.darkIndoorsHeard)
+    {
+        mental.panic = std::min(mental.panic, std::max(panicBefore, mindrules::singleZombiePanicCap(mental.desensitisation)));
+    }
     if (threatWeight <= 0.0f && mental.panic > calmFloor)
     {
-        mental.panic = std::max(calmFloor, mental.panic - mental.panicDecayPerSecond * dtSeconds);
+        // Calmer crouched still out of sight, and with a friend near.
+        const float scale = mindrules::panicRecoveryScale(mInputs.crouchedStillHidden, companyNearby);
+        mental.panic = std::max(calmFloor, mental.panic - mental.panicDecayPerSecond * scale * dtSeconds);
     }
 
     // Full panic with a hunter in view: scream (loud noise that draws others).
     mental.screamCooldown = std::max(0.0f, mental.screamCooldown - dtSeconds);
     if (hunterInSight && mental.panic >= kPanicScreamThreshold && mental.screamCooldown <= 0.0f)
     {
-        noiseModel.emitNoise(playerCenter, NoiseTier::Loud, 0.7f, playerEntity);
+        noiseModel.emitNoise(playerCenter, NoiseTier::Loud, 0.7f, playerEntity, NoiseSource::World, 1.0f, SoundId::BodyScream);
         mental.screamCooldown = kScreamCooldownSeconds;
     }
 
@@ -119,21 +151,6 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
 
     float depressionGain = 0.0f;
     float depressionRelief = kBaselineDepressionRelief * dtSeconds;
-
-    // Company: a friendly survivor nearby.
-    bool companyNearby = false;
-    world.forEach<SurvivorAI, Transform, Health>(
-        [&](Entity, SurvivorAI& ai, Transform& st, Health& sh)
-        {
-            if (companyNearby) return;
-            if (!ai.alive || sh.current <= 0.0f) return;
-            if (ai.attitude == SurvivorAttitude::Hostile) return;
-            const glm::vec2 sc(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
-            if (glm::dot(sc - playerCenter, sc - playerCenter) < kSocialRecoveryRange * kSocialRecoveryRange)
-            {
-                companyNearby = true;
-            }
-        });
 
     float isolationGain = 0.0f;
     if (!companyNearby)
@@ -168,22 +185,23 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         }
     }
 
-    // Hardened bloodline trait: loneliness bites less while still holding together.
+    // Hardened bloodline trait (phase 10): every gain is 0.7 of itself while
+    // they still hold together (below 60).
     if (world.hasComponent<Traits>(playerEntity) &&
-        world.getComponent<Traits>(playerEntity).bloodline == BloodlineTrait::Hardened &&
-        mental.depression < 60.0f)
+        world.getComponent<Traits>(playerEntity).has(BloodlineTrait::Hardened) &&
+        mental.depression < kHardenedBelow)
     {
-        depressionRelief += isolationGain * (1.0f - kHardenedDepressionFactor);
+        depressionGain *= kHardenedDepressionFactor;
     }
 
     // Company also steadies the nerves.
     mental.socialRecoveryTimer = std::max(0.0f, mental.socialRecoveryTimer - dtSeconds);
     if (companyNearby)
     {
-        depressionRelief += kSocialDepressionRelief * dtSeconds;
+        depressionRelief += kSocialDepressionRelief * mInputs.companyScale * dtSeconds;
         if (mental.socialRecoveryTimer <= 0.0f)
         {
-            mental.panic = std::max(0.0f, mental.panic - kSocialPanicRelief * kSocialRecoveryCooldown);
+            mental.panic = std::max(0.0f, mental.panic - kSocialPanicRelief * mInputs.companyScale * kSocialRecoveryCooldown);
             mental.socialRecoveryTimer = kSocialRecoveryCooldown;
         }
     }
@@ -194,6 +212,11 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         depressionGain += (mental.desensitisation - 30.0f) * kDesensitisationDepressionScale * dtSeconds;
     }
 
+    if (mGameScale != 1.0f)
+    {
+        depressionGain *= mGameScale;
+        depressionRelief *= mGameScale;
+    }
     mental.depression = std::clamp(mental.depression + depressionGain - depressionRelief, 0.0f, kDepressionRetirementThreshold);
 
     // --- Depression crisis window (M5) ---

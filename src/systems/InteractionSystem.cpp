@@ -1,4 +1,5 @@
 #include "systems/InteractionSystem.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,18 +12,24 @@
 #include "components/Health.h"
 #include "components/Interactable.h"
 #include "components/Inventory.h"
+#include "components/MentalState.h"
 #include "components/Needs.h"
 #include "components/Sleeping.h"
 #include "components/Transform.h"
 #include "components/ZombieAI.h"
 #include "items/ItemDatabase.h"
 #include "systems/InventorySystem.h"
+#include "world/MindRules.h"
 
 namespace
 {
 constexpr float kInteractRangePixels = 32.0f;
 constexpr float kSpriteHalfSize = 16.0f;
-constexpr float kSleepThreatRangePixels = 128.0f;
+constexpr float kSleepThreatRangePixels = 128.0f; // tuned as sleep.threat.tiles (x 32 px)
+float sleepThreatRange()
+{
+    return Tuning::get("sleep.threat.tiles", kSleepThreatRangePixels / 32.0f) * 32.0f;
+}
 constexpr float kMinimumSleepDebt = 18.0f;
 constexpr float kMinimumFatigue = 25.0f;
 
@@ -36,6 +43,7 @@ int interactionPriority(InteractableType type)
     case InteractableType::BandagePickup:
         return 4;
     case InteractableType::Container:
+    case InteractableType::Station:
         return 3;
     case InteractableType::JournalNote:
     case InteractableType::GraveMarker:
@@ -50,7 +58,7 @@ int interactionPriority(InteractableType type)
 
 std::string InteractionSystem::update(World& world, const Input& input, Entity playerEntity, const ItemDatabase* itemDb) const
 {
-    if (!input.wasKeyPressed(SDL_SCANCODE_E))
+    if (!input.pressed(Action::Use))
     {
         return {};
     }
@@ -177,7 +185,7 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
 
                 const glm::vec2 zombieCenter(transform.x + kSpriteHalfSize, transform.y + kSpriteHalfSize);
                 const glm::vec2 delta = zombieCenter - playerCenter;
-                if (glm::dot(delta, delta) < kSleepThreatRangePixels * kSleepThreatRangePixels)
+                if (glm::dot(delta, delta) < sleepThreatRange() * sleepThreatRange())
                 {
                     nearbyThreat = true;
                 }
@@ -186,6 +194,12 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
         if (nearbyThreat)
         {
             return "Too dangerous to sleep here.";
+        }
+        // Panicking, sleep will not come (phase 5).
+        if (world.hasComponent<MentalState>(playerEntity) &&
+            !mindrules::canSleep(mindrules::panicBand(world.getComponent<MentalState>(playerEntity).panic)))
+        {
+            return "Your heart is pounding. Sleep won't come.";
         }
 
         Sleeping sleeping{};
@@ -201,13 +215,14 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
         {
             Inventory& inv = world.getComponent<Inventory>(playerEntity);
             // Map weapon category to item ID
-            int weaponItemId = 5; // default: knife
+            const char* weaponKey = "pipe";
             switch (static_cast<WeaponCategory>(interactable.weaponCategory))
             {
-            case WeaponCategory::Bladed: weaponItemId = 5; break;  // knife
-            case WeaponCategory::Blunt: weaponItemId = 6; break;   // bat
-            default: weaponItemId = 7; break;                       // pipe
+            case WeaponCategory::Bladed: weaponKey = "knife"; break;
+            case WeaponCategory::Blunt: weaponKey = "baseball_bat"; break;
+            default: break;
             }
+            const int weaponItemId = itemDb->idOf(weaponKey);
             auto result = InventorySystem::addItem(inv, *itemDb, weaponItemId, 1);
             if (result.added > 0)
             {
@@ -239,7 +254,7 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
         if (hasInventory)
         {
             Inventory& inv = world.getComponent<Inventory>(playerEntity);
-            auto result = InventorySystem::addItem(inv, *itemDb, 4, 1); // bandage id = 4
+            auto result = InventorySystem::addItem(inv, *itemDb, itemDb->idOf("bandage"), 1);
             if (result.added > 0)
             {
                 world.destroyEntity(bestEntity);
@@ -256,41 +271,10 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
     }
 
     case InteractableType::Container:
-    {
-        if (!hasInventory || !world.hasComponent<Inventory>(bestEntity))
-        {
-            return "Nothing useful inside.";
-        }
-        Inventory& playerInv = world.getComponent<Inventory>(playerEntity);
-        Inventory& containerInv = world.getComponent<Inventory>(bestEntity);
-
-        int totalTransferred = 0;
-        for (auto& slot : containerInv.slots)
-        {
-            if (slot.itemId < 0 || slot.count <= 0)
-            {
-                continue;
-            }
-            auto result = InventorySystem::addItem(playerInv, *itemDb, slot.itemId, slot.count);
-            if (result.added > 0)
-            {
-                slot.count -= result.added;
-                if (slot.count <= 0)
-                {
-                    slot.itemId = -1;
-                    slot.count = 0;
-                    slot.condition = 1.0f;
-                }
-                totalTransferred += result.added;
-            }
-        }
-
-        if (totalTransferred == 0)
-        {
-            return "Stash picked clean or inventory full.";
-        }
-        return "Recovered " + std::to_string(totalTransferred) + " supplies.";
-    }
+    case InteractableType::Station:
+        // The game opens the container panel (and works stations) before
+        // this system sees the key.
+        return {};
 
     case InteractableType::GraveMarker:
         return interactable.message.empty() ? "An old grave marker." : interactable.message;
@@ -388,7 +372,7 @@ ProximityPrompt InteractionSystem::getProximityPrompt(World& world, Entity playe
 
                 const glm::vec2 zombieCenter(transform.x + kSpriteHalfSize, transform.y + kSpriteHalfSize);
                 const glm::vec2 delta = zombieCenter - playerCenter;
-                if (glm::dot(delta, delta) < kSleepThreatRangePixels * kSleepThreatRangePixels)
+                if (glm::dot(delta, delta) < sleepThreatRange() * sleepThreatRange())
                 {
                     nearbyThreat = true;
                 }

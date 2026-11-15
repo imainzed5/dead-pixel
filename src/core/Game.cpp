@@ -1,5 +1,6 @@
 // Game lifecycle: startup, runs, saving, input plumbing and small queries.
 #include "core/GameShared.h"
+#include "world/WeatherRules.h"
 
 using namespace gameshared;
 
@@ -71,8 +72,9 @@ int Game::run()
     using clock = std::chrono::steady_clock;
     auto previousTime = clock::now();
     double accumulator = 0.0;
+    long long ticks = 0; // --max-ticks without a script: a smoke test that quits on its own
 
-    while (mIsRunning)
+    while (mIsRunning && (mLaunchOptions.maxTicks <= 0 || ticks < mLaunchOptions.maxTicks))
     {
         const auto currentTime = clock::now();
         double frameSeconds = std::chrono::duration<double>(currentTime - previousTime).count();
@@ -92,6 +94,7 @@ int Game::run()
             update(static_cast<float>(kFixedTimeStepSeconds));
             mInput.consumeTransitions();
             accumulator -= kFixedTimeStepSeconds;
+            ++ticks;
         }
 
         mInterpolationAlpha = static_cast<float>(accumulator / kFixedTimeStepSeconds);
@@ -117,15 +120,17 @@ bool Game::initialize()
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-    mWindowWidth = kDefaultWindowWidth;
-    mWindowHeight = kDefaultWindowHeight;
+    loadSettings(); // the save root, the keys, the window (GameSettings.cpp)
+    const auto [startW, startH] = settings::resolutionSize(mSettings.resolution);
+    mPixelWidth = mHarness || startW <= 0 ? kDefaultWindowWidth : startW;
+    mPixelHeight = mHarness || startH <= 0 ? kDefaultWindowHeight : startH;
 
     mWindow = SDL_CreateWindow(
         "Dead Pixel Survival",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        mWindowWidth,
-        mWindowHeight,
+        mPixelWidth,
+        mPixelHeight,
         (mLaunchOptions.hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
 
     if (mWindow == nullptr)
@@ -151,7 +156,7 @@ bool Game::initialize()
     }
 
     // The harness steps as fast as possible; vsync would throttle --watch runs.
-    SDL_GL_SetSwapInterval(mHarness ? 0 : 1);
+    SDL_GL_SetSwapInterval(mHarness || !mSettings.vsync ? 0 : 1);
 
     glewExperimental = GL_TRUE;
     const GLenum glewResult = glewInit();
@@ -200,6 +205,12 @@ bool Game::initialize()
         shutdown();
         return false;
     }
+    // The mood pass (phase 12). Without it the game runs, only plainer.
+    if (!mPostFx.initialize((assetsRoot / "shaders" / "postfx.vert").string(),
+                            (assetsRoot / "shaders" / "postfx.frag").string()))
+    {
+        std::cerr << "Mood pass unavailable; screen effects off.\n";
+    }
 
     const std::filesystem::path fontPng = assetsRoot / "fonts" / "pixel_font.png";
     const std::filesystem::path fontJson = assetsRoot / "fonts" / "pixel_font.json";
@@ -220,31 +231,17 @@ bool Game::initialize()
     }
     mStructureSprites = StructureSprites::fromSheet(mSpriteSheet);
 
-    if (!mAudioManager.initialize(assetsRoot.string()))
-    {
-        std::cerr << "Warning: Audio init failed, continuing without sound.\n";
-    }
-    mAudioManager.playAmbient(AmbientId::Wind, 0.15f);
+    setupSound(assetsRoot); // harness runs are silent (GameSound.cpp)
+    setWindowIcon(assetsRoot);
 
-    const std::filesystem::path itemsJson = assetsRoot / "data" / "items.json";
-    if (!mItemDatabase.loadFromFile(itemsJson.string()))
+    if (!loadContent(assetsRoot))
     {
-        std::cerr << "Failed to load item database.\n";
         shutdown();
         return false;
     }
 
-    const std::filesystem::path recipesJson = assetsRoot / "data" / "recipes.json";
-    if (!mCraftingSystem.loadRecipesFromFile(recipesJson.string()))
-    {
-        std::cerr << "Failed to load crafting recipes.\n";
-        shutdown();
-        return false;
-    }
-
-    mProjection = buildProjection(mWindowWidth, mWindowHeight);
-    mCamera.setViewportSize(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
-    mCamera.clampToBounds(mTileMap.pixelSize());
+    applySettings(); // sound, keys, the interface's size, the projection
+    applyWindowMode();
     // Boot to title screen — do not start a run yet
     mRunState = RunState::TitleScreen;
     mTitleMenuSelection = 0;
@@ -280,24 +277,32 @@ bool Game::loadSlotAndWorld(const std::string& slotName)
         LayoutData layout = mSaveManager.loadWorldLayout();
         if (layout.width > 0 && layout.height > 0)
         {
+            // A save from before phase 9: the gate goes where its objective stood.
+            if (stampGate(layout)) mSaveManager.saveWorldLayout(layout);
             mMapGenerator.loadLayout(layout);
         }
         else
         {
             LayoutData regenerated = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+            stampGate(regenerated);
+            mMapGenerator.loadLayout(regenerated);
             mSaveManager.saveWorldLayout(regenerated);
         }
     }
     else
     {
         LayoutData layout = mMapGenerator.generateLayout(mSaveManager.worldSeed());
+        stampGate(layout);
+        mMapGenerator.loadLayout(layout);
         mSaveManager.saveWorldLayout(layout);
     }
 
     mMapGenerator.applyToTileMap(mTileMap);
+    placeWindows(); // before build: the walls are drawn with their windows
     mStructureView.build(mTileMap, mMapGenerator.layoutData());
     resetDoors(); // after build: closed doors are solid
     furnishWorld();
+    plantScenery();
     mLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     mActiveSaveSlot = slotName;
     syncPresentationSettingsFromSave();
@@ -318,7 +323,7 @@ void Game::syncPresentationSettingsFromSave()
     mTitleGameModeIndex = wrapIndex(indexFromSaveGameMode(settings.gameMode), static_cast<int>(kTitleGameModeNames.size()));
     mTitleModeIndex = wrapIndex(indexFromSaveThreatMode(settings.threatMode), static_cast<int>(kTitleModeNames.size()));
     mTitleToneIndex = wrapIndex(indexFromSaveTonePreset(settings.tonePreset), static_cast<int>(kTitleToneNames.size()));
-    mCampaignObjective = settings.campaignObjective;
+    mDayScale = daylength::scale(settings.dayMinutes); // the world's day length (phase 13)
 }
 
 void Game::syncPresentationSettingsToSave()
@@ -327,7 +332,6 @@ void Game::syncPresentationSettingsToSave()
     settings.gameMode = saveGameModeFromIndex(mTitleGameModeIndex);
     settings.threatMode = saveThreatModeFromIndex(mTitleModeIndex);
     settings.tonePreset = saveTonePresetFromIndex(mTitleToneIndex);
-    settings.campaignObjective = mCampaignObjective;
     mSaveManager.setPresentationSettings(settings);
     mSaveManager.savePresentationSettings();
 }
@@ -335,10 +339,19 @@ void Game::syncPresentationSettingsToSave()
 RunCheckpoint Game::buildRunCheckpoint()
 {
     RunCheckpoint cp;
+    // The town's people are kept beside the checkpoint (the survivors file).
+    saveSurvivorRecords();
     cp.runSeed = mSaveManager.currentRunSeed();
+    gateCheckpoint(cp); // what this character knows of the way out (phase 9)
+    journalCheckpoint(cp); // and what they wrote down (phase 10)
     cp.characterName = mCurrentCharacterName;
     cp.currentDay = mCurrentDay;
     cp.gameHours = mGameHours;
+    cp.weather.saved = true;
+    cp.weather.condition = static_cast<int>(mWeatherState.condition);
+    cp.weather.hoursLeft = mWeatherSystem.hoursLeft();
+    cp.weather.rngState = mWeatherSystem.rngState();
+    cp.weather.snowCover = mWeatherState.snowCover;
 
     if (mPlayerEntity != kInvalidEntity)
     {
@@ -353,6 +366,7 @@ RunCheckpoint Game::buildRunCheckpoint()
             const auto& h = mWorld.getComponent<Health>(mPlayerEntity);
             cp.healthCurrent = h.current;
             cp.healthMaximum = h.maximum;
+            cp.healthBase = h.baseMaximum;
         }
         if (mWorld.hasComponent<Needs>(mPlayerEntity))
             cp.needs = mWorld.getComponent<Needs>(mPlayerEntity);
@@ -361,6 +375,18 @@ RunCheckpoint Game::buildRunCheckpoint()
         if (mWorld.hasComponent<Wounds>(mPlayerEntity))
             cp.wounds = mWorld.getComponent<Wounds>(mPlayerEntity).active;
         cp.bleeding = mWorld.hasComponent<Bleeding>(mPlayerEntity);
+        if (mWorld.hasComponent<Traits>(mPlayerEntity))
+        {
+            const Traits& traits = mWorld.getComponent<Traits>(mPlayerEntity);
+            cp.traitsSaved = true;
+            for (PositiveTrait trait : traits.positives) cp.positiveTraits.emplace_back(traitrules::key(trait));
+            for (NegativeTrait trait : traits.negatives) cp.negativeTraits.emplace_back(traitrules::key(trait));
+        }
+        if (mWorld.hasComponent<Skills>(mPlayerEntity))
+        {
+            cp.skillsSaved = true;
+            cp.skills = mWorld.getComponent<Skills>(mPlayerEntity);
+        }
         if (mWorld.hasComponent<Inventory>(mPlayerEntity))
             cp.inventory = mWorld.getComponent<Inventory>(mPlayerEntity);
         cp.equippedSlot = mEquippedWeaponSlot;
@@ -378,34 +404,15 @@ RunCheckpoint Game::buildRunCheckpoint()
     cp.boardsSaved = true;
     cp.boardedDoors = boardedDoorRecords();
     cp.burnedTiles = mBurnedTiles;
-    mWorld.forEach<Fire, Transform>(
-        [&](Entity, Fire& fire, Transform& transform)
-        {
-            const glm::ivec2 tile = worldToTile(mTileMap, glm::vec2(transform.x, transform.y));
-            FireTileRecord record;
-            record.tileX = tile.x;
-            record.tileY = tile.y;
-            record.intensity = fire.intensity;
-            record.lifeRemaining = fire.lifeRemaining;
-            cp.fires.push_back(record);
-        });
-    cp.zombiesSaved = true;
-    mWorld.forEach<ZombieAI, Transform, Health>(
-        [&](Entity zombie, ZombieAI& ai, Transform& transform, Health& health)
-        {
-            if (health.current <= 0.0f || mWorld.hasComponent<LegacyLink>(zombie)) return;
-            ZombieRecord record;
-            record.x = transform.x;
-            record.y = transform.y;
-            record.health = health.current;
-            record.maxHealth = health.maximum;
-            record.baseMoveSpeed = ai.baseMoveSpeed;
-            record.spawnDay = ai.spawnDay;
-            cp.zombies.push_back(record);
-        });
-    mWorld.forEach<Corpse, Transform, Sprite>(
-        [&](Entity, Corpse&, Transform& transform, Sprite& sprite)
-        { cp.corpses.push_back(CorpseRecord{transform.x, transform.y, sprite.flipX}); });
+    cp.fires = fireRecords();
+    recordTheDead(cp);
+    cp.firstDaysSaved = true;
+    cp.firstDays = firstDaysRecord();
+    cp.windowsSaved = true;
+    cp.windows = windowRecords();
+    cp.structuresSaved = true;
+    cp.structures = structureRecords(false);
+    cp.scavenge = scavengeRunRecord();
     return cp;
 }
 
@@ -417,11 +424,15 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
     }
 
     syncLegacyToSave();
+    saveDistrictMemory();
+    flushGate();
 
     const bool ok = mSaveManager.saveCheckpoint(buildRunCheckpoint());
     if (ok)
     {
-        mSaveManager.saveLootedPositions();
+        refreshContainerRecords();
+        persistVehicles(false);
+        mSaveManager.saveWorldMemory();
         mInteractionMessage = statusMessage;
         mInteractionMessageTimer = 2.0f;
     }
@@ -434,122 +445,11 @@ bool Game::saveCurrentRunCheckpoint(const std::string& statusMessage)
     return ok;
 }
 
-void Game::ensureCampaignObjective()
-{
-    if (mTitleGameModeIndex != 0)
-    {
-        mCampaignObjective = CampaignObjectiveState{};
-        syncPresentationSettingsToSave();
-        return;
-    }
-
-    if (mCampaignObjective.active)
-    {
-        return;
-    }
-
-    if (mCampaignObjective.completed)
-    {
-        mCampaignObjective = CampaignObjectiveState{};
-    }
-
-    const LayoutData& layout = mMapGenerator.layoutData();
-    if (layout.width <= 0 || layout.height <= 0 || layout.districts.empty())
-    {
-        return;
-    }
-
-    const int startX = layout.playerStart.x;
-    const int startY = layout.playerStart.y;
-
-    int bestDistrictId = 0;
-    int bestTileX = startX;
-    int bestTileY = startY;
-    float bestDistance2 = -1.0f;
-
-    for (const auto& district : layout.districts)
-    {
-        if (district.id == 0)
-        {
-            continue;
-        }
-
-        const int cx = (district.minX + district.maxX) / 2;
-        const int cy = (district.minY + district.maxY) / 2;
-        const float dx = static_cast<float>(cx - startX);
-        const float dy = static_cast<float>(cy - startY);
-        const float distance2 = dx * dx + dy * dy;
-        if (distance2 > bestDistance2)
-        {
-            bestDistance2 = distance2;
-            bestDistrictId = district.id;
-            bestTileX = cx;
-            bestTileY = cy;
-        }
-    }
-
-    bestTileX = std::clamp(bestTileX, 0, mTileMap.width() - 1);
-    bestTileY = std::clamp(bestTileY, 0, mTileMap.height() - 1);
-    if (mTileMap.isSolid(bestTileX, bestTileY))
-    {
-        bool found = false;
-        for (int radius = 1; radius <= 8 && !found; ++radius)
-        {
-            for (int oy = -radius; oy <= radius && !found; ++oy)
-            {
-                for (int ox = -radius; ox <= radius; ++ox)
-                {
-                    const int nx = std::clamp(bestTileX + ox, 0, mTileMap.width() - 1);
-                    const int ny = std::clamp(bestTileY + oy, 0, mTileMap.height() - 1);
-                    if (!mTileMap.isSolid(nx, ny))
-                    {
-                        bestTileX = nx;
-                        bestTileY = ny;
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    mCampaignObjective.active = true;
-    mCampaignObjective.completed = false;
-    mCampaignObjective.tileX = bestTileX;
-    mCampaignObjective.tileY = bestTileY;
-    mCampaignObjective.districtId = bestDistrictId;
-    mCampaignObjective.infectionDeadlineDay = 60;
-
-    syncPresentationSettingsToSave();
-}
-
 void Game::registerComponents()
 {
-    mWorld.registerComponent<Transform>();
-    mWorld.registerComponent<Sprite>();
-    mWorld.registerComponent<Velocity>();
-    mWorld.registerComponent<PlayerInput>();
-    mWorld.registerComponent<Facing>();
-    mWorld.registerComponent<Stamina>();
-    mWorld.registerComponent<Combat>();
-    mWorld.registerComponent<Health>();
-    mWorld.registerComponent<ZombieAI>();
-    mWorld.registerComponent<Needs>();
-    mWorld.registerComponent<Interactable>();
-    mWorld.registerComponent<Animation>();
-    mWorld.registerComponent<Bleeding>();
-    mWorld.registerComponent<Sleeping>();
-    mWorld.registerComponent<Inventory>();
-    mWorld.registerComponent<MentalState>();
-    mWorld.registerComponent<Structure>();
-    mWorld.registerComponent<Vehicle>();
-    mWorld.registerComponent<Fire>();
-    mWorld.registerComponent<Projectile>();
-    mWorld.registerComponent<Wounds>();
-    mWorld.registerComponent<Traits>();
-    mWorld.registerComponent<SurvivorAI>();
-    mWorld.registerComponent<LegacyLink>();
-    mWorld.registerComponent<Corpse>();
+    mWorld.registerComponents<Transform, Sprite, Velocity, PlayerInput, Facing, Stamina, Combat, Health, ZombieAI, Needs,
+                              Interactable, Animation, Bleeding, Sleeping, Inventory, MentalState, Structure, Vehicle,
+                              TrunkOf, Fire, Projectile, Wounds, Traits, Skills, SurvivorAI, LegacyLink, Corpse>();
 }
 
 void Game::startNewRun()
@@ -579,6 +479,7 @@ void Game::startNewRun()
     mActiveCraftProgressSeconds = 0.0f;
 
     mRunStats = RunStats{};
+    mContainersOpened = 0;
 
     mCurrentCharacterName = generateCharacterName(mSaveManager.currentRunSeed());
 
@@ -587,95 +488,92 @@ void Game::startNewRun()
     mContainerOpen = false;
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
+    mTalk = TalkState{};
+    mSinceWeaponOut = 99.0f;
+    mRobbedAsleep = false;
+    mSurvivorSmokeTimer = 0.0f;
+    mLitHomes.clear();
+    // Sound and mood (phase 12): a new town, a new clock; the dead as last heard.
+    mHeardDead.clear();
+    mMusic.reset();
+    mTinnitusLeft = 0.0f;
+    mListening = false;
+    mListenStill = 0.0f;
+    mClockBuilding = -2;
+    mClockShows = -1.0;
     mActiveVehicleEntity = kInvalidEntity;
-    mBurnedTiles.clear();
+    clearFireAndWeatherMarks();
     mShowWorldMap = false;
     mShowNotebook = false;
+    mNotebookPage = 0;
+    resetJournal();
+    // Phase 13: teaching, the look around, the run-end's hint, the demo's
+    // week, the checkpoints at dawn and at home.
+    mLookAroundFirstLife = mSaveManager.runNumber() <= 1;
+    mLookAroundTiles = 0.0f;
+    mLookAroundUsed = false;
+    mTeachQueue.clear();
+    mTeachLine.clear();
+    mTeachId.clear();
+    mTeachTimer = 0.0f;
+    mDeathHint.clear();
+    mDemoEnded = false;
+    mDawnSavedDay = 0;
+    mWasAtHome = false;
+    mHomeSaveCooldown = 0.0f;
+    mLoudSince = -1.0;
+    mAimShown = aims::Aim{};
+    mAimRefresh = 0.0f;
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
     nudgeSpawnsOffFurniture();
+    avoidGuttedStart();
 
-    // Threat-mode spawn pressure tuning.
+    // The house an earlier life held: the new character starts there three
+    // times in ten, and always when it was the last one's home and they died
+    // away from it.
     {
-        std::mt19937 runRng(mSaveManager.currentRunSeed() ^ 0xA11CEu);
-        // Trims a random subset, so cuts spread over the town instead of
-        // emptying whichever buildings were listed last.
-        auto reduceTo = [&runRng](std::vector<glm::ivec2>& list, float ratio)
+        const BaseRecord& base = mSaveManager.baseRecord();
+        const LastHomeRecord& last = mSaveManager.lastHome();
+        std::mt19937 baseRng(mSaveManager.currentRunSeed() ^ 0xBA5Eu);
+        const bool chance = std::uniform_real_distribution<float>(0.0f, 1.0f)(baseRng) < 0.3f;
+        if (base.building > 0 && !guttedInMemory(base.building) && ((last.building == base.building && last.diedAway) || chance))
         {
-            if (list.empty()) return;
-            const std::size_t target = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(static_cast<float>(list.size()) * ratio)));
-            if (target < list.size())
+            const glm::vec2 centre(base.x / static_cast<float>(mTileMap.tileWidth()),
+                                   base.y / static_cast<float>(mTileMap.tileHeight()));
+            glm::ivec2 best(-1);
+            float bestDistance = 0.0f;
+            for (int y = 0; y < mTileMap.height(); ++y)
             {
-                std::shuffle(list.begin(), list.end(), runRng);
-                list.resize(target);
+                for (int x = 0; x < mTileMap.width(); ++x)
+                {
+                    if (mTileMap.getBuildingId(x, y) != base.building || !mTileMap.isIndoors(x, y) || mTileMap.isSolid(x, y))
+                        continue;
+                    const float distance = glm::length(glm::vec2(static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f) - centre);
+                    if (best.x < 0 || distance < bestDistance)
+                    {
+                        best = glm::ivec2(x, y);
+                        bestDistance = distance;
+                    }
+                }
             }
-        };
-        auto duplicateTo = [](std::vector<glm::ivec2>& list, float ratio)
-        {
-            if (list.empty() || ratio <= 1.0f) return;
-            const std::size_t base = list.size();
-            const std::size_t target = static_cast<std::size_t>(std::round(static_cast<float>(base) * ratio));
-            for (std::size_t i = 0; list.size() < target; ++i)
+            if (best.x >= 0)
             {
-                list.push_back(list[i % base]);
+                mSpawnData.playerStart = best;
+                std::erase_if(mSpawnData.zombieSpawns, [&](const glm::ivec2& tile)
+                              { return mTileMap.getBuildingId(tile.x, tile.y) == base.building; });
+                std::cout << "[World] starting in the house held before (building " << base.building << ")" << std::endl;
             }
-        };
-
-        switch (saveThreatModeFromIndex(mTitleModeIndex))
-        {
-        case SaveThreatMode::OverwhelmingSwarm:
-            duplicateTo(mSpawnData.zombieSpawns, 1.45f);
-            reduceTo(mSpawnData.foodSpawns, 0.88f);
-            reduceTo(mSpawnData.waterSpawns, 0.90f);
-            break;
-        case SaveThreatMode::Stalker:
-            reduceTo(mSpawnData.zombieSpawns, 0.68f);
-            duplicateTo(mSpawnData.weaponSpawns, 1.10f);
-            break;
-        case SaveThreatMode::MutatingThreat:
-            duplicateTo(mSpawnData.zombieSpawns, 1.18f);
-            reduceTo(mSpawnData.bandageSpawns, 0.85f);
-            break;
-        case SaveThreatMode::InfectedSociety:
-            reduceTo(mSpawnData.zombieSpawns, 0.82f);
-            reduceTo(mSpawnData.foodSpawns, 0.92f);
-            break;
-        case SaveThreatMode::Unknown:
-        {
-            std::uniform_real_distribution<float> ratioDist(0.75f, 1.35f);
-            const float zRatio = ratioDist(runRng);
-            const float foodRatio = ratioDist(runRng);
-            const float waterRatio = ratioDist(runRng);
-            if (zRatio >= 1.0f) duplicateTo(mSpawnData.zombieSpawns, zRatio); else reduceTo(mSpawnData.zombieSpawns, zRatio);
-            if (foodRatio >= 1.0f) duplicateTo(mSpawnData.foodSpawns, foodRatio); else reduceTo(mSpawnData.foodSpawns, foodRatio);
-            if (waterRatio >= 1.0f) duplicateTo(mSpawnData.waterSpawns, waterRatio); else reduceTo(mSpawnData.waterSpawns, waterRatio);
-            break;
         }
-        case SaveThreatMode::Hybrid:
-            duplicateTo(mSpawnData.zombieSpawns, 1.32f);
-            reduceTo(mSpawnData.foodSpawns, 0.82f);
-            reduceTo(mSpawnData.bandageSpawns, 0.82f);
-            break;
-        }
-
-        // Tone preset on top of the threat mode.
-        const ToneTuning tone = toneTuning(saveTonePresetFromIndex(mTitleToneIndex));
-        const auto scaleTo = [&](std::vector<glm::ivec2>& list, float ratio)
-        {
-            if (ratio >= 1.0f) duplicateTo(list, ratio);
-            else reduceTo(list, ratio);
-        };
-        for (std::vector<glm::ivec2>* supplies : {&mSpawnData.foodSpawns, &mSpawnData.waterSpawns, &mSpawnData.bandageSpawns,
-                                                  &mSpawnData.medicalCacheSpawns, &mSpawnData.supplyCacheSpawns})
-        {
-            scaleTo(*supplies, tone.suppliesScale);
-        }
-        scaleTo(mSpawnData.weaponSpawns, tone.weaponScale);
-        scaleTo(mSpawnData.zombieSpawns, tone.zombieCountScale);
     }
 
-    ensureCampaignObjective();
+    // The town's people (phase 8): never a start in someone else's house.
+    loadSurvivorRecords();
+    avoidSurvivorHomes();
+
+    // The mode, the tone, the dead the last life cleared, the town's growth.
+    tuneRunSpawns();
 
     const std::uint64_t runLayoutFingerprint = computeLayoutFingerprint(mMapGenerator.layoutData());
     if (mLayoutFingerprint != 0 && runLayoutFingerprint != mLayoutFingerprint)
@@ -710,10 +608,33 @@ void Game::startNewRun()
             auto& t = mWorld.getComponent<Transform>(mPlayerEntity);
             t.x = cp.playerX; t.y = cp.playerY;
         }
+        // Who they were: the chosen traits, or (a checkpoint from before
+        // the character screen) the seed's old pick; then health as saved.
+        {
+            Traits traits = traitrules::legacyPick(mSaveManager.currentRunSeed());
+            if (cp.traitsSaved)
+            {
+                traits.positives.clear();
+                traits.negatives.clear();
+                for (const std::string& key : cp.positiveTraits)
+                {
+                    if (const auto trait = traitrules::parsePositive(key)) traits.positives.push_back(*trait);
+                }
+                for (const std::string& key : cp.negativeTraits)
+                {
+                    if (const auto trait = traitrules::parseNegative(key)) traits.negatives.push_back(*trait);
+                }
+            }
+            applyCharacter(traits, true);
+            if (cp.skillsSaved && mWorld.hasComponent<Skills>(mPlayerEntity))
+            {
+                mWorld.getComponent<Skills>(mPlayerEntity) = cp.skills;
+            }
+        }
         if (mWorld.hasComponent<Health>(mPlayerEntity))
         {
             auto& h = mWorld.getComponent<Health>(mPlayerEntity);
-            h.current = cp.healthCurrent; h.maximum = cp.healthMaximum;
+            h.current = cp.healthCurrent; h.maximum = cp.healthMaximum; h.baseMaximum = cp.healthBase;
         }
         if (mWorld.hasComponent<Needs>(mPlayerEntity))
             mWorld.getComponent<Needs>(mPlayerEntity) = cp.needs;
@@ -738,6 +659,16 @@ void Game::startNewRun()
         mRunStats.structuresBuilt = cp.structuresBuilt;
         mRunStats.distanceWalked = cp.distanceWalked;
         restoreTownFromCheckpoint(cp);
+        if (cp.weather.saved)
+        {
+            mWeatherSystem.restore(mWeatherState, static_cast<WeatherCondition>(cp.weather.condition),
+                                   cp.weather.hoursLeft, cp.weather.rngState);
+            mWeatherState.snowCover = cp.weather.snowCover;
+        }
+        if (cp.firstDaysSaved)
+        {
+            restoreFirstDays(cp.firstDays);
+        }
 
         mInteractionMessage = "Resumed " + mCurrentCharacterName + "'s run.";
         mInteractionMessageTimer = 3.0f;
@@ -747,6 +678,15 @@ void Game::startNewRun()
     {
         mSaveManager.deleteCheckpoint();
     }
+    // The way out (phase 9): what this character knew, then the key and the
+    // fuse wherever they lie.
+    if (restoredCheckpoint) restoreGate(cp);
+    restoreJournal(cp, restoredCheckpoint); // and the markers carried (phase 10)
+    ensureGateKey();
+    ensureGateFuse();
+    placeHomeKit();
+    plantScenery(); // again, now that the run's people and things are in place
+    for (const auto& [bx, by] : mBurnedTiles) mSceneryView.burnTree(glm::ivec2(bx, by));
 
     if (!restoredCheckpoint)
     {
@@ -755,12 +695,30 @@ void Game::startNewRun()
             mInteractionMessage = "You are " + mCurrentCharacterName + ".";
             mInteractionMessageTimer = 3.5f;
         }
+        // A new life from the menus: choose who first (phase 5).
+        if (mCreateCharacterOnStart) beginCharacterCreation();
     }
+    mCreateCharacterOnStart = false;
+    mHallucinations.reset(mSaveManager.currentRunSeed() ^ 0x5EE1u);
+    mPackTab = 0;
+    mBodyCursor = 0;
+    mBodyChoosing = false;
+    mMicrosleepIn = -1.0f;
+    mMicrosleepLeft = 0.0f;
+    mRunXpPixels = 0.0f;
+    mCarryXpHours = 0.0f;
+    mPrevHolders = 0;
+    mBodyRolls = 0;
+    mWeekDayNoted = mCurrentDay;
+    mXpSearched.clear();
+    mRebleedRunSeconds = 0.0f;
 }
 
 void Game::returnToTitleScreen()
 {
-    // Navigation only: return to title without writing a new checkpoint/save.
+    // Navigation only: return to title without writing a new checkpoint/save
+    // (a gate change kept back from a busy tick is written now).
+    flushGate();
     mWorld = World{};
     registerComponents();
 
@@ -771,7 +729,10 @@ void Game::returnToTitleScreen()
     mNoiseEmitTimer = 0.0f;
     mMovementNoiseTier = NoiseTier::None;
 
-    mBuildSystem = BuildSystem{};
+    mBaseAction = BaseAction{};
+    mBuildWheelOpen = false;
+    mBuildChoice = -1;
+    mWindowClimbs.clear();
     mParticleSystem = ParticleSystem{};
 
     mRunState = RunState::TitleScreen;
@@ -795,11 +756,25 @@ void Game::returnToTitleScreen()
     mContainerOpen = false;
     mOpenContainerEntity = kInvalidEntity;
     mContainerCursor = 0;
+    mTalk = TalkState{};
+    mSinceWeaponOut = 99.0f;
+    mRobbedAsleep = false;
+    mSurvivorSmokeTimer = 0.0f;
+    mLitHomes.clear();
+    // Sound and mood (phase 12): a new town, a new clock; the dead as last heard.
+    mHeardDead.clear();
+    mMusic.reset();
+    mTinnitusLeft = 0.0f;
+    mListening = false;
+    mListenStill = 0.0f;
+    mClockBuilding = -2;
+    mClockShows = -1.0;
     mActiveVehicleEntity = kInvalidEntity;
-    mBurnedTiles.clear();
+    clearFireAndWeatherMarks();
     mShowWorldMap = false;
     mShowNotebook = false;
     mRunStats = RunStats{};
+    mContainersOpened = 0;
 
     mInteractionMessage.clear();
     mInteractionMessageTimer = 0.0f;
@@ -808,6 +783,8 @@ void Game::returnToTitleScreen()
 
     mShowControls = false;
     mShowTitleCredits = false;
+    mTitleView = TitleView::Main;
+    mQuitConfirm = false;
     mTitleMenuSelection = 0;
     mTitleConfirmNewWorld = false;
     mTitleConfirmNewWorldTimer = 0.0f;
@@ -829,11 +806,13 @@ void Game::returnToTitleScreen()
 
 void Game::shutdown()
 {
+    flushGate();
     mDebugEntities.clear();
     mPlayerEntity = kInvalidEntity;
     mMovementNoiseTier = NoiseTier::None;
 
     mSpriteBatch.shutdown();
+    mPostFx.shutdown();
     mTexture.unload();
     mAudioManager.shutdown();
 
@@ -855,120 +834,6 @@ void Game::shutdown()
     }
 
     mIsRunning = false;
-}
-
-void Game::processInputEvents()
-{
-    SDL_Event event;
-    while (SDL_PollEvent(&event) != 0)
-    {
-        mInput.processEvent(event);
-
-        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
-        {
-            mWindowWidth = event.window.data1;
-            mWindowHeight = event.window.data2;
-            mProjection = buildProjection(mWindowWidth, mWindowHeight);
-            mCamera.setViewportSize(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
-            mCamera.clampToBounds(mTileMap.pixelSize());
-        }
-    }
-
-    if (!mHarness)
-    {
-        mInput.refreshMouseState();
-    }
-
-    if (mInput.quitRequested())
-    {
-        mIsRunning = false;
-    }
-
-    // Mouse wheel zoom (frame-level: scroll is consumed here, not per tick)
-    if (const int scroll = mInput.consumeScroll(); scroll != 0)
-    {
-        const bool minimapZoomInput =
-            mRunState == RunState::Playing &&
-            !mShowWorldMap &&
-            (mInput.isKeyDown(SDL_SCANCODE_LCTRL) || mInput.isKeyDown(SDL_SCANCODE_RCTRL));
-
-        if (minimapZoomInput)
-        {
-            const float zoomFactor = 1.0f + static_cast<float>(scroll) * kMinimapZoomStep;
-            mMinimapZoom = std::clamp(mMinimapZoom * zoomFactor, kMinimapZoomMin, kMinimapZoomMax);
-        }
-        else
-        {
-            constexpr float kZoomStep = 0.15f;
-            const float currentZoom = mCamera.zoom();
-            const float newZoom = currentZoom * (1.0f + static_cast<float>(scroll) * kZoomStep);
-            const glm::vec2 mouseScreen(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
-            mCamera.zoomToward(newZoom, mouseScreen);
-            mCamera.clampToBounds(mTileMap.pixelSize());
-        }
-    }
-}
-
-void Game::handleEscapeKey()
-{
-    if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
-    {
-        // While playing, Escape closes the topmost open panel; it only pauses
-        // when nothing is open. Panel handlers later in the tick see the same
-        // press, but their panels are already closed so it is a no-op.
-        if (mRunState == RunState::Playing)
-        {
-            if (mShowCrafting)
-            {
-                mShowCrafting = false;
-            }
-            else if (mContainerOpen)
-            {
-                mContainerOpen = false;
-                mOpenContainerEntity = kInvalidEntity;
-            }
-            else if (mBuildSystem.isBuildMode())
-            {
-                mBuildSystem.exitBuildMode();
-            }
-            else if (mShowWorldMap)
-            {
-                mShowWorldMap = false;
-            }
-            else if (mShowNotebook)
-            {
-                mShowNotebook = false;
-            }
-            else if (mShowInventory)
-            {
-                mShowInventory = false;
-            }
-            else
-            {
-                mRunState = RunState::Paused;
-                mPauseSelection = 0;
-            }
-        }
-        else if (mRunState == RunState::Paused)
-        {
-            mRunState = RunState::Playing;
-        }
-        else if (mRunState == RunState::TitleScreen)
-        {
-            if (mShowTitleCredits)
-            {
-                mShowTitleCredits = false;
-            }
-            else if (mShowControls)
-            {
-                mShowControls = false;
-            }
-            else
-            {
-                mIsRunning = false;
-            }
-        }
-    }
 }
 
 void Game::snapshotPositions()
@@ -997,12 +862,8 @@ glm::ivec2 Game::playerTile() const
 
 float Game::nightFactor() const
 {
-    // 0 = full day, 1 = full night, with dusk 18-20 and dawn 5-6.
-    const double hour = mGameHours;
-    if (hour >= 6.0 && hour < 18.0) return 0.0f;
-    if (hour >= 18.0 && hour < 20.0) return static_cast<float>((hour - 18.0) / 2.0);
-    if (hour >= 5.0 && hour < 6.0) return 1.0f - static_cast<float>(hour - 5.0);
-    return 1.0f;
+    // 0 = full day, 1 = full night; dusk and dawn move with the seasons.
+    return weatherrules::nightFactor(mCurrentDay, mGameHours);
 }
 
 void Game::refreshTitleCheckpoint()
@@ -1016,57 +877,10 @@ void Game::refreshTitleCheckpoint()
     mTitleCheckpointRefreshTimer = 1.0f;
 }
 
-NeedsEnvironment Game::buildNeedsEnvironment()
+bool Game::playerHasItem(int itemId) const
 {
-    NeedsEnvironment environment;
-    environment.gameHours = mGameHours;
-    environment.outdoorTemperature = mWeatherState.temperature;
-    environment.rainIntensity = mWeatherState.rainIntensity;
-    environment.windStrength = mWeatherState.windStrength;
-    environment.tileMap = &mTileMap;
-
-    mWorld.forEach<Structure, Transform>(
-        [&](Entity, Structure& structure, Transform& st)
-        {
-            if (structure.type != StructureType::Campfire || structure.hp <= 0.0f) return;
-            environment.heatSources.emplace_back(st.x + kSpriteSize * 0.5f, st.y + kSpriteSize * 0.5f);
-        });
-    mWorld.forEach<Fire, Transform>(
-        [&](Entity, Fire& fire, Transform& ft)
-        {
-            if (fire.intensity <= 0.1f) return;
-            environment.heatSources.emplace_back(ft.x + kSpriteSize * 0.5f, ft.y + kSpriteSize * 0.5f);
-        });
-
-    // Clothing: a jacket in the pack counts as worn.
-    if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
-    {
-        constexpr float kJacketInsulation = 5.0f;
-        mWorld.getComponent<Needs>(mPlayerEntity).clothingInsulation =
-            playerHasItem("Jacket") ? kJacketInsulation : 0.0f;
-    }
-    return environment;
-}
-
-bool Game::playerHasItem(const char* itemName) const
-{
-    if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Inventory>(mPlayerEntity))
-    {
-        return false;
-    }
-    const ItemDef* item = mItemDatabase.findByName(itemName);
-    if (item == nullptr)
-    {
-        return false;
-    }
-    for (const auto& slot : mWorld.getComponent<Inventory>(mPlayerEntity).slots)
-    {
-        if (slot.itemId == item->id && slot.count > 0)
-        {
-            return true;
-        }
-    }
-    return false;
+    return itemId >= 0 && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity) &&
+           InventorySystem::countItem(mWorld.getComponent<Inventory>(mPlayerEntity), itemId) > 0;
 }
 
 void Game::updateWindowTitle(double frameSeconds)

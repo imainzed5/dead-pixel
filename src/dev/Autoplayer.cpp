@@ -1,0 +1,1888 @@
+#include "dev/Autoplayer.h"
+#include "world/CombatRules.h"
+
+#include <glm/geometric.hpp>
+
+#include <algorithm>
+#include <cmath>
+
+#include "ai/Pathfinder.h"
+#include "components/Bleeding.h"
+#include "components/Combat.h"
+#include "components/Health.h"
+#include "components/Interactable.h"
+#include "components/Inventory.h"
+#include "components/Needs.h"
+#include "components/Sleeping.h"
+#include "components/Sprite.h"
+#include "components/Stamina.h"
+#include "components/SurvivorAI.h"
+#include "components/Wounds.h"
+#include "components/Transform.h"
+#include "components/Vehicle.h"
+#include "components/ZombieAI.h"
+#include "core/Game.h"
+#include "core/GameShared.h"
+#include "systems/CombatSystem.h"
+#include "systems/InventorySystem.h"
+#include "map/TileIds.h"
+#include "systems/BuildSystem.h"
+#include "world/Aims.h"
+#include "world/FirstDays.h"
+#include "world/FurnitureUse.h"
+#include "world/WoundRules.h"
+
+using namespace gameshared;
+
+namespace
+{
+constexpr float kTile = 32.0f;
+constexpr int kTapGapTicks = 8;     // a key goes up for a few ticks between presses
+constexpr int kStuckGameHours = 3;
+constexpr float kMinReach = 24.0f;  // a weapon reaching less than this (a broken knife) is not worth swinging
+constexpr float kRunUntilFatigue = 70.0f; // sprinting tires fast and only standing still undoes it
+constexpr float kHostileHomeTiles = 12.0f; // cupboards this near a hostile survivor's home are left alone
+constexpr float kHostileSeenTiles = 10.0f; // a hostile survivor in sight this near is walked away from
+
+// Someone living who would go for us on sight (phase 8): hostile by their
+// numbers, or turned on us today.
+bool hostileSurvivor(int today, const SurvivorAI& ai)
+{
+    return ai.alive && (ai.attitude == survivorrules::Attitude::Hostile || ai.angryDay == today);
+}
+
+bool isFood(const ItemDatabase& db, int itemId, float condition)
+{
+    const ItemDef* def = db.find(itemId);
+    return def != nullptr && def->category == ItemCategory::Food && def->hungerRestore > 0.0f && condition >= 0.3f &&
+           def->rawIllness <= 0.0f;
+}
+
+bool isDrink(const ItemDatabase& db, int itemId, float)
+{
+    const ItemDef* def = db.find(itemId);
+    return def != nullptr && def->category == ItemCategory::Drink && def->thirstRestore > 0.0f && def->key != "dirty_water";
+}
+
+// Dirty Water (phase 6): drunk only when there is nothing clean.
+bool isDirtyDrink(const ItemDatabase& db, int itemId, float)
+{
+    const ItemDef* def = db.find(itemId);
+    return def != nullptr && def->key == "dirty_water";
+}
+
+bool stopsBleeding(const ItemDatabase& db, int itemId, float)
+{
+    const ItemDef* def = db.find(itemId);
+    return def != nullptr && def->stopsBleeding;
+}
+
+// What an item does for a wound (phase 5), or None.
+woundrules::Treatment treatmentOf(const ItemDatabase& db, int itemId)
+{
+    const ItemDef* def = db.find(itemId);
+    return def != nullptr && !def->treats.empty() ? woundrules::treatmentFromName(def->treats) : woundrules::Treatment::None;
+}
+
+bool heals(const ItemDatabase& db, int itemId, float)
+{
+    const ItemDef* def = db.find(itemId);
+    return def != nullptr && def->category == ItemCategory::Medical && def->healthRestore > 0.0f;
+}
+
+// What a weapon in a pack slot is worth in a fight: damage per swing, and
+// nothing at all when its reach is inside a zombie's (a broken knife).
+float weaponScore(const ItemDatabase& db, int itemId, float condition)
+{
+    const ItemDef* def = db.find(itemId);
+    if (def == nullptr || def->category != ItemCategory::Weapon || def->weaponCategory < 0 ||
+        def->weaponCategory == static_cast<int>(WeaponCategory::Ranged))
+    {
+        return 0.0f;
+    }
+    Combat combat{};
+    combat.weapon = weaponStatsForItem(*def);
+    combat.weapon.durability = std::clamp(
+        static_cast<int>(std::round(static_cast<float>(combat.weapon.maxDurability) * condition)), 0,
+        combat.weapon.maxDurability);
+    combat.weapon.condition = weaponConditionFor(combat.weapon.durability, combat.weapon.maxDurability);
+    if (CombatSystem::effectiveRangePixels(combat) < kMinReach) return 0.0f;
+    return CombatSystem::effectiveDamage(combat);
+}
+
+bool isUsableWeapon(const ItemDatabase& db, int itemId, float condition)
+{
+    return weaponScore(db, itemId, condition) > 0.0f;
+}
+
+glm::vec2 tileCentre(const glm::ivec2& tile)
+{
+    return (glm::vec2(tile) + glm::vec2(0.5f)) * kTile;
+}
+} // namespace
+
+double Autoplayer::clock(const Game& game)
+{
+    return static_cast<double>(game.mCurrentDay) * 24.0 + game.mGameHours;
+}
+
+bool Autoplayer::parseProfile(std::string_view name, Profile& out)
+{
+    if (name == "careful") out = Profile::Careful;
+    else if (name == "normal") out = Profile::Normal;
+    else if (name == "bold") out = Profile::Bold;
+    else return false;
+    return true;
+}
+
+void Autoplayer::start(Game& game, Profile profile, int days)
+{
+    *this = Autoplayer{};
+    mRunning = true;
+    mProfile = profile;
+    mEndDay = game.mCurrentDay + std::max(1, days);
+    mRng ^= static_cast<std::uint32_t>(game.mSaveManager.currentRunSeed());
+    mLastMoveHour = clock(game);
+    mUnstuckAt = mLastMoveHour + 0.5;
+    mStuckTile = playerTile(game);
+}
+
+void Autoplayer::stop(Game& game)
+{
+    mWant.clear();
+    mClickNow = false;
+    applyInput(game);
+    mRunning = false;
+}
+
+bool Autoplayer::tap(Action key)
+{
+    if (mTapCooldown > 0)
+    {
+        return false;
+    }
+    mWant.push_back(key);
+    mTapCooldown = kTapGapTicks;
+    return true;
+}
+
+bool Autoplayer::click()
+{
+    if (mClickCooldown > 0)
+    {
+        return false;
+    }
+    mClickNow = true;
+    mClickCooldown = kTapGapTicks;
+    return true;
+}
+
+void Autoplayer::mouseAt(Game& game, const glm::vec2& screen)
+{
+    game.mInput.setMousePosition(static_cast<int>(screen.x), static_cast<int>(screen.y));
+}
+
+void Autoplayer::applyInput(Game& game)
+{
+    // Keys held last tick and not wanted now go up; wanted ones go down.
+    for (Action key : mHeld)
+    {
+        if (std::find(mWant.begin(), mWant.end(), key) == mWant.end())
+        {
+            game.mInput.setAction(key, false);
+        }
+    }
+    for (Action key : mWant)
+    {
+        game.mInput.setAction(key, true);
+    }
+    mHeld = mWant;
+    mWant.clear();
+
+    if (mMouseDown && !mClickNow)
+    {
+        game.mInput.setAction(Action::Attack, false);
+        mMouseDown = false;
+    }
+    else if (mClickNow && !mMouseDown)
+    {
+        game.mInput.setAction(Action::Attack, true);
+        mMouseDown = true;
+    }
+    mClickNow = false;
+}
+
+glm::vec2 Autoplayer::playerCentre(Game& game) const
+{
+    if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Transform>(game.mPlayerEntity))
+    {
+        return glm::vec2(0.0f);
+    }
+    const Transform& t = game.mWorld.getComponent<Transform>(game.mPlayerEntity);
+    return glm::vec2(t.x + 16.0f, t.y + 16.0f);
+}
+
+glm::ivec2 Autoplayer::playerTile(Game& game) const
+{
+    const glm::vec2 c = playerCentre(game);
+    return glm::ivec2(static_cast<int>(std::floor(c.x / kTile)), static_cast<int>(std::floor(c.y / kTile)));
+}
+
+glm::ivec2 Autoplayer::homeTile(Game& game) const
+{
+    return game.mSpawnData.playerStart;
+}
+
+bool Autoplayer::standTileFor(Game& game, const glm::ivec2& tile, glm::ivec2& out) const
+{
+    std::vector<glm::ivec2> spots;
+    for (const FurniturePiece& piece : game.mFurniture)
+    {
+        if (piece.tile == tile && furniture::info(piece.kind).oriented)
+        {
+            spots.push_back(furniture::frontTile(piece));
+        }
+    }
+    for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(0, 1), glm::ivec2(-1, 0), glm::ivec2(0, -1)})
+    {
+        spots.push_back(tile + side);
+    }
+    const int building = game.mTileMap.getBuildingId(tile.x, tile.y);
+    for (const glm::ivec2& spot : spots)
+    {
+        if (spot.x < 0 || spot.y < 0 || spot.x >= game.mTileMap.width() || spot.y >= game.mTileMap.height()) continue;
+        if (game.mTileMap.isSolid(spot.x, spot.y)) continue;
+        if (game.mTileMap.doorState(spot.x, spot.y) != DoorState::None) continue;
+        if (building > 0 && game.mTileMap.getBuildingId(spot.x, spot.y) != building) continue;
+        if (mUnreachable.count(Tile{spot.x, spot.y}) != 0) continue;
+        out = spot;
+        return true;
+    }
+    return false;
+}
+
+// Picks the WASD combination closest to a world direction (the keys move in
+// screen directions: W is world (-1,-1), D is (1,-1)).
+void Autoplayer::steer(Game&, const glm::vec2& worldDirection)
+{
+    if (glm::dot(worldDirection, worldDirection) < 1e-6f)
+    {
+        return;
+    }
+    struct Option
+    {
+        glm::vec2 dir;
+        Action a;
+        Action b;
+    };
+    static const Option kOptions[] = {
+        {{-1.0f, -1.0f}, Action::MoveUp, Action::Count}, {{1.0f, 1.0f}, Action::MoveDown, Action::Count},
+        {{-1.0f, 1.0f}, Action::MoveLeft, Action::Count},  {{1.0f, -1.0f}, Action::MoveRight, Action::Count},
+        {{-1.0f, 0.0f}, Action::MoveUp, Action::MoveLeft},        {{0.0f, -1.0f}, Action::MoveUp, Action::MoveRight},
+        {{0.0f, 1.0f}, Action::MoveDown, Action::MoveLeft},         {{1.0f, 0.0f}, Action::MoveDown, Action::MoveRight},
+    };
+    const glm::vec2 want = glm::normalize(worldDirection);
+    const Option* best = &kOptions[0];
+    float bestDot = -2.0f;
+    for (const Option& option : kOptions)
+    {
+        const float d = glm::dot(glm::normalize(option.dir), want);
+        if (d > bestDot)
+        {
+            bestDot = d;
+            best = &option;
+        }
+    }
+    hold(best->a);
+    if (best->b != Action::Count) hold(best->b);
+}
+
+Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run)
+{
+    const glm::ivec2 here = playerTile(game);
+    const glm::vec2 centre = playerCentre(game);
+    if (here == goal && glm::length(tileCentre(goal) - centre) < 10.0f)
+    {
+        resetPath();
+        return Move::Arrived;
+    }
+
+    if (goal != mPathGoal || mPath.empty())
+    {
+        mPath = Pathfinder::findPath(game.mTileMap, here, goal, Pathfinder::Mover::Living);
+        mPathGoal = goal;
+        mPathIndex = 0;
+        mNoProgressTicks = 0;
+        if (mPath.empty() && here != goal)
+        {
+            mUnreachable.insert(Tile{goal.x, goal.y});
+            resetPath();
+            return Move::Failed;
+        }
+        if (mPath.empty()) mPath.push_back(goal);
+    }
+
+    // Skip waypoints already reached.
+    while (mPathIndex + 1 < mPath.size() && mPath[mPathIndex] == here)
+    {
+        ++mPathIndex;
+    }
+    for (std::size_t i = mPathIndex; i < mPath.size(); ++i)
+    {
+        if (mPath[i] == here && i + 1 < mPath.size()) mPathIndex = i + 1;
+    }
+    const glm::ivec2 next = mPath[std::min(mPathIndex, mPath.size() - 1)];
+
+    // A closed door on the way: pry its boards off, then open it.
+    if (game.mTileMap.doorState(next.x, next.y) == DoorState::Closed)
+    {
+        const float d = glm::length(tileCentre(next) - centre);
+        // Locked (phase 6): from inside the lock turns (E); from outside, a
+        // bold player with a crowbar forces it, anyone else goes round.
+        if (d < kTile * 1.2f && game.doorLocked(next) && game.mTileMap.getBuildingId(here.x, here.y) <= 0)
+        {
+            bool crowbar = false;
+            if (game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+            {
+                crowbar = InventorySystem::countTagged(game.mWorld.getComponent<Inventory>(game.mPlayerEntity), game.mItemDatabase,
+                                                       "tool:pry") > 0;
+            }
+            if (!crowbar || mProfile == Profile::Careful)
+            {
+                mUnreachable.insert(Tile{goal.x, goal.y});
+                mDoorTicks = 0;
+                resetPath();
+                return Move::Failed;
+            }
+            if (++mDoorTicks > 900)
+            {
+                mUnreachable.insert(Tile{goal.x, goal.y});
+                mDoorTicks = 0;
+                resetPath();
+                return Move::Failed;
+            }
+            mActivity = "force";
+            // Still on the press: forcing is a held action and a step stops it.
+            if (!tap(Action::Pry)) steer(game, tileCentre(next) - centre);
+            return Move::Walking;
+        }
+        if (d < kTile * 1.2f)
+        {
+            ++mDoorTicks;
+            mActivity = "door";
+            if (mDoorTicks > 600)
+            {
+                // Cannot get it open: try another way round.
+                mUnreachable.insert(Tile{goal.x, goal.y});
+                mDoorTicks = 0;
+                resetPath();
+                return Move::Failed;
+            }
+            if (game.mTileMap.doorBoards(next.x, next.y) > 0 && atHome(game) && isDark(game))
+            {
+                // Never undo the night's boards from the inside.
+                mUnreachable.insert(Tile{goal.x, goal.y});
+                mDoorTicks = 0;
+                resetPath();
+                return Move::Failed;
+            }
+            if (game.mTileMap.doorBoards(next.x, next.y) > 0) tap(Action::Pry);
+            else tap(Action::Use);
+            steer(game, tileCentre(next) - centre); // lean in so the door is the nearest thing
+            return Move::Walking;
+        }
+    }
+    mDoorTicks = 0;
+
+    // Progress watch: no tile change for a few seconds means a wall or a body
+    // in the way. Repath, then sidestep, then give up on the goal.
+    if (here != mLastTile)
+    {
+        mLastTile = here;
+        mNoProgressTicks = 0;
+        mRepaths = 0;
+    }
+    else if (++mNoProgressTicks > 240)
+    {
+        mNoProgressTicks = 0;
+        if (++mRepaths > 3)
+        {
+            mUnreachable.insert(Tile{goal.x, goal.y});
+            mRepaths = 0;
+            resetPath();
+            return Move::Failed;
+        }
+        mRng = mRng * 1664525u + 1013904223u;
+        const float angle = static_cast<float>(mRng >> 8) * (6.2831853f / 16777216.0f);
+        mNudgeDir = glm::vec2(std::cos(angle), std::sin(angle));
+        mNudgeTicks = 30;
+        // A parked car the paths do not know about (phase 14: the bot stood
+        // pressed against a pickup for three hours): step back off it first.
+        float nearestCar = 2.5f * kTile;
+        game.mWorld.forEach<Vehicle, Transform>(
+            [&](Entity, Vehicle&, Transform& t)
+            {
+                const glm::vec2 away = centre - glm::vec2(t.x + 16.0f, t.y + 16.0f);
+                const float d = glm::length(away);
+                if (d < nearestCar && d > 0.1f)
+                {
+                    nearestCar = d;
+                    mNudgeDir = glm::normalize(away + mNudgeDir * 0.5f * d);
+                    mNudgeTicks = 75;
+                }
+            });
+        resetPath();
+        return Move::Walking;
+    }
+
+    if (mNudgeTicks > 0)
+    {
+        --mNudgeTicks;
+        steer(game, mNudgeDir);
+    }
+    else
+    {
+        steer(game, tileCentre(next) - centre);
+    }
+    if (run) hold(Action::Run);
+    return Move::Walking;
+}
+
+// Close enough to lean in and use a piece of furniture: within a tile and a
+// half, and in the same building (not through a wall from next door).
+bool Autoplayer::withinReach(Game& game, const glm::ivec2& tile) const
+{
+    const glm::ivec2 here = playerTile(game);
+    if (game.mTileMap.getBuildingId(here.x, here.y) != game.mTileMap.getBuildingId(tile.x, tile.y)) return false;
+    if (std::abs(here.x - tile.x) > 1 || std::abs(here.y - tile.y) > 1) return false;
+    return glm::length(tileCentre(tile) - playerCentre(game)) < 44.0f;
+}
+
+void Autoplayer::useSlot(int slot)
+{
+    mUseSlot = slot;
+    mUseTicks = 0;
+    mUseDone = false;
+}
+
+int Autoplayer::findSlot(Game& game, bool (*want)(const ItemDatabase&, int itemId, float condition)) const
+{
+    if (game.mPlayerEntity == kInvalidEntity || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity)) return -1;
+    const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+    for (int i = 0; i < Inventory::kMaxSlots; ++i)
+    {
+        const InventorySlot& slot = inv.slots[static_cast<std::size_t>(i)];
+        if (slot.itemId >= 0 && slot.count > 0 && want(game.mItemDatabase, slot.itemId, slot.condition)) return i;
+    }
+    return -1;
+}
+
+bool Autoplayer::handlePendingUse(Game& game)
+{
+    if (mUseSlot < 0)
+    {
+        return false;
+    }
+    mActivity = "using";
+    if (++mUseTicks > 120)
+    {
+        mUseSlot = -1;
+        if (game.mShowInventory) tap(Action::UiBack);
+        return true;
+    }
+    if (mUseDone)
+    {
+        if (game.mShowInventory) tap(Action::UiBack);
+        else mUseSlot = -1;
+        return true;
+    }
+    if (!game.mShowInventory)
+    {
+        tap(Action::Pack);
+        return true;
+    }
+    if (game.mPackTab != 0)
+    {
+        tap(Action::UiBack); // not the pack: close, and open it again
+        return true;
+    }
+    const InventoryLayout layout = computeInventoryLayout(game.mWindowWidth, game.mWindowHeight);
+    mouseAt(game, layout.slotPos(mUseSlot) + glm::vec2(InventoryLayout::kSlot * 0.5f));
+    if (game.mInventoryCursor == mUseSlot && tap(Action::UseItem))
+    {
+        mUseDone = true;
+    }
+    return true;
+}
+
+bool Autoplayer::treatBleeding(Game& game)
+{
+    const bool bleeding = game.mWorld.hasComponent<Bleeding>(game.mPlayerEntity);
+    const bool wounded = game.mWorld.hasComponent<Wounds>(game.mPlayerEntity) &&
+                         !game.mWorld.getComponent<Wounds>(game.mPlayerEntity).active.empty();
+    if (!bleeding && !wounded) return false;
+    if (clock(game) < mTreatRetryAt) return false; // the last try did nothing; wait a while
+    int slot = bleeding ? findSlot(game, stopsBleeding) : -1;
+    if (slot < 0 && wounded)
+    {
+        // The first thing in the pack that helps a wound: a splint for a
+        // break, stitches for a deep cut, a dressing, antibiotics.
+        const std::vector<Wound>& wounds = game.mWorld.getComponent<Wounds>(game.mPlayerEntity).active;
+        const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        for (int i = 0; i < Inventory::kMaxSlots && slot < 0; ++i)
+        {
+            const InventorySlot& s = inv.slots[static_cast<std::size_t>(i)];
+            if (s.itemId < 0 || s.count <= 0) continue;
+            const woundrules::Treatment treatment = treatmentOf(game.mItemDatabase, s.itemId);
+            if (treatment != woundrules::Treatment::None && woundrules::worstFor(treatment, wounds) >= 0) slot = i;
+        }
+    }
+    if (slot < 0) return false;
+    mActivity = "treat";
+    mTreatRetryAt = clock(game) + 0.5;
+    useSlot(slot);
+    return true;
+}
+
+bool Autoplayer::eatAndDrink(Game& game)
+{
+    if (!game.mWorld.hasComponent<Needs>(game.mPlayerEntity)) return false;
+    if (game.mWorld.hasComponent<Health>(game.mPlayerEntity))
+    {
+        const Health& health = game.mWorld.getComponent<Health>(game.mPlayerEntity);
+        if (health.current < health.maximum * 0.5f)
+        {
+            const int slot = findSlot(game, heals);
+            if (slot >= 0)
+            {
+                mActivity = "heal";
+                useSlot(slot);
+                return true;
+            }
+        }
+    }
+    const Needs& needs = game.mWorld.getComponent<Needs>(game.mPlayerEntity);
+    if (needs.thirst < 60.0f)
+    {
+        int slot = findSlot(game, isDrink);
+        // Nothing clean: dirty water, when it is that or worse (phase 6).
+        if (slot < 0 && needs.thirst < 35.0f) slot = findSlot(game, isDirtyDrink);
+        if (slot >= 0)
+        {
+            mActivity = "drink";
+            useSlot(slot);
+            return true;
+        }
+    }
+    if (needs.hunger < 60.0f)
+    {
+        const int slot = findSlot(game, isFood);
+        if (slot >= 0)
+        {
+            mActivity = "eat";
+            useSlot(slot);
+            return true;
+        }
+    }
+    return false;
+}
+
+float Autoplayer::heldWeaponScore(Game& game) const
+{
+    if (!game.mWorld.hasComponent<Combat>(game.mPlayerEntity)) return 0.0f;
+    const Combat& combat = game.mWorld.getComponent<Combat>(game.mPlayerEntity);
+    if (combat.weapon.itemId < 0 || combat.weapon.category == WeaponCategory::Ranged) return 0.0f;
+    if (CombatSystem::effectiveRangePixels(combat) < kMinReach) return 0.0f;
+    return CombatSystem::effectiveDamage(combat);
+}
+
+int Autoplayer::bestWeaponSlot(Game& game, float* score) const
+{
+    int best = -1;
+    float bestScore = 0.0f;
+    if (game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+    {
+        const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        for (int i = 0; i < Inventory::kMaxSlots; ++i)
+        {
+            const InventorySlot& slot = inv.slots[static_cast<std::size_t>(i)];
+            if (slot.itemId < 0 || slot.count <= 0 || i == game.mEquippedWeaponSlot) continue;
+            const float s = weaponScore(game.mItemDatabase, slot.itemId, slot.condition);
+            if (s > bestScore)
+            {
+                bestScore = s;
+                best = i;
+            }
+        }
+    }
+    if (score != nullptr) *score = bestScore;
+    return best;
+}
+
+bool Autoplayer::armSelf(Game& game)
+{
+    if (!game.mWorld.hasComponent<Combat>(game.mPlayerEntity) || clock(game) < mArmRetryAt) return false;
+    float score = 0.0f;
+    const int slot = bestWeaponSlot(game, &score);
+    // The best weapon carried goes in hand (a broken one is worth nothing).
+    if (slot < 0 || score <= heldWeaponScore(game) + 1.0f) return false;
+    mActivity = "arm";
+    mArmRetryAt = clock(game) + 0.25;
+    useSlot(slot);
+    return true;
+}
+
+bool Autoplayer::handleDanger(Game& game)
+{
+    // Held by the dead: nothing matters but tearing free.
+    if (game.playerHeld())
+    {
+        mActivity = "struggle";
+        tap(Action::Shove);
+        return true;
+    }
+    const glm::vec2 here = playerCentre(game);
+    struct Near
+    {
+        Entity entity;
+        glm::vec2 centre;
+        float distance;
+        bool windingUp;
+        float health;
+    };
+    // Only the dead it can see count: one behind a wall is not a fight.
+    const auto inSight = [&](const glm::vec2& to)
+    {
+        const glm::vec2 step = to - here;
+        const int samples = std::max(1, static_cast<int>(glm::length(step) / 8.0f));
+        for (int i = 1; i < samples; ++i)
+        {
+            const glm::vec2 p = here + step * (static_cast<float>(i) / static_cast<float>(samples));
+            if (game.mTileMap.blocksView(static_cast<int>(p.x / kTile), static_cast<int>(p.y / kTile))) return false;
+        }
+        return true;
+    };
+    std::vector<Near> close;
+    game.mWorld.forEach<ZombieAI, Transform, Health>(
+        [&](Entity e, ZombieAI& ai, Transform& t, Health& h)
+        {
+            if (h.current <= 0.0f) return;
+            const glm::vec2 c(t.x + 16.0f, t.y + 16.0f);
+            const float d = glm::length(c - here);
+            // One left alone for going nowhere still counts once it is close enough to bite.
+            if (const auto it = mIgnored.find(e); it != mIgnored.end() && it->second > mTicks && d > 1.5f * kTile) return;
+            // Only the ones coming for us: a shambler minding its own business is walked past.
+            const bool engaged = ai.state == ZombieState::Chase || ai.state == ZombieState::Attack;
+            if (engaged && d <= 8.0f * kTile && inSight(c)) close.push_back(Near{e, c, d, ai.attackWindup > 0.0f, h.current});
+        });
+    // Someone living who has turned on us, or would on sight (phase 8): run
+    // from them before they close, fight only when cornered. They carry
+    // knives and do not tire of it the way the dead do.
+    // At home one who is only watching is not run from (a neighbour at their
+    // window would drive us out into the night).
+    bool person = false;
+    bool personAttacking = false;
+    const glm::ivec2 nowAt = playerTile(game);
+    const bool insideHome = game.mFirstDays.homeBuilding > 0 &&
+                            game.mTileMap.getBuildingId(nowAt.x, nowAt.y) == game.mFirstDays.homeBuilding;
+    game.mWorld.forEach<SurvivorAI, Transform, Health>(
+        [&](Entity e, SurvivorAI& ai, Transform& t, Health& h)
+        {
+            if (!ai.alive || h.current <= 0.0f) return;
+            const bool attacking = ai.state == SurvivorState::Attack;
+            if (!attacking && (insideHome || !hostileSurvivor(game.mCurrentDay, ai))) return;
+            const glm::vec2 c(t.x + 16.0f, t.y + 16.0f);
+            const float d = glm::length(c - here);
+            if (d <= (attacking ? 8.0f : kHostileSeenTiles) * kTile && inSight(c))
+            {
+                close.push_back(Near{e, c, d, false, h.current});
+                person = true;
+                personAttacking = personAttacking || attacking;
+            }
+        });
+    if (close.empty())
+    {
+        mFleeTicks = 0;
+        return false;
+    }
+    if (game.mContainerOpen)
+    {
+        tap(Action::UiBack); // the dead first, the cupboard later
+        return true;
+    }
+
+    // Two or more within arm's reach and a little breath: shove them back
+    // to make room (it never uses a gun).
+    {
+        glm::vec2 middle(0.0f);
+        int crowd = 0;
+        for (const Near& n : close)
+        {
+            if (n.distance <= 1.5f * kTile)
+            {
+                middle += n.centre;
+                ++crowd;
+            }
+        }
+        const bool breath = game.mWorld.hasComponent<Stamina>(game.mPlayerEntity) &&
+                            game.mWorld.getComponent<Stamina>(game.mPlayerEntity).current >= combatrules::kShoveStamina;
+        const bool idle = !game.mWorld.hasComponent<Combat>(game.mPlayerEntity) ||
+                          game.mWorld.getComponent<Combat>(game.mPlayerEntity).phase == AttackPhase::Idle;
+        if (crowd >= 2 && breath && idle)
+        {
+            mActivity = "shove";
+            mouseAt(game, game.mCamera.worldToScreen(middle / static_cast<float>(crowd)));
+            tap(Action::Shove);
+            return true;
+        }
+    }
+
+    int fleeAt = mProfile == Profile::Careful ? 2 : mProfile == Profile::Bold ? 4 : 3;
+    if (game.mWorld.hasComponent<Health>(game.mPlayerEntity))
+    {
+        const Health& health = game.mWorld.getComponent<Health>(game.mPlayerEntity);
+        if (health.current < health.maximum * 0.35f) fleeAt = 1; // hurt: run from anything
+    }
+    if (heldWeaponScore(game) <= 0.0f) fleeAt = 1; // nothing that outreaches them: do not trade blows
+    // Someone living who means it: get away, unless it is one of them alone
+    // and we are whole and armed (phase 14: running with a knife at our back
+    // only made us die tired; one person struck back gives up at a third).
+    if (person)
+    {
+        const bool whole = !game.mWorld.hasComponent<Health>(game.mPlayerEntity) ||
+                           game.mWorld.getComponent<Health>(game.mPlayerEntity).current >=
+                               game.mWorld.getComponent<Health>(game.mPlayerEntity).maximum * 0.5f;
+        if (close.size() > 1 || !whole || !personAttacking || heldWeaponScore(game) <= 0.0f) fleeAt = 1;
+        else fleeAt = std::max(fleeAt, 2);
+    }
+    if (mTicks < mCorneredUntil) fleeAt = 1000;      // running did not work: stand and fight
+    if (game.mWorld.hasComponent<Stamina>(game.mPlayerEntity) &&
+        game.mWorld.getComponent<Stamina>(game.mPlayerEntity).current < 20.0f && close.size() >= 2)
+    {
+        fleeAt = 1; // out of breath against more than one: get away
+    }
+    if (static_cast<int>(close.size()) >= fleeAt || mFleeTicks > 0)
+    {
+        // Run from the middle of them, to a tile about ten away.
+        mActivity = "flee";
+        if (mFleeTicks <= 0 || mFleeGoal.x < 0)
+        {
+            glm::vec2 middle(0.0f);
+            for (const Near& n : close) middle += n.centre;
+            middle /= static_cast<float>(close.size());
+            glm::vec2 away = here - middle;
+            if (glm::dot(away, away) < 1.0f) away = glm::vec2(1.0f, 0.0f);
+            away = glm::normalize(away);
+            mFleeGoal = glm::ivec2(-1);
+            float bestScore = -1e9f;
+            const glm::ivec2 tile = playerTile(game);
+            const glm::vec2 toHome = glm::vec2(homeTile(game) - tile);
+            const float homeAway = glm::dot(toHome, toHome) > 1.0f ? glm::dot(glm::normalize(toHome), away) : 0.0f;
+            for (int dy = -10; dy <= 10; ++dy)
+            {
+                for (int dx = -10; dx <= 10; ++dx)
+                {
+                    const glm::ivec2 t = tile + glm::ivec2(dx, dy);
+                    if (t.x < 0 || t.y < 0 || t.x >= game.mTileMap.width() || t.y >= game.mTileMap.height()) continue;
+                    if (game.mTileMap.isSolid(t.x, t.y)) continue;
+                    const glm::vec2 offset(static_cast<float>(dx), static_cast<float>(dy));
+                    const float len = glm::length(offset);
+                    if (len < 5.0f) continue;
+                    float score = glm::dot(offset / len, away) * 10.0f - std::abs(len - 9.0f);
+                    // Running home beats running anywhere, when home is not behind them.
+                    if (homeAway > 0.0f) score -= 0.25f * glm::length(glm::vec2(t - homeTile(game)));
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        mFleeGoal = t;
+                    }
+                }
+            }
+            mFleeTicks = 180;
+            resetPath();
+        }
+        --mFleeTicks;
+        float closest = 1e9f;
+        for (const Near& n : close) closest = std::min(closest, n.distance);
+        const bool sprint = closest < 3.0f * kTile && fatigue(game) < kRunUntilFatigue;
+        // Pinned (a wall, a corner, bodies) with one in reach: turn and fight.
+        const glm::ivec2 nowTile = playerTile(game);
+        if (nowTile != mFleeTile)
+        {
+            mFleeTile = nowTile;
+            mFleeStillTicks = 0;
+        }
+        else if (++mFleeStillTicks > 45 && closest < 1.5f * kTile)
+        {
+            mFleeStillTicks = 0;
+            mFleeTicks = 0;
+            mFleeGoal = glm::ivec2(-1);
+            mCorneredUntil = mTicks + 600;
+            resetPath();
+            return true;
+        }
+        const Move move = mFleeGoal.x < 0 ? Move::Failed : moveTo(game, mFleeGoal, sprint);
+        if (move != Move::Walking)
+        {
+            mFleeTicks = 0;
+            mFleeGoal = glm::ivec2(-1);
+            if (move == Move::Failed)
+            {
+                // Nowhere to run: fight what comes close for a while, and
+                // stop running from the ones further off.
+                mCorneredUntil = mTicks + 600;
+                for (const Near& n : close) mIgnored[n.entity] = mTicks + 1800;
+            }
+        }
+        return true;
+    }
+
+    // Fight what is within two tiles.
+    const auto nearest = std::min_element(close.begin(), close.end(),
+                                          [](const Near& a, const Near& b) { return a.distance < b.distance; });
+    if (nearest->distance > 2.0f * kTile)
+    {
+        return false;
+    }
+    mActivity = "fight";
+    // A fight that goes nowhere (it cannot reach us, we cannot hit it) is
+    // left for a minute.
+    if (nearest->entity != mFightTarget || nearest->health < mFightHealth)
+    {
+        mFightTarget = nearest->entity;
+        mFightHealth = nearest->health;
+        mFightTicks = 0;
+    }
+    if (++mFightTicks > 600)
+    {
+        mIgnored[nearest->entity] = mTicks + 3600;
+        mFightTicks = 0;
+        return false;
+    }
+    mouseAt(game, game.mCamera.worldToScreen(nearest->centre));
+    float reach = 44.0f;
+    if (game.mWorld.hasComponent<Combat>(game.mPlayerEntity))
+    {
+        reach = std::max(24.0f, CombatSystem::effectiveRangePixels(game.mWorld.getComponent<Combat>(game.mPlayerEntity)) + 4.0f);
+    }
+    const glm::vec2 toward = nearest->centre - here;
+    if (nearest->windingUp && nearest->distance < 40.0f)
+    {
+        steer(game, -toward); // step back from the lunge
+        return true;
+    }
+    const bool winded = game.mWorld.hasComponent<Stamina>(game.mPlayerEntity) &&
+                        game.mWorld.getComponent<Stamina>(game.mPlayerEntity).current < 15.0f;
+    if (winded && nearest->distance < reach + 16.0f)
+    {
+        steer(game, -toward); // out of breath: back off rather than swing and miss
+    }
+    else if (nearest->distance <= reach)
+    {
+        click();
+    }
+    else
+    {
+        steer(game, toward);
+    }
+    return true;
+}
+
+bool Autoplayer::wantsFromContainer(Game& game, int itemId) const
+{
+    const ItemDef* def = game.mItemDatabase.find(itemId);
+    if (def == nullptr) return false;
+    if (def->category == ItemCategory::Food || def->category == ItemCategory::Drink ||
+        def->category == ItemCategory::Medical)
+    {
+        return true;
+    }
+    if (itemId == game.mItems.woodPlanks || itemId == game.mItems.nails || itemId == game.mItems.emptyBottle ||
+        def->hasTag("tool:hammer"))
+    {
+        return true;
+    }
+    // What the standing aim asks for (phase 13).
+    switch (game.mAimKind)
+    {
+    case aims::Kind::Water: if (itemId == game.mItems.scrapMetal) return true; break;
+    case aims::Kind::Power: if (itemId == game.mItems.battery || itemId == game.mItems.candle) return true; break;
+    case aims::Kind::Cold: if (itemId == game.mItems.winterCoat) return true; break;
+    default: break;
+    }
+    if (def->category == ItemCategory::Weapon && def->weaponCategory != static_cast<int>(WeaponCategory::Ranged))
+    {
+        // Two good weapons to carry: knives break.
+        if (!isUsableWeapon(game.mItemDatabase, itemId, 1.0f)) return false;
+        int usable = 0;
+        if (game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+        {
+            for (const InventorySlot& slot : game.mWorld.getComponent<Inventory>(game.mPlayerEntity).slots)
+            {
+                if (slot.itemId >= 0 && slot.count > 0 && isUsableWeapon(game.mItemDatabase, slot.itemId, slot.condition)) ++usable;
+            }
+        }
+        return usable < 2;
+    }
+    return false;
+}
+
+bool Autoplayer::handleContainerPanel(Game& game)
+{
+    if (!game.mContainerOpen)
+    {
+        mPanelTicks = 0;
+        mPanelClicks = 0;
+        return false;
+    }
+    mActivity = "loot";
+    // Hold the panel still a moment, then take what is wanted, row by row.
+    if (++mPanelTicks < 6)
+    {
+        return true;
+    }
+    const Entity box = game.mOpenContainerEntity;
+    if (box != kInvalidEntity && game.mWorld.hasComponent<Inventory>(box) && mPanelClicks < 16 && mPanelTicks < 400)
+    {
+        const Inventory& inv = game.mWorld.getComponent<Inventory>(box);
+        int row = 0;
+        for (const InventorySlot& slot : inv.slots)
+        {
+            if (slot.itemId < 0 || slot.count <= 0) continue;
+            if (wantsFromContainer(game, slot.itemId))
+            {
+                const ContainerLayout layout = game.containerLayout();
+                mouseAt(game, glm::vec2(layout.boxX + 20.0f,
+                                        ContainerLayout::kListY + static_cast<float>(row) * ContainerLayout::kRowH + 8.0f));
+                hold(Action::Run);
+                if (click()) ++mPanelClicks;
+                return true;
+            }
+            ++row;
+        }
+    }
+    if (box != kInvalidEntity && game.mWorld.hasComponent<Transform>(box))
+    {
+        const Transform& t = game.mWorld.getComponent<Transform>(box);
+        const glm::ivec2 tile(static_cast<int>(t.x) / 32, static_cast<int>(t.y) / 32);
+        mSearched.insert(Tile{tile.x, tile.y});
+    }
+    // The one walked to counts as searched even if a neighbour took the E.
+    if (mTargetContainer != kInvalidEntity)
+    {
+        mSearched.insert(Tile{mTarget.x, mTarget.y});
+    }
+    tap(Action::UiBack);
+    mTargetContainer = kInvalidEntity;
+    return true;
+}
+
+bool Autoplayer::sleepAtHome(Game& game)
+{
+    const double hour = game.mGameHours;
+    const bool night = hour >= 22.0 || hour < 6.0;
+    if (!night || clock(game) < mSleepRetryAt) return false;
+
+    // The home's bed (or the nearest one).
+    const int home = game.mFirstDays.homeBuilding;
+    const FurniturePiece* bed = nullptr;
+    float bestD = 0.0f;
+    const glm::vec2 homeAt = glm::vec2(homeTile(game));
+    for (const FurniturePiece& piece : game.mFurniture)
+    {
+        if (piece.kind != FurnitureKind::Bed) continue;
+        if (mUnreachable.count(Tile{piece.tile.x, piece.tile.y}) != 0) continue;
+        float d = glm::length(glm::vec2(piece.tile) - homeAt);
+        if (home > 0 && game.mTileMap.getBuildingId(piece.tile.x, piece.tile.y) != home) d += 1000.0f;
+        if (bed == nullptr || d < bestD)
+        {
+            bed = &piece;
+            bestD = d;
+        }
+    }
+    if (bed == nullptr || bestD > 60.0f) return false;
+    glm::ivec2 stand;
+    if (!standTileFor(game, bed->tile, stand))
+    {
+        mUnreachable.insert(Tile{bed->tile.x, bed->tile.y});
+        return false;
+    }
+    mActivity = "bed";
+    const Move move = withinReach(game, bed->tile) ? Move::Arrived : moveTo(game, stand, false);
+    if (move == Move::Failed)
+    {
+        mUnreachable.insert(Tile{bed->tile.x, bed->tile.y});
+        return false;
+    }
+    if (move == Move::Arrived)
+    {
+        steer(game, tileCentre(bed->tile) - playerCentre(game));
+        if (tap(Action::Use))
+        {
+            ++mOpenTries;
+            if (mOpenTries > 4)
+            {
+                // Not tired enough, or the dead too close: try again in a while.
+                mOpenTries = 0;
+                mSleepRetryAt = clock(game) + 0.75;
+            }
+        }
+    }
+    return true;
+}
+
+// In the home, its doorways included.
+bool Autoplayer::atHome(Game& game) const
+{
+    const int home = game.mFirstDays.homeBuilding;
+    if (home <= 0) return false;
+    const glm::ivec2 at = playerTile(game);
+    if (game.mTileMap.getBuildingId(at.x, at.y) == home) return true;
+    return std::find(game.mFirstDays.homeDoors.begin(), game.mFirstDays.homeDoors.end(), at) != game.mFirstDays.homeDoors.end();
+}
+
+bool Autoplayer::isDark(Game& game) const
+{
+    return game.mGameHours >= homeHour() || game.mGameHours < 6.0;
+}
+
+double Autoplayer::homeHour() const
+{
+    return mProfile == Profile::Careful ? 16.0 : mProfile == Profile::Bold ? 17.0 : 16.5;
+}
+
+// Out of planks with nails and a hammer, and a way in still open to boards:
+// break up a piece of the home's furniture for them (phase 2's X), as a
+// player would (phase 14: the bot boarded with the kit's four planks and
+// then never again).
+bool Autoplayer::breakForPlanks(Game& game)
+{
+    if (clock(game) < mBreakRetryAt || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity)) return false;
+    const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+    if (InventorySystem::countItem(inv, game.mItems.woodPlanks) > 0 || InventorySystem::countItem(inv, game.mItems.nails) < 2 ||
+        InventorySystem::countTagged(inv, game.mItemDatabase, "tool:hammer") <= 0)
+    {
+        return false;
+    }
+    const int home = game.mFirstDays.homeBuilding;
+    bool wanted = false;
+    for (const Game::WayIn& way : game.waysIn(home))
+    {
+        if (way.window) wanted = wanted || game.mWindows.boards(way.tile) < Windows::kMaxBoards;
+        else wanted = wanted || (game.mTileMap.doorState(way.tile.x, way.tile.y) == DoorState::Closed &&
+                                 game.mTileMap.doorBoards(way.tile.x, way.tile.y) < Doors::kMaxBoards);
+    }
+    if (!wanted) return false;
+
+    // The nearest piece at home that gives planks: not the bed, nothing
+    // with things still in it.
+    const glm::vec2 here = playerCentre(game);
+    const FurniturePiece* target = nullptr;
+    float bestD = 0.0f;
+    for (const FurniturePiece& piece : game.mFurniture)
+    {
+        if (piece.kind == FurnitureKind::Bed || game.mTileMap.getBuildingId(piece.tile.x, piece.tile.y) != home) continue;
+        if (!furnitureuse::movable(piece.kind) || furnitureuse::breakYield(piece.kind, false).planks <= 0) continue;
+        if (mNoBreak.count(Tile{piece.tile.x, piece.tile.y}) != 0 || mUnreachable.count(Tile{piece.tile.x, piece.tile.y}) != 0) continue;
+        bool full = false;
+        game.mWorld.forEach<Interactable, Inventory, Transform>(
+            [&](Entity e, Interactable&, Inventory& contents, Transform& t)
+            {
+                if (game.mWorld.hasComponent<Sprite>(e) || e == game.mPlayerEntity) return;
+                if (glm::ivec2(static_cast<int>(t.x) / 32, static_cast<int>(t.y) / 32) != piece.tile) return;
+                for (const InventorySlot& slot : contents.slots) full = full || (slot.itemId >= 0 && slot.count > 0);
+            });
+        if (full) continue;
+        const float d = glm::length(tileCentre(piece.tile) - here);
+        if (target == nullptr || d < bestD)
+        {
+            target = &piece;
+            bestD = d;
+        }
+    }
+    if (target == nullptr)
+    {
+        mBreakRetryAt = clock(game) + 3.0;
+        return false;
+    }
+    const glm::ivec2 tile = target->tile;
+    if (tile != mBreakTile)
+    {
+        mBreakTile = tile;
+        mBreakTries = 0;
+    }
+    glm::ivec2 stand;
+    if (!standTileFor(game, tile, stand))
+    {
+        mNoBreak.insert(Tile{tile.x, tile.y});
+        return true;
+    }
+    mActivity = "break up";
+    const Move move = withinReach(game, tile) ? Move::Arrived : moveTo(game, stand, false);
+    if (move == Move::Failed)
+    {
+        mNoBreak.insert(Tile{tile.x, tile.y});
+        return true;
+    }
+    if (move != Move::Arrived) return true;
+    // The piece the game will break is the nearest in reach: lean in until it
+    // is this one and the prompt offers X, then press it standing still.
+    const FurniturePiece* nearest = nullptr;
+    float nearestD = 0.0f;
+    for (const FurniturePiece& piece : game.mFurniture)
+    {
+        const float d = glm::length(tileCentre(piece.tile) - here);
+        if (nearest == nullptr || d < nearestD)
+        {
+            nearest = &piece;
+            nearestD = d;
+        }
+    }
+    if (nearest != target || game.mProximityPrompt.find("X:") == std::string::npos)
+    {
+        steer(game, tileCentre(tile) - here);
+        if (++mLeanTicks > 90)
+        {
+            mLeanTicks = 0;
+            mNoBreak.insert(Tile{tile.x, tile.y});
+        }
+        return true;
+    }
+    mLeanTicks = 0;
+    if (tap(Action::Pry) && ++mBreakTries > 6)
+    {
+        // It would not come apart (a message said why): leave it.
+        mBreakTries = 0;
+        mNoBreak.insert(Tile{tile.x, tile.y});
+    }
+    return true;
+}
+
+bool Autoplayer::eveningAtHome(Game& game)
+{
+    const double hour = game.mGameHours;
+    // A horde due tonight (the Tonight aim): home an hour or more sooner.
+    const double homeAt = game.mAimKind == aims::Kind::Tonight ? std::min(homeHour(), 15.0) : homeHour();
+    if (hour < homeAt && hour >= 6.0) return false;
+    const int home = game.mFirstDays.homeBuilding;
+    const bool inside = atHome(game);
+
+    // A door of the home left standing open is shut first, boards or none
+    // (phase 14: the bot came in and left it open, and with a way in open
+    // the dead out in the street woke it all night).
+    if (inside && clock(game) >= mShutRetryAt)
+    {
+        for (const Game::WayIn& way : game.waysIn(home))
+        {
+            if (way.window || !way.open) continue;
+            const DoorState state = game.mTileMap.doorState(way.tile.x, way.tile.y);
+            if (state != DoorState::Open) continue;
+            glm::ivec2 stand(-1);
+            for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+            {
+                const glm::ivec2 t = way.tile + side;
+                if (!game.mTileMap.isSolid(t.x, t.y) && game.mTileMap.getBuildingId(t.x, t.y) == home)
+                {
+                    stand = t;
+                    break;
+                }
+            }
+            if (stand.x < 0) continue;
+            mActivity = "shut door";
+            const Move move = moveTo(game, stand, false);
+            if (move == Move::Failed || ++mShutTicks > 600)
+            {
+                mShutTicks = 0;
+                mShutRetryAt = clock(game) + 0.5;
+                return false;
+            }
+            if (move == Move::Arrived)
+            {
+                // Lean toward it only until E offers to close it: a step
+                // more and it would walk out through the doorway.
+                if (game.mProximityPrompt.find("Close") != std::string::npos) tap(Action::Use);
+                else steer(game, tileCentre(way.tile) - playerCentre(game));
+            }
+            return true;
+        }
+        mShutTicks = 0;
+    }
+
+    // Board the home's ways in while there are planks, nails and a hammer:
+    // the weakest first, since that is where the night's callers go.
+    if (inside && clock(game) >= mBoardRetryAt && game.mWorld.hasComponent<Inventory>(game.mPlayerEntity))
+    {
+        const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+        const bool canBoard = InventorySystem::countItem(inv, game.mItems.woodPlanks) > 0 &&
+                              InventorySystem::countItem(inv, game.mItems.nails) >= 2 &&
+                              InventorySystem::countTagged(inv, game.mItemDatabase, "tool:hammer") > 0;
+        std::vector<Game::WayIn> ways = game.waysIn(home);
+        std::stable_sort(ways.begin(), ways.end(),
+                         [](const Game::WayIn& a, const Game::WayIn& b) { return a.strength < b.strength; });
+        for (const Game::WayIn& way : ways)
+        {
+            const glm::ivec2 tile = way.tile;
+            glm::ivec2 stand(-1);
+            Action key = Action::Board;
+            if (way.window)
+            {
+                const Windows::Window* window = game.mWindows.find(tile);
+                if (window == nullptr) continue;
+                const bool full = game.mWindows.boards(tile) >= Windows::kMaxBoards;
+                // No boards to spare: at least draw the curtain on whole glass.
+                const bool curtain = !canBoard && game.mWindows.boards(tile) == 0 &&
+                                     game.mTileMap.windowState(tile.x, tile.y) == WindowState::Intact &&
+                                     !game.mTileMap.windowCovered(tile.x, tile.y);
+                if (full || (!canBoard && !curtain)) continue;
+                stand = window->spot.inside;
+                key = canBoard ? Action::Board : Action::Use;
+            }
+            else
+            {
+                const DoorState state = game.mTileMap.doorState(tile.x, tile.y);
+                if (state == DoorState::Broken || state == DoorState::None) continue;
+                // A door left open is shut even with nothing to nail (phase
+                // 14: the bot came in and left it standing open, and the
+                // dead out in the street woke it all night).
+                if (!canBoard && state != DoorState::Open) continue;
+                if (state != DoorState::Open && game.mTileMap.doorBoards(tile.x, tile.y) >= Doors::kMaxBoards) continue;
+                for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+                {
+                    const glm::ivec2 t = tile + side;
+                    if (!game.mTileMap.isSolid(t.x, t.y) && game.mTileMap.getBuildingId(t.x, t.y) == home)
+                    {
+                        stand = t;
+                        break;
+                    }
+                }
+                key = state == DoorState::Open ? Action::Use : Action::Board;
+            }
+            if (stand.x < 0 || game.mTileMap.isSolid(stand.x, stand.y) || mUnreachable.count(Tile{stand.x, stand.y}) != 0)
+            {
+                continue;
+            }
+            mActivity = way.window ? (canBoard ? "board window" : "curtain") : "board";
+            const Move move = moveTo(game, stand, false);
+            if (move == Move::Failed) continue;
+            if (move == Move::Arrived)
+            {
+                // Boarding is a held action (phase 5): stand still for it,
+                // or the first step cancels it. But a hand reaches under a
+                // tile: lean in until the prompt offers R (phase 14: the
+                // bot stood a pixel out of reach of most windows and never
+                // boarded them), then press it standing still.
+                if (key != Action::Board) steer(game, tileCentre(tile) - playerCentre(game));
+                else if (game.mProximityPrompt.find("R:") == std::string::npos)
+                {
+                    steer(game, tileCentre(tile) - playerCentre(game));
+                    if (++mLeanTicks > 90)
+                    {
+                        mLeanTicks = 0;
+                        mUnreachable.insert(Tile{stand.x, stand.y}); // cannot reach it from here: the next way
+                    }
+                    return true;
+                }
+                mLeanTicks = 0;
+                if (tap(key))
+                {
+                    if (++mOpenTries > 12)
+                    {
+                        mOpenTries = 0;
+                        mBoardRetryAt = clock(game) + 2.0;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+
+    if (inside && breakForPlanks(game))
+    {
+        return true;
+    }
+    if (inside)
+    {
+        return false; // home: the rest (bed, wandering the rooms) follows
+    }
+    mActivity = "home";
+    const Move move = moveTo(game, homeTile(game), false);
+    return move == Move::Walking;
+}
+
+float Autoplayer::fatigue(Game& game) const
+{
+    return game.mWorld.hasComponent<Needs>(game.mPlayerEntity) ? game.mWorld.getComponent<Needs>(game.mPlayerEntity).fatigue
+                                                               : 0.0f;
+}
+
+bool Autoplayer::restWhenTired(Game& game)
+{
+    // Worn out (running, fighting): stand still until the legs come back.
+    const float tired = fatigue(game);
+    if (!mResting && tired < 60.0f) return false;
+    mResting = tired > 15.0f;
+    if (!mResting) return false;
+    mActivity = "rest";
+    resetPath();
+    return true;
+}
+
+bool Autoplayer::isStocked(Game& game) const
+{
+    // Enough food and water carried for a few days, and a weapon that works.
+    if (!game.mWorld.hasComponent<Inventory>(game.mPlayerEntity)) return false;
+    int food = 0;
+    int drink = 0;
+    int weapons = 0;
+    for (const InventorySlot& slot : game.mWorld.getComponent<Inventory>(game.mPlayerEntity).slots)
+    {
+        if (slot.itemId < 0 || slot.count <= 0) continue;
+        if (isFood(game.mItemDatabase, slot.itemId, slot.condition)) food += slot.count;
+        if (isDrink(game.mItemDatabase, slot.itemId, slot.condition)) drink += slot.count;
+        if (isUsableWeapon(game.mItemDatabase, slot.itemId, slot.condition)) ++weapons;
+    }
+    return food >= 6 && drink >= 4 && weapons >= 2;
+}
+
+float Autoplayer::fitShare() const
+{
+    return mProfile == Profile::Careful ? 0.8f : mProfile == Profile::Bold ? 0.6f : 0.7f;
+}
+
+bool Autoplayer::retreatWhenHurt(Game& game)
+{
+    if (!game.mWorld.hasComponent<Health>(game.mPlayerEntity) || game.mFirstDays.homeBuilding <= 0) return false;
+    const Health& health = game.mWorld.getComponent<Health>(game.mPlayerEntity);
+    if (health.current >= health.maximum * fitShare()) return false;
+    if (atHome(game)) return false;
+    mActivity = "home";
+    return moveTo(game, homeTile(game), false) == Move::Walking;
+}
+
+bool Autoplayer::useTap(Game& game)
+{
+    if (!firstdays::tapsRunning(game.mCurrentDay, game.mGameHours) || clock(game) < mTapRetryAt) return false;
+    if (!game.mWorld.hasComponent<Inventory>(game.mPlayerEntity)) return false;
+    const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+    if (InventorySystem::countItem(inv, game.mItems.emptyBottle) <= 0) return false;
+    const int home = game.mFirstDays.homeBuilding;
+    for (const FurniturePiece& piece : game.mFurniture)
+    {
+        if (piece.kind != FurnitureKind::Counter && piece.kind != FurnitureKind::Sink) continue;
+        if (home <= 0 || game.mTileMap.getBuildingId(piece.tile.x, piece.tile.y) != home) continue;
+        glm::ivec2 stand;
+        if (!standTileFor(game, piece.tile, stand)) continue;
+        mActivity = "tap";
+        const Move move = withinReach(game, piece.tile) ? Move::Arrived : moveTo(game, stand, false);
+        if (move == Move::Failed) continue;
+        if (move == Move::Arrived) steer(game, tileCentre(piece.tile) - playerCentre(game));
+        if (move == Move::Arrived && tap(Action::Board))
+        {
+            if (++mOpenTries > 3)
+            {
+                mOpenTries = 0;
+                mTapRetryAt = clock(game) + 3.0;
+            }
+        }
+        return true;
+    }
+    mTapRetryAt = clock(game) + 6.0;
+    return false;
+}
+
+bool Autoplayer::fetchWater(Game& game)
+{
+    if (firstdays::tapsRunning(game.mCurrentDay, game.mGameHours) || clock(game) < mWaterRetryAt) return false;
+    if (!game.mWorld.hasComponent<Inventory>(game.mPlayerEntity) || isDark(game)) return false;
+    const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+    if (InventorySystem::countItem(inv, game.mItems.emptyBottle) <= 0) return false;
+    // Only when the clean water has run out.
+    int drinks = 0;
+    for (const InventorySlot& slot : inv.slots)
+    {
+        if (slot.itemId >= 0 && slot.count > 0 && (isDrink(game.mItemDatabase, slot.itemId, slot.condition) ||
+                                                   isDirtyDrink(game.mItemDatabase, slot.itemId, slot.condition)))
+        {
+            drinks += slot.count;
+        }
+    }
+    if (drinks >= 2)
+    {
+        mWaterStand = glm::ivec2(-1);
+        return false;
+    }
+    if (mWaterStand.x < 0)
+    {
+        // The nearest toilet not yet drawn from, or open ground by a pond.
+        const glm::vec2 home = glm::vec2(homeTile(game));
+        const float range = 60.0f;
+        const auto& used = game.mSaveManager.scavengeMemory().usedWater;
+        float bestD = 0.0f;
+        for (const FurniturePiece& piece : game.mFurniture)
+        {
+            if (piece.kind != FurnitureKind::Toilet) continue;
+            if (std::find(used.begin(), used.end(), std::make_pair(piece.tile.x, piece.tile.y)) != used.end()) continue;
+            if (glm::length(glm::vec2(piece.tile) - home) > range) continue;
+            glm::ivec2 stand;
+            if (!standTileFor(game, piece.tile, stand) || mUnreachable.count(Tile{stand.x, stand.y}) != 0) continue;
+            const float d = glm::length(glm::vec2(piece.tile) - home);
+            if (mWaterStand.x < 0 || d < bestD)
+            {
+                mWaterStand = stand;
+                bestD = d;
+            }
+        }
+        const TileMap& map = game.mTileMap;
+        for (int y = 1; y < map.height() - 1; ++y)
+        {
+            for (int x = 1; x < map.width() - 1; ++x)
+            {
+                const int gid = map.groundGid(x, y);
+                const int base = gid > 0 ? ((gid - 1) % TileGid::kPerRow) + 1 : 0;
+                if (base != TileGid::kWater) continue;
+                const float d = glm::length(glm::vec2(x, y) - home);
+                if (d > range || (mWaterStand.x >= 0 && d + 5.0f >= bestD)) continue;
+                for (const glm::ivec2 step : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+                {
+                    const glm::ivec2 t(x + step.x, y + step.y);
+                    if (map.isSolid(t.x, t.y) || mUnreachable.count(Tile{t.x, t.y}) != 0) continue;
+                    const int g = map.groundGid(t.x, t.y);
+                    if ((g > 0 ? ((g - 1) % TileGid::kPerRow) + 1 : 0) == TileGid::kWater) continue;
+                    mWaterStand = t;
+                    bestD = d + 5.0f; // a pond is further to carry from
+                    break;
+                }
+            }
+        }
+        mWaterTries = 0;
+        if (mWaterStand.x < 0)
+        {
+            mWaterRetryAt = clock(game) + 12.0;
+            return false;
+        }
+    }
+    mActivity = "water";
+    const Move move = moveTo(game, mWaterStand, false);
+    if (move == Move::Failed)
+    {
+        mUnreachable.insert(Tile{mWaterStand.x, mWaterStand.y});
+        mWaterStand = glm::ivec2(-1);
+        return true;
+    }
+    if (move == Move::Arrived && tap(Action::Board) && ++mWaterTries > 3)
+    {
+        // Filled, or nothing to fill from here: try again later.
+        mWaterStand = glm::ivec2(-1);
+        mWaterRetryAt = clock(game) + 3.0;
+    }
+    return true;
+}
+
+bool Autoplayer::searchContainers(Game& game)
+{
+    if (game.mWorld.hasComponent<Health>(game.mPlayerEntity))
+    {
+        const Health& health = game.mWorld.getComponent<Health>(game.mPlayerEntity);
+        if (health.current < health.maximum * fitShare()) return false; // hurt: home, and heal first
+    }
+    // The bot ranges further as the days go on and the near cupboards empty
+    // (phase 6: there is more out there, behind locks and in shops).
+    const float baseRange = mProfile == Profile::Careful ? 25.0f : mProfile == Profile::Bold ? 60.0f : 40.0f;
+    const float range = baseRange + std::min(40.0f, 8.0f * static_cast<float>(std::max(0, game.mCurrentDay - 1)));
+    const glm::vec2 home = glm::vec2(homeTile(game));
+    const glm::vec2 here = glm::vec2(playerTile(game));
+
+    // Keep the current target while it is still worth walking to.
+    if (mTargetContainer != kInvalidEntity &&
+        (!game.mWorld.hasComponent<Transform>(mTargetContainer) || mSearched.count(Tile{mTarget.x, mTarget.y}) != 0 ||
+         mUnreachable.count(Tile{mTarget.x, mTarget.y}) != 0))
+    {
+        mTargetContainer = kInvalidEntity;
+    }
+    if (mTargetContainer == kInvalidEntity)
+    {
+        const bool stocked = isStocked(game);
+        const bool daytime = game.mGameHours >= 6.0 && game.mGameHours < homeHour();
+        // Where the dead stand: a cupboard with two or more of them nearby is left for later.
+        std::vector<glm::vec2> dead;
+        game.mWorld.forEach<ZombieAI, Transform, Health>(
+            [&](Entity, ZombieAI&, Transform& t, Health& h)
+            {
+                if (h.current > 0.0f) dead.emplace_back((t.x + 16.0f) / kTile, (t.y + 16.0f) / kTile);
+            });
+        // Where people who would go for us live (phase 8): their street is
+        // left alone.
+        std::vector<glm::vec2> hostileHomes;
+        game.mWorld.forEach<SurvivorAI>(
+            [&](Entity, SurvivorAI& ai)
+            {
+                if (hostileSurvivor(game.mCurrentDay, ai)) hostileHomes.emplace_back(ai.homeTile);
+            });
+        const float clearance = mProfile == Profile::Careful ? 8.0f : mProfile == Profile::Bold ? 6.0f : 7.0f;
+        const int crowd = mProfile == Profile::Bold ? 2 : 1;
+        const auto crowded = [&](const glm::ivec2& tile)
+        {
+            int count = 0;
+            for (const glm::vec2& z : dead)
+            {
+                if (glm::length(z - (glm::vec2(tile) + glm::vec2(0.5f))) < clearance && ++count >= crowd) return true;
+            }
+            return false;
+        };
+        float bestD = 0.0f;
+        game.mWorld.forEach<Interactable, Inventory, Transform>(
+            [&](Entity e, Interactable& inter, Inventory&, Transform& t)
+            {
+                if (inter.type != InteractableType::Container || e == game.mPlayerEntity) return;
+                const glm::ivec2 tile(static_cast<int>(t.x) / 32, static_cast<int>(t.y) / 32);
+                if (mSearched.count(Tile{tile.x, tile.y}) != 0 || mUnreachable.count(Tile{tile.x, tile.y}) != 0) return;
+                if (glm::length(glm::vec2(tile) - home) > range) return;
+                if (crowded(tile)) return;
+                // Not in a house someone lives in (phase 8): they warn you
+                // out, then go for you.
+                const int building = game.mTileMap.getBuildingId(tile.x, tile.y);
+                if (building != game.mFirstDays.homeBuilding && game.survivorLivesIn(building)) return;
+                for (const glm::vec2& h : hostileHomes)
+                {
+                    if (building != game.mFirstDays.homeBuilding && glm::length(glm::vec2(tile) - h) < kHostileHomeTiles) return;
+                }
+                if (!daytime && game.mTileMap.getBuildingId(tile.x, tile.y) != game.mFirstDays.homeBuilding) return;
+                const bool atHome = game.mTileMap.getBuildingId(tile.x, tile.y) == game.mFirstDays.homeBuilding;
+                if (stocked && !atHome) return; // enough put by: no need to go out
+                // The home's own cupboards first (the kit is in them), then the nearest.
+                const float d = glm::length(glm::vec2(tile) - here) + (atHome ? 0.0f : 1000.0f);
+                if (mTargetContainer == kInvalidEntity || d < bestD)
+                {
+                    mTargetContainer = e;
+                    mTarget = tile;
+                    bestD = d;
+                }
+            });
+        mOpenTries = 0;
+    }
+    if (mTargetContainer == kInvalidEntity) return false;
+
+    glm::ivec2 stand;
+    if (!standTileFor(game, mTarget, stand))
+    {
+        mUnreachable.insert(Tile{mTarget.x, mTarget.y});
+        mTargetContainer = kInvalidEntity;
+        return true;
+    }
+    mActivity = "search";
+    const Move move = withinReach(game, mTarget) ? Move::Arrived : moveTo(game, stand, false);
+    if (move == Move::Failed)
+    {
+        mUnreachable.insert(Tile{mTarget.x, mTarget.y});
+        mTargetContainer = kInvalidEntity;
+        return true;
+    }
+    if (move == Move::Arrived)
+    {
+        // Face it and press E; something else nearby may take the press, so
+        // after a few tries count it as searched.
+        const glm::vec2 boxCentre = tileCentre(mTarget);
+        mouseAt(game, game.mCamera.worldToScreen(boxCentre));
+        // Lean in between presses (a hand's reach is under a tile), but stand
+        // still on the press itself: searching is a held action (phase 6) and
+        // a step cancels it.
+        if (mTapCooldown > 0)
+        {
+            steer(game, boxCentre - playerCentre(game));
+        }
+        else if (tap(Action::Use) && ++mOpenTries > 4)
+        {
+            mSearched.insert(Tile{mTarget.x, mTarget.y});
+            mTargetContainer = kInvalidEntity;
+        }
+    }
+    return true;
+}
+
+bool Autoplayer::followAim(Game& game)
+{
+    if (game.mAimKind != aims::Kind::Water || clock(game) < mAimBuildRetryAt || isDark(game))
+    {
+        mAimBuildStep = 0;
+        return false;
+    }
+    if (game.mAimsRewarded & (1 << static_cast<int>(aims::Kind::Water))) return false; // built already
+    if (!game.mWorld.hasComponent<Inventory>(game.mPlayerEntity)) return false;
+    const StationRecipe* recipe = nullptr;
+    int index = -1;
+    for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
+    {
+        if (BuildSystem::kRecipes[static_cast<std::size_t>(i)].type != StructureType::RainCollector) continue;
+        recipe = &BuildSystem::kRecipes[static_cast<std::size_t>(i)];
+        index = i;
+    }
+    if (recipe == nullptr || !game.canAffordStation(*recipe, nullptr))
+    {
+        mAimBuildStep = 0;
+        return false;
+    }
+    // Outdoors, near the house.
+    const glm::ivec2 me = playerTile(game);
+    const glm::ivec2 home = homeTile(game);
+    const auto giveUp = [&]()
+    {
+        if (game.mBuildChoice >= 0 || game.mBuildWheelOpen) tap(Action::Build); // B again closes it
+        mAimBuildStep = 0;
+        mAimBuildRetryAt = clock(game) + 30.0;
+        return true;
+    };
+    if (game.mTileMap.getBuildingId(me.x, me.y) > 0 || glm::length(glm::vec2(me - home)) > 8.0f)
+    {
+        if (mAimBuildStep != 0) return giveUp();
+        // Out of the door: the nearest open ground beside the house.
+        glm::ivec2 best(-1);
+        float bestD = 0.0f;
+        for (int dy = -7; dy <= 7; ++dy)
+        {
+            for (int dx = -7; dx <= 7; ++dx)
+            {
+                const glm::ivec2 t = home + glm::ivec2(dx, dy);
+                if (!game.mTileMap.inBounds(t.x, t.y) || game.mTileMap.isSolid(t.x, t.y) || game.mTileMap.getBuildingId(t.x, t.y) > 0) continue;
+                const float d = glm::length(glm::vec2(dx, dy));
+                if (d < 2.0f || mUnreachable.count(Tile{t.x, t.y}) > 0) continue;
+                if (best.x < 0 || d < bestD)
+                {
+                    best = t;
+                    bestD = d;
+                }
+            }
+        }
+        if (best.x < 0) return false;
+        mActivity = "to build a rain collector";
+        if (moveTo(game, best, false) == Move::Failed) mUnreachable.insert(Tile{best.x, best.y});
+        return true;
+    }
+    mActivity = "building a rain collector";
+    const float scale = game.mUiScale;
+    switch (mAimBuildStep)
+    {
+    case 0:
+        // B opens the wheel at the cursor.
+        mouseAt(game, game.mCamera.worldToScreen(playerCentre(game)));
+        if (game.mBuildWheelOpen || game.mBuildChoice >= 0) return giveUp();
+        if (tap(Action::Build)) mAimBuildStep = 1;
+        return true;
+    case 1:
+        if (!game.mBuildWheelOpen) return giveUp();
+        mouseAt(game, game.buildWheelEntry(index) * scale);
+        if (click()) mAimBuildStep = 2;
+        return true;
+    case 2:
+    {
+        if (game.mBuildChoice != index) return giveUp();
+        // The nearest tile it may stand on, the way the ghost judges it.
+        const std::vector<glm::ivec2> occupied = game.occupiedTiles();
+        glm::ivec2 best(-1);
+        float bestD = 0.0f;
+        for (int dy = -2; dy <= 2; ++dy)
+        {
+            for (int dx = -2; dx <= 2; ++dx)
+            {
+                const glm::ivec2 t = me + glm::ivec2(dx, dy);
+                const float d = glm::length(glm::vec2(dx, dy));
+                if (t == me || d > BuildSystem::kReachTiles) continue;
+                if (!BuildSystem::placeable(game.mTileMap, t, recipe->type, occupied)) continue;
+                if (best.x < 0 || d < bestD)
+                {
+                    best = t;
+                    bestD = d;
+                }
+            }
+        }
+        if (best.x < 0) return giveUp();
+        const float tilePx = static_cast<float>(std::max(1, game.mTileMap.tileWidth()));
+        mouseAt(game, game.mCamera.worldToScreen((glm::vec2(best) + glm::vec2(0.5f)) * tilePx));
+        mAimBuildStep = 3;
+        return true;
+    }
+    default:
+        if (game.mBuildChoice != index) return giveUp();
+        if (!game.mBuildGhostValid) return giveUp();
+        if (click()) mAimBuildStep = 0;
+        return true;
+    }
+}
+
+void Autoplayer::wander(Game& game)
+{
+    // Home with nothing to fetch, or home after dark: keep still and quiet
+    // (pacing the rooms makes noise and never lets the legs rest).
+    if (atHome(game) && (isDark(game) || isStocked(game)))
+    {
+        mActivity = "hold";
+        resetPath();
+        return;
+    }
+    mActivity = "wander";
+    if (mWanderGoal.x < 0 || --mWanderTicks <= 0)
+    {
+        const glm::ivec2 home = homeTile(game);
+        mWanderGoal = home;
+        // Hurt, or after dark: keep to the rooms of home.
+        if (mWanderOutdoors > 0) --mWanderOutdoors;
+        bool indoorsOnly = mWanderOutdoors <= 0 && game.mFirstDays.homeBuilding > 0 &&
+                           (game.mGameHours >= homeHour() || game.mGameHours < 6.0 || isStocked(game));
+        if (game.mWorld.hasComponent<Health>(game.mPlayerEntity))
+        {
+            const Health& health = game.mWorld.getComponent<Health>(game.mPlayerEntity);
+            indoorsOnly = indoorsOnly || (mWanderOutdoors <= 0 && game.mFirstDays.homeBuilding > 0 &&
+                                          health.current < health.maximum * fitShare());
+        }
+        for (int attempt = 0; attempt < 30; ++attempt)
+        {
+            mRng = mRng * 1664525u + 1013904223u;
+            const int dx = static_cast<int>((mRng >> 8) % 13u) - 6;
+            mRng = mRng * 1664525u + 1013904223u;
+            const int dy = static_cast<int>((mRng >> 8) % 13u) - 6;
+            const glm::ivec2 t = home + glm::ivec2(dx, dy);
+            if (t.x < 0 || t.y < 0 || t.x >= game.mTileMap.width() || t.y >= game.mTileMap.height()) continue;
+            if (game.mTileMap.isSolid(t.x, t.y) || game.mTileMap.doorState(t.x, t.y) != DoorState::None) continue;
+            if (mUnreachable.count(Tile{t.x, t.y}) != 0) continue;
+            if (indoorsOnly && game.mTileMap.getBuildingId(t.x, t.y) != game.mFirstDays.homeBuilding) continue;
+            if (t == playerTile(game)) continue;
+            mWanderGoal = t;
+            break;
+        }
+        if (mWanderGoal == playerTile(game) && indoorsOnly)
+        {
+            // Nowhere else indoors (or all of it out of reach): anywhere near home.
+            mWanderGoal = glm::ivec2(-1);
+            mWanderTicks = 0;
+            mWanderOutdoors = 2; // the next two picks
+            return;
+        }
+        mWanderTicks = 900;
+        resetPath();
+    }
+    if (moveTo(game, mWanderGoal, false) != Move::Walking)
+    {
+        mWanderTicks = std::min(mWanderTicks, 60); // stand a moment, then pick another spot
+        if (playerTile(game) != mWanderGoal) mWanderGoal = glm::ivec2(-1);
+    }
+}
+
+void Autoplayer::checkStuck(Game& game)
+{
+    const glm::ivec2 here = playerTile(game);
+    const bool asleep = game.mWorld.hasComponent<Sleeping>(game.mPlayerEntity);
+    // Keeping still on purpose (resting, holding the house) is not being stuck.
+    const bool still = std::string_view(mActivity) == "hold" || std::string_view(mActivity) == "rest" ||
+                       std::string_view(mActivity) == "busy";
+    if (asleep || still || here != mStuckTile)
+    {
+        mStuckTile = here;
+        mLastMoveHour = clock(game);
+        mUnstuckAt = mLastMoveHour + 0.5;
+        return;
+    }
+    // Half an hour on one tile at something that should move it on (a
+    // cupboard it cannot open, a way it cannot walk): give that goal up, as
+    // a player would, before the harness calls it stuck (phase 14).
+    if (clock(game) >= mUnstuckAt)
+    {
+        mUnstuckAt = clock(game) + 0.5;
+        if (mTargetContainer != kInvalidEntity) mSearched.insert(Tile{mTarget.x, mTarget.y});
+        mTargetContainer = kInvalidEntity;
+        // Everything in reach of this tile too (someone standing by takes the E).
+        game.mWorld.forEach<Interactable, Inventory, Transform>(
+            [&](Entity, Interactable& inter, Inventory&, Transform& t)
+            {
+                if (inter.type != InteractableType::Container) return;
+                const glm::ivec2 tile(static_cast<int>(t.x) / 32, static_cast<int>(t.y) / 32);
+                if (std::abs(tile.x - here.x) <= 4 && std::abs(tile.y - here.y) <= 4) mSearched.insert(Tile{tile.x, tile.y});
+            });
+        // And step off this tile a way the route did not go (a parked car
+        // the routes do not know about, a tree beside it).
+        mRng = mRng * 1664525u + 1013904223u;
+        const float angle = static_cast<float>(mRng >> 8) * (6.2831853f / 16777216.0f);
+        mNudgeDir = glm::vec2(std::cos(angle), std::sin(angle));
+        mNudgeTicks = 120;
+        if (mPathGoal.x >= 0) mUnreachable.insert(Tile{mPathGoal.x, mPathGoal.y});
+        mForgetAt = clock(game) + 2.0;
+        mWaterStand = glm::ivec2(-1);
+        mWanderGoal = glm::ivec2(-1);
+        mFleeGoal = glm::ivec2(-1);
+        mFleeTicks = 0;
+        resetPath();
+    }
+    if (mStuck.empty() && clock(game) - mLastMoveHour >= static_cast<double>(kStuckGameHours))
+    {
+        mStuck = "bot stuck at tile " + std::to_string(here.x) + "," + std::to_string(here.y) + " for " +
+                 std::to_string(kStuckGameHours) + " game hours (doing: " + mActivity + ")";
+    }
+}
+
+void Autoplayer::tick(Game& game)
+{
+    if (!mRunning)
+    {
+        return;
+    }
+    if (game.mRunState != Game::RunState::Playing || game.mPlayerEntity == kInvalidEntity ||
+        !game.mWorld.hasComponent<Transform>(game.mPlayerEntity) || game.mCurrentDay >= mEndDay)
+    {
+        stop(game);
+        return;
+    }
+    ++mTicks;
+    mTapCooldown = std::max(0, mTapCooldown - 1);
+    mClickCooldown = std::max(0, mClickCooldown - 1);
+
+    // Doors open and the dead move on: what was out of reach may not be now.
+    if (clock(game) >= mForgetAt)
+    {
+        mUnreachable.clear();
+        mForgetAt = clock(game) + 2.0;
+    }
+
+    checkStuck(game);
+    if (!mStuck.empty())
+    {
+        stop(game);
+        return;
+    }
+
+    if (game.mWorld.hasComponent<Sleeping>(game.mPlayerEntity))
+    {
+        mActivity = "asleep";
+        applyInput(game);
+        return;
+    }
+
+    // Panels this bot does not use get closed.
+    // So is talking: an E meant for a cupboard can open it when someone
+    // stands near (phase 8).
+    if (game.mShowCrafting || game.mShowWorldMap || game.mShowNotebook || game.mTalk.open)
+    {
+        tap(Action::UiBack);
+        applyInput(game);
+        return;
+    }
+
+    // A held action under way (boarding, stitching, reading): keep still
+    // until it is done. The dead coming still come first.
+    if (game.mBaseAction.kind != Game::BaseAction::Kind::None && game.mBaseAction.kind != Game::BaseAction::Kind::Grab &&
+        mUseSlot < 0)
+    {
+        if (game.mShowInventory) tap(Action::UiBack);
+        if (!handleDanger(game)) mActivity = "busy";
+        applyInput(game);
+        return;
+    }
+
+    const bool acted = handlePendingUse(game) || treatBleeding(game) || handleDanger(game) ||
+                       handleContainerPanel(game) || eatAndDrink(game) || armSelf(game) || restWhenTired(game) || retreatWhenHurt(game) ||
+                       // The ways in before the bed (phase 14): a board that came down in the
+                       // night goes back up before sleep, not never.
+                       eveningAtHome(game) || sleepAtHome(game) || useTap(game) || fetchWater(game) || followAim(game) || searchContainers(game);
+    if (!acted)
+    {
+        wander(game);
+    }
+    applyInput(game);
+}

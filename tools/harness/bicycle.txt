@@ -1,0 +1,48 @@
+# The bicycle (phase 11): it crosses 40 tiles of the town at night near
+# silently; one of the dead standing 8 tiles off the route does not turn;
+# one in the way pulls the rider off (a fall: the bicycle lies where it fell).
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/bicycle.txt --hidden --world-seed 1234 --shots shots/bicycle
+
+survivors gone
+newrun
+god on
+hours 23
+waits 1
+# Beside the long north-south road (world seed 1234).
+teleport 74 82
+goto vehicle bicycle
+slay 80
+waits 0.3
+expect prompt V: Get on
+shot 00_bicycle
+tap V
+waits 0.3
+expect vehicle in
+expect message You get on the bicycle
+vehicle mark
+drive road 3
+shot 01_riding
+
+# One of the dead 8 tiles east of the road ahead, standing.
+zombie 8 -8 idle still
+zombies
+drive road 2
+expect zombies calm 12
+drive road 2
+expect zombies calm 12
+drive road 6
+expect zombies calm 40
+expect vehicle moved 40
+expect vehicle scrapes 0
+shot 02_far
+
+# One of the dead on the road ahead: it pulls the rider off.
+drive brake
+zombie 0 -7
+drive n 5
+expect vehicle out
+expect message off the bicycle
+shot 03_pulled_off
+vehicles
+quit

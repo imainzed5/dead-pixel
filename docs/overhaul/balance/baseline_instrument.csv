@@ -1,0 +1,61 @@
+seed,status,days,end_day,cause,class,kills,kills_per_day,food,drink,containers,boards,day1_death,night1_death,night1_home,first_fight_day1,grabs,far_tiles,quiet_d1,quiet_d2,quiet_d3
+1,"FAIL: [harness] FAIL bot stuck at tile 138,40 for 3 game hours (doing: search)",0.250,1,alive,alive,2,8.000,6,7,36,0,False,False,False,True,0,37.813,0.352,,
+2,ok,1.734,3,Overrun by the dead on Day 3,dead,35,20.187,11,3,75,1,False,False,False,True,3,53.468,0.458,0.173,
+3,ok,3.845,5,Overrun by the dead on Day 5,dead,41,10.664,20,11,120,2,False,False,False,True,11,82.912,0.293,0.170,0.128
+4,ok,0.538,1,Overrun by the dead on Day 1,dead,8,14.865,8,5,16,0,True,True,True,True,4,31.139,0.455,,
+5,ok,0.664,1,Beaten down by a big zombie on Day 1,dead,22,33.115,6,6,9,0,True,True,False,True,3,42.778,0.513,,
+6,ok,0.924,2,Killed by Abel on Day 2,people,18,19.477,3,0,30,3,False,True,False,True,5,47.173,0.398,0.000,
+7,ok,2.037,3,Overrun by the dead on Day 3,dead,21,10.308,5,8,43,3,False,False,False,True,2,86.585,0.333,0.202,0.157
+8,ok,1.732,3,Killed by zombies on Day 3,dead,52,30.022,7,9,148,1,False,False,False,True,6,66.872,0.213,0.157,
+9,ok,2.570,3,Overrun by the dead on Day 3,dead,24,9.340,7,7,45,0,False,False,False,True,4,90.343,0.503,0.244,0.136
+10,ok,1.653,2,Killed by Tess on Day 2,people,32,19.362,12,6,67,0,False,False,False,True,6,89.693,0.479,0.062,
+11,ok,2.832,4,Succumbed to infection on Day 4,infection,60,21.187,4,5,29,1,False,False,False,True,13,146.351,0.660,0.260,0.606
+12,ok,2.075,3,Killed by zombies on Day 3,dead,22,10.602,5,5,16,0,False,False,False,True,2,118.874,0.542,0.282,0.030
+13,ok,0.694,2,Overrun by the dead on Day 2,dead,13,18.729,7,15,32,0,False,True,False,True,3,45.766,0.226,,
+14,ok,0.716,2,Overrun by the dead on Day 2,dead,1,1.398,9,4,33,0,False,True,False,False,1,37.542,0.481,,
+15,ok,0.254,1,Overrun by the dead on Day 1,dead,29,114.338,8,7,34,0,True,False,False,True,2,91.813,0.169,,
+16,ok,0.402,1,Overrun by the dead on Day 1,dead,12,29.833,11,12,64,0,True,False,False,True,2,110.257,0.295,,
+17,ok,1.948,3,Overrun by the dead on Day 3,dead,26,13.345,9,3,31,1,False,False,False,True,6,87.424,0.576,0.250,0.011
+18,ok,0.971,2,Succumbed to infection on Day 2,infection,16,16.471,9,4,27,3,False,True,False,True,4,80.035,0.392,0.006,
+19,ok,0.015,1,Killed by Hana on Day 1,people,0,0.000,2,1,4,0,True,False,False,False,0,6.777,,,
+20,ok,2.042,3,Overrun by the dead on Day 3,dead,43,21.059,9,8,32,0,False,False,False,True,3,80.411,0.424,0.061,0.066
+21,ok,3.820,5,Overrun by the dead on Day 5,dead,56,14.658,24,1,100,2,False,False,False,True,15,96.811,0.207,0.588,0.404
+22,ok,1.183,2,Killed by Viktor on Day 2,people,21,17.759,8,15,54,2,False,False,False,True,7,125.694,0.506,0.081,
+23,ok,0.842,2,Killed by zombies on Day 2,dead,23,27.321,8,7,11,0,False,True,False,True,4,73.088,0.718,0.000,
+24,ok,0.872,2,Overrun by the dead on Day 2,dead,12,13.756,6,5,10,1,False,True,False,True,2,20.002,0.379,0.750,
+25,ok,2.201,3,Overrun by the dead on Day 3,dead,29,13.177,7,10,83,1,False,False,False,True,4,72.180,0.341,0.263,0.223
+26,"FAIL: [harness] FAIL bot stuck at tile 52,10 for 3 game hours (doing: home)",0.375,1,alive,alive,4,10.667,6,4,32,0,False,False,False,True,2,40.910,0.497,,
+27,ok,1.137,2,Bled out on Day 2,dead,30,26.376,7,10,28,5,False,False,False,True,2,65.791,0.441,0.099,
+28,ok,1.161,2,Killed by Noor on Day 2,people,13,11.199,9,8,35,0,False,False,False,True,3,103.935,0.180,0.042,
+29,ok,2.729,4,Beaten down by a big zombie on Day 4,dead,69,25.279,8,3,75,0,False,False,False,True,10,56.724,0.421,0.608,0.111
+30,ok,1.986,3,Bled out on Day 3,dead,48,24.169,19,11,77,0,False,False,False,True,5,85.853,0.127,0.086,0.419
+31,ok,1.265,2,Overrun by the dead on Day 2,dead,28,22.141,9,10,53,0,False,False,False,True,3,84.370,0.044,0.228,
+32,ok,0.039,1,Killed by Eli on Day 1,people,0,0.000,6,7,15,0,True,False,False,True,0,35.282,,,
+33,ok,3.455,4,Killed by zombies on Day 4,dead,72,20.839,10,7,75,0,False,False,False,True,9,68.909,0.435,0.291,0.154
+34,ok,1.897,3,Overrun by the dead on Day 3,dead,26,13.703,6,6,37,0,False,False,False,True,4,87.046,0.491,0.528,0.056
+35,ok,2.129,3,Killed by June on Day 3,people,22,10.332,12,8,79,1,False,False,False,True,5,75.014,0.687,0.536,0.529
+36,ok,1.273,2,Overrun by the dead on Day 2,dead,17,13.357,6,3,34,0,False,False,False,True,9,100.069,0.248,0.539,
+37,ok,2.975,4,Overrun by the dead on Day 4,dead,22,7.394,5,8,51,0,False,False,False,False,5,129.821,0.756,0.313,0.052
+38,ok,0.145,1,Killed by Luis on Day 1,people,6,24.000,3,5,25,0,True,False,False,True,0,49.655,,,
+39,ok,1.255,2,Overrun by the dead on Day 2,dead,26,20.722,18,13,77,0,False,False,False,True,5,64.673,0.652,0.430,
+40,ok,1.639,2,Overrun by the dead on Day 2,dead,45,27.459,4,7,46,3,False,False,False,True,7,88.069,0.265,0.105,
+41,ok,0.443,1,Overrun by the dead on Day 1,dead,3,6.775,6,5,8,0,True,True,True,True,2,9.419,0.665,,
+42,ok,1.964,3,Overrun by the dead on Day 3,dead,20,10.186,5,5,37,2,False,False,False,True,4,50.857,0.786,0.180,0.440
+43,"FAIL: [harness] FAIL bot stuck at tile 77,38 for 3 game hours (doing: search)",0.125,1,alive,alive,0,0.000,4,4,8,0,False,False,False,False,0,12.561,,,
+44,ok,0.772,2,Killed by zombies on Day 2,dead,11,14.253,9,7,38,1,False,True,True,True,5,35.922,0.112,,
+45,ok,2.589,3,Overrun by the dead on Day 3,dead,35,13.519,15,15,136,0,False,False,False,True,7,81.537,0.267,0.260,0.241
+46,ok,1.435,2,Overrun by the dead on Day 2,dead,25,17.416,6,8,69,0,False,False,False,True,4,55.295,0.287,0.075,
+47,ok,1.340,2,Overrun by the dead on Day 2,dead,16,11.937,4,4,64,0,False,False,False,True,4,131.390,0.584,0.243,
+48,ok,3.003,4,Killed by Ruth on Day 4,people,33,10.989,6,7,108,2,False,False,False,True,6,113.374,0.303,0.163,0.026
+49,ok,1.157,2,Killed by Dev on Day 2,people,27,23.334,6,6,46,1,False,False,False,True,3,96.882,0.447,0.146,
+50,ok,0.438,1,Overrun by the dead on Day 1,dead,7,15.980,7,5,10,0,True,True,False,True,3,46.254,0.166,,
+51,ok,1.913,3,Overrun by the dead on Day 3,dead,21,10.976,6,10,84,1,False,False,False,True,3,46.908,0.602,0.243,0.000
+52,ok,2.609,3,Overrun by the dead on Day 3,dead,46,17.630,9,4,45,5,False,False,False,True,6,94.316,0.324,0.455,0.044
+53,ok,1.007,2,Killed by Rosa on Day 2,people,18,17.873,6,5,7,0,False,False,False,True,3,53.339,0.518,0.249,
+54,ok,2.828,4,Succumbed to infection on Day 4,infection,38,13.438,6,11,46,1,False,False,False,True,12,88.331,0.472,0.376,0.026
+55,ok,1.753,3,Killed by zombies on Day 3,dead,42,23.965,6,10,38,0,False,False,False,True,11,84.588,0.538,0.120,
+56,ok,1.050,2,Killed by Dev on Day 2,people,23,21.899,6,4,34,0,False,False,False,True,1,39.646,0.325,0.312,
+57,ok,3.200,4,Overrun by the dead on Day 4,dead,54,16.877,10,6,55,2,False,False,False,True,6,123.821,0.243,0.322,0.087
+58,ok,1.556,2,Succumbed to infection on Day 2,infection,37,23.775,9,8,38,0,False,False,False,True,6,90.167,0.301,0.403,
+59,ok,1.377,2,Overrun by the dead on Day 2,dead,17,12.342,6,3,6,0,False,False,False,True,7,85.223,0.190,0.529,
+60,ok,1.263,2,Overrun by the dead on Day 2,dead,23,18.213,15,10,69,0,False,False,False,True,7,64.676,0.654,0.155,

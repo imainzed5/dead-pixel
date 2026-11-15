@@ -1,0 +1,58 @@
+# Atmosphere: the same street under each kind of weather, a storm at night,
+# lamp light, and running through bushes and litter.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/atmosphere.txt --hidden --world-seed 1234 --shots shots/atmosphere
+
+newrun
+god on
+hours 12
+zoom 1.5
+teleport 64 62
+weather clear
+waits 2
+shot 01_clear
+weather cloudy
+waits 8
+shot 02_cloudy
+weather rain
+waits 6
+shot 03_rain
+weather storm
+waits 9
+shot 04_storm
+weather fog
+waits 8
+shot 05_fog
+
+# Night: storm, then a lit street.
+weather storm
+hours 23
+waits 6
+shot 06_storm_night
+weather clear
+waits 6
+lamp
+waits 0.5
+zoom 1.0
+waits 0.3
+shot 07_lamps
+
+# Through the undergrowth.
+hours 12
+zoom 2.5
+teleport 64 62
+waits 0.3
+key LShift down
+hold A 45
+shot 08_running
+key LShift up
+waits 0.5
+
+# Weather left to itself lasts hours: one condition holds for a real minute.
+weather roll
+waits 0.5
+weather mark
+waits 60
+expect weather same
+expect alive
+quit

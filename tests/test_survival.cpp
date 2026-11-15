@@ -8,6 +8,7 @@
 #include <glm/geometric.hpp>
 
 #include "components/Bleeding.h"
+#include "components/Corpse.h"
 #include "components/Combat.h"
 #include "components/Facing.h"
 #include "components/Health.h"
@@ -19,16 +20,20 @@
 #include "components/Traits.h"
 #include "components/Transform.h"
 #include "components/Velocity.h"
+#include "components/Skills.h"
 #include "components/Wounds.h"
 #include "components/ZombieAI.h"
 #include "ecs/World.h"
 #include "map/TileMap.h"
 #include "noise/NoiseModel.h"
+#include "components/Projectile.h"
+#include "systems/ProjectileSystem.h"
 #include "systems/MentalStateSystem.h"
 #include "systems/NeedsSystem.h"
 #include "systems/ThreatDirectorSystem.h"
 #include "systems/WoundSystem.h"
 #include "systems/ZombieAISystem.h"
+#include "world/DayLength.h"
 
 namespace
 {
@@ -48,14 +53,17 @@ struct SurvivalWorld
         world.registerComponent<Needs>();
         world.registerComponent<MentalState>();
         world.registerComponent<Traits>();
+        world.registerComponent<Skills>();
         world.registerComponent<ZombieAI>();
         world.registerComponent<SurvivorAI>();
         world.registerComponent<Sleeping>();
         world.registerComponent<Velocity>();
         world.registerComponent<Facing>();
+        world.registerComponent<Combat>();
         world.registerComponent<Stamina>();
         world.registerComponent<Wounds>();
         world.registerComponent<Bleeding>();
+        world.registerComponent<Corpse>();
 
         map.resize(width, height, 32, 32);
 
@@ -66,6 +74,19 @@ struct SurvivalWorld
         world.addComponent(player, MentalState{});
         world.addComponent(player, Traits{});
         world.addComponent(player, Wounds{});
+    }
+
+    // One tick at noon on day 1 for the dead.
+    ZombieTick tick()
+    {
+        ZombieTick t;
+        t.tileMap = &map;
+        t.noise = &noise;
+        t.player = player;
+        t.dt = 1.0f / 60.0f;
+        t.hours = 12.0;
+        t.day = 1;
+        return t;
     }
 
     static Transform tileTransform(int tx, int ty)
@@ -129,30 +150,30 @@ struct SurvivalWorld
 
 DP_TEST(needs_temperature_follows_shelter_fire_and_season)
 {
-    auto target = [](float outdoor, bool indoors, float rain, float wind, bool fire, float clothing)
+    auto target = [](float outdoor, bool indoors, float weatherShift, bool fire, float clothing)
     {
         return NeedsSystem::targetBodyTemperature(
-            NeedsSystem::effectiveAmbient(outdoor, indoors, rain, wind, fire, clothing), 0.0f);
+            NeedsSystem::effectiveAmbient(outdoor, indoors, weatherShift, fire, clothing), 0.0f);
     };
 
     // Spring night outdoors: chilly, not dangerous.
-    const float springNightOut = target(8.0f, false, 0.0f, 0.0f, false, 0.0f);
+    const float springNightOut = target(8.0f, false, 0.0f, false, 0.0f);
     DP_CHECK(springNightOut < NeedsSystem::kChillyBelow);
     DP_CHECK(springNightOut >= NeedsSystem::kColdBelow);
 
-    // Rainy windy autumn night outdoors: cold.
-    DP_CHECK(target(3.0f, false, 1.0f, 0.6f, false, 0.0f) < NeedsSystem::kColdBelow);
+    // A stormy autumn night outdoors (-6 C of weather): cold.
+    DP_CHECK(target(3.0f, false, -6.0f, false, 0.0f) < NeedsSystem::kColdBelow);
 
     // Winter night outdoors: hypothermic. A jacket buys time but is not shelter.
-    DP_CHECK(target(-8.0f, false, 0.0f, 0.0f, false, 0.0f) < NeedsSystem::kHypothermicBelow);
-    const float jacketWinter = target(-8.0f, false, 0.0f, 0.0f, false, 5.0f);
+    DP_CHECK(target(-8.0f, false, 0.0f, false, 0.0f) < NeedsSystem::kHypothermicBelow);
+    const float jacketWinter = target(-8.0f, false, 0.0f, false, 5.0f);
     DP_CHECK(jacketWinter >= NeedsSystem::kHypothermicBelow);
     DP_CHECK(jacketWinter < NeedsSystem::kColdBelow);
 
     // Shelter: a spring night indoors is comfortable; winter indoors needs a fire.
-    DP_CHECK_NEAR(target(8.0f, true, 1.0f, 1.0f, false, 0.0f), 37.0f, 0.001f);
-    DP_CHECK(target(-8.0f, true, 0.0f, 0.0f, false, 0.0f) < NeedsSystem::kChillyBelow);
-    DP_CHECK_NEAR(target(-8.0f, true, 0.0f, 0.0f, true, 0.0f), 37.0f, 0.001f);
+    DP_CHECK_NEAR(target(8.0f, true, -6.0f, false, 0.0f), 37.0f, 0.001f);
+    DP_CHECK(target(-8.0f, true, 0.0f, false, 0.0f) < NeedsSystem::kChillyBelow);
+    DP_CHECK_NEAR(target(-8.0f, true, 0.0f, true, 0.0f), 37.0f, 0.001f);
 }
 
 DP_TEST(needs_body_temperature_drifts_and_shelter_protects)
@@ -427,12 +448,16 @@ DP_TEST(zombie_attacks_are_survivable_lunges)
 
     for (int i = 0; i < 600; ++i) // 10 s at 60 Hz
     {
-        ai.update(w.world, w.map, w.noise, w.player, 1.0f / 60.0f, 12.0, 1, nullptr);
+        ai.update(w.world, w.tick());
+        // A grab is met by tearing free at once (the struggle is the
+        // combat system's): what is left are the claws.
+        w.world.getComponent<ZombieAI>(z).holding = false;
         w.world.getComponent<Transform>(z).x = w.world.getComponent<Transform>(w.player).x + 10.0f; // pin in place
         w.world.getComponent<Transform>(z).y = w.world.getComponent<Transform>(w.player).y;
     }
     const float hp = w.world.getComponent<Health>(w.player).current;
-    // A lone zombie hurts but takes well over 10 seconds to kill a standing player.
+    // A lone zombie hurts but takes well over 10 seconds to kill a standing
+    // player who does not let it hold on.
     DP_CHECK(hp < 100.0f);
     DP_CHECK(hp > 55.0f);
     // Not every hit leaves a wound.
@@ -451,13 +476,13 @@ DP_TEST(zombie_lunge_can_be_dodged)
     zt.y = pt.y;
 
     // Let the lunge start, then step well out of reach before it lands.
-    ai.update(w.world, w.map, w.noise, w.player, 1.0f / 60.0f, 12.0, 1, nullptr);
+    ai.update(w.world, w.tick());
     DP_CHECK(w.world.getComponent<ZombieAI>(z).attackWindup > 0.0f);
     pt.x -= 3.0f * kTile;
     pt.prevX = pt.x;
     for (int i = 0; i < 40; ++i)
     {
-        ai.update(w.world, w.map, w.noise, w.player, 1.0f / 60.0f, 12.0, 1, nullptr);
+        ai.update(w.world, w.tick());
         zt.x = pt.x + 3.0f * kTile + 10.0f; // the zombie stays where it lunged
         zt.y = pt.y;
     }
@@ -505,4 +530,85 @@ DP_TEST(weapon_condition_bands_follow_durability)
     DP_CHECK(weaponConditionFor(3, 12) == WeaponCondition::Damaged);
     DP_CHECK(weaponConditionFor(0, 12) == WeaponCondition::Broken);
     DP_CHECK(weaponConditionFor(1, 0) == WeaponCondition::Good); // no divide by zero
+}
+
+// ------------------------------------------------------------------ Phase 1 fixes
+
+DP_TEST(one_bullet_stops_in_the_first_body)
+{
+    SurvivalWorld w;
+    w.world.registerComponent<Projectile>();
+    // Two zombies standing on top of each other, the shot passing through both.
+    const Entity a = w.addZombie(10, 10, ZombieState::Chase);
+    const Entity b = w.addZombie(10, 10, ZombieState::Chase);
+    const float before = w.world.getComponent<Health>(a).current + w.world.getComponent<Health>(b).current;
+
+    const Entity shot = w.world.createEntity();
+    Transform t{};
+    t.x = 10.0f * kTile + 16.0f - 40.0f;
+    t.y = 10.0f * kTile + 16.0f;
+    w.world.addComponent(shot, t);
+    Projectile projectile{};
+    projectile.vx = 1.0f;
+    projectile.vy = 0.0f;
+    projectile.damage = 20.0f;
+    projectile.speed = 600.0f;
+    projectile.rangeRemaining = 400.0f;
+    w.world.addComponent(shot, projectile);
+
+    ProjectileSystem system;
+    for (int i = 0; i < 30; ++i)
+    {
+        system.update(w.world, w.map, w.noise, 1.0f / 60.0f);
+    }
+    const float after = w.world.getComponent<Health>(a).current + w.world.getComponent<Health>(b).current;
+    DP_CHECK_NEAR(before - after, 20.0f, 0.01);
+    int shots = 0;
+    w.world.forEach<Projectile>([&](Entity, Projectile&) { ++shots; });
+    DP_CHECK_EQ(shots, 0);
+}
+
+DP_TEST(tough_keeps_its_extra_health_through_a_wound)
+{
+    SurvivalWorld w;
+    Health& health = w.world.getComponent<Health>(w.player);
+    health.baseMaximum = 120.0f;
+    health.maximum = 120.0f;
+    health.current = 120.0f;
+
+    Wound cut{};
+    cut.type = WoundType::Cut;
+    w.world.getComponent<Wounds>(w.player).active.push_back(cut);
+    WoundSystem wounds;
+    wounds.update(w.world, w.player, 1.0f / 60.0f, 12.0);
+    DP_CHECK_NEAR(health.maximum, 115.0f, 0.01);
+
+    // A bandage closes it: back to 120, not 100.
+    w.world.getComponent<Wounds>(w.player).active.clear();
+    health.maximum = woundedMaximum(health.baseMaximum, 0);
+    DP_CHECK_NEAR(health.maximum, 120.0f, 0.01);
+    // Never below 20, however many wounds.
+    DP_CHECK_NEAR(woundedMaximum(100.0f, 50), 20.0f, 0.01);
+}
+
+// Day length (phase 13): a 48-minute day feeds the needs half the game
+// seconds per real second, so a game day costs the same hunger and thirst.
+DP_TEST(needs_lost_per_game_hour_do_not_change_with_day_length)
+{
+    const auto hoursOfNeeds = [](int dayMinutes)
+    {
+        SurvivalWorld w;
+        NeedsEnvironment mild;
+        NeedsSystem needs;
+        const float gameDt = 1.0f * daylength::scale(dayMinutes);
+        const int realSeconds = static_cast<int>(daylength::gameHourSeconds(dayMinutes) * 6.0); // six game hours
+        for (int s = 0; s < realSeconds; ++s) needs.update(w.world, gameDt, mild);
+        return std::make_pair(w.needs().hunger, w.needs().thirst);
+    };
+    const auto normal = hoursOfNeeds(24);
+    const auto slow = hoursOfNeeds(48);
+    DP_CHECK_NEAR(normal.first, slow.first, 0.01f);
+    DP_CHECK_NEAR(normal.second, slow.second, 0.01f);
+    SurvivalWorld fresh;
+    DP_CHECK(normal.second < fresh.needs().thirst - 1.0f); // something was lost
 }

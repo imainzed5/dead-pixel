@@ -1,0 +1,85 @@
+# Winter (phase 7): snow lies on the ground and builds over six game hours
+# (three shots), the pond freezes over and can be walked on, a rain
+# collector does not fill below freezing, and a night outdoors without a coat
+# is Cold within two game hours; with a Winter Coat beside a fire indoors it
+# is not.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/seasons.txt --hidden --world-seed 1234 --shots shots/seasons
+
+newrun
+god on
+trait plain
+waits 1
+slay 200
+season winter
+weather snow
+air -6
+hours 9
+zoom 1.5
+teleport 64 62
+waits 0.5
+weatherinfo
+shot 01_snow_begins
+
+# Six game hours of snow, two at a time.
+waits 120
+slay 200
+weatherinfo
+shot 02_snow_2h
+waits 120
+slay 200
+weatherinfo
+shot 03_snow_4h
+waits 120
+slay 200
+weatherinfo
+shot 04_snow_6h
+
+# The pond is frozen: it can be stood on.
+goto pond on
+waits 0.5
+expect walkable
+shot 05_frozen_pond
+
+# Out in the open (the strip of ground round a house is under its eaves):
+# a rain collector set out in the snow stays empty.
+goto wild
+waits 0.3
+give Hammer
+give Scrap Metal 2
+give Wood Planks 1
+build collector
+waits 13
+waits 60
+expect collector 0
+slay 200
+
+# Night outdoors with nothing warm in the pack: Cold within two game hours.
+hours 22
+strip
+set temp 37
+waits 0.5
+expect nocondition Cold
+waits 60
+weatherinfo
+waits 60
+weatherinfo
+expect condition Cold
+shot 06_cold_night
+slay 200
+
+# With a Winter Coat, beside a fire inside: not Cold after two game hours.
+give Winter Coat
+goto kind garage inside
+waits 0.3
+give Wood Planks 2
+build campfire
+waits 6
+light
+set temp 37
+waits 120
+weatherinfo
+expect nocondition Cold
+shot 07_coat_and_fire
+expect alive
+quit

@@ -1,0 +1,91 @@
+# Home base: furniture pushed into a doorway holds the dead after the door
+# goes; furniture broken up for planks; a crate built with the build wheel's
+# rules; and the next life finds the barricade and the crate as they were.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/base.txt --hidden --world-seed 1234 --shots shots/base
+
+newrun
+god on
+waits 1
+slay 40
+zoom 3
+goto home
+waits 0.3
+plan
+# A wardrobe (or, where the house has none, a bookshelf: as heavy, as
+# strong) pushed tile by tile onto the floor inside the nearest door.
+goto door
+haul wardrobe bookshelf
+waits 0.3
+expect blocked
+mark
+goto home
+waits 0.3
+shot base_pushed
+# Hold E beside a movable piece: it is grabbed; walking leans into it.
+goto furniture couch
+hold E 30
+waits 0.3
+shot base_grabbed
+waits 0.3
+# The windows boarded, the dead come for you from outside that door: the
+# door goes first, then the wardrobe, and all of it takes more than a minute.
+goto home
+window boarded all
+waits 0.3
+zombie mark
+waits 30
+doors
+expect blocked
+waits 31
+expect blocked
+expect alive
+slay 40
+waits 0.5
+# A table broken up with a hammer: two planks.
+give Hammer
+goto furniture table
+waits 0.3
+# Still shaken from the siege: held work goes slower (phase 5).
+tap X
+waits 14
+expect pack Wood Planks 2
+# The build wheel, then a crate built where it may stand.
+mouse 640 360
+tap B
+waits 0.3
+shot base_wheel
+tap B
+waits 0.2
+give Saw
+give Wood Planks 3
+give Nails 8
+goto home
+waits 0.3
+build crate
+waits 13
+open
+waits 0.3
+give Canned Food 2
+stash Canned Food 2
+container
+tap Escape
+waits 0.3
+plan
+# The next life: the wardrobe is still at the door and the crate still
+# stands, a stage worse (phase 10). Nobody lived here between lives, and on
+# this seed Viktor found the crate and took the beans (one time in ten).
+kill base test
+waits 6
+newrun
+waits 1
+slay 40
+goto base
+waits 0.5
+expect blocked
+shot base_next_life
+expect crate damaged
+goto survivor Viktor
+expect survivor stock Canned Food 2
+expect alive
+quit

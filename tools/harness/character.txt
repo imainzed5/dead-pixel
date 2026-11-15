@@ -1,0 +1,97 @@
+# The character screen (phase 5): nothing chosen, an overspent pick that
+# cannot begin, a balanced pick that can; the character starts with the
+# health, carry limit and skills the screen promised. Then quick start.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/character.txt --hidden --world-seed 1234 --shots shots/character
+
+newrun create
+waits 0.5
+expect creating
+shot 01_nothing_chosen
+
+# A name, typed: letters, "-" for a space.
+tap A
+waits 0.05
+tap D
+waits 0.05
+tap A
+waits 0.05
+tap -
+waits 0.05
+tap V
+waits 0.05
+tap O
+waits 0.05
+tap S
+waits 0.05
+tap S
+waits 0.05
+
+# Good at: Handy (2) and Strong Back (2). Four points spent, none earned.
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Enter
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Enter
+waits 0.2
+shot 02_overspent
+
+# Begin is refused.
+tap Right
+waits 0.05
+tap Right
+waits 0.05
+tap Enter
+waits 0.5
+expect creating
+shot 03_refused
+
+# Bad at: Clumsy (2) and Hungry (2). Even.
+tap Left
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Enter
+waits 0.05
+tap Down
+waits 0.05
+tap Enter
+waits 0.2
+shot 04_balanced
+tap Right
+waits 0.05
+tap Enter
+waits 0.5
+expect playing
+
+# What the screen said: health 100, carry 25 + 6, Carpentry 2.
+expect health 100
+expect carry 31
+expect skill carpentry 2
+waits 1
+shot 05_begun
+
+# Quick start: Space takes the seed's pick and goes straight in.
+newrun create
+waits 0.5
+expect creating
+tap Space
+waits 0.5
+expect playing
+quit

@@ -1,0 +1,21 @@
+# The bot follows the standing aim (phase 13): on day 4 with no rain
+# collector and the makings in its pack, it builds one beside the house by
+# the build wheel, as a player would.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/bot_aim.txt --hidden --world-seed 1234 --shots shots/bot_aim
+
+newrun
+god on
+slay 80
+day 4
+hours 8
+waits 1
+expect aim water
+give Hammer
+give Scrap Metal 2
+give Wood Planks 1
+bot normal 1
+expect aim water
+expect aimdone
+shot bot_rain_collector
+quit

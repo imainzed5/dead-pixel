@@ -1,0 +1,67 @@
+# Food and water after the taps (phase 6): Dirty Water boiled in a pot at a
+# campfire is a Water Bottle; Rice cooks with water; raw meat makes you ill,
+# cooked meat does not. E at a burning campfire opens the Make panel's FOOD
+# tab; X there feeds it.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/cooking.txt --hidden --world-seed 1234 --shots shots/cooking
+
+newrun
+god on
+waits 1
+slay 300
+hours 12
+goto pavement
+waits 0.3
+give Wood Planks 2
+build campfire
+waits 6
+light
+waits 0.3
+expect prompt E: Cook
+give Cooking Pot
+give Dirty Water 2
+give Rice
+give Raw Meat 2
+tap E
+waits 0.4
+shot 01_food_tab
+# Dirty water boiled: two clean bottles.
+recipe Boiled Water
+waits 11
+recipe Boiled Water
+waits 11
+expect pack Water Bottle 2
+# Rice with one of them, in the pot.
+recipe Cooked Rice
+waits 13
+expect pack Cooked Rice 1
+shot 02_cooked
+# One piece of meat cooked; the other eaten raw.
+recipe Cooked Meat
+waits 9
+expect pack Cooked Meat 1
+tap Escape
+waits 0.3
+set illness 0
+use cooked_meat
+waits 0.5
+expect need illness below 1
+use rat_meat
+waits 0.5
+expect need illness above 15
+shot 03_raw_meat
+# Dirty water drunk as it is: thirst eased, illness up.
+set illness 0
+set thirst 40
+give Dirty Water
+use dirty_water
+waits 0.5
+expect need illness above 8
+expect need thirst above 50
+# The campfire fed with X.
+give Wood Planks 2
+tap X
+waits 0.3
+expect message feed the fire
+expect alive
+quit

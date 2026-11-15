@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <glm/geometric.hpp>
+
 void NoiseModel::update(float dtSeconds)
 {
     for (NoiseEvent& event : mActiveEvents)
@@ -19,18 +21,48 @@ void NoiseModel::update(float dtSeconds)
                 return event.remainingSeconds <= 0.0f;
             }),
         mActiveEvents.end());
+
+    for (NoiseAttractor& a : mAttractors) a.remainingSeconds -= dtSeconds;
+    std::erase_if(mAttractors, [](const NoiseAttractor& a) { return a.remainingSeconds <= 0.0f; });
+}
+
+void NoiseModel::clear()
+{
+    mActiveEvents.clear();
+    mAttractors.clear();
+    mHeard.clear();
+}
+
+const NoiseAttractor* NoiseModel::attractorNear(const glm::vec2& at, float radius) const
+{
+    const NoiseAttractor* best = nullptr;
+    float bestD = radius;
+    for (const NoiseAttractor& a : mAttractors)
+    {
+        const float d = glm::length(a.worldPosition - at);
+        if (d <= bestD)
+        {
+            best = &a;
+            bestD = d;
+        }
+    }
+    return best;
 }
 
 void NoiseModel::emitNoise(
     const glm::vec2& worldPosition,
     NoiseTier tier,
     float durationSeconds,
-    Entity sourceEntity)
+    Entity sourceEntity,
+    NoiseSource source,
+    float reach,
+    SoundId sound)
 {
     if (tier == NoiseTier::None)
     {
         return;
     }
+    ++mEmittedTotal;
 
     NoiseEvent event;
     event.worldPosition = worldPosition;
@@ -39,8 +71,33 @@ void NoiseModel::emitNoise(
     event.totalDurationSeconds = durationSeconds;
     event.sourceEntity = sourceEntity;
     event.tier = tier;
+    event.source = source;
+    event.reach = reach > 0.0f ? reach : 1.0f;
+    if (mShellResolver)
+    {
+        const std::pair<int, bool> shell = mShellResolver(worldPosition);
+        event.building = shell.first;
+        event.sealed = shell.second;
+    }
 
     mActiveEvents.push_back(event);
+    // Its sound, for the mixer to place (it never feeds back into hearing).
+    if (sound != SoundId::None && mHeard.size() < kHeardLimit) mHeard.push_back(HeardSound{event, sound});
+
+    // A gunshot, a crash, an alarm: the dead that come stay a while.
+    if (tier == NoiseTier::Loud || tier == NoiseTier::Explosive)
+    {
+        const float seconds = tier == NoiseTier::Explosive ? kExplosiveAttractorSeconds : kLoudAttractorSeconds;
+        for (NoiseAttractor& a : mAttractors)
+        {
+            if (glm::length(a.worldPosition - worldPosition) < 96.0f)
+            {
+                a.remainingSeconds = std::max(a.remainingSeconds, seconds);
+                return;
+            }
+        }
+        mAttractors.push_back(NoiseAttractor{worldPosition, seconds});
+    }
 }
 
 float NoiseModel::getNoiseAtPosition(const glm::vec2& worldPosition) const
@@ -80,7 +137,7 @@ int NoiseModel::tierRadiusTiles(NoiseTier tier)
     case NoiseTier::Whisper:
         return 3;
     case NoiseTier::Soft:
-        return 4;
+        return 7;
     case NoiseTier::Medium:
         return 15;
     case NoiseTier::Loud:
