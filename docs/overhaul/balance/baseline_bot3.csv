@@ -1,0 +1,41 @@
+seed,life,status,days,end_day,cause,class,kills,kills_per_day,food,drink,containers,boards,day1_death,night1_death,night1_home,first_fight_day1,grabs,far_tiles,quiet_d1,quiet_d2,quiet_d3,quiet_d8_14,sleep_nights,drink_dawn3,depression_d7,panic_share,stocked_start,stocked_end
+1,1,ok,2.772,4,Succumbed to infection on Day 4,infection,37,13.350,11,10,86,3,False,False,False,True,9,123.299,0.058,0.211,0.068,,0 3,12,,0.367,3 3 119 237,1 3 135 267
+2,1,ok,2.949,4,Overrun by the dead on Day 4,dead,52,17.631,10,3,100,5,False,False,False,True,4,98.571,0.368,0.191,0.028,,0 0,5,,0.368,5 5 148 287,2 5 151 309
+3,1,ok,1.841,3,Killed by zombies on Day 3,dead,20,10.862,17,10,42,6,False,False,False,True,13,71.703,0.464,0.184,,,0,,,0.194,6 6 160 302,4 6 157 314
+4,1,ok,2.235,3,Killed by zombies on Day 3,dead,41,18.347,8,2,23,6,False,False,False,True,4,106.717,0.496,0.268,0.090,,0 0,3,,0.043,3 3 159 323,2 3 169 345
+5,1,ok,2.000,3,Overrun by the dead on Day 3,dead,44,22.003,10,9,37,4,False,False,False,True,6,50.973,0.646,0.279,0.000,,0,9,,0.225,2 2 132 262,1 2 138 276
+6,1,ok,1.335,2,Succumbed to infection on Day 2,infection,26,19.476,2,0,35,3,False,False,False,True,4,113.992,0.345,0.004,,,1,,,0.214,4 4 163 302,2 4 174 318
+7,1,ok,1.416,2,Killed by Abel on Day 2,people,21,14.830,6,8,32,3,False,False,False,True,2,71.871,0.443,0.102,,,0,,,0.303,4 6 128 244,1 6 141 263
+8,1,ok,0.385,1,Overrun by the dead on Day 1,dead,7,18.162,3,5,36,5,True,False,False,True,3,40.424,0.616,,,,,,,0.000,4 4 176 338,2 4 175 343
+9,1,ok,3.066,4,Overrun by the dead on Day 4,dead,43,14.024,7,4,56,5,False,False,False,True,6,92.503,0.570,0.204,0.071,,0 0,6,,0.232,5 5 124 231,3 5 140 256
+10,1,ok,1.390,2,Killed by Tess on Day 2,people,31,22.303,13,9,77,4,False,False,False,True,7,85.871,0.465,0.287,,,3,,,0.138,3 3 149 304,2 3 164 331
+11,1,ok,1.929,3,Overrun by the dead on Day 3,dead,56,29.032,5,6,20,5,False,False,False,True,8,93.543,0.616,0.155,0.000,,0,6,,0.225,4 4 122 236,1 4 117 239
+12,1,ok,2.089,3,Overrun by the dead on Day 3,dead,31,14.836,10,7,25,5,False,False,False,True,8,116.107,0.468,0.137,0.033,,9 0,5,,0.190,5 5 93 182,2 5 104 200
+13,1,ok,0.460,1,Overrun by the dead on Day 1,dead,10,21.716,7,14,32,6,True,True,False,True,2,64.221,0.250,,,,,,,0.167,4 4 165 335,2 4 161 343
+14,1,ok,3.993,5,Gave up on Day 5,other,48,12.022,13,6,58,6,False,False,False,True,0,41.351,0.464,0.164,0.040,,0 0 0,9,,0.194,3 5 157 332,2 5 174 355
+15,1,ok,0.254,1,Overrun by the dead on Day 1,dead,29,114.338,8,7,34,0,True,False,False,True,2,91.813,0.169,,,,,,,0.286,4 4 123 256,3 4 116 259
+16,1,ok,0.402,1,Overrun by the dead on Day 1,dead,12,29.833,11,12,64,0,True,False,False,True,2,110.257,0.295,,,,,,,0.200,3 4 129 276,2 4 120 284
+17,1,ok,2.934,4,Killed by zombies on Day 4,dead,37,12.611,6,4,26,4,False,False,False,True,12,89.508,0.580,0.444,0.048,,7 0,6,,0.170,2 2 149 282,1 2 189 326
+18,1,ok,1.051,2,Killed by Karl on Day 2,people,23,21.878,9,6,57,5,False,False,False,True,6,65.324,0.341,0.105,,,,,,0.080,5 5 167 295,5 5 176 314
+19,1,ok,0.013,1,Killed by Hana on Day 1,people,0,0.000,1,1,5,0,True,False,False,False,0,6.031,,,,,,,,0.000,5 7 87 173,4 7 84 174
+20,1,ok,2.293,3,Overrun by the dead on Day 3,dead,35,15.262,12,7,51,0,False,False,False,True,3,51.247,0.590,0.394,0.188,,0 3,6,,0.119,5 5 185 351,2 5 198 373
+21,1,ok,0.612,1,Overrun by the dead on Day 1,dead,1,1.634,12,2,25,5,True,True,True,True,4,41.454,0.129,,,,,,,0.000,3 3 117 249,1 3 111 255
+22,1,ok,1.967,3,Overrun by the dead on Day 3,dead,27,13.726,10,16,63,6,False,False,False,True,4,111.506,0.684,0.219,0.000,,0,14,,0.132,6 7 154 266,3 6 162 290
+23,1,ok,1.065,2,Overrun by the dead on Day 2,dead,9,8.450,8,7,11,5,False,False,False,True,5,51.418,0.619,0.000,,,,,,0.154,2 2 151 335,1 2 160 353
+24,1,ok,0.663,1,Overrun by the dead on Day 1,dead,12,18.087,6,5,10,5,True,True,True,True,4,43.021,0.411,,,,,,,0.250,3 4 132 273,2 4 128 276
+25,1,ok,1.158,2,Overrun by the dead on Day 2,dead,20,17.275,7,10,74,5,False,False,False,True,4,60.249,0.537,0.157,,,0,,,0.036,5 5 181 327,4 5 185 339
+26,1,ok,1.023,2,Overrun by the dead on Day 2,dead,23,22.473,6,5,45,5,False,False,False,True,4,62.729,0.570,0.003,,,,,,0.080,5 6 125 246,3 6 133 262
+27,1,ok,1.908,3,Killed by Nadia on Day 3,people,36,18.871,11,12,40,5,False,False,False,True,4,84.667,0.465,0.022,0.000,,0,,,0.350,2 2 143 270,1 2 152 292
+28,1,ok,1.856,3,Killed by Noor on Day 3,people,19,10.240,9,9,38,5,False,False,False,True,5,96.041,0.474,0.443,0.552,,4,,,0.303,5 5 171 313,2 4 184 336
+29,1,ok,1.374,2,Bled out on Day 2,dead,34,24.740,6,3,32,5,False,False,False,True,8,109.391,0.563,0.301,,,0,,,0.031,3 3 150 293,2 3 156 305
+30,1,ok,2.714,4,Overrun by the dead on Day 4,dead,52,19.161,11,15,59,4,False,False,False,False,6,92.042,0.200,0.095,0.331,,0 2,9,,0.151,3 3 139 288,1 3 159 319
+31,1,ok,1.429,2,Overrun by the dead on Day 2,dead,32,22.396,4,5,25,6,False,False,False,True,4,82.675,0.034,0.207,,,0,,,0.219,3 4 118 239,2 4 134 263
+32,1,ok,0.039,1,Killed by Eli on Day 1,people,0,0.000,6,7,15,0,True,False,False,True,0,35.282,,,,,,,,0.000,3 3 156 270,2 3 151 273
+33,1,ok,1.660,2,Killed by zombies on Day 2,dead,35,21.087,8,4,65,6,False,False,False,True,4,58.615,0.253,0.248,,,0,,,0.229,3 3 140 274,2 3 144 289
+34,1,ok,1.273,2,Killed by zombies on Day 2,dead,16,12.566,8,6,29,4,False,False,False,False,3,83.164,0.615,0.421,,,9,,,0.136,3 3 97 198,1 3 105 216
+35,1,ok,1.616,2,Overrun by the dead on Day 2,dead,8,4.950,9,7,24,5,False,False,False,True,1,36.312,0.801,0.434,,,9,,,0.000,4 5 140 251,3 5 152 270
+36,1,ok,0.941,2,Overrun by the dead on Day 2,dead,7,7.441,2,0,7,0,False,True,False,True,5,57.204,0.211,0.126,,,,,,0.000,4 5 123 254,1 5 133 267
+37,1,ok,2.400,3,Beaten down by a big zombie on Day 3,dead,25,10.417,8,16,115,0,False,False,False,False,5,114.798,0.845,0.217,0.118,,0 2,15,,0.045,5 6 175 340,2 6 197 375
+38,1,ok,1.439,2,Overrun by the dead on Day 2,dead,35,24.327,2,5,29,7,False,False,False,True,7,81.023,0.250,0.099,,,0,,,0.147,4 6 115 264,4 6 119 278
+39,1,ok,1.067,2,Overrun by the dead on Day 2,dead,22,20.622,8,6,42,0,False,False,False,True,4,53.865,0.617,0.214,,,,,,0.120,4 6 154 327,2 6 164 344
+40,1,ok,1.224,2,Overrun by the dead on Day 2,dead,41,33.506,7,8,59,5,False,False,False,True,8,88.306,0.102,0.061,,,9,,,0.333,3 3 129 238,2 3 136 253

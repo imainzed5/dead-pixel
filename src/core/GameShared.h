@@ -4,6 +4,7 @@
 // Everything here was file-local to Game.cpp before the split.
 
 #include "core/Game.h"
+#include "core/Tuning.h"
 
 #include "legacy/Cemetery.h"
 #include "legacy/Journal.h"
@@ -337,7 +338,8 @@ inline ThreatDirectorSystem::Tuning threatDirectorTuning(const zombiekinds::Mode
 {
     ThreatDirectorSystem::Tuning tuning{};
     tuning.migrationScale = rules.migration;
-    tuning.populationScale = rules.population;
+    // zombie.population.scale (phase 14) scales every mode alike, as at the start.
+    tuning.populationScale = rules.population * ::Tuning::get("zombie.population.scale", 1.0f);
     return tuning;
 }
 

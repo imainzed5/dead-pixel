@@ -2,6 +2,7 @@
 // where, what the brain asks of the world (doors, cupboards, boards, blows),
 // meeting them (the talk, trade and give panels), companions, robbery and
 // theft, and what happens to everyone between lives.
+#include "core/Tuning.h"
 #include "core/GameShared.h"
 #include "world/BuildingKinds.h"
 #include "world/Storage.h"
@@ -560,7 +561,8 @@ public:
         {
             if (!g.mWorld.hasComponent<Health>(target)) return;
             Health& h = g.mWorld.getComponent<Health>(target);
-            h.current -= damage;
+            // Tuned (phase 14): people hurt you less than the dead's numbers say.
+            h.current -= damage * Tuning::get(shot ? "survivors.shot.toPlayer" : "survivors.blow.toPlayer", 1.0f);
             g.mPlayerHurtTimer = 0.3f;
             g.mShakeTrauma = std::min(1.0f, g.mShakeTrauma + 0.3f);
             g.mParticleSystem.spawnBloodSpray(at, dir, 10, 1.0f);
@@ -571,7 +573,9 @@ public:
                 g.mWorld.addComponent<Bleeding>(target, Bleeding{});
             }
             const SurvivorAI& ai = g.mWorld.getComponent<SurvivorAI>(e);
-            g.mLastBlowBy = ai.name;            g.mInteractionMessage = shot ? ai.name + " shoots you." : ai.name + " hits you.";
+            g.mLastBlowBy = ai.name;
+            g.mLastBlowClock = static_cast<double>(g.mCurrentDay) * 24.0 + g.mGameHours;
+            g.mInteractionMessage = shot ? ai.name + " shoots you." : ai.name + " hits you.";
             g.mInteractionMessageTimer = 2.0f;
             return;
         }

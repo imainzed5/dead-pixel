@@ -1056,6 +1056,85 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   memory now moves with the checkpoint it is resumed from; a window closed
   without saving loses their searches since, as it loses yours. Worst tick
   in `fire_spread` 2.7 to 3.4 ms (phase 12: 7.5).
+- 2026-11-15, P14: the instrument first. Phase 13's moved seeds were
+  traced: phases 12 and 13 play the same until night 1's first callers
+  set out, so the change is the weak first caller, not the bot. The dead's
+  own random stream is now keyed by where and what they rose as (tile,
+  health, speed, kind, day), not by entity id, so a town that makes one
+  more crate no longer reshuffles every later arrival. Re-baselined.
+- 2026-11-15, P14: a death names what took the last health. A blow in the
+  last half hour is the striker's ("Killed by Hana", "Bled out after
+  Hana's blow", or the dead's); otherwise bleeding, thirst, hunger, cold
+  ("Froze"), heat ("Died of heat"), an infected wound or illness ("Died of
+  illness"). Before, a cold death read "Killed by zombies" and a knife
+  then bleeding read "Bled out", so causes could not be counted by class.
+- 2026-11-15, P14: `tools/soak.py` runs 40 seeds by default, six at once,
+  and prints the median with quartiles and a bootstrap range (about plus
+  or minus 0.3 days at 40 seeds): ten seeds could not show a change under
+  the spread. Runs that did not end clean are left out of the numbers.
+  `tools/soak_report.py` writes the reports. Harness metrics gained the
+  first fight, first wound, quiet minutes, grabs, distance from home and
+  stocked containers (home district and town); `bot PROFILE DAYS SECONDS`
+  stops the bot after SECONDS, for 30-second duels (`duel_one`,
+  `duel_three`, `duel_brute`).
+- 2026-11-15, P14: the bot's fixes, kept apart from the game's numbers
+  (`docs/overhaul/balance/changes.md`): it leans in until it can board (it
+  had put up no board in any life), boards before bed, breaks furniture
+  for planks, steps off a goal it is stuck on, shuts the home's open door
+  at dusk (an open door made the house count as open, so the dead in the
+  street woke it all night) and stands to fight one attacking person when
+  armed and at half health or better. Only keys and what is on screen.
+- 2026-11-15, P14: new tuning keys, each read where the number was a
+  constant: `threat.grace.seconds`, `threat.near.day`,
+  `threat.near.dayGrowth`, `threat.near.night`, `threat.near.nightGrowth`,
+  `zombie.population.scale`, `health.recovery.perSecond`,
+  `health.sleep.perHour`, `survivors.shot.toPlayer`,
+  `survivors.blow.toPlayer`, `vehicle.batter.damage`,
+  `sleep.threat.tiles` (all listed in `Tuning.h`). Defaults are the old
+  constants; only the first six and the car's battering are changed in
+  `tuning.json`.
+- 2026-11-15, P14: the numbers changed (old to new, reason):
+  - `threat.grace.seconds` 150 to 600: the migration began two and a half
+    game hours into day 1, while the player still searches the home; now
+    the first migrants arrive about dusk. Day-1 deaths fell.
+  - `threat.near.day` 1 to 0, `threat.near.night` 3 to 1,
+    `threat.near.nightGrowth` 1 to 0.5: the near quota sent the dead to
+    wherever the player stood from the first hour, against "quiet first".
+  - `threat.migration.dayInterval` 70 to 140 and `nightInterval` 35 to 70:
+    the home filled faster than anyone could fight it down; night-1
+    deaths 12 to 2 %.
+  - `zombie.population.scale` 1 to 0.8: fewer dead in town in every mode;
+    kills a day and quiet hours toward their targets, median 2.46 to 2.94.
+  - `vehicle.batter.damage` 3 to 1.5: lead 6, a crowd broke a sedan in
+    seconds. A parked sedan battered for a game hour by the tail of a
+    drive now ends Damaged (24) rather than Broken; driven into 300 of
+    the dead it still breaks within seconds (the ramming does most of
+    it). `vehicles.txt` passes unchanged.
+  Tried and put back, each with no effect beyond the spread: the dead's
+  bite 7 to 5, people's shots and blows to the player at 0.5 and 0.3, the
+  bed's threat range 4 to 2, daily growth 0.18 to 0.09, health back 0.02
+  to 0.05 a second. Effects of each are in `balance/changes.md`.
+- 2026-11-15, P14: targets changed (old -> new, reason):
+  - Median day of death, bot `normal`: 5 to 8 -> 2 to 4. `01_vision.md`:
+    "A good first life lasts two to four days", and the phase itself says
+    the bot is a weak, steady player a careful human beats. A bot living
+    5 to 8 days on a first life would make the game easier than the vision
+    asks.
+  - `careful`: 7 to 12 -> 3 to 6; `bold`: 3 to 6 -> 1.5 to 3. The same
+    reason, keeping the phase's ratios round the new middle.
+  - Lives reaching day 15, `careful`: 10 to 25 % -> lives reaching day 7,
+    `careful`: about 5 to 20 %. Day 15 is the vision's tenth life ("A good
+    tenth life lasts two weeks"), so it is read on the tenth life of a
+    world (`--lives 10`), not the first.
+  - The rest stand as written; where they are not met the final report
+    says so.
+- 2026-11-15, P14: `gate_across_lives.txt` puts down the one of the dead
+  by the box before life 1's fuse (`slay 12`): with the dead's wander no
+  longer keyed by entity, one walks up during the ten-second fit and
+  breaks it off, as the script already did before each later held job.
+- 2026-11-15, P14: `guns.txt` expects 6 kills before the shotgun and 8
+  after (were 8 and 10): its count includes the dead `slay` puts down
+  near the player, five now that the town holds a fifth fewer.
 
 ## Moved to "Later"
 
@@ -1229,6 +1308,112 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   ten lives ended at a survivor's hands (seed 2 Ruth, seed 6 Hector; in a
   single-seed run, seed 1 Bram on day 3). For phase 14: trace the change,
   and decide how often a neutral or hostile survivor should kill.
+
+- 2026-11-15, P14: what the numbers could not reach (final normal soak,
+  40 seeds; `docs/overhaul/balance/report_2026-11-15_final.md`). The
+  first three days now hold (median 2.94 days, night-1 deaths 0 of 40),
+  and the rest stand as follows.
+  - Kills per day 9.1 against 1 to 4, quiet hours on days 1 to 3 46 %
+    against 60 to 80 %. Three tries (the near quota, the migration
+    intervals, a fifth fewer dead) moved them from 17.9 and 29 %. The bot
+    searches house after house through the day, and every street has
+    some of the dead in it; to reach a tax of one to four a day the town
+    itself would need far fewer of the dead near the start, or a player
+    who sneaks past rather than fights (the bot cannot crouch round them).
+    Lowering the population further made day 1 more lethal, not less
+    (row 10 of `balance/changes.md`). Needs a person's play to read.
+  - Lives ending on day 1: 10 % against under 5 %. Of the four, two are
+    a survivor who goes for the player in the first hour (seeds 19 and
+    32, Hana and Eli, the garage pair) at every setting tried, one a
+    survivor on day 1 (seed 15) and one the dead. Halving or cutting
+    what a person's shot does to the player (0.5, 0.3) did not save
+    them: the same person kills a few minutes later. Warning shots first,
+    or the garage pair not out on day 1, would be a rule change.
+  - Other people: 15 % of deaths against 2 to 8 % (normal), 31 % for
+    `careful`. The same two tries; the cause is that a hostile survivor
+    with a pistol always finishes the job.
+  - Causes: the dead 72 % (target 45 to 60, and no cause above 65 %).
+    Thirst, hunger, cold, heat and fire 0 %: the bot's lives end on day 3
+    or 4, before the taps die and stores run low; those causes belong to
+    longer lives, which the bot does not reach. Infection 12 % is in its
+    band.
+  - `careful` lives no longer than `normal` (2.63 against 3.20 days on
+    the same 30 seeds; `bold` 2.50): its extra caution does not buy time,
+    and it dies at people's hands twice as often. Not traced; the bot's
+    profiles, not the game, are the likely place.
+  - Sleep: 17 % of whole nights with 6 hours or more against over 70 %;
+    panic above 75 for over 5 % of waking time in 75 % of lives against
+    under 15 %. The bot sleeps when tired and the house is shut, and the
+    dead at the walls wake it; a person may sleep through what the bot
+    cannot judge. Needs play.
+  - A broken door cannot be closed or boarded (seed 3 of the instrument
+    runs: the house counted as open all night). A player could push a
+    wardrobe into the doorway; the bot does not. Repairing a broken door,
+    or the bot blocking a doorway with furniture, is a design question.
+  - The bot stood three game hours between a parked car and a pond
+    (`careful`, seed 8) and three hours at a search (`bold`, seed 26):
+    two of 60 runs, left out of the numbers. The unstick step does not
+    always find a way off a tile hemmed in on three sides.
+  - The tenth life in a world lives shorter than the first (median 2.33
+    days against 3.64, five worlds; target +30 %). The dead at the start
+    of a life rise from about 35 to 55-60 over ten lives, more than the
+    ageing's 4 % a life; what a life leaves (a boarded house, a pack)
+    does not make up for it. Not tried with numbers: the ageing's rate is
+    a constant in `WorldAging.h`, and whether a town that fills up should
+    still let a bloodline do better is the vision's call ("A good tenth
+    life lasts two weeks"). The home district still holds anything in
+    50 % of its containers after five lives (target under 35 %).
+  - Duels: one Shambler won 24 of 29 (target over 90 %): the other five
+    the bot walked off before a blow, it does not seek a fight; none
+    lost. A Brute won 52 % (target 30 to 50 %), and the bot died in no
+    duel of 90: the bot's hit-and-step-back with a bat is safe against
+    one or three in the open. Whether a Brute should kill more often is
+    for play.
+  - Modes: Stalker and Infected Society differ from Swarm by clear
+    margins; Mutating, the Unknown and Hybrid only by small ones (kills,
+    containers searched, causes) on 15 seeds. Infected Society has no
+    deaths at people's hands (target 20 to 35 %) and is the easiest mode
+    (median 5.70 days). The bot does not play to a mode (P04's note
+    stands).
+  - Tones: Brutal Arcade kills 1.67 times as many a day as Grim Human
+    (target twice) and lives 0.68 as long (target within 20 %); not
+    traced. Hopeless is x0.85 (met, at the edge).
+  - Not measured: the `gate` profile (the campaign's lives to open the
+    gate and the last-stand odds; the profile was never built), callers
+    getting in by board state, food per day of searching, planks by dusk
+    of day 2 and bandages per life (no metric holds them), and everything
+    from day 7 on (no first life in Swarm gets there). The campaign is
+    checked by `gate`, `gate_across_lives` and the unit tests.
+
+### For a person to check (phase 14)
+
+The bot does not feel dread, boredom or unfairness. These want a play,
+and are not guessed at here:
+
+- Day 1 is now quiet until about dusk (no migrants for ten game hours,
+  none sent to you by day). Is the first day calm in a good way, or empty?
+- Night 1: one of the dead is sent to the house, plus the two callers and
+  the weak first one. Is it frightening, or too easy now?
+- A hostile survivor with a pistol on day 1 (the garage pair) kills a
+  new character within the first hour on a few seeds. Could you see or
+  hear it coming? Is it fair?
+- Grabs: about one and a half a day. Do they feel fair and readable?
+- Fights: the bot wins against one Shambler and three without dying by
+  hitting and stepping back with a bat. Is a Brute frightening enough?
+  Is three a decision, as the vision says?
+- Kills a day stay near nine against a target of one to four. Does
+  clearing the street feel like a tax or like a chore?
+- Days 2 and 3: is there enough to do between searching and boarding?
+  Is day 4 (the first standing aim) dull?
+- The tenth life is harder than the first. Does a later life feel like a
+  story that inherits something, or a punishment?
+- Sleep and panic: the bot is woken most nights and panics in most
+  lives. Does the screen's panic and the waking at night feel right or
+  oppressive?
+- A parked car now survives a tail of the dead for an hour (Damaged, not
+  Broken). Does a car still feel at risk?
+- Infected Society is the easiest mode by far. Is that what it should be?
+- The gate's last stand: its length and odds were not measured.
 
 ## Ideas, not built
 

@@ -80,7 +80,24 @@ done, what is next, and known issues.
 - **Other people:** a dozen survivors with homes, stores, needs and tempers
   of their own; they scavenge, board up, run from the dead, trade, come
   along, rob you, and go on living between your lives.
-- **Extras:** vehicles, fire, and tone presets that change the rules.
+- **The way out:** a note on a fridge, a guard hut, a sergeant with a key: clues
+  across lives lead to the service gate on the east side, which needs a
+  fuse, fuel, a freed generator and a key, and a last stand while it
+  grinds open. Progress stays in the town; someone gets out, or nobody.
+- **After day 3:** a standing aim each dawn (water that refills, a house
+  that holds, tonight's horde, food for a week, before the cold, the way
+  out) and a card for the day.
+- **Weather and seasons:** rain, fog, wind, heat and snow that change the
+  rules (rain hides your steps, cold builds outdoors, ponds freeze), and
+  fire that spreads with the wind and leaves a house gutted for good.
+- **Vehicles:** sedans, a pickup and bicycles with trunks, keys or
+  hot-wiring, fuel and wear; the dead batter a parked car.
+- **Sound and mood:** a generated sound for everything that makes noise,
+  muffled through walls; ambience that tells the truth; music almost
+  never; a screen that shows panic, cold and exhaustion.
+- **Numbers from runs:** the balance comes from a bot that plays hundreds
+  of lives against written targets (`docs/overhaul/balance/`).
+- **Extras:** tone presets that change the rules.
 
 ## Controls
 
@@ -273,8 +290,9 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
     one, `weather mark` remembers the current one.
 - **Containers:** `open` (the nearest in reach), `container` (print what
   the open one holds), `stash ITEM NAME [COUNT]` (from the pack into it).
-- **The bot:** `bot careful|normal|bold [DAYS]` plays the game through the
-  keyboard and mouse until DAYS days pass or the run ends; the script waits.
+- **The bot:** `bot careful|normal|bold [DAYS] [SECONDS]` plays the game through the
+  keyboard and mouse until DAYS days pass, SECONDS real seconds pass (a
+  duel) or the run ends; the script waits.
   A bot that stands on one tile for 3 game hours while awake prints `FAIL`
   (resting and holding the house on purpose do not count).
   `botshots TICKS` takes a screenshot every TICKS ticks while it plays.
@@ -524,12 +542,25 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `bare_world`, `world_tour`, `combat_feel` | The town without the interface, a tour of it, the weight of a blow |
 
 **Soak runs.** `python tools/soak.py --exe build/dead_pixel_survival.exe`
-runs `bot_week` for seeds 1 to 10, each in a fresh directory, and prints a
-table: days survived, how the run ended, kills, food and drink carried,
-containers searched, the most boards up at once, and whether it died in
-the home on night 1. `--seeds 1-3`, `--jobs N` and `--profile careful` change
-what it runs; `--mode stalker` (or any threat mode) plays every run in
-that mode. Later phases read balance from it.
+runs `bot_week` for seeds 1 to 40, six at a time, each in a fresh
+directory, and prints a row per life (days survived, how it ended, kills,
+food and drink, containers searched, boards) and a summary: the median
+day of death with quartiles and the range a median of that many seeds
+moves by chance, lives ended on day 1 and on night 1, causes by class,
+kills per day, the first fight, quiet hours, grabs, sleep, boards at
+dusk, drink at dawn of day 3, depression on day 7 and panic. Runs that
+did not finish clean are left out of the numbers. Flags:
+`--seeds 1-3`, `--jobs N`, `--profile careful|normal|bold`, `--mode
+stalker` (any threat mode), `--tone hopeless|grim|brutal`, `--days N`,
+`--lives N` (N lives in one world, for the legacy), `--tune KEY=VALUE`
+(repeatable), `--csv FILE` (a row per life), `--metrics-dir DIR`,
+`--compare OLD.csv` (the difference per measure), `--report FILE` and
+`--from-metrics DIR` (summaries without runs), and `--duel N` with
+`--script tools/harness/duel_one.txt` (or `duel_three`, `duel_brute`) for
+30-second fights against one, three or a Brute. `python
+tools/soak_report.py LABEL=FILE.csv ... --out REPORT.md` writes the
+summaries side by side against the targets. Phase 14's runs and reports
+are in `docs/overhaul/balance/`.
 
 ## Assets
 

@@ -1792,6 +1792,126 @@ the bot now works toward aims (it builds a rain collector), night 1's
 first caller is a weak Shambler, and some holds became single presses.
 Two lives ended at a survivor's hands (Ruth, Hector). Left for phase 14.
 
+## Overhaul phase 14: balance (2026-11-15)
+
+**The instrument first.** Phase 13's moved seeds were traced to night 1's
+weak first caller (phases 12 and 13 play the same until the first callers
+set out). The dead's own random stream is now keyed by where and what they
+rose as, not by entity id, so one more crate in town no longer reshuffles
+every later arrival. A death names what took the last health (the dead, a
+named person, bleeding after a blow, thirst, hunger, cold, heat, an
+infected wound, illness). `tools/soak.py` runs 40 seeds six at a time and
+prints quartiles, a bootstrap range for the median (about plus or minus
+0.3 days at 40 seeds), day-1 and night-1 deaths, causes by class, kills a
+day, the first fight, quiet hours, grabs, sleep, boards at dusk, drink at
+dawn of day 3, depression on day 7 and panic; `--profile`, `--mode`,
+`--tone`, `--days`, `--lives`, `--tune`, `--compare`, `--duel`.
+`tools/soak_report.py` writes the reports. Three duel scripts give a
+30-second fight against one Shambler, three, or a Brute.
+
+**The bot, kept apart from the numbers.** Six fixes, within the player's
+own keys and sight: it leans in until it can board (no life had put up a
+board), boards before bed, breaks furniture for planks, steps off a goal
+it is stuck on, shuts the home's open door at dusk (an open door made the
+house count as open and the street woke it all night), and stands to
+fight one attacking person when armed and at half health or better.
+
+**The game's numbers** (`assets/data/tuning.json`), each screened alone
+on seeds 1-40 and kept or put back; the full table with hypotheses is
+`docs/overhaul/balance/changes.md`:
+
+| Change | Reason | Effect | Kept |
+|---|---|---|---|
+| `threat.near.*`: none sent by day on day 1 (was 1), one at night (was 3), growing 0.5 a day (was 1) | The near quota brought the dead to the player from the first hour | Median 1.28 to 1.74, kills 17 to 13 a day | yes |
+| `threat.grace.seconds` 150 to 600 | Migrants arrived while day 1's search was under way | Median 1.28 to 1.76, day-1 deaths 18 to 8 % | yes |
+| `zombie.attack.damage` 7 to 5 | Lead 1: 7 a bite against health back slowly | Nothing beyond the spread | no |
+| Shots and blows of people to the player 0.5, then 0.3 | Lead 4: a pistol kills in two | The same lives die minutes later | no |
+| `sleep.threat.tiles` 4 to 2 | Woken by the dead near | Nothing: the cause was an open door (a bot fix) | no |
+| Migration every 140 s by day, 70 at night (were 70, 35) | The home filled faster than it could be held | Median 2.06 to 2.46, night-1 deaths 12 to 2 % | yes |
+| `threat.growth.daily` 0.18 to 0.09 | The town doubles in Swarm | Nothing inside a three-day life | no |
+| `health.recovery.perSecond` 0.02 to 0.05 | Lead 1 | Nothing | no |
+| `zombie.population.scale` 1 to 0.8 | Fewer dead, toward the kills and quiet targets | Median 2.46 to 2.94, kills 10.9 to 9.1, quiet 41 to 46 % | yes |
+| `vehicle.batter.damage` 3 to 1.5 | Lead 6: a crowd broke a sedan in seconds | A parked sedan battered by a tail of the dead for a game hour ends Damaged (24), not Broken; driven into 300 it still breaks | yes |
+
+**Targets changed** (old, new, reason in `docs/overhaul/DECISIONS.md`):
+median days for `normal` 5-8 to 2-4, `careful` 7-12 to 3-6, `bold` 3-6 to
+1.5-3 (the vision: "A good first life lasts two to four days", and the bot
+is weaker than a careful person); `careful` reaching day 15 (10-25 %) to
+reaching day 7 (5-20 %), day 15 being the tenth life's measure.
+
+**Baseline and final** (normal bot, Swarm, Grim Human, seeds 1-40; the
+reports are `docs/overhaul/balance/report_2026-11-15_*.md`):
+
+| Measure | Target | Phase 13 (60 seeds) | Bot fixed, numbers as phase 13 | Final | Met |
+|---|---|---:|---:|---:|---|
+| Median days | 2-4 (was 5-8) | 1.24 | 1.42 | 2.94 | yes (old: no) |
+| Quartiles | | 0.82-1.91 | 1.04-2.02 | 1.96-3.88 | |
+| Lives ending on day 1 | under 5 % | 15 % | 20 % | 10 % | no |
+| Died on night 1 | | 17 % | 10 % | 0 % | |
+| Cause: the dead | 45-60 %, none over 65 % | 91 % | 75 % | 72 % | no |
+| Cause: infection | 10-20 % | 0 % | 5 % | 12 % | yes |
+| Cause: thirst, hunger, cold, heat | 5-12, 3-10, 2-8 % | 0 % | 0 % | 0 % | no |
+| Cause: fire | under 5 % | 0 % | 0 % | 0 % | yes |
+| Cause: other people | 2-8 % | 9 % | 18 % | 15 % | no |
+| Retired | 1-5 % | 0 % | 0 % | 0 % | no |
+| Kills per day | 1-4 | 16.0 | 17.9 | 9.1 | no |
+| First fight on day 1 | 60-90 % | - | 90 % | 95 % | no |
+| Quiet hours, days 1-3 | 60-80 % | - | 29 % | 46 % | no |
+| Drink at dawn of day 3 | 4-7 | - | 6 | 6 | yes |
+| Boards up (most) | | 0 | 5 | 4.5 | |
+| Nights slept 6 h or more | over 70 % | - | 13 % | 17 % | no |
+| Panic over 75 for 5 % of waking | under 15 % of lives | - | 75 % | 75 % | no |
+
+Profiles (seeds 1-30): `careful` 2.63 days (target 3-6, no), `bold` 2.50
+(1.5-3, yes), `normal` on the same seeds 3.20: the careful bot does not
+live longer than the normal one, and dies at people's hands in 31 % of
+lives. `careful` reaching day 7: 0 % (target 5-20 %, no).
+
+Duels (30 seeds, a bat, the dead two tiles off): one Shambler won 24 of
+29 (target over 90 %, no; none lost, the bot walked off in the other
+five), health lost 0 on median (under 15, yes); three Shamblers won 43 %
+(40-60 %, yes); a Brute won 52 % (30-50 %, no, just over). The bot died
+in none.
+
+Ten lives in a world (five worlds): life 1 median 3.64 days, life 10
+2.33 (target +30 %, no: the dead at the start of a life rise from about
+35 to 55-60 over ten lives). Stocked containers: home district 50 %
+after five lives (under 35 %, no), town 43 % after ten (25-50 % after
+twenty, on course).
+
+Modes against Swarm on seeds 1-15 (3.13 days, 9.7 kills a day, quiet 47
+%): Stalker 3.92 days, 6.0 kills, quiet 59 % (differs on two, yes);
+Infected Society 5.70 days, 5.2 kills, quiet 69 % (yes), but no deaths at
+people's hands (target 20-35 %, no); Mutating 3.49 days, 7.8 kills, 69
+containers against 55 (margins small, no); the Unknown 3.95 days, the dead
+93 % of deaths (no); Hybrid 2.97 days, 40.5 containers (no). Tones against
+Grim on seeds 1-20 (3.20 days, 9.0 kills): Hopeless 2.73 (x0.85, yes);
+Brutal Arcade 2.19 days (x0.68, target within 20 %, no) and 15.0 kills
+(x1.67, target x2, no).
+
+Not measured: callers by board state on nights 1 and 3 (`first_day` and
+`night_siege` hold night 1), food per day of searching, planks by dusk of
+day 2, bandages, depression on day 7, days 8 to 15, and the campaign's
+`gate` profile (never built; `gate` and `gate_across_lives` pass).
+
+What could not be reached and why is in `DECISIONS.md` ("Balance: needs a
+design change"); what only play can settle is under "For a person to
+check" there.
+
+Harness: all 66 scripts pass in fresh directories (62 together, four at a
+time; `bot_week`, `perf`, `fire_spread` and `gate` each alone).
+`gate_across_lives` puts down the one of the dead by the gate box before
+life 1's fuse, and `guns` expects 6 and 8 kills (were 8 and 10): both
+moved by this phase, see `DECISIONS.md`. Tests: 378 pass. Clean rebuild,
+no warnings.
+
+Tick time (timed scripts alone; budget 4 ms average, 12 ms worst):
+`perf` 300 of the dead 1.73 / 3.85 ms, 20 survivors and 100 of the dead
+0.99 / 2.22 ms, a car into 300 1.38 / 2.72 ms; `fire_spread` 1.75 / 2.77;
+`gate` 1.45 / 1.96. The first `perf` run of the four had one tick of 15.3
+ms in the survivors section (average 1.44); the three runs after it held
+2.1 to 2.2 ms there, and the same build with the old battering 2.0 ms.
+
 
 ## Next: the content overhaul (planned 2026-11-13)
 
@@ -2020,3 +2140,16 @@ Candidates for the next stretch, roughly in order. None is started.
   P09 to P12 done; harness `settings`, `first_run`, `aims`,
   `mood_details`, `bot_aim`; bot median 1.6 days, mean 1.6 (phase 12:
   1.7, 1.8), four seeds changed, cause not traced.
+- 2026-11-15: Overhaul phase 14, balance: the instrument first (phase
+  13's moved seeds traced to night 1's weak caller; the dead's random
+  stream keyed by where they rose, not by entity; death causes by what
+  struck last; a 40-seed soak with quartiles and profiles, modes, tones,
+  lives, tuning and duels; `soak_report.py`); six bot fixes kept apart
+  (boarding at last, shutting the door at dusk, standing to one person);
+  the game's numbers screened one at a time: a ten-hour grace on day 1, a
+  smaller near quota, half the migration rate, a fifth fewer dead and half
+  the battering of a car kept, five tries put back. Bot median 1.24 to
+  2.94 days, night-1 deaths 17 to 0 %, kills a day 16 to 9; targets for
+  the median moved to the vision's two to four days; kills, quiet hours,
+  day-1 deaths, people, sleep, panic, the tenth life and three of five
+  modes stand unmet, with reasons in `DECISIONS.md`.

@@ -195,6 +195,7 @@ private:
     bool mGodMode = false;
     Autoplayer mBot;
     int mBotShotInterval = 0;
+    std::uint64_t mBotStopTick = 0; // `bot PROFILE DAYS SECONDS`: the tick it stops at (0: by days)
     bool mBotFailReported = false;
     glm::ivec2 mMark{-1, -1};
     glm::vec2 mMarkWorld{0.0f};      // "mark": where the player stood (expect moved)
@@ -241,6 +242,17 @@ private:
     int mMetricsInterval = 0;
     std::ofstream mMetrics;
     bool mWasAlive = true;
+    // Balance metrics (phase 14), followed every tick while metrics are on.
+    double mFirstFightClock = -1.0;  // game hours since day 0 when one first came within 2 tiles
+    double mFirstWoundClock = -1.0;  // ... when health first fell
+    int mQuietMinutes = 0;           // sampled game minutes with none of the dead within 15 tiles
+    int mSampledMinutes = 0;
+    int mGrabs = 0;                  // holds begun
+    bool mWasHeld = false;
+    float mLastHealth = -1.0f;
+    float mFarthestTiles = 0.0f;     // from the home's first door
+    long long mLastSampledMinute = -1;
+    void trackMetrics(Game& game);
 
     GLuint mFramebuffer = 0;
     // `perf N`: the next ticks are timed.

@@ -14,10 +14,12 @@
 #include "components/Inventory.h"
 #include "components/Needs.h"
 #include "components/Sleeping.h"
+#include "components/Sprite.h"
 #include "components/Stamina.h"
 #include "components/SurvivorAI.h"
 #include "components/Wounds.h"
 #include "components/Transform.h"
+#include "components/Vehicle.h"
 #include "components/ZombieAI.h"
 #include "core/Game.h"
 #include "core/GameShared.h"
@@ -27,6 +29,7 @@
 #include "systems/BuildSystem.h"
 #include "world/Aims.h"
 #include "world/FirstDays.h"
+#include "world/FurnitureUse.h"
 #include "world/WoundRules.h"
 
 using namespace gameshared;
@@ -140,6 +143,7 @@ void Autoplayer::start(Game& game, Profile profile, int days)
     mEndDay = game.mCurrentDay + std::max(1, days);
     mRng ^= static_cast<std::uint32_t>(game.mSaveManager.currentRunSeed());
     mLastMoveHour = clock(game);
+    mUnstuckAt = mLastMoveHour + 0.5;
     mStuckTile = playerTile(game);
 }
 
@@ -412,6 +416,21 @@ Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run
         const float angle = static_cast<float>(mRng >> 8) * (6.2831853f / 16777216.0f);
         mNudgeDir = glm::vec2(std::cos(angle), std::sin(angle));
         mNudgeTicks = 30;
+        // A parked car the paths do not know about (phase 14: the bot stood
+        // pressed against a pickup for three hours): step back off it first.
+        float nearestCar = 2.5f * kTile;
+        game.mWorld.forEach<Vehicle, Transform>(
+            [&](Entity, Vehicle&, Transform& t)
+            {
+                const glm::vec2 away = centre - glm::vec2(t.x + 16.0f, t.y + 16.0f);
+                const float d = glm::length(away);
+                if (d < nearestCar && d > 0.1f)
+                {
+                    nearestCar = d;
+                    mNudgeDir = glm::normalize(away + mNudgeDir * 0.5f * d);
+                    mNudgeTicks = 75;
+                }
+            });
         resetPath();
         return Move::Walking;
     }
@@ -662,6 +681,7 @@ bool Autoplayer::handleDanger(Game& game)
     // At home one who is only watching is not run from (a neighbour at their
     // window would drive us out into the night).
     bool person = false;
+    bool personAttacking = false;
     const glm::ivec2 nowAt = playerTile(game);
     const bool insideHome = game.mFirstDays.homeBuilding > 0 &&
                             game.mTileMap.getBuildingId(nowAt.x, nowAt.y) == game.mFirstDays.homeBuilding;
@@ -677,6 +697,7 @@ bool Autoplayer::handleDanger(Game& game)
             {
                 close.push_back(Near{e, c, d, false, h.current});
                 person = true;
+                personAttacking = personAttacking || attacking;
             }
         });
     if (close.empty())
@@ -723,7 +744,17 @@ bool Autoplayer::handleDanger(Game& game)
         if (health.current < health.maximum * 0.35f) fleeAt = 1; // hurt: run from anything
     }
     if (heldWeaponScore(game) <= 0.0f) fleeAt = 1; // nothing that outreaches them: do not trade blows
-    if (person) fleeAt = 1;                          // someone living who means it: get away
+    // Someone living who means it: get away, unless it is one of them alone
+    // and we are whole and armed (phase 14: running with a knife at our back
+    // only made us die tired; one person struck back gives up at a third).
+    if (person)
+    {
+        const bool whole = !game.mWorld.hasComponent<Health>(game.mPlayerEntity) ||
+                           game.mWorld.getComponent<Health>(game.mPlayerEntity).current >=
+                               game.mWorld.getComponent<Health>(game.mPlayerEntity).maximum * 0.5f;
+        if (close.size() > 1 || !whole || !personAttacking || heldWeaponScore(game) <= 0.0f) fleeAt = 1;
+        else fleeAt = std::max(fleeAt, 2);
+    }
     if (mTicks < mCorneredUntil) fleeAt = 1000;      // running did not work: stand and fight
     if (game.mWorld.hasComponent<Stamina>(game.mPlayerEntity) &&
         game.mWorld.getComponent<Stamina>(game.mPlayerEntity).current < 20.0f && close.size() >= 2)
@@ -1020,6 +1051,113 @@ double Autoplayer::homeHour() const
     return mProfile == Profile::Careful ? 16.0 : mProfile == Profile::Bold ? 17.0 : 16.5;
 }
 
+// Out of planks with nails and a hammer, and a way in still open to boards:
+// break up a piece of the home's furniture for them (phase 2's X), as a
+// player would (phase 14: the bot boarded with the kit's four planks and
+// then never again).
+bool Autoplayer::breakForPlanks(Game& game)
+{
+    if (clock(game) < mBreakRetryAt || !game.mWorld.hasComponent<Inventory>(game.mPlayerEntity)) return false;
+    const Inventory& inv = game.mWorld.getComponent<Inventory>(game.mPlayerEntity);
+    if (InventorySystem::countItem(inv, game.mItems.woodPlanks) > 0 || InventorySystem::countItem(inv, game.mItems.nails) < 2 ||
+        InventorySystem::countTagged(inv, game.mItemDatabase, "tool:hammer") <= 0)
+    {
+        return false;
+    }
+    const int home = game.mFirstDays.homeBuilding;
+    bool wanted = false;
+    for (const Game::WayIn& way : game.waysIn(home))
+    {
+        if (way.window) wanted = wanted || game.mWindows.boards(way.tile) < Windows::kMaxBoards;
+        else wanted = wanted || (game.mTileMap.doorState(way.tile.x, way.tile.y) == DoorState::Closed &&
+                                 game.mTileMap.doorBoards(way.tile.x, way.tile.y) < Doors::kMaxBoards);
+    }
+    if (!wanted) return false;
+
+    // The nearest piece at home that gives planks: not the bed, nothing
+    // with things still in it.
+    const glm::vec2 here = playerCentre(game);
+    const FurniturePiece* target = nullptr;
+    float bestD = 0.0f;
+    for (const FurniturePiece& piece : game.mFurniture)
+    {
+        if (piece.kind == FurnitureKind::Bed || game.mTileMap.getBuildingId(piece.tile.x, piece.tile.y) != home) continue;
+        if (!furnitureuse::movable(piece.kind) || furnitureuse::breakYield(piece.kind, false).planks <= 0) continue;
+        if (mNoBreak.count(Tile{piece.tile.x, piece.tile.y}) != 0 || mUnreachable.count(Tile{piece.tile.x, piece.tile.y}) != 0) continue;
+        bool full = false;
+        game.mWorld.forEach<Interactable, Inventory, Transform>(
+            [&](Entity e, Interactable&, Inventory& contents, Transform& t)
+            {
+                if (game.mWorld.hasComponent<Sprite>(e) || e == game.mPlayerEntity) return;
+                if (glm::ivec2(static_cast<int>(t.x) / 32, static_cast<int>(t.y) / 32) != piece.tile) return;
+                for (const InventorySlot& slot : contents.slots) full = full || (slot.itemId >= 0 && slot.count > 0);
+            });
+        if (full) continue;
+        const float d = glm::length(tileCentre(piece.tile) - here);
+        if (target == nullptr || d < bestD)
+        {
+            target = &piece;
+            bestD = d;
+        }
+    }
+    if (target == nullptr)
+    {
+        mBreakRetryAt = clock(game) + 3.0;
+        return false;
+    }
+    const glm::ivec2 tile = target->tile;
+    if (tile != mBreakTile)
+    {
+        mBreakTile = tile;
+        mBreakTries = 0;
+    }
+    glm::ivec2 stand;
+    if (!standTileFor(game, tile, stand))
+    {
+        mNoBreak.insert(Tile{tile.x, tile.y});
+        return true;
+    }
+    mActivity = "break up";
+    const Move move = withinReach(game, tile) ? Move::Arrived : moveTo(game, stand, false);
+    if (move == Move::Failed)
+    {
+        mNoBreak.insert(Tile{tile.x, tile.y});
+        return true;
+    }
+    if (move != Move::Arrived) return true;
+    // The piece the game will break is the nearest in reach: lean in until it
+    // is this one and the prompt offers X, then press it standing still.
+    const FurniturePiece* nearest = nullptr;
+    float nearestD = 0.0f;
+    for (const FurniturePiece& piece : game.mFurniture)
+    {
+        const float d = glm::length(tileCentre(piece.tile) - here);
+        if (nearest == nullptr || d < nearestD)
+        {
+            nearest = &piece;
+            nearestD = d;
+        }
+    }
+    if (nearest != target || game.mProximityPrompt.find("X:") == std::string::npos)
+    {
+        steer(game, tileCentre(tile) - here);
+        if (++mLeanTicks > 90)
+        {
+            mLeanTicks = 0;
+            mNoBreak.insert(Tile{tile.x, tile.y});
+        }
+        return true;
+    }
+    mLeanTicks = 0;
+    if (tap(Action::Pry) && ++mBreakTries > 6)
+    {
+        // It would not come apart (a message said why): leave it.
+        mBreakTries = 0;
+        mNoBreak.insert(Tile{tile.x, tile.y});
+    }
+    return true;
+}
+
 bool Autoplayer::eveningAtHome(Game& game)
 {
     const double hour = game.mGameHours;
@@ -1028,6 +1166,47 @@ bool Autoplayer::eveningAtHome(Game& game)
     if (hour < homeAt && hour >= 6.0) return false;
     const int home = game.mFirstDays.homeBuilding;
     const bool inside = atHome(game);
+
+    // A door of the home left standing open is shut first, boards or none
+    // (phase 14: the bot came in and left it open, and with a way in open
+    // the dead out in the street woke it all night).
+    if (inside && clock(game) >= mShutRetryAt)
+    {
+        for (const Game::WayIn& way : game.waysIn(home))
+        {
+            if (way.window || !way.open) continue;
+            const DoorState state = game.mTileMap.doorState(way.tile.x, way.tile.y);
+            if (state != DoorState::Open) continue;
+            glm::ivec2 stand(-1);
+            for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
+            {
+                const glm::ivec2 t = way.tile + side;
+                if (!game.mTileMap.isSolid(t.x, t.y) && game.mTileMap.getBuildingId(t.x, t.y) == home)
+                {
+                    stand = t;
+                    break;
+                }
+            }
+            if (stand.x < 0) continue;
+            mActivity = "shut door";
+            const Move move = moveTo(game, stand, false);
+            if (move == Move::Failed || ++mShutTicks > 600)
+            {
+                mShutTicks = 0;
+                mShutRetryAt = clock(game) + 0.5;
+                return false;
+            }
+            if (move == Move::Arrived)
+            {
+                // Lean toward it only until E offers to close it: a step
+                // more and it would walk out through the doorway.
+                if (game.mProximityPrompt.find("Close") != std::string::npos) tap(Action::Use);
+                else steer(game, tileCentre(way.tile) - playerCentre(game));
+            }
+            return true;
+        }
+        mShutTicks = 0;
+    }
 
     // Board the home's ways in while there are planks, nails and a hammer:
     // the weakest first, since that is where the night's callers go.
@@ -1060,10 +1239,13 @@ bool Autoplayer::eveningAtHome(Game& game)
             }
             else
             {
-                if (!canBoard) continue;
                 const DoorState state = game.mTileMap.doorState(tile.x, tile.y);
                 if (state == DoorState::Broken || state == DoorState::None) continue;
-                if (game.mTileMap.doorBoards(tile.x, tile.y) >= Doors::kMaxBoards) continue;
+                // A door left open is shut even with nothing to nail (phase
+                // 14: the bot came in and left it standing open, and the
+                // dead out in the street woke it all night).
+                if (!canBoard && state != DoorState::Open) continue;
+                if (state != DoorState::Open && game.mTileMap.doorBoards(tile.x, tile.y) >= Doors::kMaxBoards) continue;
                 for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(-1, 0), glm::ivec2(0, 1), glm::ivec2(0, -1)})
                 {
                     const glm::ivec2 t = tile + side;
@@ -1085,8 +1267,22 @@ bool Autoplayer::eveningAtHome(Game& game)
             if (move == Move::Arrived)
             {
                 // Boarding is a held action (phase 5): stand still for it,
-                // or the first step cancels it.
+                // or the first step cancels it. But a hand reaches under a
+                // tile: lean in until the prompt offers R (phase 14: the
+                // bot stood a pixel out of reach of most windows and never
+                // boarded them), then press it standing still.
                 if (key != Action::Board) steer(game, tileCentre(tile) - playerCentre(game));
+                else if (game.mProximityPrompt.find("R:") == std::string::npos)
+                {
+                    steer(game, tileCentre(tile) - playerCentre(game));
+                    if (++mLeanTicks > 90)
+                    {
+                        mLeanTicks = 0;
+                        mUnreachable.insert(Tile{stand.x, stand.y}); // cannot reach it from here: the next way
+                    }
+                    return true;
+                }
+                mLeanTicks = 0;
                 if (tap(key))
                 {
                     if (++mOpenTries > 12)
@@ -1100,6 +1296,10 @@ bool Autoplayer::eveningAtHome(Game& game)
         }
     }
 
+    if (inside && breakForPlanks(game))
+    {
+        return true;
+    }
     if (inside)
     {
         return false; // home: the rest (bed, wandering the rooms) follows
@@ -1577,7 +1777,38 @@ void Autoplayer::checkStuck(Game& game)
     {
         mStuckTile = here;
         mLastMoveHour = clock(game);
+        mUnstuckAt = mLastMoveHour + 0.5;
         return;
+    }
+    // Half an hour on one tile at something that should move it on (a
+    // cupboard it cannot open, a way it cannot walk): give that goal up, as
+    // a player would, before the harness calls it stuck (phase 14).
+    if (clock(game) >= mUnstuckAt)
+    {
+        mUnstuckAt = clock(game) + 0.5;
+        if (mTargetContainer != kInvalidEntity) mSearched.insert(Tile{mTarget.x, mTarget.y});
+        mTargetContainer = kInvalidEntity;
+        // Everything in reach of this tile too (someone standing by takes the E).
+        game.mWorld.forEach<Interactable, Inventory, Transform>(
+            [&](Entity, Interactable& inter, Inventory&, Transform& t)
+            {
+                if (inter.type != InteractableType::Container) return;
+                const glm::ivec2 tile(static_cast<int>(t.x) / 32, static_cast<int>(t.y) / 32);
+                if (std::abs(tile.x - here.x) <= 4 && std::abs(tile.y - here.y) <= 4) mSearched.insert(Tile{tile.x, tile.y});
+            });
+        // And step off this tile a way the route did not go (a parked car
+        // the routes do not know about, a tree beside it).
+        mRng = mRng * 1664525u + 1013904223u;
+        const float angle = static_cast<float>(mRng >> 8) * (6.2831853f / 16777216.0f);
+        mNudgeDir = glm::vec2(std::cos(angle), std::sin(angle));
+        mNudgeTicks = 120;
+        if (mPathGoal.x >= 0) mUnreachable.insert(Tile{mPathGoal.x, mPathGoal.y});
+        mForgetAt = clock(game) + 2.0;
+        mWaterStand = glm::ivec2(-1);
+        mWanderGoal = glm::ivec2(-1);
+        mFleeGoal = glm::ivec2(-1);
+        mFleeTicks = 0;
+        resetPath();
     }
     if (mStuck.empty() && clock(game) - mLastMoveHour >= static_cast<double>(kStuckGameHours))
     {
@@ -1645,8 +1876,10 @@ void Autoplayer::tick(Game& game)
     }
 
     const bool acted = handlePendingUse(game) || treatBleeding(game) || handleDanger(game) ||
-                       handleContainerPanel(game) || eatAndDrink(game) || armSelf(game) || restWhenTired(game) || retreatWhenHurt(game) || sleepAtHome(game) ||
-                       eveningAtHome(game) || useTap(game) || fetchWater(game) || followAim(game) || searchContainers(game);
+                       handleContainerPanel(game) || eatAndDrink(game) || armSelf(game) || restWhenTired(game) || retreatWhenHurt(game) ||
+                       // The ways in before the bed (phase 14): a board that came down in the
+                       // night goes back up before sleep, not never.
+                       eveningAtHome(game) || sleepAtHome(game) || useTap(game) || fetchWater(game) || followAim(game) || searchContainers(game);
     if (!acted)
     {
         wander(game);

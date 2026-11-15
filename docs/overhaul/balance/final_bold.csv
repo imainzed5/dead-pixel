@@ -1,0 +1,31 @@
+seed,life,status,days,end_day,cause,class,kills,kills_per_day,food,drink,containers,boards,day1_death,night1_death,night1_home,first_fight_day1,grabs,far_tiles,quiet_d1,quiet_d2,quiet_d3,quiet_d8_14,sleep_nights,drink_dawn3,depression_d7,panic_share,stocked_start,stocked_end
+1,1,ok,1.961,3,Overrun by the dead on Day 3,dead,26,13.261,10,10,64,3,False,False,False,True,4,62.641,0.233,0.426,0.000,,0,10,,0.093,3 3 119 237,1 3 115 247
+2,1,ok,2.162,3,Killed by zombies on Day 3,dead,26,12.024,4,2,128,7,False,False,False,True,4,104.531,0.621,0.607,0.340,,0 6,2,,0.154,5 5 148 287,2 5 154 310
+3,1,ok,2.737,4,Overrun by the dead on Day 4,dead,24,8.769,16,10,68,5,False,False,False,True,9,70.730,0.801,0.376,0.413,,9 0,6,,0.000,6 6 160 302,4 6 160 317
+4,1,ok,2.273,3,Overrun by the dead on Day 3,dead,26,11.439,11,4,61,6,False,False,False,True,3,58.221,0.554,0.455,0.000,,0 2,4,,0.024,3 3 159 323,2 3 149 331
+5,1,ok,3.959,5,Overrun by the dead on Day 5,dead,48,12.125,10,6,49,6,False,False,False,True,3,58.355,0.906,0.551,0.830,,0 2 2,6,,0.014,2 2 132 262,1 2 136 278
+6,1,ok,3.480,4,Killed by zombies on Day 4,dead,57,16.380,13,3,85,3,False,False,False,True,6,64.436,0.526,0.117,0.336,,9 0 0,3,,0.407,4 4 163 302,2 4 168 326
+7,1,ok,1.234,2,Overrun by the dead on Day 2,dead,10,8.104,11,10,58,3,False,False,False,True,1,59.551,0.941,0.435,,,9,,,0.000,4 6 128 244,1 6 122 251
+8,1,ok,1.756,3,Killed by Karl on Day 3,people,27,15.377,14,13,164,9,False,False,False,True,4,72.718,0.617,0.652,,,0,,,0.133,4 4 176 338,2 4 160 352
+9,1,ok,1.700,3,Overrun by the dead on Day 3,dead,16,9.410,6,7,39,6,False,False,False,True,3,57.875,0.448,0.221,,,0,,,0.000,5 5 124 231,3 5 126 245
+10,1,ok,3.296,4,Succumbed to infection on Day 4,infection,25,7.586,8,3,32,5,False,False,False,True,2,89.680,0.879,0.709,0.229,,9 0 2,6,,0.138,3 3 149 304,2 3 172 336
+11,1,ok,2.075,3,Bled out on Day 3,dead,18,8.675,6,5,44,5,False,False,False,True,5,110.633,0.804,0.490,0.040,,3,6,,0.262,4 4 122 236,2 4 122 245
+12,1,ok,5.411,6,Bitten by a crawling zombie on Day 6,dead,58,10.720,14,4,62,4,False,False,False,True,8,102.890,0.979,0.614,0.102,,9 3 0 0 7,5,,0.111,5 5 93 182,2 5 90 197
+13,1,ok,3.474,4,Overrun by the dead on Day 4,dead,45,12.953,6,9,90,6,False,False,False,True,6,96.053,0.443,0.404,0.160,,0 2 2,10,,0.150,4 4 165 335,2 4 183 367
+14,1,ok,0.671,2,Overrun by the dead on Day 2,dead,8,11.922,7,7,36,4,False,True,True,True,2,60.992,0.619,,,,,,,0.059,3 5 157 332,2 5 166 348
+15,1,ok,3.954,5,Overrun by the dead on Day 5,dead,56,14.163,7,6,92,4,False,False,False,True,12,93.776,0.442,0.592,0.289,,9 0 2,7,,0.242,4 4 123 256,3 4 137 286
+16,1,ok,1.693,3,Overrun by the dead on Day 3,dead,18,10.633,6,8,31,0,False,False,False,True,3,45.961,0.486,0.450,,,0,,,0.118,3 4 129 276,2 4 130 289
+17,1,ok,1.879,3,Killed by Dora on Day 3,people,24,12.776,8,7,69,6,False,False,False,True,4,79.619,0.795,0.336,0.189,,0,,,0.081,2 2 149 282,1 2 162 302
+18,1,ok,4.494,5,Overrun by the dead on Day 5,dead,36,8.010,20,12,124,5,False,False,False,True,10,126.757,0.835,0.629,0.277,,2 0 2 2,7,,0.154,5 5 167 295,5 5 182 333
+19,1,ok,0.013,1,Killed by Hana on Day 1,people,0,0.000,1,1,5,0,True,False,False,False,0,6.031,,,,,,,,0.000,5 7 87 173,4 7 84 174
+20,1,ok,3.949,5,Overrun by the dead on Day 5,dead,39,9.876,10,3,43,0,False,False,False,True,2,72.470,0.745,0.799,0.548,,0 1 3,6,,0.161,5 5 185 351,2 5 192 369
+21,1,ok,2.170,3,Killed by Rosa on Day 3,people,36,16.593,18,5,69,5,False,False,False,True,4,78.774,0.675,0.351,0.322,,1 4,5,,0.122,3 3 117 249,1 3 113 264
+22,1,ok,3.069,4,Overrun by the dead on Day 4,dead,17,5.539,7,10,51,6,False,False,False,True,5,72.337,0.876,0.473,0.450,,0 4,10,,0.118,6 7 154 266,3 6 149 280
+23,1,ok,3.134,4,Overrun by the dead on Day 4,dead,35,11.169,16,12,73,5,False,False,False,False,6,125.357,0.760,0.706,0.450,,9 0 0,7,,0.169,2 2 151 335,1 2 153 358
+24,1,ok,2.006,3,Killed by zombies on Day 3,dead,20,9.970,6,5,19,5,False,False,False,True,5,78.595,0.509,0.612,0.016,,0,5,,0.095,3 4 132 273,2 4 126 281
+25,1,ok,3.187,4,Killed by Ana on Day 4,people,43,13.494,6,7,116,7,False,False,False,True,4,76.245,0.671,0.236,0.393,,0 0 2,9,,0.133,5 5 181 327,4 5 192 349
+26,1,"FAIL: [harness] FAIL bot stuck at tile 56,60 for 3 game hours (doing: search)",2.344,3,alive,alive,41,17.493,7,10,123,7,False,False,False,True,6,72.652,0.657,0.344,0.366,,0 0,10,,0.133,5 6 125 246,4 7 134 272
+27,1,ok,2.785,4,Overrun by the dead on Day 4,dead,25,8.976,10,14,71,5,False,False,False,True,8,64.969,0.866,0.578,0.238,,3 2,10,,0.118,2 2 143 270,1 2 150 289
+28,1,ok,3.156,4,Overrun by the dead on Day 4,dead,50,15.842,8,6,202,6,False,False,False,True,11,102.356,0.602,0.804,0.181,,7 0 0,8,,0.102,5 5 171 313,2 5 178 338
+29,1,ok,2.497,3,Killed by Hector on Day 3,people,41,16.419,5,4,49,5,False,False,False,True,5,110.311,0.526,0.600,0.233,,6 0,4,,0.125,3 3 150 293,2 3 159 314
+30,1,ok,1.923,3,Overrun by the dead on Day 3,dead,28,14.559,9,7,38,3,False,False,False,True,5,54.468,0.426,0.505,0.113,,0,7,,0.100,3 3 139 288,1 3 149 307

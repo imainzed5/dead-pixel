@@ -92,6 +92,7 @@ void Game::resetDead()
     mLastBlowKind = ZombieKind::Shambler;
     mLastBlowFollower = false;
     mLastBlowBy.clear();
+    mLastBlowClock = -1e9;
     mThunderTimer = 60.0f;
     mRainStoppedTimer = 0.0f;
     mWasRaining = false;
@@ -957,6 +958,7 @@ void Game::applyPlayerBlows()
         mLastBlowBy.clear();
         mLastBlowKind = blow.kind;
         mLastBlowFollower = blow.follower;
+        mLastBlowClock = static_cast<double>(mCurrentDay) * 24.0 + mGameHours;
         const float push = blow.knockdownSeconds > 0.0f ? 340.0f : 230.0f;
         if (!pinned)
         {
@@ -1408,6 +1410,7 @@ void Game::tuneRunSpawns()
     // then what the last life cleared.
     // The town fills up a little more with every life lived in it (phase 10).
     const float grown = livingWorld() ? aging::populationScale(static_cast<int>(mSaveManager.characterHistory().size())) : 1.0f;
-    scaleTo(mSpawnData.zombieSpawns, modeRules().population * tone.zombieCountScale * grown);
+    scaleTo(mSpawnData.zombieSpawns, modeRules().population * tone.zombieCountScale * grown *
+                                         Tuning::get("zombie.population.scale", 1.0f));
     reduceStartingDead();
 }

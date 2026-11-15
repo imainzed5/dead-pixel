@@ -208,7 +208,8 @@ bool DevHarness::loadScript(std::string& error)
                     "body_temp,illness,stamina,panic,depression,zombies,zombies_near,kills,"
                     "inventory_items,z_investigate,z_chase,z_attack,z_migrating,indoors,pop_target,"
                     "cause,food,drink,medical,weapons,materials,containers_searched,boards_up,"
-                    "callers_tonight,noise_per_hour,bot,at_home\n";
+                    "callers_tonight,noise_per_hour,bot,at_home,first_fight,first_wound,quiet_min,sampled_min,"
+                    "grabs,far_tiles,stocked_home,boxes_home,stocked_town,boxes_town\n";
     }
 
     std::error_code ec;
@@ -255,7 +256,8 @@ void DevHarness::beforeTickInner(Game& game)
     // The bot plays until its days are up or the run ends; the script waits.
     if (mBot.running())
     {
-        mBot.tick(game);
+        if (mBotStopTick > 0 && mTick >= mBotStopTick) mBot.stop(game);
+        if (mBot.running()) mBot.tick(game);
         if (!mBot.stuckMessage().empty() && !mBotFailReported)
         {
             mBotFailReported = true;
@@ -270,6 +272,9 @@ void DevHarness::beforeTickInner(Game& game)
             }
             return;
         }
+        // The life's last row, before a script's next newrun can start another
+        // (a death in the same tick as the stop otherwise left no row).
+        if (mMetrics && mMetricsInterval > 0) writeMetricsRow(game);
         std::cout << "[harness] tick " << mTick << ": bot stopped on day " << game.mCurrentDay << " hour "
                   << static_cast<int>(game.mGameHours) << " (" << runStateName(static_cast<int>(game.mRunState))
                   << "), containers searched " << mBot.containersSearched() << '\n';
@@ -323,6 +328,10 @@ void DevHarness::afterTick(Game& game)
         health.current = health.maximum;
     }
 
+    if (mMetrics && mMetricsInterval > 0 && alive)
+    {
+        trackMetrics(game);
+    }
     if (mMetrics && mMetricsInterval > 0 && (mTick % static_cast<std::uint64_t>(mMetricsInterval) == 0 || (mWasAlive && !alive)))
     {
         writeMetricsRow(game);
@@ -2191,7 +2200,7 @@ void DevHarness::execute(Game& game, const Command& command)
     }
     else if (op == "bot")
     {
-        // bot PROFILE [DAYS]: the bot plays; the script resumes when it stops.
+        // bot PROFILE [DAYS] [SECONDS]: the bot plays; the script resumes when it stops.
         if (!need(1)) return;
         Autoplayer::Profile profile = Autoplayer::Profile::Normal;
         if (!Autoplayer::parseProfile(lower(a[1]), profile))
@@ -2205,6 +2214,10 @@ void DevHarness::execute(Game& game, const Command& command)
             return;
         }
         const int days = a.size() > 2 ? std::max(1, std::stoi(a[2])) : 7;
+        // bot PROFILE DAYS SECONDS: stops after that many real seconds (a duel).
+        mBotStopTick = a.size() > 3
+            ? mTick + static_cast<std::uint64_t>(std::max(1.0, std::stod(a[3])) * kTicksPerSecond)
+            : 0;
         mBot.start(game, profile, days);
         mBotFailReported = false;
         std::cout << "[harness] tick " << mTick << ": bot " << lower(a[1]) << " for " << days << " day(s)\n";
@@ -2213,6 +2226,15 @@ void DevHarness::execute(Game& game, const Command& command)
     {
         if (!need(1)) return;
         mMetricsInterval = std::max(0, std::stoi(a[1]));
+        // A new life's trackers start clean.
+        mFirstFightClock = -1.0;
+        mFirstWoundClock = -1.0;
+        mQuietMinutes = 0;
+        mSampledMinutes = 0;
+        mGrabs = 0;
+        mWasHeld = false;
+        mLastHealth = -1.0f;
+        mFarthestTiles = 0.0f;
         if (mMetrics && mMetricsInterval > 0) writeMetricsRow(game);
     }
     else if (op == "botshots")
@@ -3424,6 +3446,47 @@ bool DevHarness::capture(Game& game, const std::string& name)
     return ok;
 }
 
+void DevHarness::trackMetrics(Game& game)
+{
+    World& world = game.mWorld;
+    const Entity player = game.mPlayerEntity;
+    if (player == kInvalidEntity || !world.hasComponent<Transform>(player)) return;
+    const double clock = static_cast<double>(game.mCurrentDay) * 24.0 + game.mGameHours;
+
+    const bool held = game.playerHeld();
+    if (held && !mWasHeld) ++mGrabs;
+    mWasHeld = held;
+    if (world.hasComponent<Health>(player))
+    {
+        const float hp = world.getComponent<Health>(player).current;
+        if (mLastHealth >= 0.0f && hp < mLastHealth - 0.5f && mFirstWoundClock < 0.0) mFirstWoundClock = clock;
+        mLastHealth = hp;
+    }
+
+    // Once a game minute: how near the dead are, and how far from home.
+    const long long minute = static_cast<long long>(clock * 60.0);
+    if (minute == mLastSampledMinute) return;
+    mLastSampledMinute = minute;
+    const Transform& pt = world.getComponent<Transform>(player);
+    const glm::vec2 here(pt.x + 16.0f, pt.y + 16.0f);
+    const float tile = static_cast<float>(std::max(1, game.mTileMap.tileWidth()));
+    float nearest = 1e9f;
+    world.forEach<ZombieAI, Transform, Health>(
+        [&](Entity, ZombieAI&, Transform& t, Health& h)
+        {
+            if (h.current <= 0.0f) return;
+            nearest = std::min(nearest, std::hypot(t.x + 16.0f - here.x, t.y + 16.0f - here.y) / tile);
+        });
+    ++mSampledMinutes;
+    if (nearest > 15.0f) ++mQuietMinutes;
+    if (nearest <= 2.0f && mFirstFightClock < 0.0) mFirstFightClock = clock;
+    if (!game.mFirstDays.homeDoors.empty())
+    {
+        const glm::vec2 door = (glm::vec2(game.mFirstDays.homeDoors.front()) + glm::vec2(0.5f)) * tile;
+        mFarthestTiles = std::max(mFarthestTiles, glm::length(here - door) / tile);
+    }
+}
+
 void DevHarness::writeMetricsRow(Game& game)
 {
     World& world = game.mWorld;
@@ -3556,11 +3619,50 @@ void DevHarness::writeMetricsRow(Game& game)
     }
     mClockAtLastRow = clock;
     mNoiseAtLastRow = noise;
+    // Containers holding anything, in the home's district and the whole town
+    // (phase 14: how fast the town runs out, across lives).
+    int stockedHome = 0, boxesHome = 0, stockedTown = 0, boxesTown = 0;
+    {
+        int homeDistrict = 0;
+        if (!game.mFirstDays.homeDoors.empty())
+        {
+            const glm::ivec2 door = game.mFirstDays.homeDoors.front();
+            homeDistrict = game.mTileMap.getDistrictId(door.x, door.y);
+        }
+        world.forEach<Interactable, Inventory, Transform>(
+            [&](Entity e, Interactable&, Inventory& inv, Transform& t)
+            {
+                if (e == player || world.hasComponent<SurvivorAI>(e) || world.hasComponent<ZombieAI>(e) ||
+                    world.hasComponent<Health>(e))
+                    return;
+                bool any = false;
+                for (const auto& slot : inv.slots)
+                {
+                    if (slot.itemId >= 0 && slot.count > 0)
+                    {
+                        any = true;
+                        break;
+                    }
+                }
+                ++boxesTown;
+                if (any) ++stockedTown;
+                const int district = game.mTileMap.getDistrictId(static_cast<int>(t.x + 16.0f) / 32,
+                                                                 static_cast<int>(t.y + 16.0f) / 32);
+                if (homeDistrict > 0 && district == homeDistrict)
+                {
+                    ++boxesHome;
+                    if (any) ++stockedHome;
+                }
+            });
+    }
     const bool ended = game.mRunState == Game::RunState::Dead || game.mRunState == Game::RunState::Retired ||
                        game.mRunState == Game::RunState::Out;
     mMetrics << (ended ? csvSafe(game.mDeathCause) : std::string{}) << ',' << byCategory[0] << ',' << byCategory[1]
              << ',' << byCategory[2] << ',' << byCategory[3] << ',' << byCategory[4] << ','
              << game.mContainersOpened << ',' << boards << ',' << callers << ',' << noisePerHour << ','
-             << (mBot.running() ? mBot.activity() : "") << ',' << (atHome ? 1 : 0) << '\n';
+             << (mBot.running() ? mBot.activity() : "") << ',' << (atHome ? 1 : 0) << ',' << mFirstFightClock << ','
+             << mFirstWoundClock << ',' << mQuietMinutes << ',' << mSampledMinutes << ',' << mGrabs << ','
+             << mFarthestTiles << ',' << stockedHome << ',' << boxesHome << ',' << stockedTown << ',' << boxesTown
+             << '\n';
     mMetrics.flush();
 }

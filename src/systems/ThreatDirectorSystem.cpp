@@ -112,7 +112,7 @@ void ThreatDirectorSystem::update(World& world,
     }
 
     mElapsed += dtSeconds;
-    if (mElapsed < kGracePeriodSeconds)
+    if (mElapsed < ::Tuning::get("threat.grace.seconds", kGracePeriodSeconds))
     {
         return;
     }
@@ -143,8 +143,10 @@ void ThreatDirectorSystem::update(World& world,
 
         // How many bodies the area "should" hold: rises at night and with days.
         const int desiredNear = static_cast<int>(isNight
-            ? kDesiredNearNight + dayFactor * kDesiredNearNightGrowth
-            : kDesiredNearDay + dayFactor * kDesiredNearDayGrowth);
+            ? ::Tuning::get("threat.near.night", kDesiredNearNight) +
+                  dayFactor * ::Tuning::get("threat.near.nightGrowth", kDesiredNearNightGrowth)
+            : ::Tuning::get("threat.near.day", kDesiredNearDay) +
+                  dayFactor * ::Tuning::get("threat.near.dayGrowth", kDesiredNearDayGrowth));
 
         if (nearCount < desiredNear && !farWanderers.empty())
         {

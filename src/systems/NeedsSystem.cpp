@@ -48,7 +48,6 @@ constexpr float kStarvationDamage = 0.10f;  // ~16 game hours from full health
 constexpr float kDehydrationDamage = 0.20f; // ~8 game hours from full health
 constexpr float kHypothermiaDamage = 0.03f;
 constexpr float kSevereHypothermiaDamage = 0.12f;
-constexpr float kGravelyIllAbove = 80.0f;
 constexpr float kGraveIllnessDamage = 0.04f; // ~40 game hours to die of untreated infection
 } // namespace
 

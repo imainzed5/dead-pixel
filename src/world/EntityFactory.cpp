@@ -8,6 +8,8 @@
 #include "components/ZombieAI.h"
 #include "rendering/SpriteSheet.h"
 
+#include <bit>
+#include <cstdint>
 #include <string>
 
 namespace EntityFactory
@@ -56,6 +58,25 @@ Entity spawnZombie(World& world, const SpriteSheet& spriteSheet, const ZombiePar
     const unsigned hash = static_cast<unsigned>(static_cast<int>(transform.x)) * 73856093u ^
                           static_cast<unsigned>(static_cast<int>(transform.y)) * 19349663u;
     ai.look = static_cast<int>((hash >> 4) % 3u);
+    // Its own random stream (wander turns, pauses, the rolls of a bite) is
+    // keyed by where it rose and what it rolled, not by its entity id: a
+    // town that makes one more car or crate no longer sends every one of the
+    // dead that comes later another way (phase 14).
+    {
+        std::uint32_t h = 2166136261u;
+        const auto mix = [&h](std::uint32_t v)
+        {
+            h ^= v;
+            h *= 16777619u;
+            h ^= h >> 15;
+        };
+        mix(std::bit_cast<std::uint32_t>(transform.x));
+        mix(std::bit_cast<std::uint32_t>(transform.y));
+        mix(std::bit_cast<std::uint32_t>(params.health));
+        mix(std::bit_cast<std::uint32_t>(params.baseMoveSpeed));
+        mix(static_cast<std::uint32_t>(params.kind) * 2654435761u + static_cast<std::uint32_t>(params.spawnDay));
+        ai.rngState = h != 0 ? h : 1u;
+    }
 
     world.addComponent<Transform>(zombie, transform);
     world.addComponent<Sprite>(zombie, sprite);

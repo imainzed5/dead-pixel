@@ -1,4 +1,5 @@
 #include "systems/WoundSystem.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -145,7 +146,8 @@ void WoundSystem::update(World& world, Entity playerEntity, float dtSeconds, dou
 
             if (stable && health.current < health.maximum)
             {
-                health.current = std::min(health.maximum, health.current + kStableRecoveryPerSecond * dtSeconds);
+                health.current = std::min(health.maximum, health.current +
+                                          Tuning::get("health.recovery.perSecond", kStableRecoveryPerSecond) * dtSeconds);
             }
         }
     }

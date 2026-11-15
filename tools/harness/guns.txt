@@ -82,8 +82,9 @@ shot shotgun_loaded
 # stop at the first body, so two in a line would shield each other. The
 # kill count includes the seven slain above: slay counts as yours. Since
 # phase 8 the dead in lived-in houses are gone; since phase 9 the town
-# has a gate and the dead stand elsewhere, so seven are near, not five.)
-expect kills 8
+# has a gate and the dead stand elsewhere, so seven were near; since
+# phase 14 the town holds a fifth fewer, and five are.)
+expect kills 6
 zombie 1.5 0.28 idle exact
 zombie 1.5 -0.28 idle exact
 waits 0.1
@@ -92,7 +93,7 @@ wait 13
 shot shotgun_blast
 waits 0.3
 expect loaded 1
-expect kills 10
+expect kills 8
 shot shotgun_down
 slay 40
 waits 1

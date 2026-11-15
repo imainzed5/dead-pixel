@@ -22,6 +22,19 @@
 //   needs.sleepDebt.perSecond     0.058 sleep debt gained per real second awake
 //   zombie.attack.damage          7     health a claw takes (a grab bites instead)
 //   loot.stocked.scale            1     multiplies every loot class's stockedChance
+// Added for balance (phase 14):
+//   threat.grace.seconds          150   real seconds from the start before the director moves the dead
+//   threat.near.day               1     the dead the director keeps within 14 tiles by day...
+//   threat.near.dayGrowth         0.5   ...plus this many for each day after the first
+//   threat.near.night             3     ...and by night
+//   threat.near.nightGrowth       1     ...plus this many for each day after the first
+//   health.recovery.perSecond     0.02  health back per second once no wound bleeds
+//   health.sleep.perHour          3     health back per game hour asleep (times the sleep's quality)
+//   survivors.shot.toPlayer       1     scales a survivor's shot at the player
+//   survivors.blow.toPlayer       1     scales a survivor's blow at the player
+//   vehicle.batter.damage         3     what one blow of the dead takes off a vehicle
+//   sleep.threat.tiles            4     the dead this near (tiles) stop you lying down
+//   zombie.population.scale       1     the town's dead at the start and the director's target, every mode
 //
 // Day length (phase 13, world/DayLength.h). A world's day is 24, 36 or 48
 // real minutes; kGameHourSeconds is 60, 90 or 120. "Per second" above means

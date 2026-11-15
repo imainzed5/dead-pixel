@@ -727,6 +727,7 @@ private:
     ZombieKind mLastBlowKind = ZombieKind::Shambler;
     std::string mLastBlowBy; // a survivor's blow last: "Killed by NAME" (phase 8)
     bool mLastBlowFollower = false;
+    double mLastBlowClock = -1e9; // game hours since day 0 when a blow last landed (death causes)
     void buildRuinMarks();   // litter, smears and bodies by each district's ruin level
     void drawBloodTrail();
     [[nodiscard]] static const char* ruinWord(int level); // quiet, uneasy, turning, overrun

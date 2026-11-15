@@ -11,7 +11,9 @@
 # card counts it; life 4 finds the gate open on day 1, the marker names who
 # left, and it walks out.
 # The dead near the generator are put down before each held job (they
-# would break it off), after the Sergeant has been met.
+# would break it off), after the Sergeant has been met, and the one or two
+# by the box before life 1's fuse (since phase 14 the dead's wander no
+# longer depends on how many things the town made, and one walks up).
 # Run in a fresh directory (it writes saves):
 #   dead_pixel_survival.exe --script tools/harness/gate_across_lives.txt --hidden --world-seed 1234 --shots shots/gate_across_lives
 
@@ -32,6 +34,7 @@ waits 1
 expect lead 2
 give Gate Fuse
 goto box
+slay 12
 waits 0.3
 tap E
 waits 10.5

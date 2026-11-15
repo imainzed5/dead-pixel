@@ -54,6 +54,7 @@ public:
     static constexpr float kColdBelow = 35.0f;
     static constexpr float kHypothermicBelow = 34.0f;
     static constexpr float kSevereHypothermiaBelow = 32.5f;
+    static constexpr float kGravelyIllAbove = 80.0f; // illness that takes health
     static constexpr float kOverheatedAbove = 38.3f;
     static constexpr float kHotAmbient = 30.0f;
     static constexpr float kShadeRadius = 40.0f; // under a tree canopy

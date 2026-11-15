@@ -56,7 +56,7 @@ comes before fighting; no engine switch.
 | 11 | `phases/P11_vehicles.md` | Three vehicles with trunks, hot-wiring and wear | done |
 | 12 | `phases/P12_sound_and_mood.md` | A sound for everything that makes noise, ambience, sparse music, mood on screen | done |
 | 13 | `phases/P13_run_flow.md` | Life after day 3, settings, key bindings, first-run teaching, demo build | done |
-| 14 | `phases/P14_balance.md` | Numbers tuned by bot runs against written targets | not started |
+| 14 | `phases/P14_balance.md` | Numbers tuned by bot runs against written targets | done |
 
 Order matters: later phases use what earlier ones build (P01's data files and
 bot, P02's base, P03's combat verbs, P05's skills). Do not reorder. A phase may

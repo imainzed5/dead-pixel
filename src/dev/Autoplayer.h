@@ -158,6 +158,15 @@ private:
     glm::ivec2 mWaterStand{-1, -1};
     int mWaterTries = 0;
     double mBoardRetryAt = -1.0;
+    int mLeanTicks = 0; // leaning in toward a way in until R is offered
+    double mShutRetryAt = 0.0; // shutting the home's open doors (phase 14)
+    int mShutTicks = 0;
+    // Planks from the home's furniture (phase 14).
+    bool breakForPlanks(Game& game);
+    double mBreakRetryAt = 0.0;
+    int mBreakTries = 0;
+    glm::ivec2 mBreakTile{-1, -1};
+    std::set<Tile> mNoBreak;
     double mTreatRetryAt = -1.0;
     double mForgetAt = 0.0;
     glm::ivec2 mWanderGoal{-1, -1};
@@ -179,5 +188,6 @@ private:
 
     // Stuck detection: game time at the last tile change while awake.
     double mLastMoveHour = 0.0;
+    double mUnstuckAt = 0.0;
     glm::ivec2 mStuckTile{-1, -1};
 };

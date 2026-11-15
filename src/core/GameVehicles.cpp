@@ -3,6 +3,7 @@
 // the town and its dead, the trunk, fuel, wear and mending, a pickup's load,
 // alarms, and what the world remembers of them. The rules are pure in
 // world/VehicleRules; the body moves in systems/VehicleSystem.
+#include "core/Tuning.h"
 #include "core/GameShared.h"
 
 #include <string_view>
@@ -1118,7 +1119,7 @@ void Game::updateVehicleAfterPhysics(float dtSeconds)
         {
             for (Entity zombie : mVehicleBlows)
             {
-                v.condition = std::max(0.0f, v.condition - vehiclerules::kBlowDamage);
+                v.condition = std::max(0.0f, v.condition - Tuning::get("vehicle.batter.damage", vehiclerules::kBlowDamage));
                 const auto it = std::find_if(mBatterers.begin(), mBatterers.end(),
                                              [&](const std::pair<Entity, float>& b) { return b.first == zombie; });
                 if (it != mBatterers.end()) it->second = mVehicleClock;

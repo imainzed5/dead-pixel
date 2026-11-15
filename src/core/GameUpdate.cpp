@@ -1,4 +1,5 @@
 // Per-tick simulation: input, systems, combat, sleep, animation and particles.
+#include "core/Tuning.h"
 #include "core/GameShared.h"
 #include "world/WeatherRules.h"
 #include "world/CombatRules.h"
@@ -402,33 +403,34 @@ void Game::update(float dtSeconds)
             diedInFire = mFireSystem.burning(worldToTile(mTileMap, glm::vec2(pt.x + 16.0f, pt.y + 16.0f)));
         }
 
+        // What took the last of the health names the death (phase 14): a
+        // blow in the last half hour is the dead's (or a person's) doing;
+        // with none, the slow countdown that was running is. Before this, a
+        // death from cold or illness read "Killed by zombies".
+        const double clockNow = static_cast<double>(mCurrentDay) * 24.0 + mGameHours;
+        const bool recentBlow = clockNow - mLastBlowClock < 0.5;
         if (diedInFire)
         {
             cause = "Burned alive";
         }
-
-        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
+        else if (recentBlow)
+        {
+            // cause is the blow's: the dead, or the one who struck it.
+        }
+        else if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Bleeding>(mPlayerEntity))
+        {
+            cause = mLastBlowBy.empty() ? std::string("Bled out") : "Bled out after " + mLastBlowBy + "'s blow";
+        }
+        else if (!recentBlow && mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Needs>(mPlayerEntity))
         {
             const Needs& needs = mWorld.getComponent<Needs>(mPlayerEntity);
-            if (needs.thirst <= 0.0f)
-            {
-                cause = "Dehydrated";
-            }
-            else if (needs.hunger <= 0.0f)
-            {
-                cause = "Starved";
-            }
-        }
-        if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Bleeding>(mPlayerEntity))
-        {
-            cause = "Bled out";
-        }
-        else if (!diedInFire && cause != "Dehydrated" && cause != "Starved" &&
-                 mPlayerEntity != kInvalidEntity &&
-                 mWorld.hasComponent<Wounds>(mPlayerEntity) &&
-                 hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity)))
-        {
-            cause = "Succumbed to infection";
+            if (needs.thirst <= 0.0f) cause = "Dehydrated";
+            else if (needs.hunger <= 0.0f) cause = "Starved";
+            else if (needs.bodyTemperature < NeedsSystem::kHypothermicBelow) cause = "Froze";
+            else if (needs.bodyTemperature > weatherrules::kHeatstrokeAbove) cause = "Died of heat";
+            else if (mWorld.hasComponent<Wounds>(mPlayerEntity) && hasInfectedWound(mWorld.getComponent<Wounds>(mPlayerEntity)))
+                cause = "Succumbed to infection";
+            else if (needs.illness >= NeedsSystem::kGravelyIllAbove) cause = "Died of illness";
         }
 
         beginDeathState(cause + " on Day " + std::to_string(mCurrentDay));
@@ -879,7 +881,7 @@ void Game::updateSleep(float dtSeconds)
             if (canRecoverHealth && mWorld.hasComponent<Health>(mPlayerEntity))
             {
                 Health& health = mWorld.getComponent<Health>(mPlayerEntity);
-                health.current = std::min(health.maximum, health.current + kSleepHealPerHour * sleeping.quality * gameHoursThisTick);
+                health.current = std::min(health.maximum, health.current + Tuning::get("health.sleep.perHour", kSleepHealPerHour) * sleeping.quality * gameHoursThisTick);
             }
         }
 

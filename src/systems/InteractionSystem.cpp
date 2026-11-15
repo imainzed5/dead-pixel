@@ -1,4 +1,5 @@
 #include "systems/InteractionSystem.h"
+#include "core/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,7 +25,11 @@ namespace
 {
 constexpr float kInteractRangePixels = 32.0f;
 constexpr float kSpriteHalfSize = 16.0f;
-constexpr float kSleepThreatRangePixels = 128.0f;
+constexpr float kSleepThreatRangePixels = 128.0f; // tuned as sleep.threat.tiles (x 32 px)
+float sleepThreatRange()
+{
+    return Tuning::get("sleep.threat.tiles", kSleepThreatRangePixels / 32.0f) * 32.0f;
+}
 constexpr float kMinimumSleepDebt = 18.0f;
 constexpr float kMinimumFatigue = 25.0f;
 
@@ -180,7 +185,7 @@ std::string InteractionSystem::update(World& world, const Input& input, Entity p
 
                 const glm::vec2 zombieCenter(transform.x + kSpriteHalfSize, transform.y + kSpriteHalfSize);
                 const glm::vec2 delta = zombieCenter - playerCenter;
-                if (glm::dot(delta, delta) < kSleepThreatRangePixels * kSleepThreatRangePixels)
+                if (glm::dot(delta, delta) < sleepThreatRange() * sleepThreatRange())
                 {
                     nearbyThreat = true;
                 }
@@ -367,7 +372,7 @@ ProximityPrompt InteractionSystem::getProximityPrompt(World& world, Entity playe
 
                 const glm::vec2 zombieCenter(transform.x + kSpriteHalfSize, transform.y + kSpriteHalfSize);
                 const glm::vec2 delta = zombieCenter - playerCenter;
-                if (glm::dot(delta, delta) < kSleepThreatRangePixels * kSleepThreatRangePixels)
+                if (glm::dot(delta, delta) < sleepThreatRange() * sleepThreatRange())
                 {
                     nearbyThreat = true;
                 }
