@@ -7,7 +7,7 @@ using namespace gameshared;
 void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
 {
     // Crafting panel toggle (N) and panel controls.
-    if (mInput.wasKeyPressed(SDL_SCANCODE_N) && mRunState == RunState::Playing && !drivingVehicle)
+    if (mInput.pressed(Action::Make) && mRunState == RunState::Playing && !drivingVehicle)
     {
         mShowCrafting = !mShowCrafting;
         if (mShowCrafting)
@@ -110,13 +110,13 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
         }
 
         bool craftActivateRequested =
-            mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
-            mInput.wasKeyPressed(SDL_SCANCODE_SPACE);
+            mInput.pressed(Action::UiConfirm) ||
+            mInput.pressed(Action::UiSpace);
         bool craftQueueAppendRequested = false;
 
         {
             const CraftingLayout layout = craftingLayout();
-            const glm::vec2 mouse(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+            const glm::vec2 mouse = uiMouse();
             const bool mouseMoved = mouse != mCraftingLastMouse;
             mCraftingLastMouse = mouse;
             const auto inside = [&](const glm::vec4& r)
@@ -124,7 +124,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                 return mouse.x >= r.x && mouse.x < r.x + r.z && mouse.y >= r.y && mouse.y < r.y + r.w;
             };
 
-            if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            if (mInput.pressed(Action::UiClick))
             {
                 for (int i = 0; i < kCraftingCategories; ++i)
                 {
@@ -151,12 +151,12 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                     {
                         mCraftingRecipeCursor = hovered;
                     }
-                    if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+                    if (mInput.pressed(Action::UiClick))
                     {
                         mCraftingRecipeCursor = hovered;
                         craftActivateRequested = true;
                     }
-                    if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT))
+                    if (mInput.pressed(Action::UiAltClick))
                     {
                         mCraftingRecipeCursor = hovered;
                         craftActivateRequested = true;
@@ -166,14 +166,14 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
             }
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        if (mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp))
         {
             if (!visible.empty())
             {
                 mCraftingRecipeCursor = (mCraftingRecipeCursor + static_cast<int>(visible.size()) - 1) % static_cast<int>(visible.size());
             }
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        if (mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown))
         {
             if (!visible.empty())
             {
@@ -181,27 +181,27 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
             }
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_A) || mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
+        if (mInput.pressed(Action::MoveLeft) || mInput.pressed(Action::UiLeft))
         {
             mCraftingCategory = (mCraftingCategory + kCraftingCategories - 1) % kCraftingCategories;
             mCraftingRecipeCursor = 0;
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_D) || mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
+        if (mInput.pressed(Action::MoveRight) || mInput.pressed(Action::UiRight))
         {
             mCraftingCategory = (mCraftingCategory + 1) % kCraftingCategories;
             mCraftingRecipeCursor = 0;
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_MINUS) || mInput.wasKeyPressed(SDL_SCANCODE_KP_MINUS))
+        if (mInput.pressed(Action::UiMinus))
         {
             mCraftingQuantity = std::max(1, mCraftingQuantity - 1);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_EQUALS) || mInput.wasKeyPressed(SDL_SCANCODE_KP_PLUS))
+        if (mInput.pressed(Action::UiPlus))
         {
             mCraftingQuantity = std::min(10, mCraftingQuantity + 1);
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_X) || mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE))
+        if (mInput.pressed(Action::Pry) || mInput.pressed(Action::UiErase))
         {
             if (!mCraftQueue.empty())
             {
@@ -237,8 +237,7 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
             {
                 const bool queueAppend =
                     craftQueueAppendRequested ||
-                    mInput.isKeyDown(SDL_SCANCODE_LSHIFT) ||
-                    mInput.isKeyDown(SDL_SCANCODE_RSHIFT);
+                    mInput.down(Action::UiStack);
 
                 if (!hasCraftTools(inv, mItemDatabase, recipe))
                 {
@@ -402,6 +401,8 @@ void Game::updateCraftingPanel(float dtSeconds, bool drivingVehicle)
                                 mAudioManager.play(SoundId::CraftDone);
                                 // Cooking at a fire: Living off the land.
                                 if (recipe.station == CraftStation::Fire) awardXp(Skill::LivingOffTheLand, skillrules::kXpCook);
+                                // Water made safe counts toward the water aim (phase 13).
+                                if (recipe.inputA == mItems.dirtyWater && recipe.outputItemId == mItems.waterBottle) ++mBoiledSinceAim;
 
                                 if (active.remaining <= 0)
                                 {
@@ -429,7 +430,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
     }
 
     // Inventory toggle (Tab)
-    if (mInput.wasKeyPressed(SDL_SCANCODE_TAB))
+    if (mInput.pressed(Action::Pack))
     {
         if (drivingVehicle)
         {
@@ -507,13 +508,13 @@ void Game::updateInventoryInput(bool drivingVehicle)
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
 
         const InventoryLayout layout = computeInventoryLayout(mWindowWidth, mWindowHeight);
-        const int hoveredSlot = layout.slotAt(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
+        const int hoveredSlot = layout.slotAt(uiMouse());
 
         if (hoveredSlot >= 0)
         {
             mInventoryCursor = hoveredSlot;
 
-            if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+            if (mInput.pressed(Action::UiClick))
             {
                 const auto& hovered = inv.slots[static_cast<std::size_t>(mInventoryCursor)];
                 if (hovered.itemId >= 0 && hovered.count > 0)
@@ -522,7 +523,7 @@ void Game::updateInventoryInput(bool drivingVehicle)
                 }
             }
 
-            if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT) && mInventoryCursor != inv.activeSlot)
+            if (mInput.pressed(Action::UiAltClick) && mInventoryCursor != inv.activeSlot)
             {
                 std::swap(inv.slots[static_cast<std::size_t>(mInventoryCursor)],
                           inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
@@ -533,31 +534,31 @@ void Game::updateInventoryInput(bool drivingVehicle)
 
         // Up/Down (or W/S) move between the rows, Left/Right along one.
         mInventoryCursor = std::clamp(mInventoryCursor, 0, Inventory::kMaxSlots - 1);
-        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        if (mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp))
         {
             mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 0, -1);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        if (mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown))
         {
             mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 0, 1);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
+        if (mInput.pressed(Action::UiLeft))
         {
             mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, -1, 0);
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
+        if (mInput.pressed(Action::UiRight))
         {
             mInventoryCursor = InventoryLayout::neighbour(mInventoryCursor, 1, 0);
         }
 
         // Backspace: the cursor item onto the floor (Shift: the whole stack).
-        if (mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE))
+        if (mInput.pressed(Action::Drop))
         {
-            dropFromPack(mInventoryCursor, mInput.isKeyDown(SDL_SCANCODE_LSHIFT) || mInput.isKeyDown(SDL_SCANCODE_RSHIFT));
+            dropFromPack(mInventoryCursor, mInput.down(Action::UiStack));
         }
 
         // Enter key: swap cursor slot with active hotbar slot
-        if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) && mInventoryCursor != inv.activeSlot)
+        if (mInput.pressed(Action::UiConfirm) && mInventoryCursor != inv.activeSlot)
         {
             std::swap(inv.slots[static_cast<std::size_t>(mInventoryCursor)],
                       inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
@@ -572,14 +573,14 @@ void Game::updateInventoryInput(bool drivingVehicle)
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
         for (int key = 0; key < 8; ++key)
         {
-            if (mInput.wasKeyPressed(static_cast<SDL_Scancode>(SDL_SCANCODE_1 + key)))
+            if (mInput.pressed(static_cast<Action>(static_cast<int>(Action::Belt1) + key)))
             {
                 inv.activeSlot = key;
             }
         }
 
         // Use item (F key or inventory click): use cursor slot when inventory is open, otherwise active hotbar slot
-        if ((mInput.wasKeyPressed(SDL_SCANCODE_F) && !bodyTab) || useInventoryCursorItemRequested)
+        if ((mInput.pressed(Action::UseItem) && !bodyTab) || useInventoryCursorItemRequested)
         {
             const int useSlot = mShowInventory ? mInventoryCursor : inv.activeSlot;
             const auto& slot = inv.slots[static_cast<std::size_t>(useSlot)];

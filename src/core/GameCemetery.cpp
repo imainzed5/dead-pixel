@@ -212,7 +212,7 @@ bool Game::handleLegacyInteraction(const ProximityPrompt& entityPrompt)
     if (link.kind != LegacyLinkKind::Grave || link.graveIndex < 0 || link.graveIndex >= static_cast<int>(mLegacyGraves.size())) return false;
     const int index = link.graveIndex;
     const GraveRecord& grave = mLegacyGraves[static_cast<std::size_t>(index)];
-    const bool pressed = mInput.wasKeyPressed(SDL_SCANCODE_E);
+    const bool pressed = mInput.pressed(Action::Use);
     const std::string what = grave.buried ? grave.name + "'s stone" : grave.name + "'s grave";
     if (grave.ofBloodline())
     {

@@ -105,6 +105,20 @@ class Game;
 //                                 the mixer still decides what would play)
 //   expect layer NAME above|below V | expect music starts N|none | expect duck below V|none
 //   expect listening [no] | expect fx neutral|active | expect idle low|cold|knee|none
+//   screen W H | uisize auto|1|1.5|2   the window's pixels (and shots) / the interface size (phase 13)
+//   settings reload|save|reset|open|close | settings NAME VALUE   the settings file (scripts start from
+//                                 the defaults) / master|effects|ambience|music|shake 0-10, teaching|crouch|run|
+//                                 pressonce|autopause on|off
+//   teach on|off | autosave on|off | demo on|off | daylength 24|36|48   (all off, and 24, for scripts)
+//   aim [choose]                  print the standing aim (day 4 on) / choose it again now
+//   day horde [next]              the first horde day from 4 (or after today)
+//   home sealed                   the home's doors boarded three times, its windows twice
+//   push any                      push a piece beside the player whichever way it goes
+//   corpses age S | goto clock    every body S seconds old / in front of the town clock (fx on)
+//   expect aim KEY|none [no] | expect aimdone [no] | expect binding ACTION KEY | expect teach ID|none
+//   expect taught|seen ID [no] | expect step TEXT [done|open] | expect nostep TEXT | expect hint TEXT|none
+//   expect retired | expect daycard TEXT | expect hour LO HI | expect uiscale X | expect settings open|closed
+//   expect note TEXT | expect level master|effects|ambience|music|shake N
 //   log TEXT                      print a line
 //   quit                          end the run
 class DevHarness
@@ -138,7 +152,7 @@ private:
     {
         std::uint64_t tick = 0;
         bool isMouse = false;
-        SDL_Scancode key = SDL_SCANCODE_UNKNOWN;
+        int code = -1; // a key, by binding code
         Uint8 button = 0;
     };
 
@@ -153,6 +167,8 @@ private:
     bool vehicleCommand(Game& game, const Command& command);
     // DevHarnessSound.cpp: true when the command was one of sound and mood's (phase 12).
     bool soundCommand(Game& game, const Command& command);
+    // DevHarnessRunFlow.cpp: true when the command was one of the run flow's (phase 13).
+    bool runFlowCommand(Game& game, const Command& command);
     double mSoundMark = 0.0;         // "sound mark": the mixer's clock then
     // `drive`: the keys a driver would press, set every tick until it ends.
     void steerVehicle(Game& game);

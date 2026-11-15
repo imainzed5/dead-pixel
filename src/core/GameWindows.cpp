@@ -145,7 +145,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
     mProximityPrompt = prompt;
 
     const glm::vec2 centre = tileCentre(mTileMap, tile);
-    if (mInput.wasKeyPressed(SDL_SCANCODE_R))
+    if (mInput.pressed(Action::Board))
     {
         if (!inside)
         {
@@ -158,7 +158,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
         }
         return true;
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_X) && boards > 0)
+    if (mInput.pressed(Action::Pry) && boards > 0)
     {
         if (!inside)
         {
@@ -188,8 +188,8 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
     }
     // Breaking the glass: held, Loud from a smash (1.5 s), Soft through
     // tape (4 s). Breaking in may set off a shop's alarm (phase 6).
-    const bool smash = !inside && !broken && boards == 0 && !alarm && mInput.wasKeyPressed(SDL_SCANCODE_E);
-    const bool taped = !broken && boards == 0 && !alarm && hasTape && mInput.wasKeyPressed(SDL_SCANCODE_X);
+    const bool smash = !inside && !broken && boards == 0 && !alarm && mInput.pressed(Action::Use);
+    const bool taped = !broken && boards == 0 && !alarm && hasTape && mInput.pressed(Action::Pry);
     if (smash || taped)
     {
         mBaseAction = BaseAction{};
@@ -201,7 +201,7 @@ bool Game::handleWindowInteraction(const ProximityPrompt& entityPrompt)
         mBaseAction.startHp = mWorld.hasComponent<Health>(mPlayerEntity) ? mWorld.getComponent<Health>(mPlayerEntity).current : 0.0f;
         return true;
     }
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_E))
+    if (!mInput.pressed(Action::Use))
     {
         return false;
     }
@@ -536,7 +536,7 @@ void Game::updateWindows(float dtSeconds)
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
 
     // A blow aimed at a window in reach breaks the glass (loudly).
-    if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT) && !mShowCrafting && !mContainerOpen && !mTalk.open && !mShowInventory &&
+    if (mInput.pressed(Action::Attack) && !mShowCrafting && !mContainerOpen && !mTalk.open && !mShowInventory &&
         !mBuildWheelOpen && mBuildChoice < 0 && !mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         const glm::vec2 here = playerWorldCenter();

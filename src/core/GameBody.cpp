@@ -281,7 +281,7 @@ void Game::prepareBodyModifiers()
                 if (d < mindrules::kHordePanicTiles && ai.horde > 0) horde = true;
                 if (d < mindrules::kDarkIndoorsHeardTiles) heard = true;
             });
-        const bool crouched = mInput.isKeyDown(SDL_SCANCODE_C) || mInput.isKeyDown(SDL_SCANCODE_LCTRL);
+        const bool crouched = mInput.down(Action::Crouch);
         bool still = true;
         if (mWorld.hasComponent<Velocity>(mPlayerEntity))
         {
@@ -300,7 +300,7 @@ void Game::updateBody(float dtSeconds)
 {
     if (mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Health>(mPlayerEntity)) return;
     const double now = absoluteHour();
-    const float hours = static_cast<float>(static_cast<double>(dtSeconds) * kGameHoursPerRealSecond);
+    const float hours = static_cast<float>(static_cast<double>(dtSeconds) * hoursPerSecond());
     const bool asleep = mWorld.hasComponent<Sleeping>(mPlayerEntity);
     mBodyMessageCooldown = std::max(0.0f, mBodyMessageCooldown - dtSeconds);
 
@@ -404,7 +404,7 @@ void Game::updateBody(float dtSeconds)
 
         // A deep breath: C held, still, out of sight, three seconds.
         mental.deepBreathCooldown = std::max(0.0f, mental.deepBreathCooldown - dtSeconds);
-        const bool crouched = mInput.isKeyDown(SDL_SCANCODE_C) || mInput.isKeyDown(SDL_SCANCODE_LCTRL);
+        const bool crouched = mInput.down(Action::Crouch);
         bool still = true;
         if (mWorld.hasComponent<Velocity>(mPlayerEntity))
         {
@@ -510,7 +510,7 @@ void Game::updateBody(float dtSeconds)
             // Heard, not made: no noise, and only you hear it.
             const float pan = audiorules::panFromScreen(mCamera.worldToScreen(sign.world).x,
                                                         mCamera.worldToScreen(view.player).x,
-                                                        static_cast<float>(mWindowWidth) * 0.5f);
+                                                        static_cast<float>(mPixelWidth) * 0.5f);
             if (sign.kind == FalseSign::Kind::Knock) mAudioManager.play(SoundId::DeadDoorBang, volume, pan);
             if (sign.kind == FalseSign::Kind::Groan) mAudioManager.play(SoundId::ShamblerIdle, volume, pan);
         }
@@ -945,13 +945,13 @@ void Game::renderBodyEffects()
     const float h = static_cast<float>(mWindowHeight);
 
     // Figures at the edge of things (drawn as a dark shape of one of the dead).
-    const float zoom = mCamera.zoom();
+    const float zoom = uiZoom();
     for (const FalseSign& sign : mHallucinations.signs())
     {
         if (sign.kind != FalseSign::Kind::Silhouette || sign.alpha <= 0.01f) continue;
         const SpriteRegion* region = mSpriteSheet.find("zombie0_walk_s");
         if (region == nullptr) continue;
-        const glm::vec2 feet = mCamera.worldToScreen(sign.world);
+        const glm::vec2 feet = uiAt(sign.world);
         const glm::vec2 size = region->pixelSize * zoom;
         const glm::vec4 uv = mSpriteSheet.frameUv("zombie0_walk_s", 0);
         mSpriteBatch.draw(glm::round(feet - glm::vec2(size.x * 0.5f, size.y * 0.92f)), size, uv,
@@ -1196,9 +1196,9 @@ void Game::updateBodyTabInput()
         return;
     }
     mBodyCursor = std::clamp(mBodyCursor, 0, count - 1);
-    const bool up = mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W);
-    const bool down = mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S);
-    const bool enter = mInput.wasKeyPressed(SDL_SCANCODE_RETURN) || mInput.wasKeyPressed(SDL_SCANCODE_F);
+    const bool up = mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp);
+    const bool down = mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown);
+    const bool enter = mInput.pressed(Action::UiConfirm) || mInput.pressed(Action::UseItem);
     const Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
     if (!mBodyChoosing)
     {

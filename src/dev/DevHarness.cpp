@@ -61,17 +61,13 @@ std::string lower(std::string text)
     return text;
 }
 
-SDL_Scancode scancodeFromName(const std::string& rawName)
+// A script names keys as they are on the keyboard ("e", "enter", "left_shift").
+// Harness runs play with the default bindings (Game::loadSettings), so a
+// player's own keys never change what a script does.
+int keyCodeFromName(const std::string& rawName)
 {
-    const std::string name = lower(rawName);
-    if (name == "enter") return SDL_SCANCODE_RETURN;
-    if (name == "esc") return SDL_SCANCODE_ESCAPE;
-    if (name == "lshift" || name == "shift") return SDL_SCANCODE_LSHIFT;
-    if (name == "lctrl" || name == "ctrl") return SDL_SCANCODE_LCTRL;
-
-    std::string sdlName = rawName;
-    std::replace(sdlName.begin(), sdlName.end(), '_', ' ');
-    return SDL_GetScancodeFromName(sdlName.c_str());
+    const int code = bindings::codeFromName(rawName);
+    return bindings::isMouse(code) ? bindings::kNone : code;
 }
 
 Uint8 mouseButtonFromName(const std::string& name)
@@ -246,7 +242,7 @@ void DevHarness::beforeTickInner(Game& game)
             }
             else
             {
-                game.mInput.setKeyState(it->key, false);
+                game.mInput.setCodeState(it->code, false);
             }
             it = mPendingReleases.erase(it);
         }
@@ -369,6 +365,8 @@ void DevHarness::execute(Game& game, const Command& command)
     if (vehicleCommand(game, command)) return;
     // Sound and mood (DevHarnessSound.cpp).
     if (soundCommand(game, command)) return;
+    // Run flow, settings and teaching (DevHarnessRunFlow.cpp).
+    if (runFlowCommand(game, command)) return;
 
     if (op == "wait")
     {
@@ -381,26 +379,26 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "hold" || op == "tap")
     {
         if (!need(1)) return;
-        const SDL_Scancode key = scancodeFromName(a[1]);
-        if (key == SDL_SCANCODE_UNKNOWN)
+        const int key = keyCodeFromName(a[1]);
+        if (key == bindings::kNone)
         {
             fail(command, "unknown key '" + a[1] + "'");
             return;
         }
         const int ticks = op == "tap" ? 1 : (a.size() > 2 ? std::max(1, std::stoi(a[2])) : 1);
-        game.mInput.setKeyState(key, true);
+        game.mInput.setCodeState(key, true);
         mPendingReleases.push_back({mTick + static_cast<std::uint64_t>(ticks), false, key, 0});
     }
     else if (op == "key")
     {
         if (!need(2)) return;
-        const SDL_Scancode key = scancodeFromName(a[1]);
-        if (key == SDL_SCANCODE_UNKNOWN)
+        const int key = keyCodeFromName(a[1]);
+        if (key == bindings::kNone)
         {
             fail(command, "unknown key '" + a[1] + "'");
             return;
         }
-        game.mInput.setKeyState(key, lower(a[2]) == "down");
+        game.mInput.setCodeState(key, lower(a[2]) == "down");
     }
     else if (op == "mouse")
     {
@@ -418,7 +416,7 @@ void DevHarness::execute(Game& game, const Command& command)
         if (op == "click")
         {
             game.mInput.setMouseButtonState(button, true);
-            mPendingReleases.push_back({mTick + 1, true, SDL_SCANCODE_UNKNOWN, button});
+            mPendingReleases.push_back({mTick + 1, true, bindings::kNone, button});
         }
         else if (need(2))
         {
@@ -762,8 +760,8 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "shove")
     {
         // shove: Space for one tick (a shove, or a struggle tap when held).
-        game.mInput.setKeyState(SDL_SCANCODE_SPACE, true);
-        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_SPACE, 0});
+        game.mInput.setAction(Action::Shove, true);
+        mPendingReleases.push_back({mTick + 1, false, game.mInput.bindings().primary(Action::Shove), 0});
     }
     else if (op == "select")
     {
@@ -795,8 +793,8 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "reload")
     {
         // reload: R for one tick.
-        game.mInput.setKeyState(SDL_SCANCODE_R, true);
-        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_R, 0});
+        game.mInput.setAction(Action::Board, true);
+        mPendingReleases.push_back({mTick + 1, false, game.mInput.bindings().primary(Action::Board), 0});
     }
     else if (op == "throw")
     {
@@ -1440,8 +1438,8 @@ void DevHarness::execute(Game& game, const Command& command)
             return;
         }
         game.mCraftingRecipeCursor = found;
-        game.mInput.setKeyState(SDL_SCANCODE_RETURN, true);
-        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_RETURN, 0});
+        game.mInput.setAction(Action::UiConfirm, true);
+        mPendingReleases.push_back({mTick + 1, false, game.mInput.bindings().primary(Action::UiConfirm), 0});
     }
     else if (op == "power")
     {
@@ -2088,8 +2086,8 @@ void DevHarness::execute(Game& game, const Command& command)
         if (slot >= 8) std::swap(inv.slots[static_cast<std::size_t>(slot)], inv.slots[static_cast<std::size_t>(inv.activeSlot)]);
         else inv.activeSlot = slot;
         game.mShowInventory = false;
-        game.mInput.setKeyState(SDL_SCANCODE_F, true);
-        mPendingReleases.push_back({mTick + 1, false, SDL_SCANCODE_F, 0});
+        game.mInput.setAction(Action::UseItem, true);
+        mPendingReleases.push_back({mTick + 1, false, game.mInput.bindings().primary(Action::UseItem), 0});
     }
     else if (op == "tune")
     {
@@ -2986,8 +2984,32 @@ void DevHarness::execute(Game& game, const Command& command)
     else if (op == "push")
     {
         // push DIR: push the piece beside the player one tile that way (n, s, e, w).
+        // push any: push a piece beside the player whichever way it will go
+        // (straight away from them first, then to either side).
         glm::ivec2 dir(0);
         if (!need(1)) return;
+        if (lower(a[1]) == "any")
+        {
+            std::string why = "no piece beside the player";
+            for (const glm::ivec2& side : {glm::ivec2(1, 0), glm::ivec2(0, 1), glm::ivec2(-1, 0), glm::ivec2(0, -1)})
+            {
+                const glm::ivec2 tile = game.playerTile() + side;
+                const bool here = std::any_of(game.mFurniture.begin(), game.mFurniture.end(),
+                                              [&](const FurniturePiece& piece) { return piece.tile == tile; });
+                if (!here) continue;
+                const glm::ivec2 across(side.y, side.x);
+                for (const glm::ivec2& way : {side, across, -across})
+                {
+                    why = game.pushFurniture(tile, way, true);
+                    if (!why.empty()) continue;
+                    std::cout << "[harness] tick " << mTick << ": pushed the piece at " << tile.x << "," << tile.y
+                              << " to " << tile.x + way.x << "," << tile.y + way.y << '\n';
+                    return;
+                }
+            }
+            fail(command, why);
+            return;
+        }
         if (!parseDirection(lower(a[1]), dir))
         {
             fail(command, "unknown direction '" + a[1] + "' (n, s, e, w)");
@@ -3365,8 +3387,8 @@ bool DevHarness::ensureFramebuffer(int width, int height)
 
 bool DevHarness::capture(Game& game, const std::string& name)
 {
-    const int width = game.mWindowWidth;
-    const int height = game.mWindowHeight;
+    const int width = game.mPixelWidth; // the window's pixels (phase 13's interface size)
+    const int height = game.mPixelHeight;
     if (!ensureFramebuffer(width, height))
     {
         return false;

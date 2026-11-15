@@ -1,319 +1,218 @@
-// Title screen and pause menu input.
+// Input events, Escape, and the pause menu. The title is GameTitle.cpp's
+// (phase 13), the settings screen GameSettings.cpp's.
 #include "core/GameShared.h"
 
 using namespace gameshared;
 
-// Title screen hub: briefing menu, mode, and save-slot selection.
-void Game::updateTitleScreen(float dtSeconds)
+void Game::processInputEvents()
 {
-    mTitlePulseTimer += dtSeconds;
-    mTitleConfirmNewWorldTimer = std::max(0.0f, mTitleConfirmNewWorldTimer - dtSeconds);
-    if (mTitleConfirmNewWorldTimer <= 0.0f)
+    SDL_Event event;
+    while (SDL_PollEvent(&event) != 0)
     {
-        mTitleConfirmNewWorld = false;
-    }
+        mInput.processEvent(event);
 
-    mTitleStatusTimer = std::max(0.0f, mTitleStatusTimer - dtSeconds);
-    if (mTitleStatusTimer <= 0.0f)
-    {
-        mTitleStatusMessage.clear();
-    }
-
-    // The checkpoint lives on disk: re-read it after input (slot changes,
-    // deletes) or once a second, not every tick.
-    mTitleCheckpointRefreshTimer -= dtSeconds;
-    if (mTitleCheckpointRefreshTimer <= 0.0f || mInput.anyKeyPressed())
-    {
-        refreshTitleCheckpoint();
-    }
-
-    const int menuCount = static_cast<int>(kTitleMenuItems.size());
-    if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
-    {
-        const int previousSelection = mTitleMenuSelection;
-        mTitleMenuSelection = wrapIndex(mTitleMenuSelection - 1, menuCount);
-        if (mTitleMenuSelection == 0 && !mTitleHasCheckpoint)
+        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
         {
-            mTitleMenuSelection = menuCount - 1; // nothing to continue: skip it
+            int pw = event.window.data1;
+            int ph = event.window.data2;
+            if (mWindow != nullptr) SDL_GL_GetDrawableSize(mWindow, &pw, &ph);
+            onPixelSize(pw, ph);
         }
-        if (mTitleMenuSelection != previousSelection)
+        // Away from the window: the game waits (phase 13, a setting).
+        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST && !mHarness &&
+            mSettings.autoPause && mRunState == RunState::Playing)
         {
-            mTitleConfirmNewWorld = false;
-        }
-    }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
-    {
-        const int previousSelection = mTitleMenuSelection;
-        mTitleMenuSelection = wrapIndex(mTitleMenuSelection + 1, menuCount);
-        if (mTitleMenuSelection == 0 && !mTitleHasCheckpoint)
-        {
-            mTitleMenuSelection = 1;
-        }
-        if (mTitleMenuSelection != previousSelection)
-        {
-            mTitleConfirmNewWorld = false;
+            mRunState = RunState::Paused;
+            mPauseSelection = 0;
+            mQuitConfirm = false;
         }
     }
 
-    if (mTitleMenuSelection == 0 && !mTitleHasCheckpoint)
+    if (!mHarness)
     {
-        mTitleMenuSelection = 1; // start on "Start New Run" when there is nothing to continue
-    }
-    if (mTitleMenuSelection != 2)
-    {
-        mTitleConfirmNewWorld = false;
+        mInput.refreshMouseState();
     }
 
-    auto adjustMenuValue = [&](int delta)
+    if (mInput.quitRequested())
     {
-        if (mTitleMenuSelection == 2) // the new world's kind (phase 10)
-        {
-            mTitleFreshStart = !mTitleFreshStart;
-            mTitleConfirmNewWorld = false;
-            mTitleStatusMessage = mTitleFreshStart ? "New world: Fresh Start" : "New world: Living World";
-            mTitleStatusTimer = 2.0f;
-            return;
-        }
-        if (mTitleMenuSelection == 3) // Save Slot
-        {
-            const int oldIndex = mTitleSaveSlotIndex;
-            const int newIndex = wrapIndex(mTitleSaveSlotIndex + delta, static_cast<int>(kTitleSaveSlots.size()));
-            if (newIndex == oldIndex)
-            {
-                return;
-            }
-
-            if (loadSlotAndWorld(kTitleSaveSlots[static_cast<std::size_t>(newIndex)]))
-            {
-                mTitleSaveSlotIndex = newIndex;
-                mTitleStatusMessage = std::string("Active slot: ") + kTitleSaveLabels[static_cast<std::size_t>(newIndex)];
-                mTitleStatusTimer = 2.0f;
-            }
-            else
-            {
-                mTitleStatusMessage = "Unable to load slot data.";
-                mTitleStatusTimer = 2.5f;
-            }
-            return;
-        }
-
-        if (mTitleMenuSelection == 4) // Game Mode
-        {
-            mTitleGameModeIndex = wrapIndex(mTitleGameModeIndex + delta, static_cast<int>(kTitleGameModeNames.size()));
-            mTitleStatusMessage = std::string("Game Mode: ") + kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)];
-            mTitleStatusTimer = 2.0f;
-            syncPresentationSettingsToSave();
-            return;
-        }
-
-        if (mTitleMenuSelection == 5) // Threat
-        {
-            mTitleModeIndex = wrapIndex(mTitleModeIndex + delta, static_cast<int>(kTitleModeNames.size()));
-            mTitleStatusMessage = std::string("Threat: ") + kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
-            mTitleStatusTimer = 2.0f;
-            syncPresentationSettingsToSave();
-            return;
-        }
-
-        if (mTitleMenuSelection == 6) // Tone
-        {
-            mTitleToneIndex = wrapIndex(mTitleToneIndex + delta, static_cast<int>(kTitleToneNames.size()));
-            mTitleStatusMessage = std::string("Tone: ") + kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)];
-            mTitleStatusTimer = 2.0f;
-            syncPresentationSettingsToSave();
-        }
-    };
-
-    if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT) || mInput.wasKeyPressed(SDL_SCANCODE_A))
-    {
-        adjustMenuValue(-1);
-    }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT) || mInput.wasKeyPressed(SDL_SCANCODE_D))
-    {
-        adjustMenuValue(1);
+        mIsRunning = false;
     }
 
-    const bool activate =
-        mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
-        mInput.wasKeyPressed(SDL_SCANCODE_SPACE);
-
-    if (activate)
+    // Mouse wheel zoom (frame-level: scroll is consumed here, not per tick)
+    if (const int scroll = mInput.consumeScroll(); scroll != 0)
     {
-        switch (mTitleMenuSelection)
+        const bool minimapZoomInput =
+            mRunState == RunState::Playing &&
+            !mShowWorldMap &&
+            (mInput.down(Action::UiCtrl));
+
+        if (minimapZoomInput)
         {
-        case 0: // Continue Run
-            if (mTitleHasCheckpoint)
-            {
-                mIgnoreCheckpointRestoreOnce = false;
-                startNewRun();
-            }
-            else
-            {
-                mTitleStatusMessage = "No checkpoint found for this slot.";
-                mTitleStatusTimer = 2.5f;
-            }
-            break;
-
-        case 1: // Start New Run
-            mSaveManager.deleteCheckpoint();
-            mIgnoreCheckpointRestoreOnce = true;
-            syncPresentationSettingsToSave();
-            mCreateCharacterOnStart = true;
-            startNewRun();
-            break;
-
-        case 2: // Start New World
-        {
-            if (!mTitleConfirmNewWorld)
-            {
-                mTitleConfirmNewWorld = true;
-                mTitleConfirmNewWorldTimer = 4.0f;
-                mTitleStatusMessage = "Press Enter again to confirm: this resets world and history for this slot.";
-                mTitleStatusTimer = 3.5f;
-            }
-            else
-            {
-                mTitleConfirmNewWorld = false;
-                mTitleConfirmNewWorldTimer = 0.0f;
-
-                if (!mSaveManager.resetCurrentSlotWorld(true))
-                {
-                    mTitleStatusMessage = "Failed to reset world for this slot.";
-                    mTitleStatusTimer = 3.0f;
-                    break;
-                }
-
-                if (!loadSlotAndWorld(kTitleSaveSlots[static_cast<std::size_t>(mTitleSaveSlotIndex)]))
-                {
-                    mTitleStatusMessage = "World reset complete, but reload failed.";
-                    mTitleStatusTimer = 3.0f;
-                    break;
-                }
-
-                mIgnoreCheckpointRestoreOnce = true;
-                {
-                    // Set once, at the world's making (phase 10).
-                    RunPresentationSettings settings = mSaveManager.presentationSettings();
-                    settings.livingWorld = !mTitleFreshStart;
-                    mSaveManager.setPresentationSettings(settings);
-                }
-                syncPresentationSettingsToSave();
-                mCreateCharacterOnStart = true;
-                startNewRun();
-            }
-            break;
+            const float zoomFactor = 1.0f + static_cast<float>(scroll) * kMinimapZoomStep;
+            mMinimapZoom = std::clamp(mMinimapZoom * zoomFactor, kMinimapZoomMin, kMinimapZoomMax);
         }
-
-        case 3: // Save Slot
-            adjustMenuValue(1);
-            break;
-
-        case 4: // Game Mode
-            adjustMenuValue(1);
-            break;
-
-        case 5: // Threat
-            adjustMenuValue(1);
-            break;
-
-        case 6: // Tone
-            adjustMenuValue(1);
-            break;
-
-        case 7: // Controls
-            mShowControls = !mShowControls;
-            if (mShowControls)
-            {
-                mShowTitleCredits = false;
-            }
-            break;
-
-        case 8: // Credits
-            mShowTitleCredits = !mShowTitleCredits;
-            if (mShowTitleCredits)
-            {
-                mShowControls = false;
-            }
-            break;
-
-        case 9: // Quit
-            mIsRunning = false;
-            break;
-
-        default:
-            break;
+        else
+        {
+            constexpr float kZoomStep = 0.15f;
+            const float currentZoom = mCamera.zoom();
+            const float newZoom = currentZoom * (1.0f + static_cast<float>(scroll) * kZoomStep);
+            const glm::vec2 mouseScreen(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+            mCamera.zoomToward(newZoom, mouseScreen);
+            mCamera.clampToBounds(mTileMap.pixelSize());
         }
     }
 }
 
+void Game::handleEscapeKey()
+{
+    if (!mInput.pressed(Action::UiBack)) return;
+
+    // Over everything: a key being bound, the settings, the Controls panel.
+    if (mShowSettings)
+    {
+        if (mRebinding >= 0) mRebinding = -1;
+        else mShowSettings = false;
+        return;
+    }
+    if (mShowControls)
+    {
+        mShowControls = false;
+        return;
+    }
+
+    // While playing, Escape closes the topmost open panel; it only pauses
+    // when nothing is open. Panel handlers later in the tick see the same
+    // press, but their panels are already closed so it is a no-op.
+    if (mRunState == RunState::Playing)
+    {
+        if (mShowCrafting)
+        {
+            mShowCrafting = false;
+        }
+        else if (mContainerOpen)
+        {
+            mContainerOpen = false;
+            mOpenContainerEntity = kInvalidEntity;
+        }
+        else if (mTalk.open)
+        {
+            // Out of trade or give first, then the talk.
+            if (mTalk.view != TalkState::View::Talk) mTalk.view = TalkState::View::Talk;
+            else closeTalk();
+        }
+        else if (mBuildWheelOpen || mBuildChoice >= 0)
+        {
+            mBuildWheelOpen = false;
+            mBuildChoice = -1;
+        }
+        else if (mShowWorldMap)
+        {
+            mShowWorldMap = false;
+        }
+        else if (mShowNotebook)
+        {
+            mShowNotebook = false;
+        }
+        else if (mShowInventory && mBodyChoosing)
+        {
+            mBodyChoosing = false;
+        }
+        else if (mShowInventory)
+        {
+            mShowInventory = false;
+        }
+        else
+        {
+            mRunState = RunState::Paused;
+            mPauseSelection = 0;
+            mQuitConfirm = false;
+        }
+    }
+    else if (mRunState == RunState::Paused)
+    {
+        if (mQuitConfirm) mQuitConfirm = false;
+        else mRunState = RunState::Playing;
+    }
+    else if (mRunState == RunState::TitleScreen)
+    {
+        if (mTitleView == TitleView::Town && mTownReading) mTownReading = false;
+        else if (mTitleView != TitleView::Main) mTitleView = TitleView::Main;
+        else mIsRunning = false;
+    }
+}
+
+// The pause menu (phase 13): Resume, Save, Settings, Controls, Stay here for
+// good (from day ten), Save and quit to title, Quit to desktop (asked once).
 std::vector<std::string> Game::pauseOptions() const
 {
-    std::vector<std::string> options = {"Resume", "Save"};
-    // From day ten (phase 10): retiring by choice, confirmed twice.
+    std::vector<std::string> options = {"Resume", "Save", "Settings", "Controls"};
     if (mCurrentDay >= legacy::kStayFromDay && mRunState == RunState::Paused)
     {
         options.emplace_back(mStayConfirm == 1   ? "Stay for good? Enter again"
                              : mStayConfirm == 2 ? "It ends this life. Enter once more"
                                                  : "Stay here for good");
     }
-    for (const char* o : {"Back to Menu", "Restart", "Quit"}) options.emplace_back(o);
+    options.emplace_back("Save and quit to title");
+    options.emplace_back(mQuitConfirm ? "Quit? Enter again" : "Quit to desktop");
     return options;
 }
 
-// Pause menu navigation and actions.
 void Game::updatePauseMenu()
 {
-    const int count = static_cast<int>(pauseOptions().size());
-    constexpr int kStayRow = 2;
-    const bool stayOffered = count > 5;
-    if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+    const std::vector<std::string> options = pauseOptions();
+    const int count = static_cast<int>(options.size());
+    constexpr int kStayRow = 4;
+    const bool stayOffered = count > 6;
+    const auto moved = [&]()
+    {
+        mStayConfirm = 0;
+        mStayWhy.clear();
+        mQuitConfirm = false;
+    };
+    if (mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp))
     {
         mPauseSelection = (mPauseSelection + count - 1) % count;
-        mStayConfirm = 0;
-        mStayWhy.clear();
+        moved();
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+    if (mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown))
     {
         mPauseSelection = (mPauseSelection + 1) % count;
-        mStayConfirm = 0;
-        mStayWhy.clear();
+        moved();
     }
     mPauseSelection = std::clamp(mPauseSelection, 0, count - 1);
-    if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN) || mInput.wasKeyPressed(SDL_SCANCODE_SPACE))
+    if (!(mInput.pressed(Action::UiConfirm) || mInput.pressed(Action::UiSpace))) return;
+
+    int choice = mPauseSelection;
+    if (stayOffered && choice == kStayRow)
     {
-        int choice = mPauseSelection;
-        if (stayOffered && choice == kStayRow)
+        mStayWhy = stayForGoodBlocker();
+        if (!mStayWhy.empty())
         {
-            mStayWhy = stayForGoodBlocker();
-            if (!mStayWhy.empty())
-            {
-                mStayConfirm = 0;
-                return;
-            }
-            if (++mStayConfirm >= 3) stayForGood();
+            mStayConfirm = 0;
             return;
         }
-        if (stayOffered && choice > kStayRow) --choice;
-        if (choice == 0) // Resume
+        if (++mStayConfirm >= 3) stayForGood();
+        return;
+    }
+    if (stayOffered && choice > kStayRow) --choice;
+    switch (choice)
+    {
+    case 0: mRunState = RunState::Playing; break;
+    case 1: saveCurrentRunCheckpoint("Run checkpoint saved."); break;
+    case 2: openSettings(); break;
+    case 3: mShowControls = true; break;
+    case 4: // Save and quit to title
+        saveCurrentRunCheckpoint("Run checkpoint saved.");
+        returnToTitleScreen();
+        break;
+    default: // Quit to desktop, asked once; the run is kept
+        if (!mQuitConfirm)
         {
-            mRunState = RunState::Playing;
+            mQuitConfirm = true;
+            return;
         }
-        else if (choice == 1) // Save
-        {
-            saveCurrentRunCheckpoint("Run checkpoint saved.");
-        }
-        else if (choice == 2) // Back to Menu
-        {
-            returnToTitleScreen();
-        }
-        else if (choice == 3) // Restart
-        {
-            mCreateCharacterOnStart = true; // only shown when no checkpoint resumes
-            startNewRun();
-        }
-        else // Quit
-        {
-            mIsRunning = false;
-        }
+        saveCurrentRunCheckpoint("Run checkpoint saved.");
+        mIsRunning = false;
+        break;
     }
 }

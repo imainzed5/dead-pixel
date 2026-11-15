@@ -547,7 +547,7 @@ bool Game::handleGateInteraction(const ProximityPrompt&)
     const LayoutData::GateSite& site = mMapGenerator.layoutData().gate;
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     const glm::vec2 here = playerWorldCenter();
-    const bool pressed = mInput.wasKeyPressed(SDL_SCANCODE_E);
+    const bool pressed = mInput.pressed(Action::Use);
     const auto beginHeld = [&](BaseAction::Kind kind, const glm::ivec2& tile, float seconds, const char* label)
     {
         mBaseAction = BaseAction{};

@@ -53,7 +53,7 @@ int interactionPriority(InteractableType type)
 
 std::string InteractionSystem::update(World& world, const Input& input, Entity playerEntity, const ItemDatabase* itemDb) const
 {
-    if (!input.wasKeyPressed(SDL_SCANCODE_E))
+    if (!input.pressed(Action::Use))
     {
         return {};
     }

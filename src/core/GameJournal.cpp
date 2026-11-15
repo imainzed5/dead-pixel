@@ -94,6 +94,12 @@ legacy::LegacyState Game::legacyState() const
 
 void Game::journalCheckpoint(RunCheckpoint& cp) const
 {
+    // The standing aim rides along (phase 13).
+    cp.aim = mAimKind == aims::Kind::None ? std::string() : aims::key(mAimKind);
+    cp.aimDay = mAimDay;
+    cp.aimsRewarded = mAimsRewarded;
+    cp.boiledSinceAim = mBoiledSinceAim;
+    cp.shoves = mShovesThisLife;
     cp.journalSaved = true;
     cp.journal = mJournal;
     cp.journalFlags = mJournalFlags;
@@ -103,6 +109,13 @@ void Game::journalCheckpoint(RunCheckpoint& cp) const
 
 void Game::restoreJournal(const RunCheckpoint& cp, bool restored)
 {
+    mAimKind = restored ? aims::fromKey(cp.aim) : aims::Kind::None;
+    mAimDay = restored ? cp.aimDay : 0;
+    mAimsRewarded = restored ? cp.aimsRewarded : 0;
+    mBoiledSinceAim = restored ? cp.boiledSinceAim : 0;
+    mShovesThisLife = restored ? cp.shoves : 0;
+    mAimDoneTimer = 0.0f;
+    mLeadsVisited.clear();
     if (restored && cp.journalSaved)
     {
         mJournal = cp.journal;
@@ -327,16 +340,16 @@ void Game::updateNotebookInput()
     const auto& history = mSaveManager.characterHistory();
     if (mReader.open)
     {
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN)) ++mReader.scroll;
-        if (mInput.wasKeyPressed(SDL_SCANCODE_UP)) mReader.scroll = std::max(0, mReader.scroll - 1);
-        if (mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE))
+        if (mInput.pressed(Action::UiDown)) ++mReader.scroll;
+        if (mInput.pressed(Action::UiUp)) mReader.scroll = std::max(0, mReader.scroll - 1);
+        if (mInput.pressed(Action::UiErase))
         {
             const bool atGrave = mReader.atGrave;
             closeReader();
             if (atGrave) mShowNotebook = false;
             return;
         }
-        const bool act = mInput.wasKeyPressed(SDL_SCANCODE_E) || mInput.wasKeyPressed(SDL_SCANCODE_RETURN);
+        const bool act = mInput.pressed(Action::Use) || mInput.pressed(Action::UiConfirm);
         if (act && mReader.atGrave && mReader.grave >= 0 && mReader.grave < static_cast<int>(mLegacyGraves.size()))
         {
             const int grave = mReader.grave;
@@ -353,17 +366,17 @@ void Game::updateNotebookInput()
         }
         return;
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT)) mNotebookPage = (mNotebookPage + 1) % static_cast<int>(kNotebookTabs.size());
-    if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
+    if (mInput.pressed(Action::UiRight)) mNotebookPage = (mNotebookPage + 1) % static_cast<int>(kNotebookTabs.size());
+    if (mInput.pressed(Action::UiLeft))
     {
         mNotebookPage = (mNotebookPage + static_cast<int>(kNotebookTabs.size()) - 1) % static_cast<int>(kNotebookTabs.size());
     }
     if (mNotebookPage != kTabBeforeYou || history.empty()) return;
     const int rows = static_cast<int>(history.size());
-    if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN)) mNotebookCursor = std::min(rows - 1, mNotebookCursor + 1);
-    if (mInput.wasKeyPressed(SDL_SCANCODE_UP)) mNotebookCursor = std::max(0, mNotebookCursor - 1);
+    if (mInput.pressed(Action::UiDown)) mNotebookCursor = std::min(rows - 1, mNotebookCursor + 1);
+    if (mInput.pressed(Action::UiUp)) mNotebookCursor = std::max(0, mNotebookCursor - 1);
     mNotebookCursor = std::clamp(mNotebookCursor, 0, rows - 1);
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_RETURN)) return;
+    if (!mInput.pressed(Action::UiConfirm)) return;
     // Newest first: the cursor's row is the history from the end.
     const int index = rows - 1 - mNotebookCursor;
     const CharacterHistoryRecord& life = history[static_cast<std::size_t>(index)];
@@ -714,6 +727,23 @@ void Game::renderJournalPage(float left, float textW, float top, float bottom)
     const float dayW = mFont.measureText("Day 00", 1.0f).x + 14.0f;
     const std::size_t maxChars = static_cast<std::size_t>(std::max(8.0f, (textW - dayW) / (6.0f * kBody)));
     float y = top;
+    // The footer (phase 13): the last messages, newest at the foot.
+    if (!mMessageLog.empty())
+    {
+        const float small = mFont.lineHeight(1.0f) + 4.0f;
+        const std::size_t smallChars = static_cast<std::size_t>(std::max(8.0f, textW / 6.0f));
+        const float footTop = bottom - small * static_cast<float>(mMessageLog.size() + 1);
+        const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
+        mSpriteBatch.draw(glm::vec2(left, footTop - 8.0f), glm::vec2(textW, 1.0f), uiUv, kPanelRule);
+        mFont.drawText(mSpriteBatch, glm::vec2(left, footTop), "LATELY", kPanelDim, 1.0f);
+        float fy = footTop + small;
+        for (const std::string& message : mMessageLog)
+        {
+            mFont.drawText(mSpriteBatch, glm::vec2(left, fy), wrapText(message, smallChars).front(), kPanelDim, 1.0f);
+            fy += small;
+        }
+        bottom = footTop - 14.0f;
+    }
     if (!playerHasItem(mItems.notebook))
     {
         mFont.drawText(mSpriteBatch, glm::vec2(left, y), "Nothing is being written. Carry a notebook.", kPanelDim, kBody);

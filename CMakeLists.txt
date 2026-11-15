@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(dead_pixel_survival VERSION 0.1.0 LANGUAGES CXX)
+project(dead_pixel_survival VERSION 0.13.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DEAD_PIXEL_BUILD_TESTS "Build the unit test runner" ON)
+# tools/package.py turns this on: dev keys hidden, saves in the user's folder.
+option(DEAD_PIXEL_PACKAGED "Build the packaged (player) game" OFF)
 
 find_package(SDL2 REQUIRED CONFIG)
 find_package(SDL2_mixer REQUIRED CONFIG)
@@ -46,6 +48,10 @@ add_library(dead_pixel_core STATIC
     src/core/GameFurniture.cpp
     src/core/GameBase.cpp
     src/core/GameWindows.cpp
+    src/core/GameSettings.cpp
+    src/core/GameTitle.cpp
+    src/core/GameAims.cpp
+    src/core/GameTeach.cpp
     src/core/GameFirstDays.cpp
     src/core/GameContent.cpp
     src/core/GameStorage.cpp
@@ -63,6 +69,8 @@ add_library(dead_pixel_core STATIC
     src/core/GameMood.cpp
     src/core/Tuning.cpp
     src/core/Input.cpp
+    src/core/Bindings.cpp
+    src/core/Settings.cpp
     src/ai/Pathfinder.cpp
     src/ai/FlowField.cpp
     src/ecs/EntityManager.cpp
@@ -110,6 +118,7 @@ add_library(dead_pixel_core STATIC
     src/world/Scenery.cpp
     src/systems/Atmosphere.cpp
     src/world/FirstDays.cpp
+    src/world/Aims.cpp
     src/world/TraitRules.cpp
     src/world/SkillRules.cpp
     src/world/WoundRules.cpp
@@ -152,6 +161,7 @@ add_library(dead_pixel_core STATIC
     src/audio/Ambience.cpp
     src/dev/DevHarness.cpp
     src/dev/DevHarnessSound.cpp
+    src/dev/DevHarnessRunFlow.cpp
     src/dev/DevHarnessSurvivors.cpp
     src/dev/DevHarnessGate.cpp
     src/dev/DevHarnessLegacy.cpp
@@ -161,6 +171,10 @@ add_library(dead_pixel_core STATIC
 )
 
 target_include_directories(dead_pixel_core PUBLIC src)
+target_compile_definitions(dead_pixel_core PUBLIC DEAD_PIXEL_VERSION="${PROJECT_VERSION}")
+if(DEAD_PIXEL_PACKAGED)
+    target_compile_definitions(dead_pixel_core PUBLIC DEAD_PIXEL_PACKAGED)
+endif()
 target_include_directories(dead_pixel_core SYSTEM PUBLIC ${STB_INCLUDE_DIR})
 
 target_link_libraries(dead_pixel_core PUBLIC
@@ -174,6 +188,14 @@ target_link_libraries(dead_pixel_core PUBLIC
 dead_pixel_warnings(dead_pixel_core)
 
 add_executable(dead_pixel_survival src/main.cpp)
+
+# The exe's icon and version (phase 13): a resource script on Windows.
+if(WIN32)
+    enable_language(RC)
+    set(DEAD_PIXEL_ICON_PATH "${CMAKE_SOURCE_DIR}/assets/icons/dead_pixel.ico")
+    configure_file(src/dead_pixel.rc.in ${CMAKE_BINARY_DIR}/dead_pixel.rc @ONLY)
+    target_sources(dead_pixel_survival PRIVATE ${CMAKE_BINARY_DIR}/dead_pixel.rc)
+endif()
 
 if(TARGET SDL2::SDL2main)
     target_link_libraries(dead_pixel_survival PRIVATE SDL2::SDL2main)
@@ -235,6 +257,9 @@ if(DEAD_PIXEL_BUILD_TESTS)
         tests/test_sounds.cpp
         tests/test_ambience.cpp
         tests/test_mood.cpp
+        tests/test_bindings.cpp
+        tests/test_settings.cpp
+        tests/test_aims.cpp
     )
     target_link_libraries(dead_pixel_tests PRIVATE dead_pixel_core)
     target_compile_definitions(dead_pixel_tests PRIVATE

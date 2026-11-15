@@ -50,31 +50,8 @@ void Game::setupSound(const std::filesystem::path& assetsRoot)
     mAudioManager.setProjection([this](const glm::vec2& world) { return mCamera.worldToScreen(world).x; });
     mAudioManager.setShellResolver([this](const glm::vec2& world) { return soundShellAt(world); });
 
-    // The slot-independent settings (the screen for them is phase 13's).
+    // The volumes and the screen effects come from the settings (GameSettings.cpp).
     mScreenEffects = mLaunchOptions.harnessEnabled() ? 0.0f : 1.0f;
-    std::ifstream file("save/settings.json");
-    if (file)
-    {
-        try
-        {
-            nlohmann::json json;
-            file >> json;
-            if (json.contains("volume") && json["volume"].is_object())
-            {
-                const nlohmann::json& v = json["volume"];
-                mAudioManager.setVolume(AudioManager::Bus::Master, v.value("master", 1.0f));
-                mAudioManager.setVolume(AudioManager::Bus::Effects, v.value("effects", 1.0f));
-                mAudioManager.setVolume(AudioManager::Bus::Ambience, v.value("ambience", 1.0f));
-                mAudioManager.setVolume(AudioManager::Bus::Music, v.value("music", 1.0f));
-            }
-            const std::string fx = json.value("screenEffects", std::string("full"));
-            if (!mLaunchOptions.harnessEnabled()) mScreenEffects = fx == "off" ? 0.0f : (fx == "reduced" ? 0.5f : 1.0f);
-        }
-        catch (const std::exception& e)
-        {
-            std::cerr << "save/settings.json: " << e.what() << "\n";
-        }
-    }
 }
 
 audiorules::Shell Game::soundShellAt(const glm::vec2& world) const
@@ -100,6 +77,8 @@ void Game::makeNoise(const glm::vec2& at, NoiseTier tier, float seconds, SoundId
                      float reach)
 {
     mNoiseModel.emitNoise(at, tier, seconds, source, kind, reach, sound);
+    // A loud one of yours breaks a horde day's quiet (phase 13's aims).
+    if (source == mPlayerEntity && mPlayerEntity != kInvalidEntity && tier >= NoiseTier::Loud) mLoudSince = absoluteHour();
 }
 
 void Game::playAt(SoundId sound, const glm::vec2& at, float volume)
@@ -152,7 +131,7 @@ void Game::placeLayer(LayerId layer, const glm::vec2& at, float rangeTiles, floa
     const audiorules::Shell me = soundShellAt(here);
     if (audiorules::occluded(from, me, mListening)) gain *= audiorules::kOcclusionGain;
     const float pan = audiorules::panFromScreen(mCamera.worldToScreen(at).x, mCamera.worldToScreen(here).x,
-                                                static_cast<float>(mWindowWidth) * 0.5f);
+                                                static_cast<float>(mPixelWidth) * 0.5f);
     mAudioManager.setLayer(layer, gain, pan);
 }
 
@@ -190,7 +169,7 @@ void Game::updateSoundscape(float dtSeconds)
     listener.listening = mListening;
     listener.tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     listener.screenX = mCamera.worldToScreen(listener.world).x;
-    listener.halfViewport = static_cast<float>(mWindowWidth) * 0.5f;
+    listener.halfViewport = static_cast<float>(mPixelWidth) * 0.5f;
     listener.rangeScale = weatherrules::noiseScale(mWeatherState.condition);
     mAudioManager.setListener(listener);
 
@@ -506,7 +485,7 @@ void Game::updateAmbience()
         {
             const glm::vec2 centre = crowdSum / static_cast<float>(f.deadAround);
             crowdPan = audiorules::panFromScreen(mCamera.worldToScreen(centre).x, mCamera.worldToScreen(here).x,
-                                                 static_cast<float>(mWindowWidth) * 0.5f);
+                                                 static_cast<float>(mPixelWidth) * 0.5f);
         }
         for (int i = 0; i < kLayerCount; ++i)
         {

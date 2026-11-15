@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -402,6 +403,8 @@ struct RunPresentationSettings
     // Phase 10, set when a world is made: everything carries over (Living
     // World), or nothing does (Fresh Start).
     bool livingWorld = true;
+    // Phase 13, set when a world is made: real minutes per game day (24, 36, 48).
+    int dayMinutes = 24;
 };
 
 struct SurvivorRecord
@@ -518,6 +521,12 @@ struct RunCheckpoint
     int journalFlags = 0;
     int journalDays = 0;
     int journalSeason = -1;
+    // Phase 13: the standing aim, chosen at dawn, and which aims were done.
+    std::string aim;
+    int aimDay = 0;
+    int aimsRewarded = 0;
+    int boiledSinceAim = 0;
+    int shoves = 0;
     bool gateSaved = false;
     int leads = 0;
     clues::Seen seen;
@@ -533,6 +542,10 @@ class SaveManager
 public:
     // Dev/test hook: newly created slots use this world seed instead of a random one.
     static void setSeedOverride(std::uint32_t seed);
+    // Where slots live: "save" next to the game, or the user's folder in a
+    // packaged build (phase 13). Set once at startup, before any slot loads.
+    static void setSaveRoot(const std::string& root);
+    [[nodiscard]] static const std::string& saveRoot();
 
     // 1: the first revival saves. 2: container records replace looted
     // positions; known molotov recipes use the Empty Bottle. Version 1 slots
@@ -544,7 +557,8 @@ public:
     static constexpr int kCurrentSaveVersion = 5;
 
     bool loadOrCreateSlot(const std::string& slotName);
-    bool resetCurrentSlotWorld(bool keepPresentationSettings = true);
+    // A typed seed (phase 13's New World) makes that town; none: a random one.
+    bool resetCurrentSlotWorld(bool keepPresentationSettings = true, std::optional<std::uint32_t> seed = std::nullopt);
 
     [[nodiscard]] std::uint32_t worldSeed() const { return mWorldSeed; }
     [[nodiscard]] int runNumber() const { return mRunNumber; }
@@ -685,6 +699,7 @@ private:
     // Copies every file of this slot to <file>.v<version>.backup.
     void backupSlotFiles(int version) const;
     bool writeJsonAtomic(const std::string& targetPath, const std::string& backupPath, const std::string& jsonText) const;
+    [[nodiscard]] static std::string backupPathFor(const std::string& path);
 
     std::string mSlotName;
     std::string mSaveDir;

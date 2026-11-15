@@ -22,6 +22,20 @@
 //   needs.sleepDebt.perSecond     0.058 sleep debt gained per real second awake
 //   zombie.attack.damage          7     health a claw takes (a grab bites instead)
 //   loot.stocked.scale            1     multiplies every loot class's stockedChance
+//
+// Day length (phase 13, world/DayLength.h). A world's day is 24, 36 or 48
+// real minutes; kGameHourSeconds is 60, 90 or 120. "Per second" above means
+// per game second at 24 minutes. Two groups:
+//   Scaled (game time: real dt times the world's scale, or hours from
+//   Game::hoursPerSecond()): the clock and sleep; hunger, thirst, sleep debt,
+//   temperature and illness (NeedsSystem); bleeding; wound and infection
+//   timers (updateBody); food spoiling; depression; weather; the power, the
+//   flashlight's and radio's batteries; generator fuel; garden growth,
+//   snares, rain collectors; survivors' needs; vehicles' standing wear.
+//   Real time (never scaled): movement, combat, hit-stop and shake, swings,
+//   shoves and grabs, stamina, panic, noise and how long it lasts, the dead's
+//   senses and pathing, fire spread, held actions (search, board, treat,
+//   build), throws, particles and every on-screen timer.
 class Tuning
 {
 public:

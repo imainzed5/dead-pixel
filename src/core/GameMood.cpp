@@ -166,7 +166,7 @@ void Game::updateMood(float dtSeconds)
 bool Game::beginPostFx()
 {
     if (moodLevel() <= 0.0f || mMoodParams.neutral() || !mPostFx.ready()) return false;
-    return mPostFx.begin(mWindowWidth, mWindowHeight, 0.08f, 0.11f, 0.14f);
+    return mPostFx.begin(mPixelWidth, mPixelHeight, 0.08f, 0.11f, 0.14f);
 }
 
 void Game::endPostFx()
@@ -216,7 +216,7 @@ void Game::renderMoodWorld()
                 const float w = std::max(px, std::round(width * zoom * (1.0f - 0.6f * t) / px) * px);
                 const glm::vec2 at = feet + dir * (length * t) - glm::vec2(w * 0.5f, px);
                 mSpriteBatch.draw(glm::round(at), glm::vec2(w, 2.0f * px), white,
-                                  glm::vec4(0.02f, 0.02f, 0.05f, 0.16f * strength * (1.0f - 0.5f * t)));
+                                  glm::vec4(0.02f, 0.02f, 0.05f, 0.34f * strength * (1.0f - 0.6f * t)));
             }
         };
         const float reach = 20.0f * tilePx;
@@ -266,6 +266,9 @@ void Game::renderMoodWorld()
                 const float a = mMoodClock * (3.0f + static_cast<float>(i)) + hash3(static_cast<int>(e), i, 3) * 6.28f;
                 const glm::vec2 o(std::cos(a) * 7.0f, std::sin(a * 1.7f) * 4.0f - 8.0f);
                 dot(s + o * zoom, glm::vec4(0.05f, 0.05f, 0.05f, 0.9f));
+                // A wing catching the light, so they show on dark ground too.
+                const float flicker = 0.35f + 0.35f * std::sin(mMoodClock * 40.0f + static_cast<float>(i) * 2.1f);
+                dot(s + o * zoom - glm::vec2(0.0f, px), glm::vec4(0.82f, 0.84f, 0.88f, flicker));
             }
         });
 
@@ -280,15 +283,16 @@ void Game::renderMoodWorld()
                 const float drift = mMoodClock * (0.15f + 0.1f * hash3(i, salt, 11));
                 const glm::vec2 w = centreWorld + glm::vec2(rx * spread.x + std::sin(drift * 2.0f + rx * 9.0f) * 5.0f,
                                                             ry * spread.y + std::cos(drift * 1.3f + ry * 7.0f) * 4.0f);
-                const float glint = 0.35f + 0.35f * std::sin(mMoodClock * 2.0f + static_cast<float>(i));
-                dot(mCamera.worldToScreen(w) - glm::vec2(0.0f, 18.0f * zoom), glm::vec4(1.0f, 0.95f, 0.8f, glint));
+                const float glint = 0.55f + 0.35f * std::sin(mMoodClock * 2.0f + static_cast<float>(i));
+                dot(mCamera.worldToScreen(w) - glm::vec2(0.0f, 10.0f * zoom), glm::vec4(1.0f, 0.95f, 0.8f, glint));
             }
         };
         if (mFlashlightOn)
         {
-            const glm::vec2 aim = mMouseWorld - here;
-            const glm::vec2 dir = glm::length(aim) > 0.1f ? glm::normalize(aim) : glm::vec2(1.0f, 0.0f);
-            motes(here + dir * 3.0f * tilePx, glm::vec2(3.0f * tilePx), 6, 1);
+            // Along the beam, which follows the facing (GameRender's spot).
+            const float angle = mWorld.hasComponent<Facing>(mPlayerEntity) ? mWorld.getComponent<Facing>(mPlayerEntity).angleRadians : 0.0f;
+            const glm::vec2 dir(std::cos(angle), std::sin(angle));
+            motes(here + dir * 2.5f * tilePx, glm::vec2(2.0f * tilePx, 1.2f * tilePx), 8, 1);
         }
         if (mTileMap.isIndoorsAtWorld(here.x, here.y))
         {
@@ -309,7 +313,8 @@ void Game::renderMoodWorld()
         {
             const glm::ivec2 tile = window.spot.tile;
             if (!mTileMap.windowOpen(tile.x, tile.y) || !mTileMap.windowCovered(tile.x, tile.y)) continue;
-            const glm::vec2 at = tileCentre(mTileMap, tile);
+            // On the wall's inner face (the window is the wall tile itself).
+            const glm::vec2 at = 0.5f * (tileCentre(mTileMap, tile) + tileCentre(mTileMap, window.spot.inside));
             if (glm::length(at - here) > kDetailTiles * tilePx) continue;
             const glm::vec2 s = mCamera.worldToScreen(at) - glm::vec2(0.0f, 30.0f * zoom);
             if (!onScreen(s)) continue;

@@ -24,6 +24,8 @@
 #include "systems/CombatSystem.h"
 #include "systems/InventorySystem.h"
 #include "map/TileIds.h"
+#include "systems/BuildSystem.h"
+#include "world/Aims.h"
 #include "world/FirstDays.h"
 #include "world/WoundRules.h"
 
@@ -149,7 +151,7 @@ void Autoplayer::stop(Game& game)
     mRunning = false;
 }
 
-bool Autoplayer::tap(SDL_Scancode key)
+bool Autoplayer::tap(Action key)
 {
     if (mTapCooldown > 0)
     {
@@ -179,28 +181,28 @@ void Autoplayer::mouseAt(Game& game, const glm::vec2& screen)
 void Autoplayer::applyInput(Game& game)
 {
     // Keys held last tick and not wanted now go up; wanted ones go down.
-    for (SDL_Scancode key : mHeld)
+    for (Action key : mHeld)
     {
         if (std::find(mWant.begin(), mWant.end(), key) == mWant.end())
         {
-            game.mInput.setKeyState(key, false);
+            game.mInput.setAction(key, false);
         }
     }
-    for (SDL_Scancode key : mWant)
+    for (Action key : mWant)
     {
-        game.mInput.setKeyState(key, true);
+        game.mInput.setAction(key, true);
     }
     mHeld = mWant;
     mWant.clear();
 
     if (mMouseDown && !mClickNow)
     {
-        game.mInput.setMouseButtonState(SDL_BUTTON_LEFT, false);
+        game.mInput.setAction(Action::Attack, false);
         mMouseDown = false;
     }
     else if (mClickNow && !mMouseDown)
     {
-        game.mInput.setMouseButtonState(SDL_BUTTON_LEFT, true);
+        game.mInput.setAction(Action::Attack, true);
         mMouseDown = true;
     }
     mClickNow = false;
@@ -266,14 +268,14 @@ void Autoplayer::steer(Game&, const glm::vec2& worldDirection)
     struct Option
     {
         glm::vec2 dir;
-        SDL_Scancode a;
-        SDL_Scancode b;
+        Action a;
+        Action b;
     };
     static const Option kOptions[] = {
-        {{-1.0f, -1.0f}, SDL_SCANCODE_W, SDL_SCANCODE_UNKNOWN}, {{1.0f, 1.0f}, SDL_SCANCODE_S, SDL_SCANCODE_UNKNOWN},
-        {{-1.0f, 1.0f}, SDL_SCANCODE_A, SDL_SCANCODE_UNKNOWN},  {{1.0f, -1.0f}, SDL_SCANCODE_D, SDL_SCANCODE_UNKNOWN},
-        {{-1.0f, 0.0f}, SDL_SCANCODE_W, SDL_SCANCODE_A},        {{0.0f, -1.0f}, SDL_SCANCODE_W, SDL_SCANCODE_D},
-        {{0.0f, 1.0f}, SDL_SCANCODE_S, SDL_SCANCODE_A},         {{1.0f, 0.0f}, SDL_SCANCODE_S, SDL_SCANCODE_D},
+        {{-1.0f, -1.0f}, Action::MoveUp, Action::Count}, {{1.0f, 1.0f}, Action::MoveDown, Action::Count},
+        {{-1.0f, 1.0f}, Action::MoveLeft, Action::Count},  {{1.0f, -1.0f}, Action::MoveRight, Action::Count},
+        {{-1.0f, 0.0f}, Action::MoveUp, Action::MoveLeft},        {{0.0f, -1.0f}, Action::MoveUp, Action::MoveRight},
+        {{0.0f, 1.0f}, Action::MoveDown, Action::MoveLeft},         {{1.0f, 0.0f}, Action::MoveDown, Action::MoveRight},
     };
     const glm::vec2 want = glm::normalize(worldDirection);
     const Option* best = &kOptions[0];
@@ -288,7 +290,7 @@ void Autoplayer::steer(Game&, const glm::vec2& worldDirection)
         }
     }
     hold(best->a);
-    if (best->b != SDL_SCANCODE_UNKNOWN) hold(best->b);
+    if (best->b != Action::Count) hold(best->b);
 }
 
 Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run)
@@ -357,7 +359,7 @@ Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run
             }
             mActivity = "force";
             // Still on the press: forcing is a held action and a step stops it.
-            if (!tap(SDL_SCANCODE_X)) steer(game, tileCentre(next) - centre);
+            if (!tap(Action::Pry)) steer(game, tileCentre(next) - centre);
             return Move::Walking;
         }
         if (d < kTile * 1.2f)
@@ -380,8 +382,8 @@ Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run
                 resetPath();
                 return Move::Failed;
             }
-            if (game.mTileMap.doorBoards(next.x, next.y) > 0) tap(SDL_SCANCODE_X);
-            else tap(SDL_SCANCODE_E);
+            if (game.mTileMap.doorBoards(next.x, next.y) > 0) tap(Action::Pry);
+            else tap(Action::Use);
             steer(game, tileCentre(next) - centre); // lean in so the door is the nearest thing
             return Move::Walking;
         }
@@ -423,7 +425,7 @@ Autoplayer::Move Autoplayer::moveTo(Game& game, const glm::ivec2& goal, bool run
     {
         steer(game, tileCentre(next) - centre);
     }
-    if (run) hold(SDL_SCANCODE_LSHIFT);
+    if (run) hold(Action::Run);
     return Move::Walking;
 }
 
@@ -466,28 +468,28 @@ bool Autoplayer::handlePendingUse(Game& game)
     if (++mUseTicks > 120)
     {
         mUseSlot = -1;
-        if (game.mShowInventory) tap(SDL_SCANCODE_ESCAPE);
+        if (game.mShowInventory) tap(Action::UiBack);
         return true;
     }
     if (mUseDone)
     {
-        if (game.mShowInventory) tap(SDL_SCANCODE_ESCAPE);
+        if (game.mShowInventory) tap(Action::UiBack);
         else mUseSlot = -1;
         return true;
     }
     if (!game.mShowInventory)
     {
-        tap(SDL_SCANCODE_TAB);
+        tap(Action::Pack);
         return true;
     }
     if (game.mPackTab != 0)
     {
-        tap(SDL_SCANCODE_ESCAPE); // not the pack: close, and open it again
+        tap(Action::UiBack); // not the pack: close, and open it again
         return true;
     }
     const InventoryLayout layout = computeInventoryLayout(game.mWindowWidth, game.mWindowHeight);
     mouseAt(game, layout.slotPos(mUseSlot) + glm::vec2(InventoryLayout::kSlot * 0.5f));
-    if (game.mInventoryCursor == mUseSlot && tap(SDL_SCANCODE_F))
+    if (game.mInventoryCursor == mUseSlot && tap(Action::UseItem))
     {
         mUseDone = true;
     }
@@ -617,7 +619,7 @@ bool Autoplayer::handleDanger(Game& game)
     if (game.playerHeld())
     {
         mActivity = "struggle";
-        tap(SDL_SCANCODE_SPACE);
+        tap(Action::Shove);
         return true;
     }
     const glm::vec2 here = playerCentre(game);
@@ -684,7 +686,7 @@ bool Autoplayer::handleDanger(Game& game)
     }
     if (game.mContainerOpen)
     {
-        tap(SDL_SCANCODE_ESCAPE); // the dead first, the cupboard later
+        tap(Action::UiBack); // the dead first, the cupboard later
         return true;
     }
 
@@ -709,7 +711,7 @@ bool Autoplayer::handleDanger(Game& game)
         {
             mActivity = "shove";
             mouseAt(game, game.mCamera.worldToScreen(middle / static_cast<float>(crowd)));
-            tap(SDL_SCANCODE_SPACE);
+            tap(Action::Shove);
             return true;
         }
     }
@@ -869,6 +871,14 @@ bool Autoplayer::wantsFromContainer(Game& game, int itemId) const
     {
         return true;
     }
+    // What the standing aim asks for (phase 13).
+    switch (game.mAimKind)
+    {
+    case aims::Kind::Water: if (itemId == game.mItems.scrapMetal) return true; break;
+    case aims::Kind::Power: if (itemId == game.mItems.battery || itemId == game.mItems.candle) return true; break;
+    case aims::Kind::Cold: if (itemId == game.mItems.winterCoat) return true; break;
+    default: break;
+    }
     if (def->category == ItemCategory::Weapon && def->weaponCategory != static_cast<int>(WeaponCategory::Ranged))
     {
         // Two good weapons to carry: knives break.
@@ -913,7 +923,7 @@ bool Autoplayer::handleContainerPanel(Game& game)
                 const ContainerLayout layout = game.containerLayout();
                 mouseAt(game, glm::vec2(layout.boxX + 20.0f,
                                         ContainerLayout::kListY + static_cast<float>(row) * ContainerLayout::kRowH + 8.0f));
-                hold(SDL_SCANCODE_LSHIFT);
+                hold(Action::Run);
                 if (click()) ++mPanelClicks;
                 return true;
             }
@@ -931,7 +941,7 @@ bool Autoplayer::handleContainerPanel(Game& game)
     {
         mSearched.insert(Tile{mTarget.x, mTarget.y});
     }
-    tap(SDL_SCANCODE_ESCAPE);
+    tap(Action::UiBack);
     mTargetContainer = kInvalidEntity;
     return true;
 }
@@ -976,7 +986,7 @@ bool Autoplayer::sleepAtHome(Game& game)
     if (move == Move::Arrived)
     {
         steer(game, tileCentre(bed->tile) - playerCentre(game));
-        if (tap(SDL_SCANCODE_E))
+        if (tap(Action::Use))
         {
             ++mOpenTries;
             if (mOpenTries > 4)
@@ -1013,7 +1023,9 @@ double Autoplayer::homeHour() const
 bool Autoplayer::eveningAtHome(Game& game)
 {
     const double hour = game.mGameHours;
-    if (hour < homeHour() && hour >= 6.0) return false;
+    // A horde due tonight (the Tonight aim): home an hour or more sooner.
+    const double homeAt = game.mAimKind == aims::Kind::Tonight ? std::min(homeHour(), 15.0) : homeHour();
+    if (hour < homeAt && hour >= 6.0) return false;
     const int home = game.mFirstDays.homeBuilding;
     const bool inside = atHome(game);
 
@@ -1032,7 +1044,7 @@ bool Autoplayer::eveningAtHome(Game& game)
         {
             const glm::ivec2 tile = way.tile;
             glm::ivec2 stand(-1);
-            SDL_Scancode key = SDL_SCANCODE_R;
+            Action key = Action::Board;
             if (way.window)
             {
                 const Windows::Window* window = game.mWindows.find(tile);
@@ -1044,7 +1056,7 @@ bool Autoplayer::eveningAtHome(Game& game)
                                      !game.mTileMap.windowCovered(tile.x, tile.y);
                 if (full || (!canBoard && !curtain)) continue;
                 stand = window->spot.inside;
-                key = canBoard ? SDL_SCANCODE_R : SDL_SCANCODE_E;
+                key = canBoard ? Action::Board : Action::Use;
             }
             else
             {
@@ -1061,7 +1073,7 @@ bool Autoplayer::eveningAtHome(Game& game)
                         break;
                     }
                 }
-                key = state == DoorState::Open ? SDL_SCANCODE_E : SDL_SCANCODE_R;
+                key = state == DoorState::Open ? Action::Use : Action::Board;
             }
             if (stand.x < 0 || game.mTileMap.isSolid(stand.x, stand.y) || mUnreachable.count(Tile{stand.x, stand.y}) != 0)
             {
@@ -1074,7 +1086,7 @@ bool Autoplayer::eveningAtHome(Game& game)
             {
                 // Boarding is a held action (phase 5): stand still for it,
                 // or the first step cancels it.
-                if (key != SDL_SCANCODE_R) steer(game, tileCentre(tile) - playerCentre(game));
+                if (key != Action::Board) steer(game, tileCentre(tile) - playerCentre(game));
                 if (tap(key))
                 {
                     if (++mOpenTries > 12)
@@ -1164,7 +1176,7 @@ bool Autoplayer::useTap(Game& game)
         const Move move = withinReach(game, piece.tile) ? Move::Arrived : moveTo(game, stand, false);
         if (move == Move::Failed) continue;
         if (move == Move::Arrived) steer(game, tileCentre(piece.tile) - playerCentre(game));
-        if (move == Move::Arrived && tap(SDL_SCANCODE_R))
+        if (move == Move::Arrived && tap(Action::Board))
         {
             if (++mOpenTries > 3)
             {
@@ -1257,7 +1269,7 @@ bool Autoplayer::fetchWater(Game& game)
         mWaterStand = glm::ivec2(-1);
         return true;
     }
-    if (move == Move::Arrived && tap(SDL_SCANCODE_R) && ++mWaterTries > 3)
+    if (move == Move::Arrived && tap(Action::Board) && ++mWaterTries > 3)
     {
         // Filled, or nothing to fill from here: try again later.
         mWaterStand = glm::ivec2(-1);
@@ -1378,13 +1390,122 @@ bool Autoplayer::searchContainers(Game& game)
         {
             steer(game, boxCentre - playerCentre(game));
         }
-        else if (tap(SDL_SCANCODE_E) && ++mOpenTries > 4)
+        else if (tap(Action::Use) && ++mOpenTries > 4)
         {
             mSearched.insert(Tile{mTarget.x, mTarget.y});
             mTargetContainer = kInvalidEntity;
         }
     }
     return true;
+}
+
+bool Autoplayer::followAim(Game& game)
+{
+    if (game.mAimKind != aims::Kind::Water || clock(game) < mAimBuildRetryAt || isDark(game))
+    {
+        mAimBuildStep = 0;
+        return false;
+    }
+    if (game.mAimsRewarded & (1 << static_cast<int>(aims::Kind::Water))) return false; // built already
+    if (!game.mWorld.hasComponent<Inventory>(game.mPlayerEntity)) return false;
+    const StationRecipe* recipe = nullptr;
+    int index = -1;
+    for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
+    {
+        if (BuildSystem::kRecipes[static_cast<std::size_t>(i)].type != StructureType::RainCollector) continue;
+        recipe = &BuildSystem::kRecipes[static_cast<std::size_t>(i)];
+        index = i;
+    }
+    if (recipe == nullptr || !game.canAffordStation(*recipe, nullptr))
+    {
+        mAimBuildStep = 0;
+        return false;
+    }
+    // Outdoors, near the house.
+    const glm::ivec2 me = playerTile(game);
+    const glm::ivec2 home = homeTile(game);
+    const auto giveUp = [&]()
+    {
+        if (game.mBuildChoice >= 0 || game.mBuildWheelOpen) tap(Action::Build); // B again closes it
+        mAimBuildStep = 0;
+        mAimBuildRetryAt = clock(game) + 30.0;
+        return true;
+    };
+    if (game.mTileMap.getBuildingId(me.x, me.y) > 0 || glm::length(glm::vec2(me - home)) > 8.0f)
+    {
+        if (mAimBuildStep != 0) return giveUp();
+        // Out of the door: the nearest open ground beside the house.
+        glm::ivec2 best(-1);
+        float bestD = 0.0f;
+        for (int dy = -7; dy <= 7; ++dy)
+        {
+            for (int dx = -7; dx <= 7; ++dx)
+            {
+                const glm::ivec2 t = home + glm::ivec2(dx, dy);
+                if (!game.mTileMap.inBounds(t.x, t.y) || game.mTileMap.isSolid(t.x, t.y) || game.mTileMap.getBuildingId(t.x, t.y) > 0) continue;
+                const float d = glm::length(glm::vec2(dx, dy));
+                if (d < 2.0f || mUnreachable.count(Tile{t.x, t.y}) > 0) continue;
+                if (best.x < 0 || d < bestD)
+                {
+                    best = t;
+                    bestD = d;
+                }
+            }
+        }
+        if (best.x < 0) return false;
+        mActivity = "to build a rain collector";
+        if (moveTo(game, best, false) == Move::Failed) mUnreachable.insert(Tile{best.x, best.y});
+        return true;
+    }
+    mActivity = "building a rain collector";
+    const float scale = game.mUiScale;
+    switch (mAimBuildStep)
+    {
+    case 0:
+        // B opens the wheel at the cursor.
+        mouseAt(game, game.mCamera.worldToScreen(playerCentre(game)));
+        if (game.mBuildWheelOpen || game.mBuildChoice >= 0) return giveUp();
+        if (tap(Action::Build)) mAimBuildStep = 1;
+        return true;
+    case 1:
+        if (!game.mBuildWheelOpen) return giveUp();
+        mouseAt(game, game.buildWheelEntry(index) * scale);
+        if (click()) mAimBuildStep = 2;
+        return true;
+    case 2:
+    {
+        if (game.mBuildChoice != index) return giveUp();
+        // The nearest tile it may stand on, the way the ghost judges it.
+        const std::vector<glm::ivec2> occupied = game.occupiedTiles();
+        glm::ivec2 best(-1);
+        float bestD = 0.0f;
+        for (int dy = -2; dy <= 2; ++dy)
+        {
+            for (int dx = -2; dx <= 2; ++dx)
+            {
+                const glm::ivec2 t = me + glm::ivec2(dx, dy);
+                const float d = glm::length(glm::vec2(dx, dy));
+                if (t == me || d > BuildSystem::kReachTiles) continue;
+                if (!BuildSystem::placeable(game.mTileMap, t, recipe->type, occupied)) continue;
+                if (best.x < 0 || d < bestD)
+                {
+                    best = t;
+                    bestD = d;
+                }
+            }
+        }
+        if (best.x < 0) return giveUp();
+        const float tilePx = static_cast<float>(std::max(1, game.mTileMap.tileWidth()));
+        mouseAt(game, game.mCamera.worldToScreen((glm::vec2(best) + glm::vec2(0.5f)) * tilePx));
+        mAimBuildStep = 3;
+        return true;
+    }
+    default:
+        if (game.mBuildChoice != index) return giveUp();
+        if (!game.mBuildGhostValid) return giveUp();
+        if (click()) mAimBuildStep = 0;
+        return true;
+    }
 }
 
 void Autoplayer::wander(Game& game)
@@ -1507,7 +1628,7 @@ void Autoplayer::tick(Game& game)
     // stands near (phase 8).
     if (game.mShowCrafting || game.mShowWorldMap || game.mShowNotebook || game.mTalk.open)
     {
-        tap(SDL_SCANCODE_ESCAPE);
+        tap(Action::UiBack);
         applyInput(game);
         return;
     }
@@ -1517,7 +1638,7 @@ void Autoplayer::tick(Game& game)
     if (game.mBaseAction.kind != Game::BaseAction::Kind::None && game.mBaseAction.kind != Game::BaseAction::Kind::Grab &&
         mUseSlot < 0)
     {
-        if (game.mShowInventory) tap(SDL_SCANCODE_ESCAPE);
+        if (game.mShowInventory) tap(Action::UiBack);
         if (!handleDanger(game)) mActivity = "busy";
         applyInput(game);
         return;
@@ -1525,7 +1646,7 @@ void Autoplayer::tick(Game& game)
 
     const bool acted = handlePendingUse(game) || treatBleeding(game) || handleDanger(game) ||
                        handleContainerPanel(game) || eatAndDrink(game) || armSelf(game) || restWhenTired(game) || retreatWhenHurt(game) || sleepAtHome(game) ||
-                       eveningAtHome(game) || useTap(game) || fetchWater(game) || searchContainers(game);
+                       eveningAtHome(game) || useTap(game) || fetchWater(game) || followAim(game) || searchContainers(game);
     if (!acted)
     {
         wander(game);

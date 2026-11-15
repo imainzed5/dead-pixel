@@ -104,7 +104,7 @@ bool Game::handleFloorLamp(const ProximityPrompt& prompt)
     if (lamp == nullptr) return false;
     const bool switchedOn = std::find(mLitLamps.begin(), mLitLamps.end(), lamp->tile) != mLitLamps.end();
     mProximityPrompt = std::string("Floor lamp   E: ") + (switchedOn ? "Switch it off" : "Switch it on") + "   Hold E: Push   X: Break up";
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return false;
+    if (!mInput.pressed(Action::Use)) return false;
     const glm::ivec2 tile = lamp->tile;
     if (switchedOn)
     {
@@ -144,7 +144,7 @@ void Game::updateFlashlightBattery(float dtSeconds)
         if (slot.itemId == mItems.flashlight && slot.count > 0 && (light == nullptr || slot.condition > light->condition)) light = &slot;
     }
     if (light == nullptr) return;
-    light->condition -= static_cast<float>(dtSeconds * kGameHoursPerRealSecond) / power::kFlashlightHours;
+    light->condition -= static_cast<float>(dtSeconds * hoursPerSecond()) / power::kFlashlightHours;
     if (light->condition <= 0.0f)
     {
         light->condition = 0.0f;
@@ -170,7 +170,7 @@ void Game::updateRadio(float dtSeconds)
         mRadioOn = false;
         return;
     }
-    const float hours = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
+    const float hours = static_cast<float>(dtSeconds * hoursPerSecond());
     radio->condition -= hours / power::kRadioHours;
     if (radio->condition <= 0.0f)
     {

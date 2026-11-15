@@ -13,6 +13,12 @@ void Game::update(float dtSeconds)
     updateSoundscape(dtSeconds);
     updateMood(dtSeconds);
     handleEscapeKey();
+    // The settings screen (phase 13) holds everything else still.
+    if (mShowSettings)
+    {
+        updateSettingsScreen(dtSeconds);
+        return;
+    }
 
     // Combat weight runs on real time: the shake dies away, and a landed
     // blow holds the bodies almost still for a few frames. Only what is seen
@@ -30,6 +36,7 @@ void Game::update(float dtSeconds)
 
     mMouseWorld =screenToWorld(glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY())));
 
+    noteMessage(); // the last ten, for the notebook (phase 13)
     mInteractionMessageTimer = std::max(0.0f, mInteractionMessageTimer - dtSeconds);
     if (mInteractionMessageTimer <= 0.0f)
     {
@@ -38,19 +45,19 @@ void Game::update(float dtSeconds)
     updateDistrictToast(dtSeconds);
     mStructureView.update(dtSeconds, playerTile());
 
-    if (mInput.wasKeyPressed(SDL_SCANCODE_F1))
+    if (devKeys() && mInput.pressed(Action::DebugNoise))
     {
         mShowNoiseDebug = !mShowNoiseDebug;
     }
 
-    if (mInput.wasKeyPressed(SDL_SCANCODE_F2))
+    if (mInput.pressed(Action::Controls))
     {
         mShowControls = !mShowControls;
     }
 
     if (mRunState == RunState::Playing)
     {
-        if (mInput.wasKeyPressed(SDL_SCANCODE_M))
+        if (mInput.pressed(Action::Map))
         {
             mShowWorldMap = !mShowWorldMap;
             if (mShowWorldMap)
@@ -62,7 +69,7 @@ void Game::update(float dtSeconds)
             }
         }
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_J))
+        if (mInput.pressed(Action::Notebook))
         {
             mShowNotebook = !mShowNotebook;
             if (mShowNotebook)
@@ -77,11 +84,9 @@ void Game::update(float dtSeconds)
         updateNotebookInput();
 
         const bool minimapZoomOut =
-            mInput.wasKeyPressed(SDL_SCANCODE_MINUS) ||
-            mInput.wasKeyPressed(SDL_SCANCODE_KP_MINUS);
+            mInput.pressed(Action::ZoomOut);
         const bool minimapZoomIn =
-            mInput.wasKeyPressed(SDL_SCANCODE_EQUALS) ||
-            mInput.wasKeyPressed(SDL_SCANCODE_KP_PLUS);
+            mInput.pressed(Action::ZoomIn);
 
         if (!mShowCrafting && !mShowWorldMap && !mShowNotebook && (minimapZoomOut || minimapZoomIn))
         {
@@ -90,7 +95,7 @@ void Game::update(float dtSeconds)
         }
     }
 
-    if (mInput.wasKeyPressed(SDL_SCANCODE_F3))
+    if (devKeys() && mInput.pressed(Action::DebugDistrict))
     {
         mShowDistrictDebug = !mShowDistrictDebug;
     }
@@ -122,9 +127,9 @@ void Game::update(float dtSeconds)
         mParticleSystem.update(dtSeconds);
 
         const bool restartRequested =
-            mInput.wasKeyPressed(SDL_SCANCODE_RETURN) ||
-            mInput.wasKeyPressed(SDL_SCANCODE_SPACE) ||
-            mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT);
+            mInput.pressed(Action::UiConfirm) ||
+            mInput.pressed(Action::UiSpace) ||
+            mInput.pressed(Action::UiClick);
 
         if (restartRequested && mDeathStateTimer >= kDeathRestartDelaySeconds)
         {
@@ -189,18 +194,21 @@ void Game::update(float dtSeconds)
     handleVehicleKey(playerAlive);
     drivingVehicle = mActiveVehicleEntity != kInvalidEntity;
 
-    if (mInput.wasKeyPressed(SDL_SCANCODE_K) && !mDebugEntities.empty())
+    if (devKeys() && mInput.pressed(Action::DebugDespawn) && !mDebugEntities.empty())
     {
         const Entity entity = mDebugEntities.back();
         mDebugEntities.pop_back();
         mWorld.destroyEntity(entity);
     }
 
-    advanceGameClock(static_cast<double>(dtSeconds) * kGameHoursPerRealSecond, mGameHours, mCurrentDay);
+    // Game time (phase 13): the clock and the per-game-minute rules run on
+    // game seconds; at the default day length these are the real ones.
+    const float gameDt = dtSeconds * mDayScale;
+    advanceGameClock(static_cast<double>(dtSeconds) * hoursPerSecond(), mGameHours, mCurrentDay);
 
     const NeedsEnvironment needsEnvironment = buildNeedsEnvironment();
-    mNeedsSystem.update(mWorld, dtSeconds, needsEnvironment);
-    mBleedingSystem.update(mWorld, dtSeconds);
+    mNeedsSystem.update(mWorld, gameDt, needsEnvironment);
+    mBleedingSystem.update(mWorld, gameDt);
     // Wounds, sleep debt, coffee, a deep breath, seeing things (GameBody.cpp).
     updateBody(dtSeconds);
     if (mRunState != RunState::Playing) return; // turned
@@ -209,7 +217,7 @@ void Game::update(float dtSeconds)
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Inventory>(mPlayerEntity))
     {
         // Heat and summer spoil food quicker (phase 7).
-        const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond) *
+        const float gameHoursThisTick = static_cast<float>(dtSeconds * hoursPerSecond()) *
                                         weatherrules::spoilScale(mWeatherState.condition, weatherrules::seasonOf(mCurrentDay));
         Inventory& inv = mWorld.getComponent<Inventory>(mPlayerEntity);
         InventorySystem::degradeFood(inv, mItemDatabase, gameHoursThisTick);
@@ -217,10 +225,11 @@ void Game::update(float dtSeconds)
     }
 
     // Mental state system
+    mMentalStateSystem.setGameScale(mDayScale);
     mMentalStateSystem.update(mWorld, mNoiseModel, mPlayerEntity, dtSeconds, mGameHours, mCurrentDay, &mTileMap);
 
     // Weather system
-    mWeatherSystem.update(mWeatherState, dtSeconds, mGameHours, mCurrentDay);
+    mWeatherSystem.update(mWeatherState, gameDt, mGameHours, mCurrentDay);
     updateAtmosphere(dtSeconds);
     updateWeather(dtSeconds);
 
@@ -228,14 +237,14 @@ void Game::update(float dtSeconds)
     // the headlights (phase 11).
     const bool inCar = drivingVehicle && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity) &&
                        vehiclerules::info(mWorld.getComponent<Vehicle>(mActiveVehicleEntity).kind).engine;
-    if (playerAlive && inCar && mInput.wasKeyPressed(SDL_SCANCODE_Q))
+    if (playerAlive && inCar && mInput.pressed(Action::Flashlight))
     {
         Vehicle& car = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
         car.headlights = !car.headlights;
         mInteractionMessage = car.headlights ? "Headlights on. They will be seen." : "Headlights off.";
         mInteractionMessageTimer = 2.0f;
     }
-    else if (playerAlive && !mShowCrafting && mInput.wasKeyPressed(SDL_SCANCODE_Q))
+    else if (playerAlive && !mShowCrafting && mInput.pressed(Action::Flashlight))
     {
         if (playerHasItem(mItems.flashlight) && !mFlashlightOn && flashlightCharge() <= 0.0f)
         {
@@ -289,8 +298,8 @@ void Game::update(float dtSeconds)
         const MentalState& mental = mWorld.getComponent<MentalState>(mPlayerEntity);
         // It nudges a walk; someone standing still (boarding a door, stitching
         // a cut) stays where they are, and makes no footsteps for it.
-        const bool walking = mInput.isKeyDown(SDL_SCANCODE_W) || mInput.isKeyDown(SDL_SCANCODE_A) ||
-                             mInput.isKeyDown(SDL_SCANCODE_S) || mInput.isKeyDown(SDL_SCANCODE_D);
+        const bool walking = mInput.down(Action::MoveUp) || mInput.down(Action::MoveLeft) ||
+                             mInput.down(Action::MoveDown) || mInput.down(Action::MoveRight);
         if (mental.panic >= 25.0f && walking)
         {
             Velocity& vel = mWorld.getComponent<Velocity>(mPlayerEntity);
@@ -349,6 +358,12 @@ void Game::update(float dtSeconds)
 
     updateSleep(dtSeconds);
     updateFirstDays(dtSeconds);
+    // Phase 13: aims after day 3, teaching, the demo's week, checkpoints.
+    updateAims(dtSeconds);
+    updateTeaching(dtSeconds);
+    updateAutosave(dtSeconds);
+    updateDemo();
+    if (mRunState != RunState::Playing) return;
 
     // Sleep debt collapse: force sleep when exhaustion maxes out
     if (mPlayerEntity != kInvalidEntity &&
@@ -472,7 +487,7 @@ void Game::update(float dtSeconds)
                 if (!interceptedContainer && mProximityPrompt == vehiclePrompt) interceptedContainer = handleVehicleAlarm(prompt);
             }
         }
-        if (!interceptedContainer && mInput.wasKeyPressed(SDL_SCANCODE_E) && prompt.entity != kInvalidEntity &&
+        if (!interceptedContainer && mInput.pressed(Action::Use) && prompt.entity != kInvalidEntity &&
             mWorld.hasComponent<Interactable>(prompt.entity))
         {
             const Interactable& inter = mWorld.getComponent<Interactable>(prompt.entity);
@@ -525,7 +540,7 @@ void Game::update(float dtSeconds)
 
     // E with nothing else in reach: the nearest body on the ground.
     if (playerAlive && !mShowCrafting && !drivingVehicle && !mTalk.open && !mWorld.hasComponent<Sleeping>(mPlayerEntity) &&
-        mInput.wasKeyPressed(SDL_SCANCODE_E) && mProximityPrompt.empty() && !mContainerOpen)
+        mInput.pressed(Action::Use) && mProximityPrompt.empty() && !mContainerOpen)
     {
         (void)searchNearestCorpse();
     }
@@ -825,8 +840,8 @@ void Game::updateSleep(float dtSeconds)
         constexpr float kSleepTimeMultiplier = 8.0f;
         constexpr float kSleepWakeRange = 160.0f;
         constexpr float kSleepHealPerHour = 3.0f;
-        const float extraDtSeconds = dtSeconds * (kSleepTimeMultiplier - 1.0f);
-        const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond * kSleepTimeMultiplier);
+        const float extraDtSeconds = dtSeconds * mDayScale * (kSleepTimeMultiplier - 1.0f);
+        const float gameHoursThisTick = static_cast<float>(dtSeconds * hoursPerSecond() * kSleepTimeMultiplier);
         sleeping.durationRemaining -= gameHoursThisTick;
         sleeping.hoursSlept += gameHoursThisTick;
         advanceGameClock(gameHoursThisTick, mGameHours, mCurrentDay);

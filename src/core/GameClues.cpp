@@ -94,7 +94,7 @@ bool Game::handleReadable(const ProximityPrompt&)
     if (best < 0) return false;
     const clues::Readable& r = mReadables[static_cast<std::size_t>(best)];
     mProximityPrompt = std::string(clues::readableName(r.source)) + "   E: Read";
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return true;
+    if (!mInput.pressed(Action::Use)) return true;
     mBaseAction = BaseAction{};
     mBaseAction.kind = BaseAction::Kind::ReadClue;
     mBaseAction.tile = r.tile;

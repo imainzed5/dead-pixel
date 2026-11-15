@@ -59,10 +59,10 @@ void pressToward(Input& input, const glm::vec2& want)
             }
         }
     }
-    input.setKeyState(SDL_SCANCODE_W, w);
-    input.setKeyState(SDL_SCANCODE_A, a);
-    input.setKeyState(SDL_SCANCODE_S, s);
-    input.setKeyState(SDL_SCANCODE_D, d);
+    input.setAction(Action::MoveUp, w);
+    input.setAction(Action::MoveLeft, a);
+    input.setAction(Action::MoveDown, s);
+    input.setAction(Action::MoveRight, d);
 }
 
 bool parseWorldDir(const std::string& word, glm::ivec2& dir)

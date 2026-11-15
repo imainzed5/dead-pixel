@@ -47,7 +47,7 @@ std::string Game::containerName(Entity container) const
     return name;
 }
 
-void Game::recordContainer(Entity container)
+void Game::recordContainer(Entity container, bool write)
 {
     if (!mWorld.hasComponent<Inventory>(container) || !mWorld.hasComponent<Transform>(container))
     {
@@ -66,7 +66,7 @@ void Game::recordContainer(Entity container)
     }
     mSaveManager.setContainerRecord(
         storage::toRecord(mWorld.getComponent<Inventory>(container), tile.x, tile.y, mSaveManager.runNumber()));
-    mSaveManager.saveWorldMemory();
+    if (write) mSaveManager.saveWorldMemory();
 }
 
 void Game::refreshContainerRecords()
@@ -209,7 +209,7 @@ void Game::handleContainerInput()
         closeContainer();
         return;
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
+    if (mInput.pressed(Action::UiBack))
     {
         closeContainer();
         return;
@@ -218,23 +218,23 @@ void Game::handleContainerInput()
     const Inventory& containerInv = mWorld.getComponent<Inventory>(mOpenContainerEntity);
     const Inventory& pack = mWorld.getComponent<Inventory>(mPlayerEntity);
 
-    if (mInput.wasKeyPressed(SDL_SCANCODE_A) || mInput.wasKeyPressed(SDL_SCANCODE_LEFT))
+    if (mInput.pressed(Action::MoveLeft) || mInput.pressed(Action::UiLeft))
     {
         mContainerPackSide = true;
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_D) || mInput.wasKeyPressed(SDL_SCANCODE_RIGHT))
+    if (mInput.pressed(Action::MoveRight) || mInput.pressed(Action::UiRight))
     {
         mContainerPackSide = false;
     }
 
-    const bool shift = mInput.isKeyDown(SDL_SCANCODE_LSHIFT) || mInput.isKeyDown(SDL_SCANCODE_RSHIFT);
+    const bool shift = mInput.down(Action::UiStack);
 
     // The mouse: a click on a row moves one, shift-click the stack.
-    if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+    if (mInput.pressed(Action::UiClick))
     {
         const ContainerLayout layout = containerLayout();
-        const float mx = static_cast<float>(mInput.mouseX());
-        const float my = static_cast<float>(mInput.mouseY());
+        const float mx = uiMouse().x;
+        const float my = uiMouse().y;
         if (mx >= layout.panelX && my >= ContainerLayout::kListY)
         {
             const int row = static_cast<int>((my - ContainerLayout::kListY) / ContainerLayout::kRowH);
@@ -253,16 +253,16 @@ void Game::handleContainerInput()
     const int rows = storage::filledSlots(mContainerPackSide ? pack : containerInv);
     if (rows > 0)
     {
-        if (mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W))
+        if (mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp))
         {
             cursor = (cursor + rows - 1) % rows;
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S))
+        if (mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown))
         {
             cursor = (cursor + 1) % rows;
         }
         cursor = std::clamp(cursor, 0, rows - 1);
-        if (mInput.wasKeyPressed(SDL_SCANCODE_E) || mInput.wasKeyPressed(SDL_SCANCODE_RETURN))
+        if (mInput.pressed(Action::Use) || mInput.pressed(Action::UiConfirm))
         {
             containerMove(mContainerPackSide, cursor, shift);
         }

@@ -3,6 +3,10 @@
 
 #include "core/Tuning.h"
 
+#include <fstream>
+
+#include <nlohmann/json.hpp>
+
 bool Game::loadContent(const std::filesystem::path& assetsRoot)
 {
     const std::filesystem::path data = assetsRoot / "data";
@@ -37,5 +41,13 @@ bool Game::loadContent(const std::filesystem::path& assetsRoot)
     loadSurvivorLines(assetsRoot);
     loadClueContent(assetsRoot);
     loadJournalLines(assetsRoot);
+    // Phase 13: the dawn cards and the run-end screen's hints (defaults if missing).
+    const auto readJson = [&](const char* name)
+    {
+        std::ifstream file(data / name);
+        return file ? nlohmann::json::parse(file, nullptr, false) : nlohmann::json();
+    };
+    mDayCards = aims::cardsFromJson(readJson("day_cards.json"));
+    mDeathHints = aims::deathHintsFromJson(readJson("death_hints.json"));
     return true;
 }

@@ -43,13 +43,13 @@ void Game::updateCharacterCreation()
 {
     mDraft.refusedTimer = std::max(0.0f, mDraft.refusedTimer - 1.0f / 60.0f);
 
-    if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
+    if (mInput.pressed(Action::UiBack))
     {
         returnToTitleScreen();
         return;
     }
     // Quick start: the seed's pick, as before, and straight in.
-    if (mInput.wasKeyPressed(SDL_SCANCODE_SPACE))
+    if (mInput.pressed(Action::UiSpace))
     {
         mDraft.traits = traitrules::quickStart(mSaveManager.currentRunSeed());
         finishCharacterCreation();
@@ -57,9 +57,8 @@ void Game::updateCharacterCreation()
     }
 
     // Typing replaces the name (letters; "-" for a space), Backspace takes one off.
-    for (int key = SDL_SCANCODE_A; key <= SDL_SCANCODE_Z; ++key)
+    for (const char typed : mInput.lettersPressed())
     {
-        if (!mInput.wasKeyPressed(static_cast<SDL_Scancode>(key))) continue;
         if (!mDraft.typed)
         {
             mDraft.name.clear();
@@ -67,15 +66,15 @@ void Game::updateCharacterCreation()
         }
         if (mDraft.name.size() >= kMaxNameLength) continue;
         const bool startOfWord = mDraft.name.empty() || mDraft.name.back() == ' ';
-        const char letter = static_cast<char>((startOfWord ? 'A' : 'a') + (key - SDL_SCANCODE_A));
+        const char letter = static_cast<char>((startOfWord ? 'A' : 'a') + (typed - 'A'));
         mDraft.name.push_back(letter);
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_MINUS) && mDraft.typed && !mDraft.name.empty() &&
+    if (mInput.pressed(Action::UiMinus) && mDraft.typed && !mDraft.name.empty() &&
         mDraft.name.back() != ' ' && mDraft.name.size() < kMaxNameLength)
     {
         mDraft.name.push_back(' ');
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE) && !mDraft.name.empty())
+    if (mInput.pressed(Action::UiErase) && !mDraft.name.empty())
     {
         if (!mDraft.typed)
         {
@@ -89,16 +88,16 @@ void Game::updateCharacterCreation()
     }
 
     // Left/Right: name, good at, bad at, Begin. Up/Down along a column.
-    if (mInput.wasKeyPressed(SDL_SCANCODE_LEFT)) mDraft.column = std::max(kNameColumn, mDraft.column - 1);
-    if (mInput.wasKeyPressed(SDL_SCANCODE_RIGHT)) mDraft.column = std::min(kBeginColumn, mDraft.column + 1);
+    if (mInput.pressed(Action::UiLeft)) mDraft.column = std::max(kNameColumn, mDraft.column - 1);
+    if (mInput.pressed(Action::UiRight)) mDraft.column = std::min(kBeginColumn, mDraft.column + 1);
     const int rows = static_cast<int>(traitrules::allPositive().size());
     if (mDraft.column == kGoodColumn || mDraft.column == kBadColumn)
     {
-        if (mInput.wasKeyPressed(SDL_SCANCODE_UP)) mDraft.row = (mDraft.row + rows - 1) % rows;
-        if (mInput.wasKeyPressed(SDL_SCANCODE_DOWN)) mDraft.row = (mDraft.row + 1) % rows;
+        if (mInput.pressed(Action::UiUp)) mDraft.row = (mDraft.row + rows - 1) % rows;
+        if (mInput.pressed(Action::UiDown)) mDraft.row = (mDraft.row + 1) % rows;
     }
 
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_RETURN) && !mInput.wasKeyPressed(SDL_SCANCODE_KP_ENTER)) return;
+    if (!mInput.pressed(Action::UiConfirm)) return;
     switch (mDraft.column)
     {
     case kNameColumn:

@@ -1,0 +1,172 @@
+# Settings and keys (phase 13): the title's menu, the settings screen, a key
+# rebound (Shove to F, which swaps with Use item), the Controls panel showing
+# it, the file read back as at a restart, and the interface at 2x on a
+# 1920x1080 window: title, settings, HUD, pack, make and notebook.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/settings.txt --hidden --world-seed 1234 --shots shots/settings
+
+waits 1
+expect title
+shot 01_title
+# Settings is the fifth line (Continue is skipped without a checkpoint).
+tap Down
+waits 0.1
+tap Down
+waits 0.1
+tap Down
+waits 0.1
+tap Enter
+waits 0.2
+expect settings open
+shot 02_settings_sound
+# Over to Keys: Right three times on the tabs, Enter into the list.
+tap Right
+waits 0.1
+tap Right
+waits 0.1
+tap Right
+waits 0.1
+tap Enter
+waits 0.1
+# Shove is the ninth row.
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.05
+tap Down
+waits 0.1
+tap Enter
+waits 0.1
+tap F
+waits 0.2
+expect binding shove F
+expect binding use_item Space
+expect note Shove is F now
+expect note Use item took Space
+shot 03_settings_keys_rebound
+# Esc and Enter stay the menus': rebinding to Enter is refused, and Esc
+# while it waits only stops the wait.
+tap Enter
+waits 0.1
+tap Enter
+waits 0.2
+expect note stays the menus' key
+expect binding shove F
+tap Enter
+waits 0.1
+tap Esc
+waits 0.2
+expect settings open
+expect binding shove F
+tap Esc
+waits 0.2
+expect settings closed
+# The Controls panel prints the keys as bound.
+tap F2
+waits 0.2
+shot 04_controls_rebound
+tap F2
+waits 0.2
+# A restart: the defaults, then the file read back.
+settings reset
+expect binding shove Space
+settings reload
+expect binding shove F
+expect binding use_item Space
+# Reset keys from the list, as a player would: the screen opens on the
+# tab it was left on (Keys); Up from the tabs is the last row.
+settings open
+tap Up
+waits 0.1
+tap Enter
+waits 0.2
+expect note Keys reset
+expect binding shove Space
+tap Esc
+waits 0.2
+# A sound level changed with Left, saved with the rest.
+settings open
+tap Right
+waits 0.1
+tap Enter
+waits 0.1
+tap Left
+waits 0.1
+tap Left
+waits 0.1
+expect level master 8
+tap Esc
+waits 0.2
+settings reset
+expect level master 10
+settings reload
+expect level master 8
+settings close
+
+# The interface by window height: 1.5x at 1080 lines, then 2x by choice.
+screen 1920 1080
+expect uiscale 1.5
+uisize 2
+expect uiscale 2
+waits 0.3
+shot 05_title_2x
+settings open
+waits 0.2
+shot 06_settings_2x
+tap Right
+waits 0.1
+tap Right
+waits 0.1
+tap Right
+waits 0.1
+waits 0.2
+shot 07_settings_keys_2x
+tap Esc
+waits 0.2
+tap F2
+waits 0.2
+shot 08_controls_2x
+tap F2
+waits 0.2
+newrun
+waits 3
+shot 09_hud_2x
+tap Tab
+waits 0.4
+shot 10_pack_2x
+tap Tab
+waits 0.4
+shot 10b_body_2x
+tap Esc
+waits 0.3
+tap N
+waits 0.4
+shot 11_make_2x
+tap N
+waits 0.3
+tap J
+waits 0.4
+shot 12_notebook_2x
+tap J
+waits 0.3
+tap Esc
+waits 0.3
+shot 13_pause_2x
+tap Esc
+waits 0.3
+# Back to 1x on the same window: the plain size.
+uisize 1
+waits 0.3
+shot 14_hud_1x_1080
+expect playing
+quit

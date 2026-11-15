@@ -27,6 +27,7 @@ constexpr float kSmallScale = 1.0f;
 const glm::vec4 kTextColor(0.96f, 0.95f, 0.93f, 1.0f);
 const glm::vec4 kDimTextColor(0.72f, 0.71f, 0.68f, 1.0f);
 const glm::vec4 kAmber(0.94f, 0.71f, 0.30f, 1.0f);
+const glm::vec4 kGoodColor(0.58f, 0.88f, 0.56f, 1.0f);
 const glm::vec4 kTrackColor(0.04f, 0.05f, 0.06f, 0.62f);
 const glm::vec4 kStaminaColor = kAmber;
 const glm::vec4 kStaminaLostColor(0.46f, 0.16f, 0.14f, 0.95f);
@@ -235,6 +236,20 @@ constexpr float kDayCardTitleScale = 4.0f;
 constexpr float kClockScale = 4.0f;
 
 } // namespace
+
+glm::vec2 Hud::objectiveCorner(const HudState& state, const glm::vec2& viewport, const BitmapFont& font)
+{
+    if (state.objectiveTitle.empty() || state.dockedWidth > 0.0f) return glm::vec2(viewport.x, 0.0f);
+    const Layout layout = computeLayout(state, viewport);
+    float width = font.measureText(truncateText(state.objectiveTitle, 40), kLabelScale).x;
+    if (!state.objectiveDetail.empty()) width = std::max(width, font.measureText(truncateText(state.objectiveDetail, 60), kSmallScale).x);
+    for (const HudStep& step : state.objectiveSteps)
+    {
+        width = std::max(width, font.measureText(truncateText(step.text, kStepChars), kLabelScale).x + kStepGap + kStepBox);
+    }
+    const float bottom = layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(state.objectiveSteps.size()) * kStepRow;
+    return glm::vec2(layout.rightX - width, bottom);
+}
 
 std::string Hud::slotLabel(const HudSlot& slot)
 {
@@ -591,6 +606,7 @@ void Hud::drawShapes(SpriteBatch& batch, const SpriteSheet& sheet, const BitmapF
         for (std::size_t i = 0; i < state.objectiveSteps.size(); ++i)
         {
             const HudStep& step = state.objectiveSteps[i];
+            if (step.good) continue;
             const float textW = font.measureText(truncateText(step.text, kStepChars), kLabelScale).x;
             const glm::vec2 box(std::round(layout.rightX - textW - kStepGap - kStepBox),
                                 layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(i) * kStepRow + 2.0f);
@@ -696,7 +712,9 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
         {
             color = glm::mix(color, glm::vec4(1.0f), 0.25f * pulse);
         }
-        put(glm::vec2(layout.barsX + 16.0f, layout.conditionY(i)), status.label, color, kLabelScale);
+        // Critical: a mark before the word too, never the colour alone (phase 13).
+        put(glm::vec2(layout.barsX + 16.0f, layout.conditionY(i)),
+            status.severity == HudSeverity::Critical ? "! " + status.label : status.label, color, kLabelScale);
     }
     if (state.conditions.size() > layout.conditionRows)
     {
@@ -718,7 +736,13 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
     // Day card.
     if (!state.dayCardTitle.empty() && state.dayCardAlpha > 0.01f)
     {
-        const float y = std::round(viewport.y * 0.22f);
+        float y = std::round(viewport.y * 0.22f);
+        // A long line on a narrow interface would run into the objective
+        // panel: the card goes below it instead.
+        const float halfW = 0.5f * std::max(font.measureText(state.dayCardTitle, kDayCardTitleScale).x,
+                                            font.measureText(state.dayCardLine, kLabelScale).x);
+        const glm::vec2 corner = objectiveCorner(state, viewport, font);
+        if (layout.centreX + halfW > corner.x - 12.0f && y < corner.y + 8.0f) y = std::round(corner.y + 16.0f);
         put(glm::vec2(layout.centreX, y), state.dayCardTitle, withAlpha(kTextColor, state.dayCardAlpha),
             kDayCardTitleScale, TextAlign::Center);
         if (!state.dayCardLine.empty())
@@ -738,7 +762,7 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
 
     if (state.held)
     {
-        put(glm::vec2(layout.centreX, layout.messageY - 62.0f), "HELD - SPACE",
+        put(glm::vec2(layout.centreX, layout.messageY - 62.0f), state.heldLine,
             glm::mix(kAmber, glm::vec4(1.0f), 0.3f * pulse), kLabelScale, TextAlign::Center);
     }
 
@@ -757,6 +781,7 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
         return line;
     };
     const bool showMessage = !state.message.empty() && state.messageAlpha > 0.01f;
+    std::size_t messageLines = showMessage || !state.prompt.empty() ? 1 : 0;
     if (showMessage)
     {
         // A long message (a note read, phase 9) wraps upward, three lines at most.
@@ -787,6 +812,7 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
             lines.back() += " ...";
         }
         const float lineStep = font.lineHeight(kLabelScale) + 4.0f;
+        messageLines = std::max<std::size_t>(1, lines.size());
         for (std::size_t i = 0; i < lines.size(); ++i)
         {
             const float y = layout.messageY - static_cast<float>(lines.size() - 1 - i) * lineStep;
@@ -798,6 +824,13 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
     {
         put(glm::vec2(layout.centreX, layout.messageY), fitLine(state.prompt), kTextColor, kLabelScale,
             TextAlign::Center);
+    }
+    // A teaching prompt (phase 13): one at a time, over whatever is on the line.
+    if (!state.teach.empty())
+    {
+        const float lineStep = font.lineHeight(kLabelScale) + 4.0f;
+        const float y = layout.messageY - static_cast<float>(messageLines) * lineStep;
+        put(glm::vec2(layout.centreX, y), fitLine(state.teach), kAmber, kLabelScale, TextAlign::Center);
     }
 
     if (layout.docked)
@@ -834,8 +867,8 @@ void Hud::drawText(SpriteBatch& batch, const BitmapFont& font, const HudState& s
         {
             const HudStep& step = state.objectiveSteps[i];
             put(glm::vec2(layout.rightX, layout.objectiveY + objectiveStepsTop(state) + static_cast<float>(i) * kStepRow),
-                truncateText(step.text, kStepChars), step.done ? kDimTextColor : kTextColor, kLabelScale,
-                TextAlign::Right);
+                truncateText(step.text, kStepChars), step.good ? kGoodColor : step.done ? kDimTextColor : kTextColor,
+                kLabelScale, TextAlign::Right);
         }
     }
 

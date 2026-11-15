@@ -20,6 +20,8 @@
 #include <vector>
 
 #include "core/Input.h"
+#include "core/Settings.h"
+#include "core/Version.h"
 #include "dev/LaunchOptions.h"
 #include "audio/AudioManager.h"
 #include "audio/Ambience.h"
@@ -36,6 +38,8 @@
 #include "world/FurnitureUse.h"
 #include "world/Windows.h"
 #include "world/FirstDays.h"
+#include "world/Aims.h"
+#include "world/DayLength.h"
 #include "world/Furniture.h"
 #include "world/Forage.h"
 #include "world/Clues.h"
@@ -423,7 +427,6 @@ private:
     void renderPauseOverlay();
     void renderTitleScreen();
     void renderControlsPanel();
-    void renderControlsOverlay();
     void renderDayNightOverlay();
     void renderMinimapOverlay();
     void renderWorldMapOverlay();
@@ -460,7 +463,9 @@ private:
     [[nodiscard]] std::string containerName(Entity container) const;
     [[nodiscard]] FurnitureKind containerKindAt(const glm::ivec2& tile) const;
     // Writes this container's contents to world memory (and saves it).
-    void recordContainer(Entity container);
+    // write: false keeps it in memory for the next save (a survivor's
+    // search, mid-tick: written at the next checkpoint) (phase 13).
+    void recordContainer(Entity container, bool write = true);
     // Brings every remembered container's record up to date (before a save).
     void refreshContainerRecords();
     void spoilContainers(float gameHours);
@@ -1291,7 +1296,7 @@ private:
     // into the records and the containers (else a dry run, for the harness).
     survivorrules::BetweenLivesResult advanceSurvivors(int days, bool apply);
     // A container emptied by a survivor: remembered as searched.
-    void markSearchedBySurvivor(const glm::ivec2& tile);
+    void markSearchedBySurvivor(const glm::ivec2& tile, bool write = true);
 
     void loadSurvivorLines(const std::filesystem::path& assetsRoot);
     [[nodiscard]] const std::string& survivorLine(const std::string& pool, const std::string& name, std::uint32_t salt) const;
@@ -1503,4 +1508,124 @@ private:
     PostFx mPostFx;
     int mClockBuilding = -2;         // the town clock's building index (-2 not chosen, -1 none)
     double mClockShows = -1.0;       // the absolute hour its hands show (-1 not yet)
+
+    // --- Run flow, settings and teaching (phase 13) ---
+    // Settings (GameSettings.cpp): settings.json beside the slots, read at
+    // start and written on every change. A harness run starts from the
+    // defaults whatever the file says, so a player's keys never change what a
+    // script or the bot does (`settings reload` reads the file on purpose).
+    void loadSettings();
+    void applySettings();
+    void saveSettings();
+    void applyWindowMode();
+    // The window's drawable size changed: the world's projection, the camera
+    // and the interface's size (mWindowWidth/Height are interface units).
+    void onPixelSize(int width, int height);
+    [[nodiscard]] glm::vec2 uiAt(const glm::vec2& world) const; // a world point on the interface
+    [[nodiscard]] float uiZoom() const;                         // the camera's zoom in interface units
+    [[nodiscard]] glm::vec2 uiMouse() const;
+    // F1, F3 and K: the dev build's, hidden in a packaged one.
+    [[nodiscard]] static bool devKeys();
+    void openSettings();
+    void updateSettingsScreen(float dtSeconds);
+    void renderSettingsShapes();
+    void settingsChange(int delta); // Left/Right on the chosen row
+    [[nodiscard]] int settingsRows() const;
+    settings::Settings mSettings;
+    std::string mSettingsPath;
+    int mPixelWidth = 1280;          // the window in pixels
+    int mPixelHeight = 720;
+    float mUiScale = 1.0f;           // interface units to pixels
+    float mShakeScale = 1.0f;
+    bool mShowSettings = false;
+    int mSettingsTab = 0;            // Sound, Screen, Game, Keys
+    int mSettingsRow = -1;           // -1: the tabs
+    int mSettingsScroll = 0;
+    int mRebinding = -1;             // the action waiting for its key
+    std::string mSettingsNote;       // "Shove is F now. Use item took Space."
+    float mSettingsNoteTimer = 0.0f;
+
+    // The title (GameTitle.cpp): the menu, New World, The Town, Credits.
+    enum class TitleView
+    {
+        Main,
+        NewWorld,
+        Town,
+        Credits
+    };
+    void updateTitleMain();
+    void updateNewWorld();
+    void updateTown();
+    void startNewWorld();
+    void renderTitleMain();
+    void renderNewWorld();
+    void renderTown();
+    void renderTitleCredits();
+    TitleView mTitleView = TitleView::Main;
+    int mNewWorldRow = 0;
+    std::string mNewWorldSeed;       // digits; blank is random
+    int mNewWorldDayMinutes = 24;
+    int mTownCursor = 0;
+    bool mTownReading = false;
+    bool mQuitConfirm = false;       // the pause menu's Quit to desktop, asked once
+
+    // Day length (set per world): game seconds per real second.
+    float mDayScale = 1.0f;
+    [[nodiscard]] double hoursPerSecond() const;
+
+    // Standing aims after day 3 (GameAims.cpp, rules in world/Aims).
+    aims::Facts aimFacts();
+    void updateAims(float dtSeconds);
+    void chooseAim();                // at dawn
+    [[nodiscard]] aims::Aim currentAim();
+    [[nodiscard]] firstdays::DayCard dawnCard();
+    [[nodiscard]] int firstDayWithoutPower() const;
+    aims::Kind mAimKind = aims::Kind::None; // checkpoint
+    int mAimDay = 0;                 // the dawn it was chosen (checkpoint)
+    int mAimsRewarded = 0;           // a bit per kind: "Done." given this life (checkpoint)
+    float mAimDoneTimer = 0.0f;      // "Done." showing
+    int mBoiledSinceAim = 0;         // checkpoint
+    double mLoudSince = -1.0;        // the absolute hour of the player's last loud noise
+    std::vector<glm::ivec2> mLeadsVisited; // this life (not saved)
+    aims::Aim mAimShown;             // as the facts stood at the last look
+    float mAimRefresh = 0.0f;        // seconds to the next look at the facts
+    aims::DayCards mDayCards = aims::defaultCards();
+    std::vector<aims::DeathHint> mDeathHints = aims::defaultDeathHints();
+
+    // Teaching through play (GameTeach.cpp). Prompts are shown once per save
+    // (the seen set lives in the settings file, by slot); the harness keeps
+    // them off unless a script says `teach on`, so older shots stay the same.
+    void teach(const std::string& id);   // queue a prompt, unless seen
+    void taught(const std::string& id);  // used: never shown again
+    [[nodiscard]] bool wasTaught(const std::string& id) const;
+    void updateTeaching(float dtSeconds);
+    [[nodiscard]] bool teachingOn() const;
+    [[nodiscard]] bool lookAroundStep() const; // the day-1 "Look around" step shows
+    void noteMessage();                   // the message log (last ten)
+    void chooseDeathHint();
+    bool mTeachAllowed = true;            // false under the harness until `teach on`
+    std::deque<std::string> mTeachQueue;
+    std::string mTeachLine;               // the prompt showing
+    std::string mTeachId;
+    float mTeachTimer = 0.0f;
+    float mLookAroundTiles = 0.0f;        // walked on day 1 (not saved)
+    bool mLookAroundUsed = false;         // E pressed (not saved)
+    bool mLookAroundFirstLife = false;    // set at run start
+    int mShovesThisLife = 0;
+    std::deque<std::string> mMessageLog;
+    std::string mLastLogged;
+    std::string mDeathHint;               // the run-end screen's one line
+
+    // The demo (--demo or demo.txt): a life ends at dawn on day 7.
+    bool mDemo = false;
+    bool mDemoEnded = false;
+    void updateDemo();
+    // Checkpoints at dawn, on coming home and on quitting to the title.
+    int mDawnSavedDay = 0;
+    bool mWasAtHome = false;
+    float mHomeSaveCooldown = 0.0f;
+    bool mAutosaveAllowed = true;    // false under the harness until `autosave on`
+    void updateAutosave(float dtSeconds);
+    // The window's icon: assets/icons/icon_32.png (none if it is missing).
+    void setWindowIcon(const std::filesystem::path& assetsRoot);
 };

@@ -43,3 +43,16 @@ jobs:
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-python
+          python tools/package.py
+          python tools/package.py --demo --skip-build
+
+      - name: Upload the packaged game
+        uses: actions/upload-artifact@v4
+        with:
+          name: dead-pixel-survival
+          path: dist/*.zip
+          if-no-files-found: error

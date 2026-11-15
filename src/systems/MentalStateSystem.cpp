@@ -212,6 +212,11 @@ void MentalStateSystem::update(World& world, NoiseModel& noiseModel, Entity play
         depressionGain += (mental.desensitisation - 30.0f) * kDesensitisationDepressionScale * dtSeconds;
     }
 
+    if (mGameScale != 1.0f)
+    {
+        depressionGain *= mGameScale;
+        depressionRelief *= mGameScale;
+    }
     mental.depression = std::clamp(mental.depression + depressionGain - depressionRelief, 0.0f, kDepressionRetirementThreshold);
 
     // --- Depression crisis window (M5) ---

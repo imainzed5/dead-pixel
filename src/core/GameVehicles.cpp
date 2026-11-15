@@ -28,10 +28,10 @@ glm::vec2 wasdDirection(const Input& input)
 {
     // As the walk (InputSystem): W up the screen, S down, A left, D right.
     glm::vec2 want(0.0f);
-    if (input.isKeyDown(SDL_SCANCODE_W)) want += glm::vec2(-1.0f, -1.0f);
-    if (input.isKeyDown(SDL_SCANCODE_S)) want += glm::vec2(1.0f, 1.0f);
-    if (input.isKeyDown(SDL_SCANCODE_A)) want += glm::vec2(-1.0f, 1.0f);
-    if (input.isKeyDown(SDL_SCANCODE_D)) want += glm::vec2(1.0f, -1.0f);
+    if (input.down(Action::MoveUp)) want += glm::vec2(-1.0f, -1.0f);
+    if (input.down(Action::MoveDown)) want += glm::vec2(1.0f, 1.0f);
+    if (input.down(Action::MoveLeft)) want += glm::vec2(-1.0f, 1.0f);
+    if (input.down(Action::MoveRight)) want += glm::vec2(1.0f, -1.0f);
     const float len = glm::length(want);
     return len > 0.01f ? want / len : glm::vec2(0.0f);
 }
@@ -646,7 +646,7 @@ void Game::fallOffBicycle(const char* why)
 void Game::handleVehicleKey(bool playerAlive)
 {
     if (!playerAlive || mPlayerEntity == kInvalidEntity || !mWorld.hasComponent<Transform>(mPlayerEntity) ||
-        !mInput.wasKeyPressed(SDL_SCANCODE_V) || mWorld.hasComponent<Sleeping>(mPlayerEntity))
+        !mInput.pressed(Action::Vehicle) || mWorld.hasComponent<Sleeping>(mPlayerEntity))
     {
         return;
     }
@@ -669,8 +669,10 @@ void Game::updateVehicleSeat(float dtSeconds)
     Vehicle& v = mWorld.getComponent<Vehicle>(mActiveVehicleEntity);
     if (!vehiclerules::info(v.kind).engine) return;
     const glm::vec2 centre = vehicleCentre(mActiveVehicleEntity);
-    const bool pressed = mInput.wasKeyPressed(SDL_SCANCODE_E);
-    const bool held = mInput.isKeyDown(SDL_SCANCODE_E);
+    const bool pressed = mInput.pressed(Action::Use);
+    bool held = mInput.down(Action::Use);
+    // Press once (phase 13): the wires stay in hand until E again.
+    if (mSettings.pressOnce && mWireHeld) held = !pressed;
     const int mechanics = skillLevel(Skill::Mechanics);
 
     // It catches (the engine loop takes over), or it does not.
@@ -826,7 +828,7 @@ void Game::driveVehicle(Entity vehicle, float dtSeconds)
     }
 
     // Fuel and wear, by the game hour.
-    const float hours = static_cast<float>(static_cast<double>(dtSeconds) * kGameHoursPerRealSecond);
+    const float hours = static_cast<float>(static_cast<double>(dtSeconds) * hoursPerSecond());
     const bool moving = std::fabs(v.speed) > 5.0f;
     if (k.engine && v.engineOn)
     {
@@ -1197,7 +1199,7 @@ bool Game::handleVehicleInteraction(const ProximityPrompt& entityPrompt)
     Vehicle& v = mWorld.getComponent<Vehicle>(vehicle);
     const vehiclerules::KindInfo& k = vehiclerules::info(v.kind);
     const glm::vec2 centre = vehicleCentre(vehicle);
-    const bool pressed = mInput.wasKeyPressed(SDL_SCANCODE_E);
+    const bool pressed = mInput.pressed(Action::Use);
     const std::string name = vehicleName(v);
     std::string title = name;
     title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
@@ -1310,7 +1312,7 @@ bool Game::handleVehicleAlarm(const ProximityPrompt& entityPrompt)
     std::string title = vehicleName(v);
     title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
     mProximityPrompt = title + "   A red light blinks on the dash.   E: Set it off   V: Get in";
-    if (mInput.wasKeyPressed(SDL_SCANCODE_E))
+    if (mInput.pressed(Action::Use))
     {
         v.alarmSeconds = vehiclerules::kAlarmSeconds;
         v.alarmSpentRun = mSaveManager.runNumber();

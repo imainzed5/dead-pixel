@@ -1,0 +1,15 @@
+{
+  "days": {
+    "1": "Make the house safe before dark.",
+    "2": "The water pressure is dropping. Fill every bottle.",
+    "3": "The taps are dry. Build a rain collector, or find water and boil it.",
+    "4": "Nobody is coming.",
+    "7": "A week."
+  },
+  "horde": "Something is moving on the far side of town.",
+  "firstDayWithoutPower": "The lights are not coming back.",
+  "seasonFirstDay": "{season}.",
+  "everyTenthDay": "{day} days.",
+  "frost": "Frost on the windows.",
+  "demoEnd": "This is the end of the demo's week. The town will remember {name}."
+}

@@ -398,6 +398,16 @@ Game::LegacyCardLayout Game::legacyCardLayout() const
                                        static_cast<float>(mLegacyCardLines.size()) * (mFont.lineHeight(kLineScale) + 6.0f) + 12.0f));
     layout.pos = glm::vec2(std::round((static_cast<float>(mWindowWidth) - layout.size.x) * 0.5f),
                            std::round(static_cast<float>(mWindowHeight) * 0.18f));
+    // Clear of the objective panel (phase 13): slide left if there is room,
+    // else drop below it.
+    const glm::vec2 corner = Hud::objectiveCorner(mHudState, glm::vec2(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight)), mFont);
+    constexpr float kClear = 16.0f;
+    if (layout.pos.x + layout.size.x > corner.x - kClear && layout.pos.y < corner.y + kClear)
+    {
+        const float slid = corner.x - kClear - layout.size.x;
+        if (slid >= Hud::kEdge) layout.pos.x = std::round(slid);
+        else layout.pos.y = std::round(corner.y + kClear);
+    }
     layout.titleScale = kTitleScale;
     layout.lineScale = kLineScale;
     return layout;
@@ -413,7 +423,7 @@ void Game::renderLegacyText()
     // Names over past characters' traces near the player.
     const glm::vec2 player = playerWorldCenter();
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
-    const float zoom = mCamera.zoom();
+    const float zoom = uiZoom();
     const auto label = [&](const glm::vec2& topLeft, float heightPx, const std::string& text, const glm::vec4& color)
     {
         const glm::vec2 center = topLeft + glm::vec2(kSpriteSize * 0.5f);
@@ -428,7 +438,7 @@ void Game::renderLegacyText()
             return;
         }
         const float fade = std::clamp((kLabelRangeTiles - distTiles) / 2.0f, 0.0f, 1.0f);
-        const glm::vec2 screen = mCamera.worldToScreen(center);
+        const glm::vec2 screen = uiAt(center);
         const glm::vec2 pos(std::round(screen.x), std::round(screen.y - heightPx * zoom - 12.0f));
         mFont.drawText(mSpriteBatch, pos + glm::vec2(1.0f, 1.0f), text, glm::vec4(0.0f, 0.0f, 0.0f, 0.7f * fade), 1.0f, TextAlign::Center);
         mFont.drawText(mSpriteBatch, pos, text, color * glm::vec4(1.0f, 1.0f, 1.0f, fade), 1.0f, TextAlign::Center);

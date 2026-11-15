@@ -316,7 +316,7 @@ bool Game::handleLockedDoor(const glm::ivec2& tile)
     if (lock->edge && mTileMap.getBuildingId(me.x, me.y) == lock->building)
     {
         mProximityPrompt = "Locked   E: Unlock it";
-        if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return false;
+        if (!mInput.pressed(Action::Use)) return false;
         unlockDoor(tile, "from inside");
         mDoors.open(mTileMap, tile);
         makeNoise(centre, NoiseTier::Soft, 0.5f, SoundId::DoorOpen, mPlayerEntity);
@@ -327,13 +327,13 @@ bool Game::handleLockedDoor(const glm::ivec2& tile)
     Inventory* inv = mWorld.hasComponent<Inventory>(mPlayerEntity) ? &mWorld.getComponent<Inventory>(mPlayerEntity) : nullptr;
     const bool crowbar = inv != nullptr && InventorySystem::countTagged(*inv, mItemDatabase, "tool:pry") > 0;
     mProximityPrompt = std::string("Locked   ") + (crowbar ? "X: Force it" : "X: Break it down");
-    if (mInput.wasKeyPressed(SDL_SCANCODE_E))
+    if (mInput.pressed(Action::Use))
     {
         mInteractionMessage = "Locked.";
         mInteractionMessageTimer = 1.5f;
         return true;
     }
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_X)) return false;
+    if (!mInput.pressed(Action::Pry)) return false;
     if (crowbar)
     {
         mBaseAction = BaseAction{};
@@ -453,7 +453,7 @@ bool Game::handleAlarmBox(const ProximityPrompt&)
                                          [&, b = building](const AlarmRinging& a) { return a.building == b; });
         if (!ringing || glm::length(tileCentre(mTileMap, box) - here) > kReachTiles * tileSize) continue;
         mProximityPrompt = "Alarm box   E: Stop the alarm";
-        if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return true;
+        if (!mInput.pressed(Action::Use)) return true;
         mBaseAction = BaseAction{};
         mBaseAction.kind = BaseAction::Kind::StopAlarm;
         mBaseAction.tile = box;
@@ -739,7 +739,7 @@ bool Game::handleWaterSource(const ProximityPrompt&)
         const char* fill = pondFrozen() ? "   R: Break the ice, fill bottles (dirty)" : "   R: Fill bottles (dirty)";
         mProximityPrompt = mProximityPrompt.empty() ? std::string("Pond") + fill : mProximityPrompt + fill;
     }
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_R)) return false;
+    if (!mInput.pressed(Action::Board)) return false;
     // A frozen pond (phase 7): the ice has to be broken first.
     if (toilet == nullptr && pondFrozen() && !playerHasItem(mItems.axe) && !playerHasItem(mItems.hammer))
     {
@@ -1043,7 +1043,7 @@ bool Game::handleForage(const ProximityPrompt& entityPrompt)
     const auto picked = std::find_if(mForaged.begin(), mForaged.end(), [&](const ForagedSpot& f) { return f.tile == spot->first; });
     const bool bare = picked != mForaged.end() && !forage::regrown(picked->day, mCurrentDay);
     mProximityPrompt = std::string(spotName(spot->second)) + (bare ? " (picked over)" : "   E: Search it");
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return false;
+    if (!mInput.pressed(Action::Use)) return false;
     if (bare)
     {
         mInteractionMessage = "Nothing left here. Give it a few days.";
@@ -1157,7 +1157,7 @@ bool Game::handleFieldStructure(const ProximityPrompt& entityPrompt)
         mProximityPrompt = s.snareState == 1 ? "Snare (something in it)   E: Take it and reset   X: Pick it up"
                          : s.snareState == 2 ? "Snare (sprung)   E: Reset it   X: Pick it up"
                                              : "Snare (set)   X: Pick it up";
-        if (mInput.wasKeyPressed(SDL_SCANCODE_X))
+        if (mInput.pressed(Action::Pry))
         {
             InventorySystem::addItem(inv, mItemDatabase, mItems.snare, 1);
             mWorld.destroyEntity(e);
@@ -1165,7 +1165,7 @@ bool Game::handleFieldStructure(const ProximityPrompt& entityPrompt)
             mInteractionMessageTimer = 2.0f;
             return true;
         }
-        if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return true;
+        if (!mInput.pressed(Action::Use)) return true;
         if (s.snareState == 1)
         {
             const int added = InventorySystem::addItem(inv, mItemDatabase, mItems.rawMeat, 1).added;
@@ -1194,7 +1194,7 @@ bool Game::handleFieldStructure(const ProximityPrompt& entityPrompt)
     if (!bed.dead) prompt += "   R: Water it";
     mProximityPrompt = prompt;
 
-    if (mInput.wasKeyPressed(SDL_SCANCODE_R) && !bed.dead)
+    if (mInput.pressed(Action::Board) && !bed.dead)
     {
         if (InventorySystem::countItem(inv, mItems.waterBottle) == 0)
         {
@@ -1217,7 +1217,7 @@ bool Game::handleFieldStructure(const ProximityPrompt& entityPrompt)
         mInteractionMessageTimer = 2.0f;
         return true;
     }
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return true;
+    if (!mInput.pressed(Action::Use)) return true;
     if (bed.dead)
     {
         mWorld.destroyEntity(e);
@@ -1259,7 +1259,7 @@ void Game::updateScavenging(float dtSeconds)
         markSeenBuildings();
     }
 
-    const float hours = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
+    const float hours = static_cast<float>(dtSeconds * hoursPerSecond());
     const int living = skillLevel(Skill::LivingOffTheLand);
     const std::uint32_t seed = mSaveManager.currentRunSeed();
 
@@ -1434,7 +1434,7 @@ void Game::renderScavengeMarks()
     const ScavengeMemoryRecord& memory = mSaveManager.scavengeMemory();
     const glm::ivec2 me = playerTile();
     const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
-    const float zoom = mCamera.zoom();
+    const float zoom = uiZoom();
     const float tw = static_cast<float>(std::max(1, mTileMap.tileWidth()));
     const float th = static_cast<float>(std::max(1, mTileMap.tileHeight()));
     const float reach = skillrules::kWorthSearchingTiles;
@@ -1447,7 +1447,7 @@ void Game::renderScavengeMarks()
         if (glm::length(d) > reach) continue;
         if (hasTile(memory.searched, piece.tile) || searchedThisRun(piece.tile)) continue;
         const glm::vec2 world((static_cast<float>(piece.tile.x) + 0.5f) * tw, (static_cast<float>(piece.tile.y) + 0.5f) * th);
-        const glm::vec2 at = glm::round(mCamera.worldToScreen(world) - glm::vec2(0.0f, 44.0f * zoom));
+        const glm::vec2 at = glm::round(uiAt(world) - glm::vec2(0.0f, 44.0f * zoom));
         const float px = std::max(1.0f, std::round(zoom));
         // A small diamond: three rows, pale, with a dark rim.
         const glm::vec4 rim(0.08f, 0.07f, 0.06f, 0.75f * pulse);

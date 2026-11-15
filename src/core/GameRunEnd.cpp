@@ -13,6 +13,7 @@ void Game::beginDeathState(const std::string& cause)
     mRunState = RunState::Dead;
     mDeathStateTimer = 0.0;
     mDeathCause = cause;
+    chooseDeathHint(); // before anything below moves the player or the night on
     mAudioManager.silenceLayers();
     mAudioManager.play(SoundId::BodyScream, 0.7f);
     mAudioManager.play(SoundId::DeathSting);

@@ -950,6 +950,113 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   reach the house and the calm (no dead within 20 tiles for 3 game hours)
   never holds, which is the rule working, not what the script tests.
 
+- 2026-11-15, P13: scripts start from the default settings and keys
+  whatever `settings.json` says, with teaching, the extra checkpoints and
+  the demo off and 24-minute days -> a script asks for each (`teach on`,
+  `autosave on`, `demo on`, `daylength N`). Every older script's shots and
+  the bot's table stay what they were.
+- 2026-11-15, P13: "once per save" for the teaching prompts and the death
+  hints -> recorded per save slot in `settings.json` (shown, and used), and
+  cleared when a New World is made in that slot. No save format change, and
+  it survives a restart.
+- 2026-11-15, P13: a key already bound elsewhere -> the two swap (the note
+  says so); Esc, Enter and F1 to F3 cannot be bound (they stay the menus'
+  and the dev keys). Esc while waiting for a key stops the wait.
+- 2026-11-15, P13: three save slots, picked with Left/Right on the title
+  (the slot shows under the menu); Settings opens on the tab it was left
+  on, and Up from the tabs is the last row (Reset keys).
+- 2026-11-15, P13: the pause menu is Resume, Save, Settings, Controls,
+  Stay here for good (from day 10), Save and quit to title, Quit to
+  desktop (asked once).
+- 2026-11-15, P13: "press once" -> the holds that were holds: grabbing to
+  push (E again lets go), hot-wiring, aiming a throw. Searching, boarding
+  and treating already ran on after one press. A toggle on E itself was
+  tried and dropped: every E near furniture became a grab.
+- 2026-11-15, P13: interface size 1.5x scales the bitmap font by 1.5, so
+  its pixels are uneven; accepted, since the phase asks for half steps.
+  The world keeps its own zoom; only the interface scales.
+- 2026-11-15, P13: the packaged build -> a CMake option
+  (`DEAD_PIXEL_PACKAGED`, read through `Version.h`): the dev keys (F1, F3,
+  K) and their Controls rows are hidden and saves go to
+  `%APPDATA%/DeadPixelSurvival` unless `portable.txt` is beside the exe.
+  `tools/package.py` builds it in `build-package` with 6 parallel compiles
+  (the default of Ninja ran the compiler out of memory here).
+- 2026-11-15, P13: aims keep no state but the bottles boiled since the aim
+  was chosen. One is chosen at each dawn (the first days' `planDay`) and
+  stays until the next even when met; "Done." shows for 5 s and takes 4
+  off depression once per aim kind per life.
+- 2026-11-15, P13: "the base" -> the home building, or within 14 tiles of
+  where the life started. Tonight's "Have a way out" is two doors in the
+  home or a car that runs parked at the base; "Stay quiet" is no loud noise
+  of yours in the last game hour; "Lights out" is nothing lit at home and
+  the flashlight off.
+- 2026-11-15, P13: the dawn card's line, most pressing first: a horde
+  tonight, the day's own line (day 4 is now "Nobody is coming."), the
+  first day without power, a season's first day, every tenth day, frost.
+  The lines are in `assets/data/day_cards.json`. A card that would run
+  into the objective panel (a long line at 2x) drops below it.
+- 2026-11-15, P13: the day-1 step is "Look around (WASD, E to use)", not
+  the phase's "(WASD to move, E to use)": the objective column cuts steps
+  at 30 characters and the longer one lost its end at 1x. The keys in it
+  follow the bindings.
+- 2026-11-15, P13: night 1's first caller is the lesson -> the nearest
+  Shambler of the first group, at 30 health or less. A rule change: the
+  bot's night 1 may differ from phase 12's.
+- 2026-11-15, P13: Space while held (struggling free) counts as the shove
+  learned: it is the same key and the prompt says it.
+- 2026-11-15, P13: death hints only when teaching is on, at most twice
+  each per save; the facts are thirst, an infection, night 1 at home with
+  a door unboarded, and held with no shove all life.
+- 2026-11-15, P13: the bot and the aims -> it builds a rain collector by
+  the build wheel (B, a click on the slice, a click on the tile) when the
+  aim is water and the pack holds the makings; it takes scrap metal,
+  batteries, candles and a winter coat from cupboards when the aim asks;
+  on a horde day it is home by 15:00. The other aims ride on what it
+  already does (boarding, searching, eating). `bot_aim.txt` checks the
+  collector.
+- 2026-11-15, P13: the icon -> a boarded door drawn in code at 32 px
+  (`tools/generate_icon.py`), 8x for 256 px; the window takes the PNG, the
+  exe the `.ico` through a resource script CMake fills in (with the
+  version).
+- 2026-11-15, P13, leftover 1: the run-start (legacy) card overlapped a
+  long objective step at 1280x720 -> it slides left of the objective
+  panel, or below it when there is no room (`legacy.txt`'s shot).
+- 2026-11-15, P13, leftover 2: the four levels, screen effects and shake
+  are on the settings screen and written to `settings.json` (`settings.txt`
+  checks a level saved and read back).
+- 2026-11-15, P13, leftover 3: the small things of P12 got their own
+  script, `mood_details.txt`, and the shots were looked at: long shadows
+  were too faint to see (alpha 0.16 -> 0.34); the curtain hung at the
+  wall tile's centre, off the window (now the wall's inner face); motes in
+  the beam followed the mouse while the beam follows the facing (now the
+  facing), and were dim (brighter, nearer the ground); flies, black dots,
+  vanished on asphalt (each now has a flickering pale wing above it). The
+  town clock reads as it was (10:15 in the shot). All still follow the screen-effects setting,
+  so no older shot changes.
+- 2026-11-15, P13, leftover 4: `boards.txt` gives nails, so the boards
+  really go up; it checks `expect door boarded 0`, then 3, then 3 again
+  after the resume.
+- 2026-11-15, P13, leftover 5: the Controls panel (F2) is two columns by
+  situation (moving, hands, fighting, home, looking), prints the
+  keys as bound and fits 1280x720; on a short interface (2x at 1080 lines)
+  it drops to text size 1 rather than run off the window.
+- 2026-11-15, P13, leftover 6: F1, F3 and K are dev keys: hidden (and
+  their rows gone from Controls) in the packaged build.
+- 2026-11-15, P13: the pack panel at 2x on a 1080-line window had more
+  detail lines than room; what does not fit above the footer is left off.
+- 2026-11-15, P13: a backup copy on every save -> the old file renamed to
+  the backup. Checkpoints, world memory and survivors now keep their last
+  good file, and copying it on each write made `fire_spread` fail its 12 ms
+  worst tick (12 to 17 ms). A rename leaves the same backup for less.
+- 2026-11-15, P13: a survivor's search written to disk at once -> kept in
+  memory until the next checkpoint (dawn, home, sleep, the pause menu, the
+  end of a life). Each search wrote world memory twice in one tick, about
+  2.5 ms a write and now and then 30 ms or more (the disk, a virus scan),
+  so `fire_spread` still failed after the rename (13 to 31 ms). The world
+  memory now moves with the checkpoint it is resumed from; a window closed
+  without saving loses their searches since, as it loses yours. Worst tick
+  in `fire_spread` 2.7 to 3.4 ms (phase 12: 7.5).
+
 ## Moved to "Later"
 
 - 2026-11-13, P01: medical and supply caches stay in code (with ids from
@@ -1041,6 +1148,14 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
     checked by numbers only (ranges, volumes, layer levels) and want a
     listening pass by a person.
 
+- 2026-11-15, P13: gamepad, languages (every string would move to a
+  table first) and Steam, as the phase lists.
+- 2026-11-15, P13: a clean Windows user profile was not available; the
+  package was checked from a fresh folder with PATH cut to System32 and
+  APPDATA pointed at an empty folder instead.
+- 2026-11-15, P13: the listen and throw prompts are built and fire, but
+  only push and shove are checked by a script (`first_run.txt`).
+
 ## Balance: needs a design change
 
 - 2026-11-13, P01: the soak baseline. After the bot's second pass it lives
@@ -1107,6 +1222,14 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
   in under eleven seconds. As the phase says; whether a car should hold
   longer against a crowd is phase 14's.
 
+- 2026-11-15, P13: the bot table moved on seeds 2, 5, 6 and 7 against
+  phase 12 (median 1.6 from 1.7, kills 240 from 278) and the cause was
+  not traced; the candidates are the bot's new aims (the rain collector),
+  night 1's weak first caller and the holds made single presses. Two of
+  ten lives ended at a survivor's hands (seed 2 Ruth, seed 6 Hector; in a
+  single-seed run, seed 1 Bram on day 3). For phase 14: trace the change,
+  and decide how often a neutral or hostile survivor should kill.
+
 ## Ideas, not built
 
 - 2026-11-15, P11: a horn, a Loud noise on purpose from the seat, to pull
@@ -1123,3 +1246,7 @@ Format: `- YYYY-MM-DD, P0N: what was open -> what was chosen. Why.`
 - 2026-11-15, P12: the dead's groans shift with the weather (hoarser in
   the cold, fewer in heavy rain), so the street's sound says the season
   too.
+- 2026-11-15, P13: the notebook keeps the aims met, a line a day ("Day 5:
+  the rain collector."), so a life's journal reads as a list of things done.
+- 2026-11-15, P13: a "safe to quit" mark on the HUD for a few seconds after
+  each checkpoint, so a player knows the dawn save happened.

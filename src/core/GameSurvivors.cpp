@@ -339,8 +339,10 @@ public:
         const int moved = takeUseful(box, stock, bestWeaponOf(stock));
         const Transform& t = g.mWorld.getComponent<Transform>(container);
         const glm::ivec2 tile = worldToTile(g.mTileMap, glm::vec2(t.x + 1.0f, t.y + 1.0f));
-        g.recordContainer(container);
-        g.markSearchedBySurvivor(tile);
+        // Kept in memory, written at the next checkpoint with the rest of
+        // their day: two writes in one tick cost a frame (phase 13).
+        g.recordContainer(container, false);
+        g.markSearchedBySurvivor(tile, false);
         g.makeNoise(tileCentre(g.mTileMap, tile), NoiseTier::Soft, 0.6f, SoundId::OpenCupboard, e);
         ai.carried.clear();
         ai.carried.emplace_back(moved, 0);
@@ -656,8 +658,8 @@ public:
         Inventory& box = g.mWorld.getComponent<Inventory>(best->entity);
         Inventory& stock = g.mWorld.getComponent<Inventory>(e);
         const int moved = takeUseful(box, stock, bestWeaponOf(stock));
-        g.recordContainer(best->entity);
-        g.markSearchedBySurvivor(best->tile);
+        g.recordContainer(best->entity, false);
+        g.markSearchedBySurvivor(best->tile, false);
         std::cout << "[Survivors] " << ai.name << " (far) emptied (" << best->tile.x << "," << best->tile.y << "): took "
                   << moved << "\n";
     }
@@ -1197,7 +1199,7 @@ std::vector<survivorrules::StockLine> Game::survivorStockLines(Entity survivor) 
     return lines;
 }
 
-void Game::markSearchedBySurvivor(const glm::ivec2& tile)
+void Game::markSearchedBySurvivor(const glm::ivec2& tile, bool write)
 {
     ScavengeMemoryRecord memory = mSaveManager.scavengeMemory();
     if (hasPair(memory.searched, tile)) return;
@@ -1210,7 +1212,7 @@ void Game::markSearchedBySurvivor(const glm::ivec2& tile)
         mDistrictStocked[static_cast<std::size_t>(district)] = std::max(0, mDistrictStocked[static_cast<std::size_t>(district)] - 1);
     }
     mSaveManager.setScavengeMemory(std::move(memory));
-    mSaveManager.saveWorldMemory();
+    if (write) mSaveManager.saveWorldMemory();
 }
 
 // ---------------------------------------------------------------------------
@@ -1297,7 +1299,7 @@ void Game::updateSurvivors(float dtSeconds)
         facing = glm::vec2(std::cos(a), std::sin(a));
     }
     const double hours = mGameHours;
-    const float gameHoursThisTick = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
+    const float gameHoursThisTick = static_cast<float>(dtSeconds * hoursPerSecond());
 
     std::vector<Entity> fallen;
     mWorld.forEach<SurvivorAI, Transform, Health>(
@@ -1916,7 +1918,7 @@ bool Game::talkToSurvivor()
             }
         }
         mProximityPrompt = empty ? "E: Bury " + ai.name + " (30 s)" : "E: Search " + ai.name + "'s body";
-        if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return false;
+        if (!mInput.pressed(Action::Use)) return false;
         if (empty) beginBurial(best);
         else openContainer(best);
         return true;
@@ -1924,7 +1926,7 @@ bool Game::talkToSurvivor()
     const bool hostile = !ai.companion && (ai.attitude == Attitude::Hostile || ai.angryDay == mCurrentDay);
     if (ai.state == SurvivorState::Flee || ai.state == SurvivorState::Attack) return false;
     mProximityPrompt = "E: Talk to " + ai.name;
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_E)) return false;
+    if (!mInput.pressed(Action::Use)) return false;
     if (hostile)
     {
         survivorSays(best, "hello_hostile");
@@ -2326,11 +2328,11 @@ void Game::handleTalkInput()
     }
     SurvivorAI& ai = mWorld.getComponent<SurvivorAI>(mTalk.who);
     ai.faceTo = playerWorldCenter() - centreOf(mWorld.getComponent<Transform>(mTalk.who));
-    const bool up = mInput.wasKeyPressed(SDL_SCANCODE_UP) || mInput.wasKeyPressed(SDL_SCANCODE_W);
-    const bool down = mInput.wasKeyPressed(SDL_SCANCODE_DOWN) || mInput.wasKeyPressed(SDL_SCANCODE_S);
-    const bool pick = mInput.wasKeyPressed(SDL_SCANCODE_E) || mInput.wasKeyPressed(SDL_SCANCODE_RETURN);
-    const bool shift = mInput.isKeyDown(SDL_SCANCODE_LSHIFT) || mInput.isKeyDown(SDL_SCANCODE_RSHIFT);
-    if (mInput.wasKeyPressed(SDL_SCANCODE_TAB))
+    const bool up = mInput.pressed(Action::UiUp) || mInput.pressed(Action::MoveUp);
+    const bool down = mInput.pressed(Action::UiDown) || mInput.pressed(Action::MoveDown);
+    const bool pick = mInput.pressed(Action::Use) || mInput.pressed(Action::UiConfirm);
+    const bool shift = mInput.down(Action::UiStack);
+    if (mInput.pressed(Action::Pack))
     {
         if (mTalk.view != TalkState::View::Talk) mTalk.view = TalkState::View::Talk;
         else closeTalk();
@@ -2344,15 +2346,13 @@ void Game::handleTalkInput()
         if (up) mTalk.cursor = (mTalk.cursor + n - 1) % n;
         if (down) mTalk.cursor = (mTalk.cursor + 1) % n;
         mTalk.cursor = std::clamp(mTalk.cursor, 0, n - 1);
-        static constexpr SDL_Scancode kNumbers[5] = {SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_3, SDL_SCANCODE_4, SDL_SCANCODE_5};
-        for (int i = 0; i < std::min(n, 5); ++i)
+        // A choice by its number (the number row: fixed, whatever the belt is bound to).
+        const int digit = mInput.digitPressed();
+        if (digit >= 1 && digit <= std::min(n, 5))
         {
-            if (mInput.wasKeyPressed(kNumbers[i]))
-            {
-                mTalk.cursor = i;
-                talkChoose(i);
-                return;
-            }
+            mTalk.cursor = digit - 1;
+            talkChoose(digit - 1);
+            return;
         }
         if (pick) talkChoose(mTalk.cursor);
         return;
@@ -2400,8 +2400,8 @@ void Game::handleTalkInput()
     {
         if (theirs.slots[static_cast<std::size_t>(i)].count > 0 && spare[static_cast<std::size_t>(i)] > 0) theirRows.push_back(i);
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_A) || mInput.wasKeyPressed(SDL_SCANCODE_LEFT)) mTalk.packSide = true;
-    if (mInput.wasKeyPressed(SDL_SCANCODE_D) || mInput.wasKeyPressed(SDL_SCANCODE_RIGHT)) mTalk.packSide = false;
+    if (mInput.pressed(Action::MoveLeft) || mInput.pressed(Action::UiLeft)) mTalk.packSide = true;
+    if (mInput.pressed(Action::MoveRight) || mInput.pressed(Action::UiRight)) mTalk.packSide = false;
     const int rows = mTalk.packSide ? storage::filledSlots(pack) : static_cast<int>(theirRows.size());
     int& cursor = mTalk.packSide ? mTalk.packCursor : mTalk.theirCursor;
     if (rows > 0)
@@ -2415,11 +2415,11 @@ void Game::handleTalkInput()
             const std::size_t s = static_cast<std::size_t>(slot);
             const int most = mTalk.packSide ? pack.slots[s].count : spare[s];
             int& count = mTalk.packSide ? mTalk.offer[s] : mTalk.ask[s];
-            if (mInput.wasKeyPressed(SDL_SCANCODE_E)) count = shift ? most : std::min(most, count + 1);
-            if (mInput.wasKeyPressed(SDL_SCANCODE_BACKSPACE)) count = shift ? 0 : std::max(0, count - 1);
+            if (mInput.pressed(Action::Use)) count = shift ? most : std::min(most, count + 1);
+            if (mInput.pressed(Action::UiErase)) count = shift ? 0 : std::max(0, count - 1);
         }
     }
-    if (mInput.wasKeyPressed(SDL_SCANCODE_RETURN)) tradeAgree();
+    if (mInput.pressed(Action::UiConfirm)) tradeAgree();
 }
 
 // ---------------------------------------------------------------------------
@@ -2585,7 +2585,7 @@ void Game::renderSurvivorSay()
     if (mRunState != RunState::Playing) return;
     const glm::vec2 player = playerWorldCenter();
     const float tileSize = static_cast<float>(std::max(1, mTileMap.tileWidth()));
-    const float zoom = mCamera.zoom();
+    const float zoom = uiZoom();
     mWorld.forEach<SurvivorAI, Transform>(
         [&](Entity, SurvivorAI& ai, Transform& t)
         {
@@ -2595,7 +2595,7 @@ void Game::renderSurvivorSay()
             const glm::ivec2 tile = worldToTile(mTileMap, centre);
             if (mStructureView.isHiddenAt(tile.x, tile.y)) return;
             const float alpha = std::min(1.0f, ai.sayTimer / 0.6f);
-            const glm::vec2 screen = mCamera.worldToScreen(centre);
+            const glm::vec2 screen = uiAt(centre);
             const glm::vec2 pos(std::round(screen.x), std::round(screen.y - 70.0f * zoom - 14.0f));
             mFont.drawText(mSpriteBatch, pos + glm::vec2(1.0f, 1.0f), ai.say, glm::vec4(0.0f, 0.0f, 0.0f, 0.75f * alpha), 1.0f, TextAlign::Center);
             mFont.drawText(mSpriteBatch, pos, ai.say, glm::vec4(kPanelInk.r, kPanelInk.g, kPanelInk.b, alpha), 1.0f, TextAlign::Center);

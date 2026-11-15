@@ -211,6 +211,7 @@ std::string Game::pushFurniture(const glm::ivec2& tile, const glm::ivec2& dir, b
     makeNoise(tileCentre(mTileMap, target), heavy ? NoiseTier::Medium : NoiseTier::Soft, 0.8f,
               heavy ? SoundId::DragHeavy : SoundId::DragLight, mPlayerEntity);
     noteDoorwayBlocked(target);
+    if (chargeStamina) taught("push"); // the player's own push (phase 13's teaching)
     return {};
 }
 
@@ -918,7 +919,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
         if (worn) prompt += "   R: Repair";
         mProximityPrompt = prompt;
 
-        if (mInput.wasKeyPressed(SDL_SCANCODE_R))
+        if (mInput.pressed(Action::Board))
         {
             if (s.type == StructureType::RainCollector)
             {
@@ -963,7 +964,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
             }
         }
         // A burning fire: X feeds it, E cooks on it (phase 6).
-        if (s.type == StructureType::Campfire && s.lit && mInput.wasKeyPressed(SDL_SCANCODE_X))
+        if (s.type == StructureType::Campfire && s.lit && mInput.pressed(Action::Pry))
         {
             if (InventorySystem::countItem(*inv, mItems.woodPlanks) < 2)
             {
@@ -979,7 +980,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
             }
             return true;
         }
-        if (s.type == StructureType::Campfire && s.lit && mInput.wasKeyPressed(SDL_SCANCODE_E))
+        if (s.type == StructureType::Campfire && s.lit && mInput.pressed(Action::Use))
         {
             mShowCrafting = true;
             mShowInventory = false;
@@ -987,7 +988,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
             mCraftingRecipeCursor = 0;
             return true;
         }
-        if (mInput.wasKeyPressed(SDL_SCANCODE_X) && s.type == StructureType::Light && !s.lit)
+        if (mInput.pressed(Action::Pry) && s.type == StructureType::Light && !s.lit)
         {
             if (s.burnHours > 0.5f) InventorySystem::addItem(*inv, mItemDatabase, s.lantern ? mItems.canLantern : mItems.candle, 1);
             mWorld.destroyEntity(entityPrompt.entity);
@@ -995,7 +996,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
             mInteractionMessageTimer = 2.0f;
             return true;
         }
-        if (!mInput.wasKeyPressed(SDL_SCANCODE_E))
+        if (!mInput.pressed(Action::Use))
         {
             return s.type != StructureType::StorageCrate && s.type != StructureType::Bedroll;
         }
@@ -1158,7 +1159,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
     if (movable || info.scrapWithCrowbar) prompt += "X: Break up";
     mProximityPrompt = prompt;
 
-    if (canClimb && mInput.wasKeyPressed(SDL_SCANCODE_E))
+    if (canClimb && mInput.pressed(Action::Use))
     {
         mBaseAction = BaseAction{};
         mBaseAction.kind = BaseAction::Kind::Climb;
@@ -1169,7 +1170,7 @@ bool Game::handleBaseInteraction(const ProximityPrompt& entityPrompt)
         makeNoise(here, NoiseTier::Soft, 0.6f, SoundId::BodyClimb, mPlayerEntity);
         return true;
     }
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_X))
+    if (!mInput.pressed(Action::Pry))
     {
         return false;
     }
@@ -1227,8 +1228,8 @@ void Game::updateBaseActions(float dtSeconds)
         return;
     }
     const glm::vec2 here = playerWorldCenter();
-    const bool walking = mInput.isKeyDown(SDL_SCANCODE_W) || mInput.isKeyDown(SDL_SCANCODE_A) ||
-                         mInput.isKeyDown(SDL_SCANCODE_S) || mInput.isKeyDown(SDL_SCANCODE_D);
+    const bool walking = mInput.down(Action::MoveUp) || mInput.down(Action::MoveLeft) ||
+                         mInput.down(Action::MoveDown) || mInput.down(Action::MoveRight);
     const float hp = mWorld.hasComponent<Health>(mPlayerEntity) ? mWorld.getComponent<Health>(mPlayerEntity).current : 0.0f;
     Velocity* velocity = mWorld.hasComponent<Velocity>(mPlayerEntity) ? &mWorld.getComponent<Velocity>(mPlayerEntity) : nullptr;
     const auto holdStill = [&]()
@@ -1242,7 +1243,7 @@ void Game::updateBaseActions(float dtSeconds)
 
     // The build wheel: B opens it at the cursor; a click picks a station.
     const bool panels = mShowCrafting || mContainerOpen || mTalk.open || mShowInventory || mShowWorldMap || mShowNotebook;
-    if (mInput.wasKeyPressed(SDL_SCANCODE_B) && !panels)
+    if (mInput.pressed(Action::Build) && !panels)
     {
         if (mBuildWheelOpen || mBuildChoice >= 0)
         {
@@ -1252,15 +1253,15 @@ void Game::updateBaseActions(float dtSeconds)
         else
         {
             mBuildWheelOpen = true;
-            mBuildWheelCentre = glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+            mBuildWheelCentre = uiMouse();
         }
     }
     if (mBuildWheelOpen)
     {
-        if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+        if (mInput.pressed(Action::UiClick))
         {
             // The entry nearest the cursor, if it is near one.
-            const glm::vec2 mouse = glm::vec2(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+            const glm::vec2 mouse = uiMouse();
             int pick = -1;
             float bestDist = 80.0f;
             for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
@@ -1276,7 +1277,7 @@ void Game::updateBaseActions(float dtSeconds)
             mBuildWheelOpen = false;
             mBuildChoice = pick;
         }
-        else if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT))
+        else if (mInput.pressed(Action::UiAltClick))
         {
             mBuildWheelOpen = false;
         }
@@ -1292,11 +1293,11 @@ void Game::updateBaseActions(float dtSeconds)
         const float reach = glm::length(glm::vec2(mBuildGhostTile - me));
         mBuildGhostValid = reach <= BuildSystem::kReachTiles + 0.5f && mBuildGhostTile != me &&
                            BuildSystem::placeable(mTileMap, mBuildGhostTile, recipe.type, occupiedTiles());
-        if (mInput.wasMouseButtonPressed(SDL_BUTTON_RIGHT))
+        if (mInput.pressed(Action::UiAltClick))
         {
             mBuildChoice = -1;
         }
-        else if (mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+        else if (mInput.pressed(Action::UiClick))
         {
             std::string missing;
             if (!mBuildGhostValid)
@@ -1317,8 +1318,14 @@ void Game::updateBaseActions(float dtSeconds)
         }
     }
 
-    // Grabbing a piece: E held a moment beside something movable.
-    if (mInput.isKeyDown(SDL_SCANCODE_E) && (mBaseAction.kind == BaseAction::Kind::None || mBaseAction.kind == BaseAction::Kind::Grab))
+    // Grabbing a piece: E held a moment beside something movable. Press
+    // once (phase 13): once it is held, it stays held until E again.
+    bool useHeld = mInput.down(Action::Use);
+    if (mSettings.pressOnce && mBaseAction.kind == BaseAction::Kind::Grab && mBaseAction.holdTimer > 0.6f)
+    {
+        useHeld = !mInput.pressed(Action::Use);
+    }
+    if (useHeld && (mBaseAction.kind == BaseAction::Kind::None || mBaseAction.kind == BaseAction::Kind::Grab))
     {
         mBaseAction.holdTimer += dtSeconds;
         if (mBaseAction.kind == BaseAction::Kind::None && mBaseAction.holdTimer >= furnitureuse::kHoldToGrabSeconds)
@@ -1364,7 +1371,8 @@ void Game::updateBaseActions(float dtSeconds)
             mBaseAction = BaseAction{};
             return;
         }
-        mProximityPrompt = mBaseAction.label + "   walk into it to push   let go of E to stop";
+        mProximityPrompt = mBaseAction.label + (mSettings.pressOnce ? "   walk into it to push   E to let go"
+                                                                    : "   walk into it to push   let go of E to stop");
         if (velocity == nullptr || (velocity->dx == 0.0f && velocity->dy == 0.0f)) return;
         // Walking into it: it slides away from you, along the grid.
         const glm::vec2 toPiece = tileCentre(mTileMap, piece->tile) - here;
@@ -1553,7 +1561,7 @@ void Game::updateBaseActions(float dtSeconds)
 
 void Game::updateStructures(float dtSeconds)
 {
-    const float hours = static_cast<float>(dtSeconds * kGameHoursPerRealSecond);
+    const float hours = static_cast<float>(dtSeconds * hoursPerSecond());
     // The weather, as the rules read it (phase 7): collectors fill in rain
     // (half in snow) and freeze below 0 C; rain and snow put fires out.
     const WeatherCondition weather = mWeatherState.condition;
@@ -1724,7 +1732,7 @@ void Game::updateTraps(float dtSeconds)
     if (mPlayerEntity != kInvalidEntity && mWorld.hasComponent<Health>(mPlayerEntity))
     {
         const glm::ivec2 me = playerTile();
-        const bool crouched = mInput.isKeyDown(SDL_SCANCODE_C) || mInput.isKeyDown(SDL_SCANCODE_LCTRL);
+        const bool crouched = mInput.down(Action::Crouch);
         static glm::ivec2 lastHurtTile(-1);
         bool onSpikes = false;
         for (const Trap& trap : traps)

@@ -1,0 +1,104 @@
+# Life after day 3 (phase 13): the standing aim, chosen at each dawn from
+# the world's facts. Day 4 with no rain collector: "Water that refills";
+# building one finishes it, and the next dawn brings the next aim; a horde
+# day with the house closed up: "Tonight". Four aims shot at 1x and 2x (the
+# panel must fit the top-right), and the day length: 48 minutes a day runs
+# the clock at half speed.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/aims.txt --hidden --world-seed 1234 --shots shots/aims
+
+newrun
+god on
+slay 40
+waits 1
+aim
+expect aim none
+# Day 4: the first days' plans are over.
+day 4
+hours 8
+waits 1
+aim
+expect aim water
+expect daycard Nobody is coming
+shot 01_aim_water_1x
+screen 1920 1080
+uisize 2
+waits 0.3
+shot 02_aim_water_2x
+uisize 1
+screen 1280 720
+waits 0.3
+
+# A rain collector built just outside the door: the aim is met.
+goto home
+goto door outside
+give Hammer
+give Scrap Metal 2
+give Wood Planks 1
+build rain
+waits 14
+aim
+expect aim water
+expect aimdone
+shot 03_aim_water_done
+
+# The next dawn: something else (the house, open on every side).
+day 5
+hours 5.8
+waits 15
+aim
+expect aim house
+shot 04_aim_house_1x
+screen 1920 1080
+uisize 2
+waits 0.3
+shot 05_aim_house_2x
+uisize 1
+screen 1280 720
+waits 0.3
+
+# A horde day with the house closed up: Tonight, at its dawn.
+home sealed
+day horde next
+hours 5.8
+waits 15
+aim
+expect aim tonight
+expect daycard far side of town
+shot 06_aim_tonight_1x
+screen 1920 1080
+uisize 2
+waits 0.3
+shot 07_aim_tonight_2x
+uisize 1
+screen 1280 720
+waits 0.3
+
+# Its next dawn: whatever comes after.
+slay 40
+hours 23.9
+waits 7
+hours 5.8
+waits 15
+aim
+expect aim tonight no
+shot 08_aim_next_1x
+screen 1920 1080
+uisize 2
+waits 0.3
+shot 09_aim_next_2x
+uisize 1
+screen 1280 720
+waits 0.3
+
+# Day length: 24 minutes a day is a game minute a second; 48 is half that.
+hours 8
+waits 60
+expect hour 8.95 9.05
+daylength 48
+hours 8
+waits 60
+expect hour 8.45 8.55
+daylength 24
+expect playing
+quit

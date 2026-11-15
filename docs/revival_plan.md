@@ -1699,6 +1699,100 @@ here is of what the mixer decided (which file, how loud, muffled or not,
 which layers), never of how it sounds; levels and the synthesis want a
 person with speakers.
 
+## Overhaul phase 13: run flow, settings and the demo (2026-11-15)
+
+**Life after day 3.** From day 4 the objective panel shows one standing
+aim, chosen at each dawn from the world's facts (`world/Aims.*`, pure
+rules; `GameAims.cpp` gathers the facts): Water that refills, A house that
+holds, Tonight (a horde due), The power is going, Food for a week,
+Somewhere to work, Before the cold, the way out (P09's next step), Someone
+out there (the nearest lead not yet visited, with a compass line), and
+Hold on (the day and the season) when nothing presses. Each has up to
+three steps that tick themselves off; met, it says "Done." for five
+seconds and takes 4 off depression, once per aim a life. The aim holds
+until the next dawn. The dawn card's line comes from
+`assets/data/day_cards.json` (a horde first, then the day's own line, the
+first day without power, a season's first day, every tenth day, frost).
+
+**Teaching through play.** A first life's day 1 opens with "Look around
+(WASD, E to use)", done after ten tiles on foot and one E. The push,
+shove, listen and throw prompts come once each, the first time the verb
+can be used, in amber above the prompt line, and never again once used;
+night 1's first caller is a weak Shambler (30 health) so the shove prompt
+meets one that falls. A death in the first days may end with one line of
+advice from `assets/data/death_hints.json` (thirst, an infection, night 1
+with a door unboarded, held without shoving), each at most twice a save.
+All of it is off with the Teaching setting.
+
+**Title, settings, keys.** The title: Continue, New Life, New World (with
+its day length: 24, 36 or 48 minutes), The Town, Settings, Controls,
+Credits, Quit; three save slots on Left/Right; the version bottom-right.
+Settings in four tabs (Sound, Screen, Game, Keys) are written to
+`settings.json`, atomically. Every key goes through an action layer
+(`core/Bindings.*`, `Input`): no `SDL_SCANCODE_` outside `Input.cpp` and
+the binding table; two keys per action; a key in use swaps; prompts, the
+HUD and the Controls panel print the keys as bound. Interface size 1x,
+1.5x or 2x scales every panel and the HUD, by window height by default.
+Pause: Resume, Save, Settings, Controls, Stay here for good, Save and quit
+to title, Quit to desktop. Checkpoints at dawn, on coming home and on
+quitting to the title. Critical conditions carry a "!"; press once for the
+holds; the notebook's Journal tab ends with the last ten messages.
+
+**The demo build.** `tools/package.py` builds the packaged game (dev keys
+hidden, saves in `%APPDATA%/DeadPixelSurvival` unless `portable.txt`),
+collects the DLLs it imports and zips it under `dist/`; `--demo` adds
+`demo.txt`: at dawn on day 7 a card ("This is the end of the demo's week.
+The town will remember <name>.") and the retirement path. The exe and the
+window carry a boarded-door icon (`tools/generate_icon.py`). CI packages
+both as an artifact. `--max-ticks N` now ends a run without a script too.
+
+The six leftovers: the run-start card no longer covers a long objective
+step at 1280x720; the sound and screen-effects settings are on the screen
+and saved; the small things of P12 have `mood_details.txt` (and three were
+fixed after looking: faint shadows, flies lost on asphalt, a curtain off its window, motes off
+the beam); `boards.txt` really nails its boards and checks them; the
+Controls panel is two columns by situation and fits 1280x720 (and 2x at
+1080 lines, at text size 1); F1, F3 and K are dev keys only.
+
+Harness: `settings`, `first_run`, `aims`, `mood_details`, `bot_aim`; new
+commands in the README. Tests: `test_aims`, `test_settings`,
+`test_bindings`, and the day length's rate helpers (29 new; 378 in all).
+
+Tick time (final build, timed scripts run alone; budget 4 ms average, 12
+ms worst): `perf` 300 of the dead 1.70 / 3.73 ms; 20 survivors and 100 of
+the dead 0.98 / 2.25; a car into 300 1.44 / 3.11; `fire_spread` 1.74 /
+3.22; `gate` 1.50 / 2.25. All 62 harness scripts pass.
+
+Packaged and demo zips (`dist/`, ignored by git) were unpacked into a
+clean folder with only System32 on PATH and an empty APPDATA: both start,
+write saves under `%APPDATA%/DeadPixelSurvival`, hide the dev keys, and
+the demo ends on day 7 with its card. Not tried on a clean Windows user
+profile. The CI package step has not run on GitHub.
+
+Bot table (`tools/soak.py --seeds 1-10`, default mode, 10 of 10 clean):
+
+| Seed | Days | End | Kills | Food | Drink | Searched | Boards | Phase 12 days |
+|---:|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | 1.8 | Overrun, day 3 | 30 | 9 | 8 | 50 | 3 | 1.8 |
+| 2 | 1.2 | Killed by Ruth, day 2 | 37 | 11 | 2 | 97 | 0 | 2.7 |
+| 3 | 2.4 | Overrun, day 3 | 21 | 21 | 10 | 90 | 0 | 2.4 |
+| 4 | 0.6 | Killed by zombies, day 1 | 9 | 7 | 4 | 15 | 0 | 0.6 |
+| 5 | 1.6 | Killed by zombies, day 2 | 21 | 9 | 10 | 32 | 0 | 0.9 |
+| 6 | 1.0 | Killed by Hector, day 2 | 33 | 7 | 1 | 55 | 3 | 0.9 |
+| 7 | 2.0 | Overrun, day 3 | 30 | 6 | 7 | 66 | 3 | 3.2 |
+| 8 | 2.8 | Overrun, day 4 | 22 | 2 | 3 | 71 | 0 | 2.8 |
+| 9 | 1.7 | Overrun, day 3 | 33 | 6 | 7 | 53 | 0 | 1.7 |
+| 10 | 0.5 | Killed by zombies, day 1 | 4 | 6 | 4 | 19 | 0 | 0.5 |
+
+Median 1.6 days, mean 1.6 (phase 12: 1.7, 1.8). Kills 240 (278), searched
+548 (522), boards 9 (11); 2 of 10 died at home on night 1 (3). Six seeds
+are identical to phase 12; seeds 2, 5, 6 and 7 differ. The cause was not
+traced. This phase changed three things that reach a bot's first days:
+the bot now works toward aims (it builds a rain collector), night 1's
+first caller is a weak Shambler, and some holds became single presses.
+Two lives ended at a survivor's hands (Ruth, Hector). Left for phase 14.
+
+
 ## Next: the content overhaul (planned 2026-11-13)
 
 ## Next: the content overhaul (planned 2026-11-13)
@@ -1917,3 +2011,12 @@ Candidates for the next stretch, roughly in order. None is started.
   things (shadows, flies, motes, curtains, the town clock), off under the
   harness unless `fx on`; harness `soundscape`, `mood`, `--mute`; the bot
   table identical to phase 11 on every seed.
+- 2026-11-15: Overhaul phase 13, run flow: standing aims from day 4 and
+  dawn cards; teaching prompts and death hints for a first life; a title
+  with three save slots and day length; a settings screen (Sound, Screen,
+  Game, Keys) saved to `settings.json`; every key rebindable through an
+  action layer; interface size 1x to 2x; a packaged build and a demo that
+  ends on day 7 (`tools/package.py`), with an icon; the six leftovers of
+  P09 to P12 done; harness `settings`, `first_run`, `aims`,
+  `mood_details`, `bot_aim`; bot median 1.6 days, mean 1.6 (phase 12:
+  1.7, 1.8), four seeds changed, cause not traced.

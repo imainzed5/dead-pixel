@@ -120,8 +120,42 @@ done, what is next, and known issues.
 | E at a vehicle | With a Fuel Can selected: refuel (6 seconds). With a Toolbox selected: mend it (60 seconds, a Scrap Metal; twice the work by a garage). At the back: open the trunk or the truck bed; at a pickup's tailgate, load a piece of furniture pushed up to it, or unload it (backed up to an open door, it goes in across the doorway). At a parked car with a blinking alarm light, with nothing else in reach: set it off |
 | M / J | Town map / notebook with tabs (Left/Right): Leads, The way out, People, Before you (Up/Down, Enter: read a journal), Know-how, Journal (this life's, written only while you carry a Notebook) |
 | +/- | Minimap zoom |
-| Esc | Pause |
-| F1 / F2 / F3 | Noise debug / controls / district infection debug |
+| Esc | Pause: Resume, Save, Settings, Controls, Stay here for good (from day 10), Save and quit to title, Quit to desktop |
+| F2 | Controls: what each key does where you stand (on foot, in a fight, at home, in a car), as bound |
+| F1 / F3 / K | Dev builds only: noise debug / district infection debug / despawn the test entity (hidden in the packaged game) |
+
+Every action key can be rebound under Settings > Keys (Enter, then the new
+key; a key already in use swaps with it; Esc, Enter and F1 to F3 stay the
+menus'). Prompts and the Controls panel print the keys as bound.
+
+## Title, settings and saving
+
+The title screen: Continue, New Life (same world), New World, The Town,
+Settings, Controls, Credits, Quit; Left/Right picks the save slot (three,
+each its own town); the version shows bottom-right. Settings has four tabs:
+
+- **Sound:** master, effects, ambience and music levels.
+- **Screen:** fullscreen (off, borderless, exclusive), resolution, VSync,
+  interface size (1x, 1.5x, 2x; by default from the window's height),
+  screen effects (full, reduced, off), screen shake.
+- **Game:** pause when the window loses focus, crouch and run as hold or
+  toggle, teaching prompts, hold to act or press once (push, hot-wire,
+  aim a throw), and this world's day length (24, 36 or 48 real minutes a
+  game day, chosen on the New World screen).
+- **Keys:** every action, two keys each, and Reset keys.
+
+They are kept in `settings.json` beside the saves (`save/` from a source
+build; `%APPDATA%\DeadPixelSurvival` in the packaged game unless a
+`portable.txt` sits beside the exe). The game saves at dawn, on coming home
+(at most every two minutes) and on quitting to the title.
+
+From day 4 the objective panel shows one standing aim, chosen each dawn
+from what the base lacks (water that refills, a house that holds, tonight's
+horde, the power, food, somewhere to work, the cold, the way out, someone
+out there); a dawn card names the day. A first life is taught by doing:
+day 1 opens with "Look around (WASD, E to use)", and the push, shove,
+listen and throw prompts come once each, when first needed, never again
+once used. A death early on may end with a hint (twice per save at most).
 
 ## Build and run (Windows, MSYS2 UCRT64)
 
@@ -143,6 +177,24 @@ cmake --build build
 
 The executable needs the UCRT64 `bin` directory on `PATH` for its DLLs.
 Without it, the game exits at once.
+
+### The packaged game and the demo
+
+```powershell
+$env:Path = 'C:\msys64\ucrt64\bin;' + $env:Path
+python tools/package.py           # dist\DeadPixelSurvival-<version>.zip
+python tools/package.py --demo    # dist\DeadPixelSurvival-<version>-demo.zip
+```
+
+It builds Release in `build-package` with `DEAD_PIXEL_PACKAGED` (the dev
+keys F1, F3 and K are hidden; saves and settings go to
+`%APPDATA%\DeadPixelSurvival` unless a `portable.txt` sits beside the exe),
+then copies the exe, `assets/`, every DLL it needs (found by walking its
+imports, so it runs without MSYS2), a README and the license into a folder
+under `dist/` and zips it. The exe and the window carry the boarded-door
+icon. The demo adds a `demo.txt` (the same as `--demo`): a life ends at dawn
+on day 7 with a card, then the retirement screen. `--jobs N` sets the
+parallel compiles (6 by default). Nothing is uploaded anywhere.
 
 ## Tests
 
@@ -359,6 +411,20 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
   N|none`, `expect duck below V|none`, `expect listening [no]`, `expect fx
   neutral|active` (the mood pass runs or not), `expect idle
   low|cold|knee|none` (the idle the character falls into).
+- **Run flow (phase 13):** scripts start from the default settings and
+  keys, with teaching, the extra checkpoints and the demo off and 24-minute
+  days, whatever `settings.json` says. `screen W H` (the window's pixels,
+  and the shots'), `uisize auto|1|1.5|2`, `settings reload|save|reset|open|
+  close` and `settings NAME VALUE` (levels 0-10; teaching, crouch, run,
+  pressonce, autopause on|off), `teach on|off`, `autosave on|off`, `demo
+  on|off`, `daylength 24|36|48`, `day horde [next]` (the first horde day
+  from 4, or after today), `home sealed`, `aim [choose]`, `push any`,
+  `corpses age S`, `goto clock`. Checks: `expect aim KEY|none [no]`,
+  `expect aimdone [no]`, `expect binding ACTION KEY`, `expect teach
+  ID|none`, `expect taught|seen ID [no]`, `expect step TEXT [done|open]`,
+  `expect nostep TEXT`, `expect hint TEXT|none`, `expect retired`, `expect
+  daycard TEXT`, `expect hour LO HI`, `expect uiscale X`, `expect settings
+  open|closed`, `expect note TEXT`, `expect level NAME N`.
 - **Checks and output:**
   - `zombies` prints the walking dead, bodies and kills; `doors` prints
     closed, open, broken and boarded doors;
@@ -449,6 +515,11 @@ next one. A script prints `FAIL` lines when an expectation does not hold.
 | `fire_spread` | A molotov on grass in a heatwave, wind east: further east than west in five game minutes, out within forty in heavy rain; a house lit inside is gutted and stays gutted in the next life; 300 of the dead and 60 tiles burning within the tick budget |
 | `soundscape` | From the mixer's log: birds by day stop within 2 s of one of the dead 8 tiles off; footsteps of the ground; rain on the roof indoors; a door bang two buildings away muffled, and plain while listening at the door; your own shot rings the ears and ducks the rest for 3 s; a pistol 20 tiles off is its far tail; six calm hours indoors: no music in Hopeless, one pad once in Grim Human |
 | `mood` | With screen effects on: neutral, panic 80, sleep debt 90, depression 90, cold and held each change the picture and the idle (shoulders down, a shiver, a hand on the knee); the HUD stays sharp; off again, the plain picture |
+| `mood_details` | The small things, each in a shot: long shadows morning and evening (none at noon), flies over a day-old body, a curtain lifting in the wind at a broken window, dust in a lamp's light and in the flashlight's beam, the town clock |
+| `settings` | The title, the settings screen, Shove rebound to F (swapping with Use item), Enter refused, the Controls panel showing F, the file read back as at a restart, a sound level saved; at 1920x1080 and 2x the title, settings, Controls, HUD, pack, body, make, notebook and pause |
+| `first_run` | A fresh world: "Look around" leads day 1 and checks itself off; the push and shove prompts come once and never after use; the second life gets none |
+| `aims` | Day 4 with no collector: "Water that refills"; a collector built finishes it, the next dawn brings "A house that holds"; a horde day with the house closed up: "Tonight"; four aims at 1x and 2x; 48-minute days run the clock at half speed |
+| `bot_aim` | The bot, on day 4 with the makings, builds a rain collector by the build wheel |
 | `bot_week` | The bot plays a week with metrics (what `tools/soak.py` runs) |
 | `bare_world`, `world_tour`, `combat_feel` | The town without the interface, a tour of it, the weight of a blow |
 
@@ -471,6 +542,7 @@ and the image scripts also need Pillow.
 | `tools/charrig.py` | The character rig `generate_sprites.py` draws the player and the dead from: poses, facings, animation tables. `python tools/charrig.py out.png` writes a preview sheet |
 | `tools/scenery.py` | Outdoor scenery `generate_sprites.py` packs into the atlas: trees, bushes, rocks, street furniture and ground litter. `python tools/scenery.py out.png` writes a preview sheet |
 | `tools/generate_font_atlas.py` | The pixel font in `assets/fonts/` |
+| `tools/generate_icon.py` | The icon, a boarded door: `assets/icons/icon_32.png` (the window), `icon_256.png`, `dead_pixel.ico` (the exe) |
 | `tools/generate_sounds.py` | Every sound, loop and music pad in `assets/sounds/` (3 to 5 variants each, a muffled twin and a far tail where the table asks), synthesized in code, and the table `assets/data/sounds.json` |
 
 The game's content is data in `assets/data/`, edited by hand: `items.json`
@@ -504,9 +576,10 @@ kind of container holds) and `tuning.json` (numbers balance runs adjust).
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) builds with CMake and Ninja on
-Windows under MSYS2 UCRT64 and runs the unit tests. It runs on pushes and pull
-requests to `main`. Harness scripts need an OpenGL context, so they run
-locally, not in CI.
+Windows under MSYS2 UCRT64, runs the unit tests, and packages the game and
+the demo (`tools/package.py`), kept as the run's artifact. It runs on
+pushes and pull requests to `main`. Harness scripts need an OpenGL context,
+so they run locally, not in CI.
 
 ## License
 

@@ -72,8 +72,9 @@ int Game::run()
     using clock = std::chrono::steady_clock;
     auto previousTime = clock::now();
     double accumulator = 0.0;
+    long long ticks = 0; // --max-ticks without a script: a smoke test that quits on its own
 
-    while (mIsRunning)
+    while (mIsRunning && (mLaunchOptions.maxTicks <= 0 || ticks < mLaunchOptions.maxTicks))
     {
         const auto currentTime = clock::now();
         double frameSeconds = std::chrono::duration<double>(currentTime - previousTime).count();
@@ -93,6 +94,7 @@ int Game::run()
             update(static_cast<float>(kFixedTimeStepSeconds));
             mInput.consumeTransitions();
             accumulator -= kFixedTimeStepSeconds;
+            ++ticks;
         }
 
         mInterpolationAlpha = static_cast<float>(accumulator / kFixedTimeStepSeconds);
@@ -118,15 +120,17 @@ bool Game::initialize()
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-    mWindowWidth = kDefaultWindowWidth;
-    mWindowHeight = kDefaultWindowHeight;
+    loadSettings(); // the save root, the keys, the window (GameSettings.cpp)
+    const auto [startW, startH] = settings::resolutionSize(mSettings.resolution);
+    mPixelWidth = mHarness || startW <= 0 ? kDefaultWindowWidth : startW;
+    mPixelHeight = mHarness || startH <= 0 ? kDefaultWindowHeight : startH;
 
     mWindow = SDL_CreateWindow(
         "Dead Pixel Survival",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        mWindowWidth,
-        mWindowHeight,
+        mPixelWidth,
+        mPixelHeight,
         (mLaunchOptions.hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
 
     if (mWindow == nullptr)
@@ -152,7 +156,7 @@ bool Game::initialize()
     }
 
     // The harness steps as fast as possible; vsync would throttle --watch runs.
-    SDL_GL_SetSwapInterval(mHarness ? 0 : 1);
+    SDL_GL_SetSwapInterval(mHarness || !mSettings.vsync ? 0 : 1);
 
     glewExperimental = GL_TRUE;
     const GLenum glewResult = glewInit();
@@ -228,6 +232,7 @@ bool Game::initialize()
     mStructureSprites = StructureSprites::fromSheet(mSpriteSheet);
 
     setupSound(assetsRoot); // harness runs are silent (GameSound.cpp)
+    setWindowIcon(assetsRoot);
 
     if (!loadContent(assetsRoot))
     {
@@ -235,9 +240,8 @@ bool Game::initialize()
         return false;
     }
 
-    mProjection = buildProjection(mWindowWidth, mWindowHeight);
-    mCamera.setViewportSize(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
-    mCamera.clampToBounds(mTileMap.pixelSize());
+    applySettings(); // sound, keys, the interface's size, the projection
+    applyWindowMode();
     // Boot to title screen — do not start a run yet
     mRunState = RunState::TitleScreen;
     mTitleMenuSelection = 0;
@@ -319,6 +323,7 @@ void Game::syncPresentationSettingsFromSave()
     mTitleGameModeIndex = wrapIndex(indexFromSaveGameMode(settings.gameMode), static_cast<int>(kTitleGameModeNames.size()));
     mTitleModeIndex = wrapIndex(indexFromSaveThreatMode(settings.threatMode), static_cast<int>(kTitleModeNames.size()));
     mTitleToneIndex = wrapIndex(indexFromSaveTonePreset(settings.tonePreset), static_cast<int>(kTitleToneNames.size()));
+    mDayScale = daylength::scale(settings.dayMinutes); // the world's day length (phase 13)
 }
 
 void Game::syncPresentationSettingsToSave()
@@ -502,6 +507,23 @@ void Game::startNewRun()
     mShowNotebook = false;
     mNotebookPage = 0;
     resetJournal();
+    // Phase 13: teaching, the look around, the run-end's hint, the demo's
+    // week, the checkpoints at dawn and at home.
+    mLookAroundFirstLife = mSaveManager.runNumber() <= 1;
+    mLookAroundTiles = 0.0f;
+    mLookAroundUsed = false;
+    mTeachQueue.clear();
+    mTeachLine.clear();
+    mTeachId.clear();
+    mTeachTimer = 0.0f;
+    mDeathHint.clear();
+    mDemoEnded = false;
+    mDawnSavedDay = 0;
+    mWasAtHome = false;
+    mHomeSaveCooldown = 0.0f;
+    mLoudSince = -1.0;
+    mAimShown = aims::Aim{};
+    mAimRefresh = 0.0f;
 
     // Generate run-variant spawns against the stable layout (map is NOT regenerated)
     mMapGenerator.generateSpawns(mSpawnData, mSaveManager.currentRunSeed());
@@ -761,6 +783,8 @@ void Game::returnToTitleScreen()
 
     mShowControls = false;
     mShowTitleCredits = false;
+    mTitleView = TitleView::Main;
+    mQuitConfirm = false;
     mTitleMenuSelection = 0;
     mTitleConfirmNewWorld = false;
     mTitleConfirmNewWorldTimer = 0.0f;
@@ -810,131 +834,6 @@ void Game::shutdown()
     }
 
     mIsRunning = false;
-}
-
-void Game::processInputEvents()
-{
-    SDL_Event event;
-    while (SDL_PollEvent(&event) != 0)
-    {
-        mInput.processEvent(event);
-
-        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
-        {
-            mWindowWidth = event.window.data1;
-            mWindowHeight = event.window.data2;
-            mProjection = buildProjection(mWindowWidth, mWindowHeight);
-            mCamera.setViewportSize(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
-            mCamera.clampToBounds(mTileMap.pixelSize());
-        }
-    }
-
-    if (!mHarness)
-    {
-        mInput.refreshMouseState();
-    }
-
-    if (mInput.quitRequested())
-    {
-        mIsRunning = false;
-    }
-
-    // Mouse wheel zoom (frame-level: scroll is consumed here, not per tick)
-    if (const int scroll = mInput.consumeScroll(); scroll != 0)
-    {
-        const bool minimapZoomInput =
-            mRunState == RunState::Playing &&
-            !mShowWorldMap &&
-            (mInput.isKeyDown(SDL_SCANCODE_LCTRL) || mInput.isKeyDown(SDL_SCANCODE_RCTRL));
-
-        if (minimapZoomInput)
-        {
-            const float zoomFactor = 1.0f + static_cast<float>(scroll) * kMinimapZoomStep;
-            mMinimapZoom = std::clamp(mMinimapZoom * zoomFactor, kMinimapZoomMin, kMinimapZoomMax);
-        }
-        else
-        {
-            constexpr float kZoomStep = 0.15f;
-            const float currentZoom = mCamera.zoom();
-            const float newZoom = currentZoom * (1.0f + static_cast<float>(scroll) * kZoomStep);
-            const glm::vec2 mouseScreen(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
-            mCamera.zoomToward(newZoom, mouseScreen);
-            mCamera.clampToBounds(mTileMap.pixelSize());
-        }
-    }
-}
-
-void Game::handleEscapeKey()
-{
-    if (mInput.wasKeyPressed(SDL_SCANCODE_ESCAPE))
-    {
-        // While playing, Escape closes the topmost open panel; it only pauses
-        // when nothing is open. Panel handlers later in the tick see the same
-        // press, but their panels are already closed so it is a no-op.
-        if (mRunState == RunState::Playing)
-        {
-            if (mShowCrafting)
-            {
-                mShowCrafting = false;
-            }
-            else if (mContainerOpen)
-            {
-                mContainerOpen = false;
-                mOpenContainerEntity = kInvalidEntity;
-            }
-            else if (mTalk.open)
-            {
-                // Out of trade or give first, then the talk.
-                if (mTalk.view != TalkState::View::Talk) mTalk.view = TalkState::View::Talk;
-                else closeTalk();
-            }
-            else if (mBuildWheelOpen || mBuildChoice >= 0)
-            {
-                mBuildWheelOpen = false;
-                mBuildChoice = -1;
-            }
-            else if (mShowWorldMap)
-            {
-                mShowWorldMap = false;
-            }
-            else if (mShowNotebook)
-            {
-                mShowNotebook = false;
-            }
-            else if (mShowInventory && mBodyChoosing)
-            {
-                mBodyChoosing = false;
-            }
-            else if (mShowInventory)
-            {
-                mShowInventory = false;
-            }
-            else
-            {
-                mRunState = RunState::Paused;
-                mPauseSelection = 0;
-            }
-        }
-        else if (mRunState == RunState::Paused)
-        {
-            mRunState = RunState::Playing;
-        }
-        else if (mRunState == RunState::TitleScreen)
-        {
-            if (mShowTitleCredits)
-            {
-                mShowTitleCredits = false;
-            }
-            else if (mShowControls)
-            {
-                mShowControls = false;
-            }
-            else
-            {
-                mIsRunning = false;
-            }
-        }
-    }
 }
 
 void Game::snapshotPositions()

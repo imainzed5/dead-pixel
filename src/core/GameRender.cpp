@@ -10,13 +10,15 @@ using namespace gameshared;
 
 void Game::render()
 {
-    glViewport(0, 0, mWindowWidth, mWindowHeight);
+    // The world in the window's pixels; the interface in its own units
+    // (phase 13's interface size), scaled up by its projection.
+    glViewport(0, 0, mPixelWidth, mPixelHeight);
     glClearColor(0.08f, 0.11f, 0.14f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Screen shake: trauma squared, so small knocks barely show.
     {
-        const float amount = mShakeTrauma * mShakeTrauma * 7.0f;
+        const float amount = mShakeTrauma * mShakeTrauma * 7.0f * mShakeScale; // the setting (phase 13)
         mCamera.setShake(glm::vec2(std::sin(mShakeClock * 71.0f) * amount,
                                    std::cos(mShakeClock * 53.0f) * amount));
     }
@@ -27,6 +29,7 @@ void Game::render()
     setupLightingUniforms();
     buildHudState();
     const glm::vec2 viewport(static_cast<float>(mWindowWidth), static_cast<float>(mWindowHeight));
+    const glm::vec2 pixels(static_cast<float>(mPixelWidth), static_cast<float>(mPixelHeight));
     // The mood pass (phase 12): the world goes to a texture first when the
     // character's state shows on screen; the HUD is drawn after, crisp.
     const bool moodPass = beginPostFx();
@@ -80,7 +83,7 @@ void Game::render()
         if (burning > 0)
         {
             const float haze = std::min(0.45f, 0.06f * static_cast<float>(burning));
-            mSpriteBatch.draw(glm::vec2(0.0f), viewport, solidWhiteUv, glm::vec4(0.36f, 0.35f, 0.34f, haze));
+            mSpriteBatch.draw(glm::vec2(0.0f), pixels, solidWhiteUv, glm::vec4(0.36f, 0.35f, 0.34f, haze));
         }
     }
 
@@ -126,6 +129,7 @@ void Game::render()
     mShader.setInt("uLightCount", 0);
     mShader.setInt("uSpotEnabled", 0);
     mShader.setInt("uFogEnabled", 0);
+    mShader.setMat4("uProjection", buildProjection(mWindowWidth, mWindowHeight)); // interface units
 
     const auto uiLayer = [&](const auto& drawShapes, const auto& drawText)
     {
@@ -182,10 +186,6 @@ void Game::render()
             renderInventoryPanel();
             renderContainerOverlay();
             renderTalkPanel();
-            if (!mShowCrafting)
-            {
-                renderControlsPanel();
-            }
         },
         [&]
         {
@@ -194,11 +194,19 @@ void Game::render()
                 renderTextOverlays();
             }
             renderBuildWheel();
-            if (!mShowCrafting)
-            {
-                renderControlsOverlay();
-            }
         });
+
+    // Over everything: the Controls panel and the settings screen (phase 13).
+    if (mShowControls || mShowSettings)
+    {
+        uiLayer(
+            [&]
+            {
+                if (!mShowCrafting) renderControlsPanel();
+                renderSettingsShapes();
+            },
+            [] {});
+    }
 }
 
 void Game::renderMinimapOverlay()
@@ -1183,7 +1191,7 @@ void Game::renderTextOverlays()
                 options[static_cast<std::size_t>(i)], color, kTextScale, TextAlign::Center);
         }
         // Why staying is not offered yet, under the options.
-        if (options.size() > 5 && !mStayWhy.empty())
+        if (options.size() > 6 && !mStayWhy.empty())
         {
             mFont.drawText(mSpriteBatch,
                 glm::vec2(centerX, layout.optionsY + static_cast<float>(options.size()) * PauseLayout::kOptionH + 4.0f),
@@ -1414,9 +1422,9 @@ void Game::renderAttackArcOverlay()
 
         const glm::vec2 direction(std::cos(angle), std::sin(angle));
         const glm::vec2 arcPointWorld = playerCenter + direction * rangePixels;
-        const glm::vec2 arcPointScreen = mCamera.worldToScreen(arcPointWorld);
+        const glm::vec2 arcPointScreen = uiAt(arcPointWorld);
 
-        const float dotSize = 10.0f * mCamera.zoom();
+        const float dotSize = 10.0f * uiZoom();
         mSpriteBatch.draw(
             arcPointScreen - glm::vec2(dotSize * 0.5f, dotSize * 0.5f),
             glm::vec2(dotSize, dotSize),
@@ -1487,10 +1495,10 @@ void Game::renderNoiseDebugOverlay()
                 const glm::vec2 worldCenter(
                     static_cast<float>(tileX * tileWidth) + static_cast<float>(tileWidth) * 0.5f,
                     static_cast<float>(tileY * tileHeight) + static_cast<float>(tileHeight) * 0.5f);
-                const glm::vec2 screenCenter = mCamera.worldToScreen(worldCenter);
+                const glm::vec2 screenCenter = uiAt(worldCenter);
 
-                const float scaledW = static_cast<float>(tileWidth) * mCamera.zoom();
-                const float scaledH = static_cast<float>(tileHeight) * mCamera.zoom();
+                const float scaledW = static_cast<float>(tileWidth) * uiZoom();
+                const float scaledH = static_cast<float>(tileHeight) * uiZoom();
 
                 if (screenCenter.x + scaledW * 0.5f < 0.0f ||
                     screenCenter.y + scaledH * 0.5f < 0.0f ||

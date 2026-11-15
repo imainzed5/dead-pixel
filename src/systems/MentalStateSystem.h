@@ -34,6 +34,9 @@ public:
     void update(World& world, NoiseModel& noiseModel, Entity playerEntity, float dtSeconds,
                 double gameHours = 12.0, int currentDay = 1, const TileMap* tileMap = nullptr);
     void setInputs(const MindInputs& inputs) { mInputs = inputs; }
+    // Game seconds per real second (phase 13's day length): depression runs
+    // on game time, panic on real time.
+    void setGameScale(float scale) { mGameScale = scale; }
 
     // Returns true if the player should be force-retired this frame
     [[nodiscard]] bool shouldForceRetire() const { return mForceRetire; }
@@ -78,4 +81,5 @@ public:
 private:
     bool mForceRetire = false;
     MindInputs mInputs;
+    float mGameScale = 1.0f;
 };

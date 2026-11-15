@@ -163,7 +163,7 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
     if (alarmOn(door->tile))
     {
         mProximityPrompt = "Cans hang across the door   E: Take them down";
-        if (!mInput.wasKeyPressed(SDL_SCANCODE_E))
+        if (!mInput.pressed(Action::Use))
         {
             return false;
         }
@@ -204,12 +204,12 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
                            (boards < Doors::kMaxBoards ? "R: Add a board   " : "") + "X: Pry one off";
     }
 
-    if (state == DoorState::Closed && mInput.wasKeyPressed(SDL_SCANCODE_R))
+    if (state == DoorState::Closed && mInput.pressed(Action::Board))
     {
         startBoarding(door->tile, false);
         return true;
     }
-    if (state == DoorState::Closed && boards > 0 && mInput.wasKeyPressed(SDL_SCANCODE_X))
+    if (state == DoorState::Closed && boards > 0 && mInput.pressed(Action::Pry))
     {
         if (mDoors.removeBoard(mTileMap, door->tile))
         {
@@ -232,7 +232,7 @@ bool Game::handleDoorInteraction(const ProximityPrompt& entityPrompt)
         return true;
     }
 
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_E))
+    if (!mInput.pressed(Action::Use))
     {
         return false;
     }

@@ -147,16 +147,30 @@ void Game::buildHudState()
                                                                        : glm::vec4(0.92f, 0.80f, 0.34f, 1.0f);
             for (const firstdays::Step& step : plan.steps)
             {
-                hud.objectiveSteps.push_back(HudStep{step.text, step.done});
+                hud.objectiveSteps.push_back(HudStep{mInput.text(step.text), step.done});
             }
         }
-        // A horde comes tonight: the day says so.
-        if (hordeDay() && mGameHours >= 12.0)
+        // From day 4, one standing aim (phase 13).
+        const bool aimShowing = plan.title.empty() && mAimKind != aims::Kind::None && !mAimShown.title.empty();
+        if (aimShowing)
+        {
+            title = mAimShown.title;
+            detail = mAimShown.detail.empty() ? firstdays::clockLine(mGameHours, mCurrentDay) : mAimShown.detail;
+            color = firstdays::nightIndex(mCurrentDay, mGameHours) > 0 ? glm::vec4(0.70f, 0.66f, 0.95f, 1.0f)
+                                                                       : glm::vec4(0.92f, 0.80f, 0.34f, 1.0f);
+            for (const aims::Step& step : mAimShown.steps)
+            {
+                hud.objectiveSteps.push_back(HudStep{step.text, step.done});
+            }
+            if (mAimDoneTimer > 0.0f) hud.objectiveSteps.push_back(HudStep{"Done.", true, true});
+        }
+        // A horde comes tonight: the day says so (the Tonight aim says it already).
+        if (hordeDay() && mGameHours >= 12.0 && !(aimShowing && mAimKind == aims::Kind::Tonight))
         {
             hud.objectiveSteps.push_back(HudStep{"Tonight: stay quiet.", false});
         }
-        // Under the first days' plan, the way out is a line of its own.
-        if (campaignMode && !plan.title.empty() && !wayOut.empty())
+        // Under the first days' plan or an aim, the way out is a line of its own.
+        if (campaignMode && (!plan.title.empty() || (aimShowing && mAimKind != aims::Kind::WayOut)) && !wayOut.empty())
         {
             hud.objectiveSteps.push_back(HudStep{wayOut, false});
         }
@@ -191,7 +205,7 @@ void Game::buildHudState()
             detail = "Indoors, away from the dead";
             color = glm::vec4(0.70f, 0.66f, 0.95f, 1.0f);
         }
-        else if (plan.title.empty() && mRunStats.itemsLooted < 6)
+        else if (plan.title.empty() && !aimShowing && mRunStats.itemsLooted < 6)
         {
             title = "Search nearby buildings";
             detail = "Look for food, water and medicine before dusk";
@@ -257,12 +271,15 @@ void Game::buildHudState()
     // Messages.
     if (!mInteractionMessage.empty() && mInteractionMessageTimer > 0.0f)
     {
-        hud.message = mInteractionMessage;
+        hud.message = mInput.text(mInteractionMessage); // "E" is the key as bound (phase 13)
         hud.messageAlpha = std::min(1.0f, mInteractionMessageTimer / 0.5f);
     }
-    hud.prompt = mProximityPrompt;
+    hud.prompt = mInput.text(mProximityPrompt);
     // An ear to a closed door (phase 12): the verb teaches itself.
     if (mListening) hud.prompt = hud.prompt.empty() ? std::string("Listening.") : "Listening.   " + hud.prompt;
+    if (teachingOn()) hud.teach = mTeachLine;
+    hud.heldLine = "HELD - " + bindings::label(mInput.bindings(), Action::Shove);
+    for (char& c : hud.heldLine) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 
     // Inside a vehicle (phase 11): its fuel, condition and a word for the speed.
     if (mActiveVehicleEntity != kInvalidEntity && mWorld.hasComponent<Vehicle>(mActiveVehicleEntity))
@@ -308,18 +325,10 @@ void Game::buildHudState()
     // The dawn card fades in, holds, and fades out.
     if (mFirstDays.cardTimer > 0.0f)
     {
-        const firstdays::DayCard card = firstdays::dayCard(mCurrentDay);
+        // One line from assets/data/day_cards.json (phase 13), or "Day N" alone.
+        const firstdays::DayCard card = dawnCard();
         hud.dayCardTitle = card.title;
-        hud.dayCardLine = isHordeNight(mCurrentDay) ? std::string("Something is moving on the far side of town.") : card.line;
-        // A season's first morning names it; the first frost has its own line (phase 7).
-        if (mCurrentDay > 1 && weatherrules::seasonDay(mCurrentDay) == 0)
-        {
-            hud.dayCardLine = std::string(weatherrules::seasonName(weatherrules::seasonOf(mCurrentDay))) + ".";
-        }
-        else if (weatherrules::frostMorning(mCurrentDay) && !isHordeNight(mCurrentDay))
-        {
-            hud.dayCardLine = "Frost on the windows.";
-        }
+        hud.dayCardLine = card.line;
         const float shown = 6.0f - mFirstDays.cardTimer;
         hud.dayCardAlpha = std::clamp(std::min(shown / 0.8f, mFirstDays.cardTimer / 1.2f), 0.0f, 1.0f);
     }
@@ -370,6 +379,8 @@ void Game::renderRunEndOverlay()
     lines.push_back({dead ? "YOU DIED" : out ? "OUT" : mStayedForGood ? "STAYED" : "RETIRED", accent, 3.0f, 10.0f});
     if (!out) lines.push_back({mCurrentCharacterName, ink, 2.0f, 6.0f});
     lines.push_back({mDeathCause, dead ? glm::vec4(0.92f, 0.62f, 0.56f, 1.0f) : ink, 2.0f, 8.0f});
+    // Death teaches (phase 13): one plain line under the cause, at most.
+    if (dead && !mDeathHint.empty()) lines.push_back({mDeathHint, ink, 1.0f, 8.0f});
     // Out: the whole line's count, then who did what to open it.
     if (out)
     {
@@ -651,8 +662,16 @@ void Game::renderInventoryPanel()
         float y = layout.detailY + 84.0f;
         const float barX = left + 124.0f;
         const float barW = innerW - 124.0f - 84.0f;
+        // A short window (a large interface size, phase 13): what does not
+        // fit above the footer is left off rather than drawn over it.
+        const auto room = [&]() { return y + 18.0f <= layout.footerY - 8.0f; };
         const auto stat = [&](const std::string& label, float ratio, const std::string& value, const glm::vec4& color)
         {
+            if (!room())
+            {
+                y += 24.0f;
+                return;
+            }
             text(glm::vec2(left, y), label, kPanelDim, 2.0f);
             rect(glm::vec2(barX, y + 5.0f), glm::vec2(barW, 4.0f), kPanelTrack);
             rect(glm::vec2(barX, y + 5.0f), glm::vec2(std::round(barW * std::clamp(ratio, 0.0f, 1.0f)), 4.0f), color);
@@ -677,21 +696,21 @@ void Game::renderInventoryPanel()
             const float speed = combatrules::speedRating(stats);
             stat("Speed", speed, speed > 0.66f ? "quick" : speed > 0.33f ? "steady" : "slow", kPanelInk);
             stat("Condition", left01, percent, wearColor);
-            if (stats.magazine > 0)
+            if (stats.magazine > 0 && room())
             {
                 text(glm::vec2(left, y), "Loaded " + std::to_string(slot.loaded) + " of " + std::to_string(stats.magazine),
                      kPanelInk, 2.0f);
                 y += 24.0f;
             }
             const std::string special = combatrules::specialLine(stats);
-            if (!special.empty())
+            if (!special.empty() && room())
             {
                 text(glm::vec2(left, y), fit(special, innerW, 2.0f), kPanelInk, 2.0f);
                 y += 24.0f;
             }
 
             // Against whatever is in hand now.
-            if (cursor != mEquippedWeaponSlot && mWorld.hasComponent<Combat>(mPlayerEntity))
+            if (cursor != mEquippedWeaponSlot && mWorld.hasComponent<Combat>(mPlayerEntity) && y + 64.0f <= layout.footerY - 8.0f)
             {
                 const WeaponStats& held = mWorld.getComponent<Combat>(mPlayerEntity).weapon;
                 const ItemDef* heldItem = held.itemId >= 0 ? mItemDatabase.find(held.itemId) : nullptr;
@@ -731,7 +750,7 @@ void Game::renderInventoryPanel()
                 // One effect to a line.
                 std::istringstream parts(effects);
                 std::string part;
-                while (std::getline(parts, part, ','))
+                while (std::getline(parts, part, ',') && room())
                 {
                     const std::size_t start = part.find_first_not_of(' ');
                     text(glm::vec2(left, y), fit(part.substr(start == std::string::npos ? 0 : start), innerW, 2.0f),
@@ -741,7 +760,7 @@ void Game::renderInventoryPanel()
             }
         }
         // Where it is useful (phase 6).
-        if (!item->fits.empty())
+        if (!item->fits.empty() && room())
         {
             text(glm::vec2(left, y), fit("Fits: " + item->fits, innerW, 2.0f), kPanelDim, 2.0f);
             y += 22.0f;
@@ -749,7 +768,8 @@ void Game::renderInventoryPanel()
     }
 
     text(glm::vec2(left, layout.footerY),
-         fit("F use   Enter swap with belt   Backspace drop (Shift: stack)   Tab body   Esc close", innerW, 2.0f), kPanelDim, 2.0f);
+         fit(mInput.text("F use   Enter swap with belt   Backspace drop (Shift: stack)   Tab body   Esc close"), innerW, 2.0f),
+         kPanelDim, 2.0f);
 }
 
 Game::CraftingLayout Game::craftingLayout() const
@@ -1164,7 +1184,7 @@ void Game::renderCraftingOverlay()
 glm::vec2 Game::baseActionAnchor() const
 {
     const glm::vec2 here = playerWorldCenter();
-    return mCamera.worldToScreen(here) - glm::vec2(0.0f, 78.0f * mCamera.zoom());
+    return uiAt(here) - glm::vec2(0.0f, 78.0f * uiZoom());
 }
 
 void Game::renderBaseActionBar()
@@ -1215,7 +1235,7 @@ void Game::renderBuildWheel()
     if (mBuildChoice >= 0 && !mBuildWheelOpen)
     {
         const StationRecipe& recipe = BuildSystem::kRecipes[static_cast<std::size_t>(mBuildChoice)];
-        const glm::vec2 mouse(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+        const glm::vec2 mouse = uiMouse();
         put(mouse + glm::vec2(18.0f, 14.0f), recipe.name, mBuildGhostValid ? kPanelInk : kPanelAmber, 1.0f, false);
         put(mouse + glm::vec2(18.0f, 28.0f), "Click: build here   Right click: put away", kPanelDim, 1.0f, false);
     }
@@ -1227,7 +1247,7 @@ void Game::renderBuildWheel()
     // Plain words around the point where B was pressed: the one under the
     // cursor in ink if it can be built, amber if something is missing, with
     // what it costs beneath it.
-    const glm::vec2 mouse(static_cast<float>(mInput.mouseX()), static_cast<float>(mInput.mouseY()));
+    const glm::vec2 mouse = uiMouse();
     int hover = -1;
     float best = 80.0f;
     for (int i = 0; i < BuildSystem::kRecipeCount; ++i)
@@ -1298,286 +1318,6 @@ void Game::renderPauseOverlay()
         kPanelInk);
 }
 
-void Game::renderTitleScreen()
-{
-    if (mRunState != RunState::TitleScreen)
-    {
-        return;
-    }
+// The title is drawn in GameTitle.cpp (phase 13).
 
-    // The town itself is the backdrop (the title camera drifts over it);
-    // the menu sits on the darker left, the town's memory on the right.
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    const float w = static_cast<float>(mWindowWidth);
-    const float h = static_cast<float>(mWindowHeight);
-    const glm::vec4 ink = kPanelInk;
-    const glm::vec4 dimInk = kPanelDim;
-    const glm::vec4 gold = kPanelAmber;
-    const glm::vec4 red(0.90f, 0.30f, 0.24f, 1.0f);
-
-    constexpr int kStrips = 48;
-    for (int i = 0; i < kStrips; ++i)
-    {
-        const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(kStrips);
-        const float fadeT = std::clamp((t - 0.30f) / 0.70f, 0.0f, 1.0f);
-        const float alpha = 0.92f - 0.50f * fadeT * fadeT * (3.0f - 2.0f * fadeT);
-        // Strips meet exactly; overlapping edges would show as dark lines.
-        const float x0 = std::floor(w * static_cast<float>(i) / kStrips);
-        const float x1 = std::floor(w * static_cast<float>(i + 1) / kStrips);
-        mSpriteBatch.draw(glm::vec2(x0, 0.0f), glm::vec2(x1 - x0, h), uiUv, glm::vec4(0.02f, 0.025f, 0.03f, alpha));
-    }
-
-    const auto wrap = [](const std::string& text, std::size_t maxChars)
-    {
-        std::vector<std::string> lines;
-        std::string line;
-        std::size_t start = 0;
-        while (start < text.size())
-        {
-            std::size_t end = text.find(' ', start);
-            if (end == std::string::npos) end = text.size();
-            const std::string word = text.substr(start, end - start);
-            if (!line.empty() && line.size() + 1 + word.size() > maxChars)
-            {
-                lines.push_back(line);
-                line.clear();
-            }
-            line += (line.empty() ? "" : " ") + word;
-            start = end + 1;
-        }
-        if (!line.empty()) lines.push_back(line);
-        return lines;
-    };
-
-    const float left = std::max(32.0f, std::floor(w * 0.06f));
-    float y = std::max(28.0f, std::floor(h * 0.08f));
-
-    // Title.
-    const float titleScale = (w >= 1100.0f && h >= 680.0f) ? 6.0f : 4.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left, y), "DEAD PIXEL", ink, titleScale);
-    y += mFont.lineHeight(titleScale) + 2.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left + 2.0f, y), "SURVIVAL", red, titleScale * 0.5f);
-    y += mFont.lineHeight(titleScale * 0.5f) + 10.0f;
-    mFont.drawText(mSpriteBatch, glm::vec2(left + 2.0f, y), "The town remembers every life you lose in it.", dimInk, 1.0f);
-    y += 34.0f;
-
-    // Menu.
-    const float rowH = 28.0f;
-    const float valueX = left + 220.0f;
-    const float rowW = std::min(560.0f, w - left * 2.0f);
-    const auto valueOf = [&](int item) -> std::string
-    {
-        switch (item)
-        {
-        case 2: return mTitleFreshStart ? "Fresh Start" : "Living World"; // phase 10
-        case 3: return kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)];
-        case 4: return kTitleGameModeNames[static_cast<std::size_t>(mTitleGameModeIndex)];
-        case 5: return kTitleModeNames[static_cast<std::size_t>(mTitleModeIndex)];
-        case 6: return kTitleToneNames[static_cast<std::size_t>(mTitleToneIndex)];
-        default: return {};
-        }
-    };
-    for (int i = 0; i < static_cast<int>(kTitleMenuItems.size()); ++i)
-    {
-        const float rowY = y + static_cast<float>(i) * rowH;
-        const bool selected = i == mTitleMenuSelection;
-        const bool disabled = i == 0 && !mTitleHasCheckpoint;
-        if (selected)
-        {
-            // The chosen row is inverted.
-            mSpriteBatch.draw(glm::vec2(left - 14.0f, rowY - 6.0f), glm::vec2(rowW, rowH - 2.0f), uiUv, ink);
-        }
-        glm::vec4 color = selected ? kPanelOnInk : ink;
-        if (disabled) color = selected ? glm::vec4(0.40f, 0.40f, 0.40f, 1.0f) : glm::vec4(0.42f, 0.41f, 0.39f, 1.0f);
-        mFont.drawText(mSpriteBatch, glm::vec2(left, rowY), kTitleMenuItems[static_cast<std::size_t>(i)], color, 2.0f);
-
-        const std::string value = valueOf(i);
-        if (!value.empty())
-        {
-            mFont.drawText(mSpriteBatch, glm::vec2(valueX, rowY), selected ? "< " + value + " >" : value,
-                           selected ? kPanelOnInk : dimInk, 2.0f);
-        }
-    }
-    y += static_cast<float>(kTitleMenuItems.size()) * rowH + 12.0f;
-
-    // What the selected item does.
-    const auto& history = mSaveManager.characterHistory();
-    std::string about;
-    glm::vec4 aboutColor = dimInk;
-    switch (mTitleMenuSelection)
-    {
-    case 0:
-        about = mTitleHasCheckpoint
-            ? "Pick up where " + mTitleCheckpointName + " left off, day " + std::to_string(mTitleCheckpointDay) + "."
-            : "No run in progress in this slot.";
-        break;
-    case 1:
-        about = legacy::runHeadline(mSaveManager.runNumber(), static_cast<int>(history.size())) +
-                ". Someone new wakes up in town.";
-        break;
-    case 2:
-        about = mTitleConfirmNewWorld ? "Press Enter again. This town and everything it remembers will be gone."
-                                      : "A different town. This one, and everything it remembers, is erased.";
-        about += mTitleFreshStart ? " Fresh Start: nothing carries over from one life to the next."
-                                  : " Living World: graves, bases and an older town carry over.";
-        if (mTitleConfirmNewWorld) aboutColor = red;
-        break;
-    case 3: about = "Each slot is its own town with its own history."; break;
-    case 4: about = kTitleGameModeDescriptions[static_cast<std::size_t>(mTitleGameModeIndex)]; break;
-    case 5: about = kTitleModeDescriptions[static_cast<std::size_t>(mTitleModeIndex)]; break;
-    case 6: about = kTitleToneDescriptions[static_cast<std::size_t>(mTitleToneIndex)]; break;
-    case 7: about = "Every key on one page."; break;
-    case 8: about = "Who made this."; break;
-    case 9: about = "The town will still be here."; break;
-    default: break;
-    }
-    const std::size_t aboutChars = static_cast<std::size_t>(std::max(16.0f, (rowW - 16.0f) / 12.0f));
-    for (const std::string& line : wrap(about, aboutChars))
-    {
-        mFont.drawText(mSpriteBatch, glm::vec2(left, y), line, aboutColor, 2.0f);
-        y += mFont.lineHeight(2.0f) + 4.0f;
-    }
-
-    // The town remembers.
-    {
-        int risenWalking = 0;
-        int packsWaiting = 0;
-        for (const GraveRecord& grave : mSaveManager.graves())
-        {
-            if (grave.risen && !grave.laidToRest) ++risenWalking;
-            else if (!grave.items.empty()) ++packsWaiting;
-        }
-        const int graves = static_cast<int>(mSaveManager.graves().size());
-        const int survivors = static_cast<int>(mSaveManager.retirements().size());
-        const auto plural = [](int n, const char* one, const char* many)
-        {
-            return std::to_string(n) + " " + (n == 1 ? one : many);
-        };
-
-        std::vector<std::pair<std::string, glm::vec4>> lines;
-        if (history.empty())
-        {
-            lines.emplace_back("Nothing yet.", ink);
-            lines.emplace_back("Every life you lose", dimInk);
-            lines.emplace_back("here stays here.", dimInk);
-        }
-        else
-        {
-            lines.emplace_back(plural(static_cast<int>(history.size()), "life", "lives"), ink);
-            lines.emplace_back("Days lived in this town: " + std::to_string(mSaveManager.totalDaysSurvived()), ink);
-            if (graves > 0) lines.emplace_back(plural(graves, "grave", "graves"), legacyLeadColor(legacy::LeadKind::Grave));
-            // Phase 10: the cemetery, and a world that forgets.
-            const int stones = static_cast<int>(std::count_if(mSaveManager.graves().begin(), mSaveManager.graves().end(),
-                                                              [](const GraveRecord& g) { return g.buried; }));
-            if (stones > 0) lines.emplace_back(std::to_string(stones) + " in the cemetery", dimInk);
-            if (!mSaveManager.livingWorld()) lines.emplace_back("Fresh Start", dimInk);
-            if (risenWalking > 0) lines.emplace_back(plural(risenWalking, "walks again", "walk again"), legacyLeadColor(legacy::LeadKind::Risen));
-            if (packsWaiting > 0) lines.emplace_back(plural(packsWaiting, "pack waiting", "packs waiting"), legacyLeadColor(legacy::LeadKind::Pack));
-            if (survivors > 0) lines.emplace_back(plural(survivors, "survivor lives on", "survivors live on"), legacyLeadColor(legacy::LeadKind::Survivor));
-            // Phase 9: those who left by the gate.
-            const int gotOut = static_cast<int>(std::count_if(history.begin(), history.end(),
-                                                              [](const CharacterHistoryRecord& r) { return r.escaped; }));
-            if (gotOut > 0) lines.emplace_back("Got out: " + std::to_string(gotOut), kPanelGood);
-        }
-        std::string lastLine;
-        if (!history.empty())
-        {
-            const CharacterHistoryRecord& last = history.back();
-            lastLine = "Last: " + last.name + (last.escaped ? ", got out" : last.retired ? ", retired" : ", " + last.cause);
-        }
-
-        const float cardW = 360.0f;
-        const float lineH = mFont.lineHeight(2.0f) + 6.0f;
-        const float cardH = 40.0f + static_cast<float>(lines.size()) * lineH + (lastLine.empty() ? 0.0f : 22.0f);
-        const float cardX = w - left - cardW;
-        const float cardY = h - 56.0f - cardH;
-        if (cardX > left + rowW + 24.0f || cardY > y + 12.0f)
-        {
-            mSpriteBatch.draw(glm::vec2(cardX, cardY), glm::vec2(cardW, cardH), uiUv, kPanelBack);
-            mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, cardY + 14.0f), "THE TOWN REMEMBERS", dimInk, 1.0f);
-            float ly = cardY + 34.0f;
-            for (const auto& [text, color] : lines)
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly), truncateHudText(text, 28), color, 2.0f);
-                ly += lineH;
-            }
-            if (!lastLine.empty())
-            {
-                mFont.drawText(mSpriteBatch, glm::vec2(cardX + 18.0f, ly + 2.0f), truncateHudText(lastLine, 52), dimInk, 1.0f);
-            }
-        }
-    }
-
-    // Footer.
-    mFont.drawText(mSpriteBatch, glm::vec2(left, h - 30.0f), "W/S move    A/D change    Enter select", dimInk, 1.0f);
-    const std::string seed = std::string(kTitleSaveLabels[static_cast<std::size_t>(mTitleSaveSlotIndex)]) +
-                             " slot  -  town " + std::to_string(mSaveManager.worldSeed());
-    mFont.drawText(mSpriteBatch, glm::vec2(w - left - mFont.measureText(seed, 1.0f).x, h - 30.0f), seed,
-                   glm::vec4(dimInk.r, dimInk.g, dimInk.b, 0.7f), 1.0f);
-
-    if (!mTitleStatusMessage.empty() && mTitleStatusTimer > 0.0f)
-    {
-        const float alpha = std::clamp(mTitleStatusTimer / 0.4f, 0.0f, 1.0f);
-        const glm::vec2 size = mFont.measureText(mTitleStatusMessage, 2.0f);
-        const glm::vec2 pos(std::floor((w - size.x) * 0.5f), h - 92.0f);
-        mSpriteBatch.draw(pos - glm::vec2(14.0f, 8.0f), size + glm::vec2(28.0f, 16.0f), uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.9f * alpha));
-        mFont.drawText(mSpriteBatch, pos, mTitleStatusMessage, glm::vec4(gold.r, gold.g, gold.b, alpha), 2.0f);
-    }
-
-    if (mShowTitleCredits)
-    {
-        const glm::vec2 size(std::min(560.0f, w - 40.0f), 220.0f);
-        const glm::vec2 pos(std::floor((w - size.x) * 0.5f), std::floor((h - size.y) * 0.5f));
-        mSpriteBatch.draw(pos, size, uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.97f));
-        const float cx = pos.x + size.x * 0.5f;
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 24.0f), "CREDITS", ink, 3.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 74.0f), "Dead Pixel Survival", ink, 2.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 102.0f), "Design and code: L. Bartolome", dimInk, 2.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + 128.0f), "C++20, SDL2, OpenGL", dimInk, 2.0f, TextAlign::Center);
-        mFont.drawText(mSpriteBatch, glm::vec2(cx, pos.y + size.y - 30.0f), "Enter to close", dimInk, 1.0f, TextAlign::Center);
-    }
-}
-
-void Game::renderControlsPanel()
-{
-    if (!mShowControls)
-    {
-        return;
-    }
-
-    const glm::vec4 uiUv = mSpriteSheet.uvRect("solid_white");
-    const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
-    mSpriteBatch.draw(layout.panelPos, layout.panelSize, uiUv, glm::vec4(kPanelBack.r, kPanelBack.g, kPanelBack.b, 0.95f));
-    mSpriteBatch.draw(
-        glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.rowsY),
-        glm::vec2(1.0f, ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) - 4.0f),
-        uiUv,
-        kPanelRule);
-}
-
-void Game::renderControlsOverlay()
-{
-    if (!mShowControls)
-    {
-        return;
-    }
-
-    const ControlsLayout layout = computeControlsLayout(mWindowWidth, mWindowHeight);
-    const glm::vec4 headerColor = kPanelInk;
-    const glm::vec4 keyColor = kPanelAmber;
-    const glm::vec4 textColor = kPanelInk;
-
-    mFont.drawText(mSpriteBatch, glm::vec2(layout.panelPos.x + layout.panelSize.x * 0.5f, layout.panelPos.y + 18.0f),
-                   "CONTROLS", headerColor, 3.0f, TextAlign::Center);
-
-    for (std::size_t i = 0; i < kControlBindings.size(); ++i)
-    {
-        const std::size_t column = i / ControlsLayout::kRowsPerColumn;
-        const std::size_t row = i % ControlsLayout::kRowsPerColumn;
-        const float x = layout.panelPos.x + 24.0f + static_cast<float>(column) * (layout.columnWidth + 8.0f);
-        const float y = layout.rowsY + static_cast<float>(row) * ControlsLayout::kRowH;
-        mFont.drawText(mSpriteBatch, glm::vec2(x, y), kControlBindings[i].key, keyColor, 2.0f);
-        mFont.drawText(mSpriteBatch, glm::vec2(x + ControlsLayout::kKeyColumn, y), kControlBindings[i].action,
-                       textColor, 2.0f);
-    }
-}
+// The Controls panel (F2) is drawn in GameSettings.cpp (phase 13).

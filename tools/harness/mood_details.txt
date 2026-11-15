@@ -1,0 +1,79 @@
+# The small things of phase 12, each in a shot of its own (with screen
+# effects on, which they follow): long shadows from a low sun (morning and
+# evening, none at noon), flies over a body a day old, a curtain at a broken
+# window lifting in the wind, dust in a lamp's light and in the flashlight's
+# beam, and the town clock on its wall.
+# Run in a fresh directory:
+#   dead_pixel_survival.exe --script tools/harness/mood_details.txt --hidden --world-seed 1234 --shots shots/mood_details
+
+newrun
+god on
+trait plain
+waits 1
+zoom 3
+slay 80
+weather clear
+wind 0 0
+fx on
+waits 0.3
+
+# The low sun: shadows stretch west in the morning, east in the evening.
+goto open 5
+hours 6.8
+waits 0.5
+shot 01_shadows_morning
+hours 18.6
+waits 0.5
+shot 02_shadows_evening
+hours 12
+waits 0.5
+shot 03_noon_no_shadows
+
+# A body a day old: flies.
+zombie 2 0 shambler
+waits 0.5
+slay 5
+waits 0.5
+corpses age 2000
+waits 0.5
+shot 04_flies
+
+# A broken, curtained window in a strong wind.
+goto home
+window broken
+window curtained
+wind 1 0
+waits 1
+shot 05_curtain_wind
+wind 0 0
+
+# Dust in a lamp's light, indoors at night.
+hours 22
+goto furniture floorlamp
+power on
+tap E
+waits 1
+shot 06_motes_lamp
+tap E
+waits 0.5
+
+# And in the flashlight's beam outside.
+give Flashlight
+select Flashlight
+goto pavement
+mouse 900 360
+tap Q
+waits 1
+shot 07_motes_flashlight
+tap Q
+waits 0.3
+
+# The town clock: it keeps the time while the power holds.
+hours 10.25
+power on
+goto clock
+
+waits 0.5
+shot 08_town_clock
+expect playing
+quit

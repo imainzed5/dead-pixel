@@ -203,7 +203,7 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
 
                 // Right click: a take-down, on one turned away or on the floor.
                 const float grabCost = kGrabStaminaCost * actionStaminaMultiplier;
-                if (input.wasMouseButtonPressed(SDL_BUTTON_RIGHT) && stamina.current >= grabCost)
+                if (input.pressed(Action::TakeDown) && stamina.current >= grabCost)
                 {
                     Entity closest = kInvalidEntity;
                     float closestDist = kGrabRange;
@@ -232,7 +232,7 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
 
                 // Space: the shove.
                 const float shoveCost = combatrules::shoveStamina(armed(combat)) * actionStaminaMultiplier;
-                if (input.wasKeyPressed(SDL_SCANCODE_SPACE) && stamina.current >= shoveCost * 0.5f)
+                if (input.pressed(Action::Shove) && stamina.current >= shoveCost * 0.5f)
                 {
                     stamina.current = std::max(0.0f, stamina.current - shoveCost);
                     combat.recoveryDelayTimer = kRecoveryDelayAfterAttackSeconds;
@@ -248,7 +248,7 @@ void CombatSystem::update(World& world, const Input& input, const TileMap& tileM
                     return;
                 }
 
-                if (!input.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+                if (!input.pressed(Action::Attack))
                 {
                     return;
                 }
@@ -392,7 +392,7 @@ void CombatSystem::updateHeld(World& world, const Input& input, Entity player, C
 {
     combatrules::Struggle struggle{combat.struggle, combat.struggleSinceTap};
     combatrules::struggleDrain(struggle, dtSeconds);
-    if (input.wasKeyPressed(SDL_SCANCODE_SPACE))
+    if (input.pressed(Action::Shove))
     {
         combatrules::struggleTap(struggle, stamina);
     }
@@ -430,7 +430,7 @@ void CombatSystem::updateHeld(World& world, const Input& input, Entity player, C
     // holding on.
     const bool shortBlade = combat.weapon.itemId >= 0 && combat.weapon.category == WeaponCategory::Bladed &&
                             combat.weapon.rangePixels <= 34.0f;
-    if (!shortBlade || !input.isMouseButtonDown(SDL_BUTTON_LEFT))
+    if (!shortBlade || !input.down(Action::Attack))
     {
         combat.heldStabTimer = 0.0f;
         return;
@@ -555,7 +555,7 @@ void CombatSystem::updateTakeDown(World& world, const Input& input, NoiseModel& 
     }
     if (combat.grabState == GrabState::Holding)
     {
-        if (input.wasMouseButtonPressed(SDL_BUTTON_LEFT))
+        if (input.pressed(Action::Attack))
         {
             combat.grabState = GrabState::Executing;
             combat.grabTimer = kGrabExecuteSeconds;

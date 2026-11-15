@@ -12,8 +12,9 @@
 //   --world-seed N       seed for newly created save slots (deterministic worlds)
 //   --hidden             keep the window hidden (screenshots still work)
 //   --watch              render every tick to the window (watch the script run)
-//   --max-ticks N        hard stop after N simulation ticks
+//   --max-ticks N        hard stop after N simulation ticks (with or without a script)
 //   --mute               open no audio device (the mixer still decides what would play)
+//   --demo               the demo: a life ends at dawn on day 7 (also: demo.txt beside the exe)
 struct LaunchOptions
 {
     std::string scriptPath;
@@ -23,6 +24,7 @@ struct LaunchOptions
     bool hidden = false;
     bool watch = false;
     bool mute = false;
+    bool demo = false;
     int maxTicks = 0;
 
     [[nodiscard]] bool harnessEnabled() const { return !scriptPath.empty(); }

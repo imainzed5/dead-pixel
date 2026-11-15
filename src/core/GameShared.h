@@ -151,17 +151,20 @@ constexpr std::array<const char*, 16> kBriefingLines = {
     "Leave one exit clear before you open a door."
 };
 
-constexpr std::array<const char*, 10> kTitleMenuItems = {
-    "Continue Run",
-    "Start New Run",
-    "Start New World",
-    "Save Slot",
-    "Game Mode",
-    "Threat",
-    "Tone",
+// The title (phase 13); the slot is chosen with Left/Right.
+constexpr std::array<const char*, 8> kTitleMenuItems = {
+    "Continue",
+    "New Life",
+    "New World",
+    "The Town",
+    "Settings",
     "Controls",
     "Credits",
     "Quit"
+};
+// New World asks, on one screen (phase 13).
+constexpr std::array<const char*, 7> kNewWorldRows = {
+    "Mode", "Threat", "Tone", "World", "Day length", "Seed", "Make this town"
 };
 
 inline int wrapIndex(int value, int count)
@@ -465,68 +468,6 @@ inline std::string itemEffectSummary(const ItemDef& item)
     return summary;
 }
 
-struct ControlBinding
-{
-    const char* key;
-    const char* action;
-};
-
-constexpr std::array<ControlBinding, 28> kControlBindings = {{
-    {"WASD", "Move; steer a vehicle"},
-    {"Shift", "Run"},
-    {"C", "Crouch; still 3 s: breathe"},
-    {"C", "Still by a door: listen"},
-    {"Mouse", "Aim"},
-    {"LClick", "Attack / fire"},
-    {"RClick", "Take down (from behind)"},
-    {"Space", "Shove / struggle"},
-    {"G", "Throw (hold, aim)"},
-    {"E", "Use, refuel; hold: push"},
-    {"R", "Board, tap, fill / reload"},
-    {"X", "Pry, break up, force"},
-    {"F", "Use, set down, marker"},
-    {"Q", "Flashlight; headlights"},
-    {"1-8", "Hotbar slot"},
-    {"Tab", "Pack / Body / Make"},
-    {"Arrows", "Inventory cursor"},
-    {"Enter", "Swap to hotbar"},
-    {"Bksp", "Drop (Shift: stack)"},
-    {"N", "Crafting"},
-    {"B", "Build wheel"},
-    {"V", "Get in / out of a vehicle"},
-    {"M", "World map"},
-    {"J", "Notebook; Left/Right: tab"},
-    {"+/-", "Minimap zoom"},
-    {"Esc", "Pause"},
-    {"F2", "Controls"},
-    {"F3", "Infection debug"},
-}};
-
-struct ControlsLayout
-{
-    glm::vec2 panelPos{0.0f};
-    glm::vec2 panelSize{0.0f};
-    float rowsY = 0.0f;
-    float columnWidth = 0.0f;
-    static constexpr float kRowH = 22.0f;
-    static constexpr float kKeyColumn = 108.0f;
-    static constexpr std::size_t kRowsPerColumn = 14;
-};
-
-inline ControlsLayout computeControlsLayout(int windowWidth, int windowHeight)
-{
-    ControlsLayout layout;
-    // Wide enough for the longest action at scale 2 (27 characters).
-    layout.columnWidth = std::min(440.0f, std::floor((static_cast<float>(windowWidth) - 64.0f) * 0.5f));
-    layout.panelSize = glm::vec2(layout.columnWidth * 2.0f + 48.0f,
-                                 64.0f + ControlsLayout::kRowH * static_cast<float>(ControlsLayout::kRowsPerColumn) + 20.0f);
-    layout.panelPos = glm::vec2(
-        std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
-        std::round((static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f));
-    layout.rowsY = layout.panelPos.y + 64.0f;
-    return layout;
-}
-
 // Pause menu geometry shared by the panel pass and the text pass.
 struct PauseLayout
 {
@@ -541,11 +482,11 @@ struct PauseLayout
     static constexpr float kOptionH = 30.0f;
 };
 
-// Five options, or six with "Stay here for good" (phase 10).
-inline PauseLayout computePauseLayout(int windowWidth, int windowHeight, int options = 5)
+// Six options, or seven with "Stay here for good" (phase 10, 13).
+inline PauseLayout computePauseLayout(int windowWidth, int windowHeight, int options = 6)
 {
     PauseLayout layout;
-    layout.panelSize = glm::vec2(440.0f, 162.0f + static_cast<float>(options) * PauseLayout::kOptionH + (options > 5 ? 20.0f : 0.0f));
+    layout.panelSize = glm::vec2(440.0f, 162.0f + static_cast<float>(options) * PauseLayout::kOptionH + (options > 6 ? 20.0f : 0.0f));
     layout.panelPos = glm::vec2(
         std::round((static_cast<float>(windowWidth) - layout.panelSize.x) * 0.5f),
         std::round((static_cast<float>(windowHeight) - layout.panelSize.y) * 0.5f));

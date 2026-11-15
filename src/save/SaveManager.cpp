@@ -1,5 +1,8 @@
 #include "save/SaveManager.h"
 
+#include "core/Version.h"
+#include "world/DayLength.h"
+
 #include "systems/CraftingSystem.h"
 
 #include <nlohmann/json.hpp>
@@ -419,7 +422,7 @@ bool SaveManager::loadOrCreateSlot(const std::string& slotName)
 {
     mSlotName = slotName;
     mMigratedFrom = 0;
-    mSaveDir = "save";
+    mSaveDir = saveRoot();
     mMetaPath = mSaveDir + "/" + mSlotName + ".json";
     mMetaBackupPath = mMetaPath + ".backup";
     mLegacyPath = mSaveDir + "/" + mSlotName + "_legacy.json";
@@ -505,7 +508,7 @@ void SaveManager::backupSlotFiles(int version) const
     }
 }
 
-bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
+bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings, std::optional<std::uint32_t> seed)
 {
     if (mSlotName.empty())
     {
@@ -515,7 +518,7 @@ bool SaveManager::resetCurrentSlotWorld(bool keepPresentationSettings)
     const RunPresentationSettings preserved = mPresentationSettings;
 
     mSaveVersion = kCurrentSaveVersion;
-    mWorldSeed = randomSeed();
+    mWorldSeed = seed ? std::max(1u, *seed) : randomSeed();
     mRunNumber = 1;
     mTotalKills = 0;
     mLongestRunDays = 0;
@@ -709,6 +712,7 @@ bool SaveManager::loadMeta()
             mPresentationSettings.threatMode = parseSaveThreatMode(presentationJson.value("threatMode", nlohmann::json("overwhelming_swarm")));
             mPresentationSettings.tonePreset = parseSaveTonePreset(presentationJson.value("tonePreset", nlohmann::json("grim_human")));
             mPresentationSettings.livingWorld = presentationJson.value("world", std::string("living")) != "fresh";
+            mPresentationSettings.dayMinutes = daylength::clampMinutes(presentationJson.value("dayMinutes", 24));
 
             // Version 4 and older: the campaign's objective district. The
             // gate is stamped there (phase 9), then this is cleared.
@@ -920,7 +924,9 @@ bool SaveManager::writeMeta() const
     if (mLegacyObjectiveDistrict > 0) presentationJson["gateDistrict"] = mLegacyObjectiveDistrict;
     // Phase 10: Living World (the default) or Fresh Start.
     presentationJson["world"] = mPresentationSettings.livingWorld ? "living" : "fresh";
+    presentationJson["dayMinutes"] = mPresentationSettings.dayMinutes;
     json["presentation"] = presentationJson;
+    json["gameVersion"] = kGameVersion; // the build that last wrote it (phase 13)
 
     return writeJsonAtomic(mMetaPath, mMetaBackupPath, json.dump(2));
 }
@@ -1309,6 +1315,35 @@ bool SaveManager::saveWorldLayout(const LayoutData& layout)
     return writeJsonAtomic(mLayoutPath, mLayoutBackupPath, json.dump());
 }
 
+namespace
+{
+std::string& saveRootStorage()
+{
+    static std::string root = "save";
+    return root;
+}
+} // namespace
+
+void SaveManager::setSaveRoot(const std::string& root)
+{
+    saveRootStorage() = root.empty() ? std::string("save") : root;
+}
+
+const std::string& SaveManager::saveRoot()
+{
+    return saveRootStorage();
+}
+
+std::string SaveManager::backupPathFor(const std::string& path)
+{
+    const std::string json = ".json";
+    if (path.size() > json.size() && path.compare(path.size() - json.size(), json.size(), json) == 0)
+    {
+        return path.substr(0, path.size() - json.size()) + ".backup.json";
+    }
+    return path + ".backup";
+}
+
 bool SaveManager::writeJsonAtomic(const std::string& targetPath, const std::string& backupPath, const std::string& jsonText) const
 {
     const std::string tempPath = targetPath + ".tmp";
@@ -1328,12 +1363,20 @@ bool SaveManager::writeJsonAtomic(const std::string& targetPath, const std::stri
         }
     }
 
+    // The last good file becomes the backup by a rename, not a copy: world
+    // memory is written on every search (a survivor's too), and copying it
+    // each time cost a frame (phase 13).
     std::error_code ec;
     if (std::filesystem::exists(targetPath, ec))
     {
-        std::filesystem::copy_file(targetPath, backupPath, std::filesystem::copy_options::overwrite_existing, ec);
+        std::filesystem::remove(backupPath, ec);
         ec.clear();
-        std::filesystem::remove(targetPath, ec);
+        std::filesystem::rename(targetPath, backupPath, ec);
+        if (ec)
+        {
+            ec.clear();
+            std::filesystem::remove(targetPath, ec);
+        }
         ec.clear();
     }
 
@@ -1696,6 +1739,12 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         json["journal"] = {{"entries", journalJson(cp.journal)}, {"flags", cp.journalFlags},
                            {"days", cp.journalDays}, {"season", cp.journalSeason}};
     }
+    if (!cp.aim.empty())
+    {
+        json["aims"] = {{"aim", cp.aim}, {"day", cp.aimDay}, {"done", cp.aimsRewarded}, {"boiled", cp.boiledSinceAim}};
+    }
+    json["shoves"] = cp.shoves;
+    json["gameVersion"] = kGameVersion;
     if (cp.gateSaved)
     {
         nlohmann::json gj = seenJson(cp.seen);
@@ -1714,23 +1763,8 @@ bool SaveManager::saveCheckpoint(const RunCheckpoint& cp)
         if (cp.weather.snowCover > 0.0f) json["weather"]["snow"] = cp.weather.snowCover;
     }
 
-    const std::string tempPath = mCheckpointPath + ".tmp";
-    {
-        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
-        if (!output) return false;
-        output << json.dump();
-        output.flush();
-        if (!output.good()) return false;
-    }
-
-    std::error_code ec;
-    if (std::filesystem::exists(mCheckpointPath, ec))
-    {
-        std::filesystem::remove(mCheckpointPath, ec);
-        ec.clear();
-    }
-    std::filesystem::rename(tempPath, mCheckpointPath, ec);
-    return !ec;
+    // Written to a side file first, the last one kept as a backup (phase 13).
+    return writeJsonAtomic(mCheckpointPath, backupPathFor(mCheckpointPath), json.dump());
 }
 
 RunCheckpoint SaveManager::loadCheckpoint() const
@@ -1916,6 +1950,15 @@ RunCheckpoint SaveManager::loadCheckpoint() const
         cp.journalDays = jj.value("days", 0);
         cp.journalSeason = jj.value("season", -1);
     }
+    if (json.contains("aims") && json["aims"].is_object())
+    {
+        const auto& aj = json["aims"];
+        cp.aim = aj.value("aim", std::string());
+        cp.aimDay = aj.value("day", 0);
+        cp.aimsRewarded = aj.value("done", 0);
+        cp.boiledSinceAim = aj.value("boiled", 0);
+    }
+    cp.shoves = json.value("shoves", 0);
     if (json.contains("gate") && json["gate"].is_object())
     {
         const auto& gj = json["gate"];
@@ -2335,22 +2378,7 @@ bool SaveManager::saveWorldMemory()
             });
     }
 
-    const std::string tempPath = mWorldMemoryPath + ".tmp";
-    {
-        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
-        if (!output) return false;
-        output << json.dump();
-        output.flush();
-        if (!output.good()) return false;
-    }
-    std::error_code ec;
-    if (std::filesystem::exists(mWorldMemoryPath, ec))
-    {
-        std::filesystem::remove(mWorldMemoryPath, ec);
-        ec.clear();
-    }
-    std::filesystem::rename(tempPath, mWorldMemoryPath, ec);
-    return !ec;
+    return writeJsonAtomic(mWorldMemoryPath, backupPathFor(mWorldMemoryPath), json.dump());
 }
 
 bool SaveManager::saveDiscoveredRecipes()
@@ -2670,17 +2698,10 @@ bool SaveManager::saveSurvivors(const std::vector<SurvivorRecord>& survivors)
     root["saveVersion"] = kCurrentSaveVersion;
     root["survivors"] = arr;
 
-    const std::string text = root.dump(2);
-    const std::string tempPath = mSurvivorPath + ".tmp";
     std::filesystem::path parentDir = std::filesystem::path(mSurvivorPath).parent_path();
     std::error_code ec;
     std::filesystem::create_directories(parentDir, ec);
-    std::ofstream ofs(tempPath);
-    if (!ofs) return false;
-    ofs << text;
-    ofs.close();
-    std::filesystem::rename(tempPath, mSurvivorPath, ec);
-    return !ec;
+    return writeJsonAtomic(mSurvivorPath, backupPathFor(mSurvivorPath), root.dump(2));
 }
 
 std::vector<SurvivorRecord> SaveManager::loadSurvivors() const

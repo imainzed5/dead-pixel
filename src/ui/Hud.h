@@ -76,6 +76,7 @@ struct HudStep
 {
     std::string text;
     bool done = false;
+    bool good = false; // "Done." (phase 13): no box, in the good colour
 };
 
 struct HudSlot
@@ -130,6 +131,8 @@ struct HudState
     std::string message;  // transient feedback ("Flashlight on.")
     float messageAlpha = 0.0f;
     std::string prompt;   // context action ("E: Search shelf")
+    std::string teach;    // a teaching prompt (phase 13), over the prompt line
+    std::string heldLine = "HELD - SPACE"; // with the shove key as bound
 
     // Phase 11: inside a vehicle, two thin lines over the health line (fuel,
     // then the body's condition) and a word for the speed. The belt is put away.
@@ -170,6 +173,9 @@ public:
     [[nodiscard]] static glm::vec4 severityColor(HudSeverity severity);
     // Name shown above the hotbar: "Knife - in hand", "Bat - worn", "Pipe - broken".
     [[nodiscard]] static std::string slotLabel(const HudSlot& slot);
+    // The objective panel's left edge and bottom (top right of the screen),
+    // for cards that must keep clear of it (phase 13). Empty: {viewport.x, 0}.
+    [[nodiscard]] static glm::vec2 objectiveCorner(const HudState& state, const glm::vec2& viewport, const BitmapFont& font);
 
     // Layout constants (pixels at 1x).
     static constexpr float kEdge = 24.0f;          // gap to the window edge

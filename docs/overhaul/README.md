@@ -55,7 +55,7 @@ comes before fighting; no engine switch.
 | 10 | `phases/P10_legacy.md` | Journals, what a bloodline learns, a town that ages between lives | done |
 | 11 | `phases/P11_vehicles.md` | Three vehicles with trunks, hot-wiring and wear | done |
 | 12 | `phases/P12_sound_and_mood.md` | A sound for everything that makes noise, ambience, sparse music, mood on screen | done |
-| 13 | `phases/P13_run_flow.md` | Life after day 3, settings, key bindings, first-run teaching, demo build | not started |
+| 13 | `phases/P13_run_flow.md` | Life after day 3, settings, key bindings, first-run teaching, demo build | done |
 | 14 | `phases/P14_balance.md` | Numbers tuned by bot runs against written targets | not started |
 
 Order matters: later phases use what earlier ones build (P01's data files and

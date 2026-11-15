@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/Bindings.h"
 #include "ecs/Types.h"
 
 class Game;
@@ -19,7 +20,8 @@ class ItemDatabase;
 
 // A scripted player for soak runs (harness `bot PROFILE [DAYS]`). It reads the
 // world the way the player could and presses the keys the player would,
-// through Input: WASD along a Pathfinder route, E at containers, doors and
+// through Input's actions (the default bindings, whatever the settings file
+// says, so a player's keys never change a soak run): WASD along a Pathfinder route, E at containers, doors and
 // beds, R at a tap or a door to board, F in the pack to eat, drink and
 // bandage, the mouse to aim and swing. It is not clever; it is consistent.
 class Autoplayer
@@ -61,8 +63,8 @@ private:
     };
 
     // Input for this tick.
-    void hold(SDL_Scancode key) { mWant.push_back(key); }
-    bool tap(SDL_Scancode key);
+    void hold(Action key) { mWant.push_back(key); }
+    bool tap(Action key);
     bool click();
     void mouseAt(Game& game, const glm::vec2& screen);
     void applyInput(Game& game);
@@ -95,6 +97,11 @@ private:
     // After the taps: fill empty bottles at a toilet cistern or a pond (phase 6).
     bool fetchWater(Game& game);
     bool searchContainers(Game& game);
+    // From day 4 (phase 13): the standing aim. A rain collector built by the
+    // wheel when the pack holds what it takes; home early on a horde day.
+    bool followAim(Game& game);
+    int mAimBuildStep = 0;      // 0 idle, 1 wheel open, 2 station chosen, 3 placed
+    double mAimBuildRetryAt = 0.0;
     void wander(Game& game);
 
     // Asks for the pack item in `slot` to be used (Tab, hover, F, Tab).
@@ -116,8 +123,8 @@ private:
     const char* mActivity = "idle";
 
     // Input bookkeeping.
-    std::vector<SDL_Scancode> mWant;
-    std::vector<SDL_Scancode> mHeld;
+    std::vector<Action> mWant;
+    std::vector<Action> mHeld;
     bool mMouseDown = false;
     bool mClickNow = false;
     int mTapCooldown = 0;

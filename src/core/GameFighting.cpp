@@ -98,14 +98,15 @@ void Game::updateFighting(float dtSeconds, bool playerAlive, bool drivingVehicle
         {
             mThrowAiming = false;
         }
-        else if (mInput.wasKeyPressed(SDL_SCANCODE_G))
+        else if (mInput.pressed(Action::Throw))
         {
             mThrowAiming = true;
         }
-        if (mThrowAiming && !mInput.isKeyDown(SDL_SCANCODE_G))
+        if (mThrowAiming && !mInput.down(Action::Throw))
         {
             mThrowAiming = false;
-            throwSelected(mMouseWorld);
+            if (throwSelected(mMouseWorld)) taught("throw");
+            mInput.clearToggle(Action::Throw); // press once: thrown
         }
         handleReloadKey();
     }
@@ -393,7 +394,7 @@ void Game::handleReloadKey()
     {
         mProximityPrompt = combat.jammed ? "R: Clear the jam" : "R: Reload";
     }
-    if (!rTaken && mInput.wasKeyPressed(SDL_SCANCODE_R) && combat.reloadTimer <= 0.0f)
+    if (!rTaken && mInput.pressed(Action::Board) && combat.reloadTimer <= 0.0f)
     {
         if (CombatSystem::startReload(combat, inv))
         {
@@ -436,7 +437,7 @@ void Game::afterCombat()
         startTinnitus();
     }
     else if (combat.weapon.category == WeaponCategory::Ranged && combat.weapon.ammo <= 0 && !combat.jammed &&
-             combat.reloadTimer <= 0.0f && mInput.wasMouseButtonPressed(SDL_BUTTON_LEFT) && !playerHeld())
+             combat.reloadTimer <= 0.0f && mInput.pressed(Action::Attack) && !playerHeld())
     {
         mAudioManager.play(SoundId::DryClick);
         mInteractionMessage = "Empty. R to reload.";
@@ -465,6 +466,8 @@ void Game::afterCombat()
         mShoveArcTimer = kShoveArcSeconds;
         mShoveArcAngle = angle;
         mParticleSystem.spawnDust(centre + aim * 20.0f, 3);
+        ++mShovesThisLife; // for the run-end's hint (phase 13)
+        taught("shove");
     }
     if (combat.brokeFree)
     {
@@ -480,10 +483,10 @@ void Game::renderFightingOverlay()
 {
     if (mPlayerEntity == kInvalidEntity) return;
     const glm::vec4 white = mSpriteSheet.uvRect("solid_white");
-    const float zoom = mCamera.zoom();
+    const float zoom = uiZoom();
     const auto dot = [&](const glm::vec2& world, float lift, float size, const glm::vec4& color)
     {
-        const glm::vec2 screen = mCamera.worldToScreen(world) - glm::vec2(0.0f, lift * zoom);
+        const glm::vec2 screen = uiAt(world) - glm::vec2(0.0f, lift * zoom);
         const float s = std::round(size * zoom);
         mSpriteBatch.draw(glm::round(screen - glm::vec2(s * 0.5f)), glm::vec2(s), white, color);
     };

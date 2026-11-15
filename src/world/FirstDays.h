@@ -67,6 +67,9 @@ struct Facts
     int planks = 0;
     int food = 0;
     bool rainCollector = false;
+    // Phase 13: the first life of a world opens day 1 with a look around.
+    bool lookAround = false;
+    bool lookedAround = false;
 };
 
 struct Step

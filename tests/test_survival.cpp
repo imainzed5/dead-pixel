@@ -33,6 +33,7 @@
 #include "systems/ThreatDirectorSystem.h"
 #include "systems/WoundSystem.h"
 #include "systems/ZombieAISystem.h"
+#include "world/DayLength.h"
 
 namespace
 {
@@ -588,4 +589,26 @@ DP_TEST(tough_keeps_its_extra_health_through_a_wound)
     DP_CHECK_NEAR(health.maximum, 120.0f, 0.01);
     // Never below 20, however many wounds.
     DP_CHECK_NEAR(woundedMaximum(100.0f, 50), 20.0f, 0.01);
+}
+
+// Day length (phase 13): a 48-minute day feeds the needs half the game
+// seconds per real second, so a game day costs the same hunger and thirst.
+DP_TEST(needs_lost_per_game_hour_do_not_change_with_day_length)
+{
+    const auto hoursOfNeeds = [](int dayMinutes)
+    {
+        SurvivalWorld w;
+        NeedsEnvironment mild;
+        NeedsSystem needs;
+        const float gameDt = 1.0f * daylength::scale(dayMinutes);
+        const int realSeconds = static_cast<int>(daylength::gameHourSeconds(dayMinutes) * 6.0); // six game hours
+        for (int s = 0; s < realSeconds; ++s) needs.update(w.world, gameDt, mild);
+        return std::make_pair(w.needs().hunger, w.needs().thirst);
+    };
+    const auto normal = hoursOfNeeds(24);
+    const auto slow = hoursOfNeeds(48);
+    DP_CHECK_NEAR(normal.first, slow.first, 0.01f);
+    DP_CHECK_NEAR(normal.second, slow.second, 0.01f);
+    SurvivalWorld fresh;
+    DP_CHECK(normal.second < fresh.needs().thirst - 1.0f); // something was lost
 }

@@ -23,22 +23,22 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             // S = screen down (iso SE) = world (+1, +1)
             // A = screen left (iso SW) = world (-1, +1)
             // D = screen right (iso NE) = world (+1, -1)
-            if (input.isKeyDown(SDL_SCANCODE_W))
+            if (input.down(Action::MoveUp))
             {
                 moveInput.x -= 1.0f;
                 moveInput.y -= 1.0f;
             }
-            if (input.isKeyDown(SDL_SCANCODE_S))
+            if (input.down(Action::MoveDown))
             {
                 moveInput.x += 1.0f;
                 moveInput.y += 1.0f;
             }
-            if (input.isKeyDown(SDL_SCANCODE_A))
+            if (input.down(Action::MoveLeft))
             {
                 moveInput.x -= 1.0f;
                 moveInput.y += 1.0f;
             }
-            if (input.isKeyDown(SDL_SCANCODE_D))
+            if (input.down(Action::MoveRight))
             {
                 moveInput.x += 1.0f;
                 moveInput.y -= 1.0f;
@@ -50,13 +50,11 @@ void InputSystem::update(World& world, const Input& input, const glm::vec2& mous
             }
 
             facing.crouching =
-                input.isKeyDown(SDL_SCANCODE_C) ||
-                input.isKeyDown(SDL_SCANCODE_LCTRL) ||
-                input.isKeyDown(SDL_SCANCODE_RCTRL);
+                input.down(Action::Crouch) ||
+                input.down(Action::Crouch);
 
             const bool runRequested =
-                input.isKeyDown(SDL_SCANCODE_LSHIFT) ||
-                input.isKeyDown(SDL_SCANCODE_RSHIFT);
+                input.down(Action::Run);
 
             facing.running =
                 runRequested &&

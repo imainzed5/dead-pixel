@@ -20,6 +20,9 @@ constexpr float kCallerMinTiles = 16.0f;
 constexpr float kCallerMaxTiles = 45.0f;
 constexpr float kCallerSpawnMinTiles = 20.0f;
 constexpr float kCallerSpawnMaxTiles = 28.0f;
+// Night 1's first caller is the fighting lesson (phase 13): a lone Shambler
+// at this health, the same in every mode.
+constexpr float kFirstCallerHealth = 30.0f;
 
 bool hasTile(const std::vector<std::pair<int, int>>& tiles, int x, int y)
 {
@@ -242,6 +245,9 @@ firstdays::Facts Game::firstDaysFacts()
         {
             if (structure.type == StructureType::RainCollector) facts.rainCollector = true;
         });
+    // The first life of a world opens with a look around (phase 13).
+    facts.lookAround = lookAroundStep();
+    facts.lookedAround = mLookAroundTiles >= 10.0f && mLookAroundUsed;
     return facts;
 }
 
@@ -268,7 +274,7 @@ bool Game::handleTapInteraction(const ProximityPrompt& entityPrompt)
         return false; // nothing more to learn here
     }
     mProximityPrompt = entityPrompt.text + (running ? "   R: Use the tap" : "   R: Try the tap");
-    if (!mInput.wasKeyPressed(SDL_SCANCODE_R) || mPlayerEntity == kInvalidEntity)
+    if (!mInput.pressed(Action::Board) || mPlayerEntity == kInvalidEntity)
     {
         return false;
     }
@@ -355,6 +361,27 @@ void Game::sendNightCallers(int count)
               [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
 
     int sent = 0;
+    const int night = firstdays::nightIndex(mCurrentDay, mGameHours);
+    // Night 1's first caller: the nearest Shambler, weakened; or one out of the dark.
+    const bool lesson = night == 1 && mFirstDays.record.groupsSent == 0;
+    bool lessonSent = false;
+    if (lesson)
+    {
+        for (auto it = candidates.begin(); it != candidates.end(); ++it)
+        {
+            const ZombieAI& ai = mWorld.getComponent<ZombieAI>(it->entity);
+            if (ai.kind != ZombieKind::Shambler || !mWorld.hasComponent<Health>(it->entity)) continue;
+            Health& h = mWorld.getComponent<Health>(it->entity);
+            h.current = std::min(h.current, kFirstCallerHealth);
+            ZombieAI& sendAi = mWorld.getComponent<ZombieAI>(it->entity);
+            ZombieAISystem::sendTo(sendAi, target, true);
+            sendAi.nightCaller = true;
+            ++sent;
+            lessonSent = true;
+            candidates.erase(it);
+            break;
+        }
+    }
     for (const Candidate& candidate : candidates)
     {
         if (sent >= count) break;
@@ -371,7 +398,6 @@ void Game::sendNightCallers(int count)
     const float health = 50.0f * toneTuning(saveTonePresetFromIndex(mTitleToneIndex)).zombieHealthScale;
     // Later nights send worse (phase 4): from night 4 one in four that comes
     // out of the dark is a Runner; from night 6 one is a Brute.
-    const int night = firstdays::nightIndex(mCurrentDay, mGameHours);
     bool bruteSent = false;
     mWorld.forEach<ZombieAI>([&](Entity, ZombieAI& ai) { if (ai.nightCaller && ai.kind == ZombieKind::Brute) bruteSent = true; });
     for (int attempt = 0; sent < count && attempt < 200; ++attempt)
@@ -399,6 +425,11 @@ void Game::sendNightCallers(int count)
                                 (static_cast<float>(spawnTile.y) + 0.5f) * tile - kSpriteSize * 0.5f);
         EntityFactory::ZombieParams params = zombieParams(kind, topLeft, rng);
         if (kind == ZombieKind::Shambler) params.health = health;
+        if (lesson && !lessonSent)
+        {
+            params.health = kFirstCallerHealth;
+            lessonSent = true;
+        }
         const Entity zombie = EntityFactory::spawnZombie(mWorld, mSpriteSheet, params);
         ZombieAI& ai = mWorld.getComponent<ZombieAI>(zombie);
         ZombieAISystem::sendTo(ai, target, true);

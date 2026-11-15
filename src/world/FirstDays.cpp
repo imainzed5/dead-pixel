@@ -109,6 +109,7 @@ Plan planFor(int day, double hours, const Facts& facts)
     {
     case 1:
         plan.title = "Day 1: secure the house";
+        if (facts.lookAround) plan.steps.push_back({"Look around (WASD, E to use)", facts.lookedAround});
         plan.steps.push_back({facts.searchable > 0 ? "Search the house" + count(facts.searched, facts.searchable)
                                                    : "Search the house",
                               facts.searched >= facts.searchable});
